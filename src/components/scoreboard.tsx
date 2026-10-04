@@ -111,8 +111,8 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                   className={`tabular leading-none font-bold ${
                     top ? "text-[clamp(1.9rem,3.4vw,4.25rem)] text-mint" : "text-[clamp(1.5rem,2.4vw,2.75rem)] text-powder"
                   }`}
-                  aria-label={row.rank ? `Rank ${row.rank}` : "Not ranked yet"}
                 >
+                  <span className="sr-only">{row.rank ? "Rank " : "Not ranked yet"}</span>
                   {row.rank ?? ""}
                 </span>
               )}
@@ -155,7 +155,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                     key={j.id}
                     data-score={v === undefined ? undefined : `${row.entry.id}:${j.id}`}
                     className={`tabular hidden rounded-md py-1 text-center lg:block ${
-                      v === undefined ? "text-[clamp(1rem,1.4vw,1.75rem)] text-powder/60" : "text-[clamp(1.05rem,1.8vw,2.25rem)] text-mint"
+                      v === undefined ? "text-[clamp(1rem,1.4vw,1.75rem)] text-powder" : "text-[clamp(1.05rem,1.8vw,2.25rem)] text-mint"
                     }`}
                   >
                     <span className="sr-only">{j.name}: </span>
@@ -166,7 +166,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
 
               <div className="text-right">
                 {row.averageHundredths === null ? (
-                  <p className="text-[clamp(1.25rem,2vw,2.25rem)] leading-none text-powder/60">
+                  <p className="text-[clamp(1.25rem,2vw,2.25rem)] leading-none text-powder">
                     <span aria-hidden>—</span>
                     <span className="sr-only">No scores yet</span>
                   </p>

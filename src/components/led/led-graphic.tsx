@@ -82,7 +82,8 @@ export function LedGraphic({ board, ranked }: { board: Board; ranked: boolean })
                 </span>
               </div>
               {v === undefined ? (
-                <span className="flex h-[1em] items-center gap-[0.18em] text-powder" style={{ fontSize: size.score }} aria-label="Waiting for score">
+                <span className="flex h-[1em] items-center gap-[0.18em] text-powder" style={{ fontSize: size.score }}>
+                  <span className="sr-only">Waiting for score</span>
                   <span className="led-dot size-[0.16em] rounded-full bg-current" />
                   <span className="led-dot size-[0.16em] rounded-full bg-current [animation-delay:.2s]" />
                   <span className="led-dot size-[0.16em] rounded-full bg-current [animation-delay:.4s]" />
