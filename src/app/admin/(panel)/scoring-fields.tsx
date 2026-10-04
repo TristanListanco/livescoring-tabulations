@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode } from "@/lib/types";
+import type { CriteriaDisplay, Decimals, ResultDecimals, ScoringMode } from "@/lib/types";
 
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 0, label: "Whole numbers", example: "9" },
@@ -10,23 +10,13 @@ const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
 ];
 
 const choice =
-  "flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed";
+  "flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint";
 
-export type ScoringValues = {
-  mode: ScoringMode;
-  min: number;
-  max: number;
-  decimals: Decimals;
-  criteria: Criterion[];
-  display: CriteriaDisplay;
-  resultDecimals: ResultDecimals;
-};
+const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
 
-export const DEFAULT_SCORING: ScoringValues = { mode: "simple", min: 1, max: 10, decimals: 2, criteria: [], display: "percent", resultDecimals: 2 };
-
-/** How many decimal places averages and totals show. Not part of the scoring rules, so it can change at any time. */
-function ResultDecimalsField({ initial }: { initial: ResultDecimals }) {
-  const [value, setValue] = useState(String(initial));
+/** How many decimal places averages and totals show. */
+function ResultDecimalsField() {
+  const [value, setValue] = useState(String(DEFAULT_RESULT_DECIMALS));
   const valid = /^[0-4]$/.test(value);
   const example = valid ? (8.66667).toFixed(Number(value)) : null;
   return (
@@ -44,8 +34,7 @@ function ResultDecimalsField({ initial }: { initial: ResultDecimals }) {
           min={0}
           max={4}
           step={1}
-          // Uncontrolled, so the form's reset after saving shows the saved value; keyed on it by the caller.
-          defaultValue={initial}
+          defaultValue={DEFAULT_RESULT_DECIMALS}
           onChange={(e) => setValue(e.target.value)}
           aria-invalid={!valid}
           aria-describedby="result_decimals-hint"
@@ -55,7 +44,7 @@ function ResultDecimalsField({ initial }: { initial: ResultDecimals }) {
       </div>
       <p id="result_decimals-hint" className={`mt-1.5 text-sm ${valid ? "hint" : "font-semibold text-danger"}`} role={valid ? undefined : "alert"}>
         {valid
-          ? "0 to 4. For averages and criteria totals on the live results, LED wall and PDF. Equal averages at this many places share a rank. You can change it at any time."
+          ? "0 to 4. For averages and criteria totals on the live results, LED wall and PDF. Equal averages at this many places share a rank."
           : "Enter a whole number from 0 to 4."}
       </p>
     </div>
@@ -64,30 +53,18 @@ function ResultDecimalsField({ initial }: { initial: ResultDecimals }) {
 
 type Row = { key: number; id: string; name: string; max: string };
 let nextKey = 0;
-const toRows = (criteria: Criterion[]): Row[] =>
-  criteria.length
-    ? criteria.map((c) => ({ key: nextKey++, id: c.id, name: c.name, max: String(c.max) }))
-    : [0, 1, 2].map(() => ({ key: nextKey++, id: "", name: "", max: "" }));
+const blankRows = (): Row[] => [0, 1, 2].map(() => ({ key: nextKey++, id: "", name: "", max: "" }));
 
 /**
- * How judges score: simple (one score from min to max) or criteria (points per criterion, adding up
- * to 100). Shared by the create form and the Settings tab. Submits scoring_mode, min, max, decimals,
- * criteria (JSON) and criteria_display.
+ * How judges score, for the create form: simple (one score from min to max) or criteria (points per
+ * criterion, adding up to 100). It can't change once the activity exists. Submits scoring_mode, min, max,
+ * decimals, criteria (JSON), criteria_display and result_decimals.
  */
-export function ScoringFields({
-  initial = DEFAULT_SCORING,
-  locked = false,
-  showDisplay = true,
-}: {
-  initial?: ScoringValues;
-  locked?: boolean;
-  /** The create form picks the display here; Settings has its own instant switch for it. */
-  showDisplay?: boolean;
-}) {
-  const [mode, setMode] = useState<ScoringMode>(initial.mode);
-  const [places, setPlaces] = useState<Decimals>(initial.decimals);
-  const [rows, setRows] = useState<Row[]>(() => toRows(initial.criteria));
-  const [display, setDisplay] = useState<CriteriaDisplay>(initial.display);
+export function ScoringFields() {
+  const [mode, setMode] = useState<ScoringMode>("simple");
+  const [places, setPlaces] = useState<Decimals>(2);
+  const [rows, setRows] = useState<Row[]>(blankRows);
+  const [display, setDisplay] = useState<CriteriaDisplay>("percent");
   const step = places === 0 ? 1 : places === 1 ? 0.1 : 0.01;
 
   const total = rows.reduce((sum, r) => sum + (Number(r.max) || 0), 0);
@@ -96,19 +73,11 @@ export function ScoringFields({
 
   return (
     <>
-      {/* Disabled fields aren't submitted, so a locked form sends the current values instead. */}
       <input type="hidden" name="scoring_mode" value={mode} />
       <input type="hidden" name="criteria" value={mode === "criteria" ? criteriaJson : "[]"} />
-      {showDisplay && <input type="hidden" name="criteria_display" value={display} />}
-      {locked && (
-        <>
-          <input type="hidden" name="min" value={initial.min} />
-          <input type="hidden" name="max" value={initial.max} />
-          <input type="hidden" name="decimals" value={initial.decimals} />
-        </>
-      )}
+      <input type="hidden" name="criteria_display" value={display} />
 
-      <fieldset disabled={locked} className="space-y-6">
+      <div className="space-y-6">
         <fieldset>
           <legend className="label">Scoring</legend>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -150,7 +119,7 @@ export function ScoringFields({
                 min={0}
                 max={9999}
                 step={step}
-                defaultValue={initial.min}
+                defaultValue={1}
                 className="field tabular"
               />
             </div>
@@ -167,7 +136,7 @@ export function ScoringFields({
                 min={0}
                 max={9999}
                 step={step}
-                defaultValue={initial.max}
+                defaultValue={10}
                 className="field tabular"
               />
             </div>
@@ -250,13 +219,13 @@ export function ScoringFields({
           </div>
         </fieldset>
 
-        {mode === "criteria" && showDisplay && (
+        {mode === "criteria" && (
           <fieldset>
             <legend className="label">Show totals on the live results and LED wall</legend>
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  { value: "percent", label: "As a percentage", example: "87.5%" },
+                  { value: "percent", label: "As a percentage", example: "87.50%" },
                   { value: "ten", label: "Scaled to 10", example: "8.75" },
                 ] as const
               ).map((o) => (
@@ -275,11 +244,7 @@ export function ScoringFields({
             </div>
           </fieldset>
         )}
-      </fieldset>
-
-      {/* Outside the locked fieldset: how results look can change mid-session. */}
-      <div className="mt-6">
-        <ResultDecimalsField key={initial.resultDecimals} initial={initial.resultDecimals} />
+        <ResultDecimalsField />
       </div>
     </>
   );

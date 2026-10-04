@@ -60,6 +60,8 @@ export type Judge = {
   name: string;
   photoUrl: string | null;
   position: number;
+  /** Board of tabulators: can move to the previous or next entry from their own screen. */
+  canMoveEntries: boolean;
 };
 
 export type Entry = {

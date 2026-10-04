@@ -2,6 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { entryNeighbors } from "@/lib/judging";
 import { LedOutput } from "@/components/led/led-graphic";
 import type { Board } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
@@ -95,10 +96,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       setError(result.ok ? null : result.error);
     });
 
-  const index = entries.findIndex((e) => e.id === onAir);
-  const current = index >= 0 ? entries[index] : null;
-  const previous = index > 0 ? entries[index - 1] : null;
-  const next = index < 0 ? entries[0] : entries[index + 1];
+  const { index, entry: current, previous, next } = entryNeighbors(entries, onAir);
   const scoredFor = (entryId: string) => scores.filter((s) => s.entryId === entryId).length;
   const preview: Board = {
     ...board,
@@ -110,7 +108,8 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       <div>
         <h2 className="text-xl font-bold">LED wall</h2>
         <p className="hint mt-1 max-w-2xl">
-          Open this link full screen on the computer that feeds the LED wall or video switcher. You choose which entry it shows here.
+          Open this link full screen on the computer that feeds the LED wall or video switcher. It moves to each entry as it&apos;s shown to the
+          judges. To show a different one, such as an earlier entry&apos;s results, pick it here.
         </p>
         <div className="mt-4 flex max-w-2xl items-center gap-2">
           <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{ledUrl}</code>

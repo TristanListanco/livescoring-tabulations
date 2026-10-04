@@ -87,7 +87,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
             </Link>
             {waitingDevices > 0 && (
-              <Link href={`/admin/${activity.id}?tab=session`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
+              <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
                 {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
               </Link>
             )}
@@ -150,6 +150,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
       <div className="pt-8">
         {tab === "access" && (
           <AccessTab
+            activityId={activity.id}
+            devices={devices}
             origin={origin}
             liveUrl={liveUrl}
             ledUrl={ledUrl}
@@ -159,7 +161,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             entryCount={entries.length}
           />
         )}
-        {tab === "session" && <SessionTab board={board} devices={devices} />}
+        {tab === "session" && <SessionTab board={board} />}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
         {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} started={started} />}
         {tab === "results" && <LiveBoard board={board} embedded />}
@@ -167,7 +169,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
-            hasScores={scores.length > 0 || started}
             progress={progress}
             reportId={reportId(board)}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}

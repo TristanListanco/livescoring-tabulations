@@ -21,3 +21,23 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
   const value = myScores.get(entry.id);
   return value === undefined ? { kind: "scoring", entry, number: index + 1 } : { kind: "scored", entry, number: index + 1, value };
 }
+
+/** Where the running order stands: the entry on judges' screens, and the ones before and after it. */
+export function entryNeighbors(entries: Entry[], currentEntryId: string | null) {
+  const index = entries.findIndex((e) => e.id === currentEntryId);
+  return {
+    index,
+    entry: index >= 0 ? entries[index] : null,
+    previous: index > 0 ? entries[index - 1] : null,
+    // Nothing on screen yet: the first entry is next.
+    next: index < 0 ? (entries[0] ?? null) : (entries[index + 1] ?? null),
+  };
+}
+
+/**
+ * Database columns for showing judges an entry. The LED wall follows to the same entry. Sending judges back to
+ * waiting (null) leaves the LED wall as it is.
+ */
+export function showEntryColumns(entryId: string | null): Record<string, string | null> {
+  return entryId ? { current_entry_id: entryId, led_entry_id: entryId } : { current_entry_id: null };
+}

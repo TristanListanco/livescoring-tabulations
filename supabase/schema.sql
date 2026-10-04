@@ -46,6 +46,8 @@ create table if not exists public.judges (
   position     integer not null default 0,
   created_at   timestamptz not null default now()
 );
+-- Board of tabulators: judges who can move to the previous or next entry from their own screen.
+alter table public.judges add column if not exists can_move_entries boolean not null default false;
 create index if not exists judges_activity_idx on public.judges (activity_id, position);
 
 -- Bumped whenever a judge's devices change, so open screens refresh over realtime.

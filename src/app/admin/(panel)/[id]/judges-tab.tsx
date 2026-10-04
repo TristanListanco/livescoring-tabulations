@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useOptimistic, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Judge } from "@/lib/types";
-import { addJudge, removeJudge, renameJudge, setJudgePhoto, type FormResult } from "../../actions";
+import { addJudge, removeJudge, renameJudge, setJudgeMovesEntries, setJudgePhoto, type FormResult } from "../../actions";
 
 function FormMessage({ state }: { state: FormResult }) {
   if (!state) return null;
@@ -104,8 +104,68 @@ function AddJudgeForm({ activityId }: { activityId: string }) {
         <input id="new-judge" name="name" required maxLength={120} placeholder="Full name" className="field" />
         <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
       </div>
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-[15px]">
+        <input type="checkbox" name="moves" className="size-4 accent-regal" />
+        Can move entries (board of tabulators)
+      </label>
       <FormMessage state={state} />
     </form>
+  );
+}
+
+/**
+ * Board of tabulators: judges who can move to the previous or next entry from their own screen, as the
+ * organizer can from the Session tab. Saves on change and stays editable after the session starts.
+ */
+function Tabulators({ judges }: { judges: Judge[] }) {
+  const [moves, setMoves] = useOptimistic(
+    new Map(judges.map((j) => [j.id, j.canMoveEntries])),
+    (map: Map<string, boolean>, change: { id: string; on: boolean }) => new Map(map).set(change.id, change.on),
+  );
+  const [result, setResult] = useState<FormResult>(null);
+  const [, startTransition] = useTransition();
+  const toggle = (judge: Judge, on: boolean) =>
+    startTransition(async () => {
+      setMoves({ id: judge.id, on });
+      setResult(await setJudgeMovesEntries(judge.id, on));
+    });
+
+  return (
+    <section aria-labelledby="tabulators" className="mt-10">
+      <h2 id="tabulators" className="text-xl font-bold">
+        Board of tabulators
+      </h2>
+      <p className="hint mt-1 max-w-2xl">
+        Who can move entries besides you. A judge you tick here gets Previous and Next entry buttons on their screen once they&apos;ve scored the
+        entry, and the LED wall follows. You can change this at any time, even during the session.
+      </p>
+      {judges.length === 0 ? (
+        <p className="hint mt-4">Add judges first.</p>
+      ) : (
+        <fieldset className="mt-4">
+          <legend className="sr-only">Judges who can move entries</legend>
+          <ul className="flex flex-wrap gap-2">
+            {judges.map((j) => (
+              <li key={j.id}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint">
+                  <input
+                    type="checkbox"
+                    checked={moves.get(j.id) ?? false}
+                    onChange={(e) => toggle(j, e.target.checked)}
+                    className="size-4 accent-mint"
+                    aria-label={`${j.name} can move entries`}
+                  />
+                  <span className="font-semibold">{j.name}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+      )}
+      <div className="mt-3">
+        <FormMessage state={result} />
+      </div>
+    </section>
   );
 }
 
@@ -144,6 +204,7 @@ export function JudgesTab({
         )}
         {!locked && <AddJudgeForm activityId={activityId} />}
       </fieldset>
+      <Tabulators judges={judges} />
     </div>
   );
 }

@@ -3,21 +3,21 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import type { ActionResult, Board, JudgeDevice, SessionState } from "@/lib/types";
+import { entryNeighbors } from "@/lib/judging";
+import type { ActionResult, Board, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setLedEntry, setSessionState } from "../../actions";
-import { JudgeDevices } from "./judge-devices";
 
 const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
   draft: {
     label: "Not started",
-    body: "Judges who sign in see a waiting screen. Starting the session locks the judges and the running order. You can still add and rename entries.",
+    body: "Judges who sign in see a waiting screen once you approve their device in the Access tab. Starting the session locks the judges and the running order. You can still add and rename entries.",
   },
-  live: { label: "Live", body: "Judges score the entry you show them, one at a time." },
+  live: { label: "Live", body: "Judges score the entry you show them, one at a time. The LED wall moves to it too." },
   ended: { label: "Ended", body: "Judges can't submit scores. Reopen the session to continue judging." },
 };
 
-export function SessionTab({ board, devices }: { board: Board; devices: JudgeDevice[] }) {
+export function SessionTab({ board }: { board: Board }) {
   useLiveRefresh(board.activity.id);
   const { activity, judges, entries, scores } = board;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
@@ -41,10 +41,8 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
     return r;
   };
 
-  const index = entries.findIndex((e) => e.id === current);
-  const entry = index >= 0 ? entries[index] : null;
-  const previous = index > 0 ? entries[index - 1] : null;
-  const next = index < 0 ? entries[0] : entries[index + 1];
+  const { index, entry, previous, next } = entryNeighbors(entries, current);
+  const tabulators = judges.filter((j) => j.canMoveEntries);
   const scoredBy = new Set(scores.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const allIn = entry !== null && judges.length > 0 && judges.every((j) => scoredBy.has(j.id));
   const live = activity.sessionState === "live";
@@ -100,8 +98,6 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
         </p>
       )}
 
-      <JudgeDevices judges={judges} devices={devices} />
-
       {live && (
         <section aria-labelledby="now-judging">
           <h2 id="now-judging" className="text-sm font-semibold text-prussian/70">
@@ -130,6 +126,7 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
                     <li key={j.id} className="flex items-center gap-3 rounded-xl bg-oxford px-3 py-2.5">
                       <Avatar name={j.name} src={j.photoUrl} size={36} />
                       <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
+                      {j.canMoveEntries && <span className="text-xs font-semibold text-powder">Moves entries</span>}
                       {done ? (
                         <span className="flex items-center gap-1.5 text-sm font-semibold text-mint">
                           <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
@@ -158,6 +155,13 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
               <p className="font-semibold">Judges are waiting for an entry.</p>
               <p className="hint mt-1">Show the first one when the contestant is ready.</p>
             </div>
+          )}
+
+          {tabulators.length > 0 && (
+            <p className="hint mt-3">
+              {tabulators.map((j) => j.name).join(", ")} can also move entries from {tabulators.length === 1 ? "their" : "their own"} screen
+              {tabulators.length === 1 ? "" : "s"}. Change who can in the Judges tab.
+            </p>
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">

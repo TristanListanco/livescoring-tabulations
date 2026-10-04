@@ -16,6 +16,7 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
+import { showEntryColumns } from "@/lib/judging";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
@@ -126,24 +127,20 @@ function readScoring(formData: FormData): { scoring: Scoring } | { error: string
 }
 
 /** Columns for the scoring rules. The criteria columns are only written when they matter, so simple activities work on databases without migration 006. */
-function scoringColumns(scoring: Scoring, wasCriteria: boolean): Record<string, unknown> {
+function scoringColumns(scoring: Scoring): Record<string, unknown> {
   const columns: Record<string, unknown> = { min_score: scoring.rules.min, max_score: scoring.rules.max, decimals: scoring.rules.decimals };
-  if (scoring.mode === "criteria" || wasCriteria) {
+  if (scoring.mode === "criteria") {
     columns.scoring_mode = scoring.mode;
     columns.criteria = scoring.criteria;
+    if (scoring.display) columns.criteria_display = scoring.display;
   }
-  if (scoring.display && (scoring.mode === "criteria" || wasCriteria)) columns.criteria_display = scoring.display;
   return columns;
-}
-
-/** Criteria as a comparable string, whatever key order they were stored in. */
-function criteriaKey(value: unknown): string {
-  if (!Array.isArray(value)) return "[]";
-  return JSON.stringify(value.map((c: { id?: unknown; name?: unknown; max?: unknown }) => [String(c?.id), String(c?.name), Number(c?.max)]));
 }
 
 const SCORING_HINT =
   "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
+const MOVE_ENTRIES_HINT =
+  "Letting judges move entries needs a database update. Run supabase/migrations/008_judges_move_entries.sql in the Supabase SQL editor.";
 const PHOTOS_AND_PLACES_HINT =
   "This needs a database update. Run supabase/migrations/007_entry_photos_result_decimals.sql in the Supabase SQL editor.";
 
@@ -213,12 +210,6 @@ async function removeFiles(paths: (string | null | undefined)[]) {
   if (list.length) await db().storage.from(PHOTO_BUCKET).remove(list);
 }
 
-async function activityHasScores(activityId: string): Promise<boolean> {
-  const { count, error } = await db().from("scores").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
-  check(error);
-  return (count ?? 0) > 0;
-}
-
 async function nextPosition(table: "judges" | "entries", activityId: string): Promise<number> {
   const { data, error } = await db().from(table).select("position").eq("activity_id", activityId).order("position", { ascending: false }).limit(1);
   check(error);
@@ -271,13 +262,13 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
     return err(`An activity needs 1 to ${MAX_JUDGES} judges.`);
   }
-  const judges: { name: string; photo: File | null }[] = [];
+  const judges: { name: string; photo: File | null; movesEntries: boolean }[] = [];
   for (let i = 0; i < judgeCount; i++) {
     const judgeName = cleanName(formData.get(`judge-${i}-name`));
     if (!judgeName) return err(`Judge ${i + 1} needs a name.`);
     const photo = photoFile(formData.get(`judge-${i}-photo`));
     if (photo === "invalid") return err(`The photo for ${judgeName} must be an image under 2 MB.`);
-    judges.push({ name: judgeName, photo });
+    judges.push({ name: judgeName, photo, movesEntries: formData.get(`judge-${i}-moves`) === "on" });
   }
 
   const entries = entryNames(formData.get("entries"));
@@ -292,7 +283,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
         name,
         owner_id,
         public_id: newPublicId(),
-        ...scoringColumns(parsed.scoring, false),
+        ...scoringColumns(parsed.scoring),
         // Only written when changed, so databases without migration 007 can still create activities.
         ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
       })
@@ -309,7 +300,8 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   try {
     const { data, error } = await db()
       .from("judges")
-      .insert(judges.map((j, position) => ({ activity_id: activityId, name: j.name, position })))
+      // can_move_entries only when set, so databases without migration 008 can still create activities.
+      .insert(judges.map((j, position) => ({ activity_id: activityId, name: j.name, position, ...(j.movesEntries ? { can_move_entries: true } : {}) })))
       .select("id, position");
     check(error);
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
@@ -335,50 +327,25 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   } catch (e) {
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
-    return err(`Could not create the activity: ${e instanceof Error ? e.message : "unknown error"}`);
+    const message = e instanceof Error ? e.message : "unknown error";
+    return err(/can_move_entries/.test(message) ? MOVE_ENTRIES_HINT : `Could not create the activity: ${message}`);
   }
 
   redirect(`/admin/${activityId}`);
 }
 
+/**
+ * Only the name can change. Scoring (mode, range or criteria, decimal places, how totals and results show)
+ * is fixed when the activity is created, so results can't be changed by changing the rules afterwards.
+ */
 export async function updateSettings(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
-  const parsed = readScoring(formData);
-  if ("error" in parsed) return err(parsed.error);
-  const { scoring } = parsed;
-  const resultDecimals = readResultDecimals(formData);
-  if (typeof resultDecimals !== "number") return err(resultDecimals.error);
-
-  const { data: current, error } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
-  check(error);
-  if (!current) return NOT_FOUND;
-  const wasCriteria = current.scoring_mode === "criteria";
-  const rulesChanged =
-    Number(current.min_score) !== scoring.rules.min ||
-    Number(current.max_score) !== scoring.rules.max ||
-    current.decimals !== scoring.rules.decimals ||
-    (current.scoring_mode ?? "simple") !== scoring.mode ||
-    // Compare field by field: Postgres stores JSON with its keys reordered.
-    criteriaKey(current.criteria) !== criteriaKey(scoring.criteria);
-  if (rulesChanged && ((await sessionOf(activityId)).state !== "draft" || (await activityHasScores(activityId)))) {
-    return err("The session has started. Reset scores in the Developer tab before changing the range or decimals.");
-  }
-
-  // How results are shown isn't a scoring rule: it can change mid-session, and screens follow within seconds.
-  const placesChanged = (current.result_decimals ?? 2) !== resultDecimals;
-
-  const update = await db()
-    .from("activities")
-    .update({ name, ...(rulesChanged ? scoringColumns(scoring, wasCriteria) : {}), ...(placesChanged ? { result_decimals: resultDecimals } : {}) })
-    .eq("id", activityId);
-  if (update.error && /scoring_mode|criteria/.test(update.error.message)) return err(SCORING_HINT);
-  if (update.error && /result_decimals/.test(update.error.message)) return err(PHOTOS_AND_PLACES_HINT);
-  check(update.error);
+  const { error } = await db().from("activities").update({ name }).eq("id", activityId);
+  if (error) return err(error.message);
   refresh();
-  return ok("Settings saved.");
+  return ok("Name saved.");
 }
 
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
@@ -387,18 +354,6 @@ export async function setShowRank(activityId: string, show: boolean): Promise<Ac
   if (error) return err(error.message);
   refresh();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
-}
-
-/** Show criteria totals as a percentage or scaled to 10. Allowed at any time; screens follow within seconds. */
-export async function setCriteriaDisplay(activityId: string, display: CriteriaDisplay): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  const { error } = await db()
-    .from("activities")
-    .update({ criteria_display: display === "ten" ? "ten" : "percent" })
-    .eq("id", activityId);
-  if (error) return err(/criteria_display/.test(error.message) ? SCORING_HINT : error.message);
-  refresh();
-  return ok(display === "ten" ? "Totals are shown scaled to 10." : "Totals are shown as percentages.");
 }
 
 /**
@@ -453,7 +408,7 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
     const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
     if (!data) return err("That entry isn't part of this activity.");
   }
-  const { error } = await db().from("activities").update({ current_entry_id: entryId }).eq("id", activityId);
+  const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activityId);
   if (error) return err(/current_entry_id/.test(error.message) ? SESSION_HINT : error.message);
   refresh();
   return ok();
@@ -543,10 +498,15 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
 
   const { data, error } = await db()
     .from("judges")
-    .insert({ activity_id: activityId, name, position: await nextPosition("judges", activityId) })
+    .insert({
+      activity_id: activityId,
+      name,
+      position: await nextPosition("judges", activityId),
+      ...(formData.get("moves") === "on" ? { can_move_entries: true } : {}),
+    })
     .select("id")
     .single();
-  if (error) return err(error.message);
+  if (error) return err(/can_move_entries/.test(error.message) ? MOVE_ENTRIES_HINT : error.message);
   const judgeId = (data as { id: string }).id;
   try {
     await assignCodes([judgeId]);
@@ -556,6 +516,20 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
   }
   refresh();
   return ok(`${name} added.`);
+}
+
+/**
+ * Board of tabulators: whether this judge can move to the previous or next entry from their own screen.
+ * Allowed at any time, even mid-session, so the organizer can hand it over if a judge's device fails.
+ */
+export async function setJudgeMovesEntries(judgeId: string, moves: boolean): Promise<ActionResult> {
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  const { data, error } = await db().from("judges").update({ can_move_entries: moves }).eq("id", judgeId).select("name").single();
+  if (error) return err(/can_move_entries/.test(error.message) ? MOVE_ENTRIES_HINT : error.message);
+  refresh();
+  const name = (data as { name: string }).name;
+  return ok(moves ? `${name} can move entries.` : `${name} can no longer move entries.`);
 }
 
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {

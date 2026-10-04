@@ -4,8 +4,8 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity, ActionResult } from "@/lib/types";
-import { setActivityOwner, setCriteriaDisplay, setShowRank, updateSettings, type FormResult } from "../../actions";
-import { ScoringFields } from "../scoring-fields";
+import { formatBound, rangeLabel } from "@/lib/scoring";
+import { setActivityOwner, setShowRank, updateSettings, type FormResult } from "../../actions";
 import { Section } from "../section";
 
 function Message({ state }: { state: FormResult }) {
@@ -68,43 +68,31 @@ function RankingSwitch({ activity }: { activity: Activity }) {
   );
 }
 
-/** Criteria activities: show totals as a percentage or scaled to 10. Saves on change, even mid-session. */
-function CriteriaDisplayChoice({ activity }: { activity: Activity }) {
-  const [display, setDisplay] = useState(activity.criteriaDisplay);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [pending, startTransition] = useTransition();
-  // Show the choice straight away, then save; inside the transition the radio would snap back until the server replied.
-  const choose = (next: typeof display) => {
-    setDisplay(next);
-    startTransition(async () => {
-      const r = await setCriteriaDisplay(activity.id, next);
-      setResult(r);
-      if (!r.ok) setDisplay(activity.criteriaDisplay);
-    });
-  };
-
+/** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
+function ScoringSummary({ activity }: { activity: Activity }) {
+  const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
+  const rows: [string, string][] =
+    activity.scoringMode === "criteria"
+      ? [
+          ["Scoring", `Criteria, adding up to 100 points: ${activity.criteria.map((c) => `${c.name} ${formatBound(c.max)}`).join(", ")}`],
+          ["Judges give points in", places(activity.decimals)],
+          ["Totals shown", activity.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"],
+          ["Results show", places(activity.resultDecimals)],
+        ]
+      : [
+          ["Scoring", `Simple, scores from ${rangeLabel(activity)}`],
+          ["Judges score with", places(activity.decimals)],
+          ["Results show", places(activity.resultDecimals)],
+        ];
   return (
-    <fieldset className="space-y-2">
-      <legend className="font-semibold">Show totals</legend>
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            { value: "percent", label: "As a percentage", example: "87.5%" },
-            { value: "ten", label: "Scaled to 10", example: "8.75" },
-          ] as const
-        ).map((o) => (
-          <label
-            key={o.value}
-            className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint"
-          >
-            <input type="radio" name="show-totals" checked={display === o.value} onChange={() => choose(o.value)} disabled={pending} className="accent-mint" />
-            <span className="font-semibold">{o.label}</span>
-            <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
-          </label>
-        ))}
-      </div>
-      {result && <Message state={result} />}
-    </fieldset>
+    <dl className="grid max-w-2xl gap-x-8 gap-y-3 sm:grid-cols-[auto_1fr]">
+      {rows.map(([term, value]) => (
+        <div key={term} className="contents">
+          <dt className="font-semibold">{term}</dt>
+          <dd className="text-prussian/80">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -216,13 +204,11 @@ function ExportResults({
 
 export function SettingsTab({
   activity,
-  hasScores,
   progress,
   reportId,
   organizers,
 }: {
   activity: Activity;
-  hasScores: boolean;
   progress: { submitted: number; possible: number; complete: boolean };
   reportId: string;
   /** Present for the super admin only. */
@@ -238,35 +224,19 @@ export function SettingsTab({
             Activity name
           </label>
           <input id="name" name="name" required maxLength={120} defaultValue={activity.name} className="field max-w-xl" />
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <SubmitButton>Save name</SubmitButton>
+            <Message state={state} />
+          </div>
         </Section>
-
-        <Section
-          title="Scoring"
-          hint={
-            hasScores
-              ? "How judges score is locked once the session has started. Reset scores in the Developer tab to change it. Decimal places in results can still change."
-              : "A single score per judge, or points for each criterion adding up to 100."
-          }
-        >
-          <ScoringFields
-            initial={{
-              mode: activity.scoringMode,
-              min: activity.min,
-              max: activity.max,
-              decimals: activity.decimals,
-              criteria: activity.criteria,
-              display: activity.criteriaDisplay,
-              resultDecimals: activity.resultDecimals,
-            }}
-            locked={hasScores}
-            showDisplay={false}
-          />
-        </Section>
-        <div className="flex flex-wrap items-center gap-4 pb-8 md:pl-[calc(14rem+2.5rem)]">
-          <SubmitButton>Save name and scoring</SubmitButton>
-          <Message state={state} />
-        </div>
       </form>
+
+      <Section
+        title="Scoring"
+        hint="Set when the activity was created and can't be changed, so no one can alter results by changing the rules. To score differently, create a new activity."
+      >
+        <ScoringSummary activity={activity} />
+      </Section>
 
       {organizers && (
         <Section title="Organizer" hint="Only you manage this activity. Hand it to an organizer to have them run it instead.">
@@ -277,7 +247,6 @@ export function SettingsTab({
       <Section title="Live results page" hint="What the audience sees on the public link.">
         <div className="space-y-6">
           <RankingSwitch activity={activity} />
-          {activity.scoringMode === "criteria" && <CriteriaDisplayChoice activity={activity} />}
         </div>
       </Section>
 

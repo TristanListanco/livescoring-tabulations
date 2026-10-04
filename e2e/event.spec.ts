@@ -72,6 +72,12 @@ async function openSession(page: Page) {
   await page.goto(`${adminPath}?tab=session`);
 }
 
+/** The organizer's Access tab, where judges' devices are approved. */
+async function openAccess(page: Page) {
+  await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
+  await page.goto(`${adminPath}?tab=access`);
+}
+
 test.describe.serial("a full event", () => {
   test.beforeAll(async ({ browser }) => {
     judge1 = await openDevice(browser, { ...devices["Pixel 7"] });
@@ -126,6 +132,8 @@ test.describe.serial("a full event", () => {
     await page.getByRole("button", { name: "Remove a judge" }).click();
     await page.getByLabel("Judge 1 name").fill("Ana Cruz");
     await page.getByLabel("Judge 2 name").fill("Ben Torres");
+    // Ben is on the board of tabulators: he can move entries from his own screen.
+    await page.getByRole("checkbox", { name: "Judge 2: Can move entries (board of tabulators)" }).check();
     await page.getByLabel("Photo for Ana Cruz").setInputFiles(PHOTO);
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
@@ -166,8 +174,10 @@ test.describe.serial("a full event", () => {
     const intruderCode = await pairingCode(intruder);
     expect(intruderCode).not.toBe(code1);
 
-    await openSession(page);
+    // Devices are approved from the Access tab, next to each judge's code.
+    await openAccess(page);
     await expect(page.getByRole("link", { name: "3 devices waiting for approval" })).toBeVisible();
+    await expect(page.getByText("3 devices are waiting for approval.")).toBeVisible();
     await page.getByRole("button", { name: `Approve Ana Cruz's device ${code1}` }).click();
     await page.getByRole("button", { name: `Approve Ben Torres's device ${code2}` }).click();
     await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
@@ -177,7 +187,8 @@ test.describe.serial("a full event", () => {
     await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
     await expect(page.getByRole("button", { name: `Approve Ana Cruz's device ${intruderCode}` })).toHaveCount(0);
     await expect(page.getByText("Approved: Android phone · Chrome")).toBeVisible();
-    await snap(page, "session tab, judge devices");
+    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).toContainText("Moves entries");
+    await snap(page, "access tab, judge devices");
 
     await live.goto(livePath);
     await expect(live.getByRole("status")).toHaveText("Live", { timeout: 30_000 });
@@ -244,9 +255,9 @@ test.describe.serial("a full event", () => {
 
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=led`);
-    await page.getByRole("button", { name: "Show first" }).click();
-    // Only Ana has scored, so her 9.75 is both her score and the running average.
+    // Showing judges Agila put it on the LED wall too.
     await expect(led.getByText("Agila", { exact: true })).toBeVisible(REALTIME);
+    // Only Ana has scored, so her 9.75 is both her score and the running average.
     await expect(led.getByText("9.75", { exact: true })).toHaveCount(2);
     // Agila's photo sits beside the name.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
@@ -272,17 +283,27 @@ test.describe.serial("a full event", () => {
     await led.goto(ledPath);
     await expect(led.getByText("9.50", { exact: true })).toBeVisible();
     await expect(led.getByText("Scored", { exact: true })).toHaveCount(0);
-    await led.context().close();
 
+    // The LED wall moves with the judges.
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
     await expect(heading(judge1)).toHaveText("Bagwis", REALTIME);
+    await expect(led.getByText("Bagwis", { exact: true })).toBeVisible(REALTIME);
     await submitScore(judge1, "Bagwis", "8.5", "8.50");
     await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
     await submitScore(judge2, "Bagwis", "8.75");
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
 
-    await page.getByRole("button", { name: "Show next entry: Kidlat" }).click();
+    // Ben, on the board of tabulators, moves to the next entry from his own screen. Ana can't.
+    await expect(heading(judge2)).toHaveText("Your score is in");
+    const tabulator = judge2.getByRole("region", { name: "Board of tabulators" });
+    await expect(tabulator.getByRole("status")).toHaveText("Every judge has scored Bagwis.", REALTIME);
+    await snap(judge2, "tabulator judge after scoring");
+    await expect(judge1.getByRole("button", { name: /^Next/ })).toHaveCount(0);
+    await tabulator.getByRole("button", { name: "Next: Kidlat" }).click();
     await expect(heading(judge1)).toHaveText("Kidlat", REALTIME);
+    await expect(led.getByText("Kidlat", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
+    await led.context().close();
     await submitScore(judge1, "Kidlat", "9", "9.00");
     await expect(heading(judge2)).toHaveText("Kidlat", REALTIME);
     await submitScore(judge2, "Kidlat", "9.5", "9.50");
@@ -308,30 +329,15 @@ test.describe.serial("a full event", () => {
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
-  test("results show the decimal places the organizer picks, and tie on what they show", async ({ page }) => {
+  test("scoring can't be changed once the activity is created", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=settings`);
-    const places = () => page.getByLabel("Decimal places shown in results");
-    const save = () => page.getByRole("button", { name: "Save name and scoring" }).click();
-    await places().fill("5");
-    await expect(page.getByRole("alert").filter({ hasText: "0 to 4" })).toHaveText("Enter a whole number from 0 to 4.");
-
-    // Mid-session, the scoring is locked but decimal places can still change.
-    await places().fill("3");
-    await save();
-    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.625", REALTIME);
-    await expect(places()).toHaveValue("3");
-
-    // Whole numbers: Kidlat's 9.25 and Bagwis's 8.625 both show 9, so they share second place.
-    await places().fill("0");
-    await save();
-    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
-    await expect(live.locator("li[data-entry]").nth(1)).toContainText("Rank 2");
-    await expect(live.locator("li[data-entry]").nth(2)).toContainText("Rank 2");
-
-    await places().fill("2");
-    await save();
-    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
+    const scoring = page.locator("dl");
+    await expect(scoring).toContainText("Simple, scores from 1 to 10");
+    await expect(scoring).toContainText("Results show2 decimal places");
+    for (const field of ["Min score", "Max score", "Decimal places shown in results"]) await expect(page.getByLabel(field)).toHaveCount(0);
+    await expect(page.getByRole("radio")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save name" })).toBeVisible();
   });
 
   test("the results PDF downloads with a report ID", async ({ page }) => {

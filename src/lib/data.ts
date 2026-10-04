@@ -26,7 +26,7 @@ type ActivityRow = {
   created_at: string;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
-type JudgeRow = { id: string; name: string; photo_path: string | null; position: number };
+type JudgeRow = { id: string; name: string; photo_path: string | null; position: number; can_move_entries?: boolean };
 type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string };
 
@@ -81,6 +81,7 @@ const toJudge = (row: JudgeRow): Judge => ({
   name: row.name,
   photoUrl: photoUrl(row.photo_path),
   position: row.position,
+  canMoveEntries: row.can_move_entries ?? false,
 });
 const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value) });
@@ -174,8 +175,8 @@ export async function getAdminCredentials(idOrEmail: string): Promise<{ admin: A
 
 async function loadBoard(activity: Activity): Promise<Board> {
   const [judges, entries, scores] = await Promise.all([
-    db().from("judges").select("id, name, photo_path, position").eq("activity_id", activity.id).order("position").order("created_at"),
-    // "*" so entries load on databases without migration 007's photo column.
+    // "*" so judges and entries load on databases without the newer columns (migrations 007 and 008).
+    db().from("judges").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
     db().from("entries").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
     db().from("scores").select("entry_id, judge_id, value").eq("activity_id", activity.id),
   ]);
@@ -231,7 +232,7 @@ export async function findJudgeIdByCode(input: string): Promise<string | null> {
 export async function getJudgeContext(judgeId: string): Promise<{ judge: Judge; activityId: string } | null> {
   await connection();
   if (!isUuid(judgeId)) return null;
-  const { data, error } = await db().from("judges").select("id, name, photo_path, position, activity_id").eq("id", judgeId).maybeSingle();
+  const { data, error } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
   fail(error);
   if (!data) return null;
   const row = data as JudgeRow & { activity_id: string };

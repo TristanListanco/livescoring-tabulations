@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { findJudgeIdByCode, getActivity, getJudgeContext } from "@/lib/data";
 import { isUuid } from "@/lib/codes";
 import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
+import { showEntryColumns } from "@/lib/judging";
 import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { db } from "@/lib/supabase/server";
@@ -38,6 +39,31 @@ export async function requestApproval() {
   if (!session || !(await getJudgeContext(session.judgeId))) redirect("/judge");
   await signInJudgeDevice(session.judgeId);
   refresh();
+}
+
+/**
+ * Board of tabulators: a judge the organizer allowed to move entries shows judges the previous or next one,
+ * as the organizer can from the Session tab. The LED wall follows.
+ */
+export async function moveToEntry(entryId: string): Promise<ActionResult> {
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
+  if (!(await approvedDevice(context.judge.id, session.deviceId))) {
+    return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  }
+  if (!context.judge.canMoveEntries) return { ok: false, error: "Only the organizer and the board of tabulators can move entries." };
+  if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
+
+  const activity = await getActivity(context.activityId);
+  if (!activity || activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now." };
+  const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activity.id).maybeSingle();
+  if (!data) return { ok: false, error: "That entry isn't part of this activity." };
+
+  const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activity.id);
+  if (error) return { ok: false, error: error.message };
+  refresh();
+  return { ok: true };
 }
 
 /** A score: one value for simple activities, or points per criterion (keyed by criterion id) for criteria activities. */

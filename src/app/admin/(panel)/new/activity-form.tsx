@@ -6,11 +6,11 @@ import { createActivity, type FormResult } from "../../actions";
 import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
-type DraftJudge = { key: number; name: string; photo: Blob | null; preview: string | null };
+type DraftJudge = { key: number; name: string; photo: Blob | null; preview: string | null; moves: boolean };
 
 const MAX_JUDGES = 20;
 let nextKey = 0;
-const blankJudge = (): DraftJudge => ({ key: nextKey++, name: "", photo: null, preview: null });
+const blankJudge = (): DraftJudge => ({ key: nextKey++, name: "", photo: null, preview: null, moves: false });
 
 export function ActivityForm() {
   const [state, dispatch] = useActionState<FormResult, FormData>(createActivity, null);
@@ -47,7 +47,10 @@ export function ActivityForm() {
         <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="Mr. and Ms. Intramurals 2026" />
       </Section>
 
-      <Section title="Scoring" hint="A single score per judge, or points for each criterion adding up to 100.">
+      <Section
+        title="Scoring"
+        hint="A single score per judge, or points for each criterion adding up to 100. Check it carefully: scoring can't be changed once the activity is created."
+      >
         <ScoringFields />
       </Section>
 
@@ -104,11 +107,26 @@ export function ActivityForm() {
                   placeholder={`Judge ${i + 1} name`}
                   className="field max-w-md"
                 />
+                <label className="mt-1.5 flex w-fit cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name={`judge-${i}-moves`}
+                    checked={j.moves}
+                    onChange={(e) => updateJudge(j.key, { moves: e.target.checked })}
+                    className="size-4 accent-regal"
+                  />
+                  <span>
+                    <span className="sr-only">Judge {i + 1}: </span>Can move entries (board of tabulators)
+                  </span>
+                </label>
               </div>
             </li>
           ))}
         </ol>
-        <p className="hint mt-3">Photos are optional. Judges without one show their initials.</p>
+        <p className="hint mt-3">
+          Photos are optional. Judges without one show their initials. Judges on the board of tabulators can move to the previous or next entry
+          from their own screen, as you can. You can change who can later.
+        </p>
       </Section>
 
       <Section title="Entries" hint="The contestants, teams or performances being judged. You can add more later.">
