@@ -72,13 +72,15 @@ function CriteriaDisplayChoice({ activity }: { activity: Activity }) {
   const [display, setDisplay] = useState(activity.criteriaDisplay);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const choose = (next: typeof display) =>
+  // Show the choice straight away, then save; inside the transition the radio would snap back until the server replied.
+  const choose = (next: typeof display) => {
+    setDisplay(next);
     startTransition(async () => {
-      setDisplay(next);
       const r = await setCriteriaDisplay(activity.id, next);
       setResult(r);
       if (!r.ok) setDisplay(activity.criteriaDisplay);
     });
+  };
 
   return (
     <fieldset className="space-y-2">
