@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getJudgeContext } from "@/lib/data";
-import { sessionJudgeId } from "@/lib/session";
+import { judgeSession } from "@/lib/session";
 import { CodeForm } from "./code-form";
 
 export const metadata: Metadata = { title: "Judge sign-in" };
 
 export default async function JudgePortal({ searchParams }: PageProps<"/judge">) {
-  const judgeId = await sessionJudgeId();
-  if (judgeId && (await getJudgeContext(judgeId))) redirect("/judge/score");
+  const session = await judgeSession();
+  if (session && (await getJudgeContext(session.judgeId))) redirect("/judge/score");
 
   const query = await searchParams;
   const code = typeof query.code === "string" ? query.code : "";

@@ -109,21 +109,41 @@ function AddJudgeForm({ activityId }: { activityId: string }) {
   );
 }
 
-export function JudgesTab({ activityId, judges, scoredBy }: { activityId: string; judges: Judge[]; scoredBy: Record<string, number> }) {
+export function JudgesTab({
+  activityId,
+  judges,
+  scoredBy,
+  locked,
+}: {
+  activityId: string;
+  judges: Judge[];
+  scoredBy: Record<string, number>;
+  /** Once the session has started the panel can't change. */
+  locked: boolean;
+}) {
   return (
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Judges</h2>
-      <p className="hint mt-1">Click a photo to change it. New judges get an access code right away, shown in the Access tab.</p>
-      {judges.length === 0 ? (
-        <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
+      {locked ? (
+        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
+          Judges are locked because the session has started. To change them, reset scores in the Developer tab, which puts the session back to not
+          started.
+        </p>
       ) : (
-        <ul className="mt-4 divide-y divide-line border-y border-line">
-          {judges.map((j) => (
-            <JudgeRow key={j.id} judge={j} scored={scoredBy[j.id] ?? 0} />
-          ))}
-        </ul>
+        <p className="hint mt-1">Click a photo to change it. New judges get an access code right away, shown in the Access tab.</p>
       )}
-      <AddJudgeForm activityId={activityId} />
+      <fieldset disabled={locked} className="min-w-0">
+        {judges.length === 0 ? (
+          <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
+        ) : (
+          <ul className="mt-4 divide-y divide-line border-y border-line">
+            {judges.map((j) => (
+              <JudgeRow key={j.id} judge={j} scored={scoredBy[j.id] ?? 0} />
+            ))}
+          </ul>
+        )}
+        {!locked && <AddJudgeForm activityId={activityId} />}
+      </fieldset>
     </div>
   );
 }

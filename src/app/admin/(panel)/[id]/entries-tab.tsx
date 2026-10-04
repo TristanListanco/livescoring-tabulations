@@ -14,7 +14,21 @@ function Arrow({ up }: { up?: boolean }) {
   );
 }
 
-function EntryRow({ entry, number, isFirst, isLast, scored }: { entry: Entry; number: number; isFirst: boolean; isLast: boolean; scored: number }) {
+function EntryRow({
+  entry,
+  number,
+  isFirst,
+  isLast,
+  scored,
+  started,
+}: {
+  entry: Entry;
+  number: number;
+  isFirst: boolean;
+  isLast: boolean;
+  scored: number;
+  started: boolean;
+}) {
   const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
   const [moving, startMove] = useTransition();
   const move = (direction: -1 | 1) => startMove(async () => void (await moveEntry(entry.id, direction)));
@@ -37,15 +51,16 @@ function EntryRow({ entry, number, isFirst, isLast, scored }: { entry: Entry; nu
         )}
       </form>
       <div className="flex items-center gap-1">
-        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(-1)} disabled={isFirst || moving} aria-label={`Move ${entry.name} up`}>
+        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(-1)} disabled={started || isFirst || moving} aria-label={`Move ${entry.name} up`}>
           <Arrow up />
         </button>
-        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(1)} disabled={isLast || moving} aria-label={`Move ${entry.name} down`}>
+        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(1)} disabled={started || isLast || moving} aria-label={`Move ${entry.name} down`}>
           <Arrow />
         </button>
         <ConfirmDialog
           triggerLabel="Remove"
           triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+          triggerDisabled={started && scored > 0}
           title={`Remove ${entry.name}?`}
           tone="danger"
           confirmLabel="Remove entry"
@@ -78,17 +93,43 @@ function AddEntriesForm({ activityId }: { activityId: string }) {
   );
 }
 
-export function EntriesTab({ activityId, entries, scoredFor }: { activityId: string; entries: Entry[]; scoredFor: Record<string, number> }) {
+export function EntriesTab({
+  activityId,
+  entries,
+  scoredFor,
+  started,
+}: {
+  activityId: string;
+  entries: Entry[];
+  scoredFor: Record<string, number>;
+  /** Once the session has started the running order is fixed and scored entries stay. */
+  started: boolean;
+}) {
   return (
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Entries</h2>
-      <p className="hint mt-1">Judges see entries in this order. On the live results they&apos;re ranked by average once scores come in.</p>
+      {started ? (
+        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
+          The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename
+          entries.
+        </p>
+      ) : (
+        <p className="hint mt-1">This is the running order. On the live results entries are ranked by average once scores come in.</p>
+      )}
       {entries.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
       ) : (
         <ol className="mt-4 divide-y divide-line border-y border-line">
           {entries.map((e, i) => (
-            <EntryRow key={e.id} entry={e} number={i + 1} isFirst={i === 0} isLast={i === entries.length - 1} scored={scoredFor[e.id] ?? 0} />
+            <EntryRow
+              key={e.id}
+              entry={e}
+              number={i + 1}
+              isFirst={i === 0}
+              isLast={i === entries.length - 1}
+              scored={scoredFor[e.id] ?? 0}
+              started={started}
+            />
           ))}
         </ol>
       )}

@@ -3,8 +3,8 @@
 import { useActionState, useState, useTransition } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity, ActionResult } from "@/lib/types";
-import { setShowRank, updateSettings, type FormResult } from "../../actions";
-import { RulesFields } from "../rules-fields";
+import { setActivityOwner, setCriteriaDisplay, setShowRank, updateSettings, type FormResult } from "../../actions";
+import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
 function Message({ state }: { state: FormResult }) {
@@ -46,7 +46,9 @@ function RankingSwitch({ activity }: { activity: Activity }) {
             on ? "border-regal bg-regal" : "border-field bg-white"
           }`}
         >
-          <span className={`inline-block size-5 rounded-full shadow transition-transform ${on ? "translate-x-5.5 bg-mint" : "translate-x-0.5 bg-field"}`} />
+          <span
+            className={`inline-block size-5 rounded-full shadow transition-transform ${on ? "translate-x-5.5 bg-mint" : "translate-x-0.5 bg-field"}`}
+          />
         </button>
         <div>
           <p id="rank-label" className="font-semibold">
@@ -65,7 +67,91 @@ function RankingSwitch({ activity }: { activity: Activity }) {
   );
 }
 
-function ExportResults({ activityId, progress }: { activityId: string; progress: { submitted: number; possible: number; complete: boolean } }) {
+/** Criteria activities: show totals as a percentage or scaled to 10. Saves on change, even mid-session. */
+function CriteriaDisplayChoice({ activity }: { activity: Activity }) {
+  const [display, setDisplay] = useState(activity.criteriaDisplay);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  // Show the choice straight away, then save; inside the transition the radio would snap back until the server replied.
+  const choose = (next: typeof display) => {
+    setDisplay(next);
+    startTransition(async () => {
+      const r = await setCriteriaDisplay(activity.id, next);
+      setResult(r);
+      if (!r.ok) setDisplay(activity.criteriaDisplay);
+    });
+  };
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="font-semibold">Show totals</legend>
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { value: "percent", label: "As a percentage", example: "87.5%" },
+            { value: "ten", label: "Scaled to 10", example: "8.75" },
+          ] as const
+        ).map((o) => (
+          <label
+            key={o.value}
+            className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint"
+          >
+            <input type="radio" name="show-totals" checked={display === o.value} onChange={() => choose(o.value)} disabled={pending} className="accent-mint" />
+            <span className="font-semibold">{o.label}</span>
+            <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
+          </label>
+        ))}
+      </div>
+      {result && <Message state={result} />}
+    </fieldset>
+  );
+}
+
+type OrganizerOption = { id: string; name: string; email: string };
+
+/** Super admin only: which organizer manages this activity. */
+function OwnerPicker({ activity, organizers }: { activity: Activity; organizers: OrganizerOption[] }) {
+  const [owner, setOwner] = useState(activity.ownerId ?? "");
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const save = () =>
+    startTransition(async () => {
+      setResult(await setActivityOwner(activity.id, owner || null));
+    });
+
+  return (
+    <div className="space-y-3">
+      <label htmlFor="owner" className="label">
+        Managed by
+      </label>
+      <div className="flex max-w-xl flex-wrap gap-2">
+        <select id="owner" value={owner} onChange={(e) => setOwner(e.target.value)} className="field max-w-sm flex-1">
+          <option value="">Only me (super admin)</option>
+          {organizers.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name} ({o.email})
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn btn-quiet" onClick={save} disabled={pending || owner === (activity.ownerId ?? "")}>
+          {pending ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {organizers.length === 0 && <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>}
+      {result && <Message state={result} />}
+    </div>
+  );
+}
+
+function ExportResults({
+  activityId,
+  progress,
+  reportId,
+}: {
+  activityId: string;
+  progress: { submitted: number; possible: number; complete: boolean };
+  reportId: string;
+}) {
   const percent = progress.possible ? Math.round((progress.submitted / progress.possible) * 100) : 0;
   const href = () => `/admin/${activityId}/export?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
 
@@ -90,16 +176,22 @@ function ExportResults({ activityId, progress }: { activityId: string; progress:
         </div>
       </div>
       {progress.complete ? (
-        <a
-          href={`/admin/${activityId}/export`}
-          onClick={(e) => {
-            e.currentTarget.href = href();
-          }}
-          className="btn btn-primary"
-          download
-        >
-          Download results PDF
-        </a>
+        <>
+          <p className="text-[15px]">
+            Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
+            <span className="hint block">Printed on the sheet. It changes if any score changes, so a printout can be checked against this page.</span>
+          </p>
+          <a
+            href={`/admin/${activityId}/export`}
+            onClick={(e) => {
+              e.currentTarget.href = href();
+            }}
+            className="btn btn-primary"
+            download
+          >
+            Download results PDF
+          </a>
+        </>
       ) : (
         <>
           <button type="button" className="btn btn-primary" disabled>
@@ -120,10 +212,15 @@ export function SettingsTab({
   activity,
   hasScores,
   progress,
+  reportId,
+  organizers,
 }: {
   activity: Activity;
   hasScores: boolean;
   progress: { submitted: number; possible: number; complete: boolean };
+  reportId: string;
+  /** Present for the super admin only. */
+  organizers: OrganizerOption[] | null;
 }) {
   const [state, action] = useActionState<FormResult, FormData>(updateSettings.bind(null, activity.id), null);
 
@@ -139,17 +236,24 @@ export function SettingsTab({
 
         <Section
           title="Scoring"
-          hint={hasScores ? "Locked while scores exist. Reset scores in the Developer tab to change it." : "Judges can only submit scores inside this range."}
+          hint={
+            hasScores
+              ? "Locked once the session has started. Reset scores in the Developer tab to change it."
+              : "A single score per judge, or points for each criterion adding up to 100."
+          }
         >
-          {hasScores && (
-            <>
-              {/* Disabled fields aren't submitted, so send the current values instead. */}
-              <input type="hidden" name="min" value={activity.min} />
-              <input type="hidden" name="max" value={activity.max} />
-              <input type="hidden" name="decimals" value={activity.decimals} />
-            </>
-          )}
-          <RulesFields min={activity.min} max={activity.max} decimals={activity.decimals} locked={hasScores} />
+          <ScoringFields
+            initial={{
+              mode: activity.scoringMode,
+              min: activity.min,
+              max: activity.max,
+              decimals: activity.decimals,
+              criteria: activity.criteria,
+              display: activity.criteriaDisplay,
+            }}
+            locked={hasScores}
+            showDisplay={false}
+          />
         </Section>
         <div className="flex flex-wrap items-center gap-4 pb-8 md:pl-[calc(14rem+2.5rem)]">
           <SubmitButton>Save name and scoring</SubmitButton>
@@ -157,12 +261,21 @@ export function SettingsTab({
         </div>
       </form>
 
+      {organizers && (
+        <Section title="Organizer" hint="The organizer account that can manage this activity. You can always manage it.">
+          <OwnerPicker activity={activity} organizers={organizers} />
+        </Section>
+      )}
+
       <Section title="Live results page" hint="What the audience sees on the public link.">
-        <RankingSwitch activity={activity} />
+        <div className="space-y-6">
+          <RankingSwitch activity={activity} />
+          {activity.scoringMode === "criteria" && <CriteriaDisplayChoice activity={activity} />}
+        </div>
       </Section>
 
-      <Section title="Export" hint="An official results sheet with every judge's score, averages, ranks and signature lines.">
-        <ExportResults activityId={activity.id} progress={progress} />
+      <Section title="Export" hint="An official results sheet with every judge's score, averages, ranks, a report ID and each judge's sign-off.">
+        <ExportResults activityId={activity.id} progress={progress} reportId={reportId} />
       </Section>
     </div>
   );

@@ -78,28 +78,14 @@ dialog::backdrop {
   animation: toast-in 0.25s ease-out;
 }
 
-/* LED wall graphic. Wipes and solid colour changes only: fades over the chroma green would tint it. */
-@keyframes led-wipe {
+/* LED wall: everything fades in, whether a new entry, a score or the final average. */
+@keyframes led-fade {
   from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
+    opacity: 0;
   }
 }
-.led-wipe {
-  animation: led-wipe 0.6s cubic-bezier(0.65, 0, 0.35, 1) both;
-}
-@keyframes led-reveal {
-  from {
-    clip-path: inset(100% 0 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-.led-reveal {
-  animation: led-reveal 0.5s cubic-bezier(0.65, 0, 0.35, 1) both;
+.led-fade {
+  animation: led-fade 0.6s ease-out both;
 }
 @keyframes led-dot {
   0%,

@@ -5,15 +5,25 @@ test("admin pages send visitors to sign in", async ({ page }) => {
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/admin\/login$/);
   await expect(page.getByRole("heading", { name: "Admin sign-in" })).toBeVisible();
+  await page.goto("/admin/organizers");
+  await expect(page).toHaveURL(/\/admin\/login$/);
 });
 
-test("a wrong admin password is rejected", async ({ page }) => {
-  await page.goto("/admin/login");
-  await page.getByLabel("Password").fill("definitely-not-the-password");
+test("a wrong super admin password is rejected", async ({ page }) => {
+  await page.goto("/admin/login?as=super");
+  await page.getByLabel("Super admin password").fill("definitely-not-the-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   // Next.js adds its own empty role="alert" route announcer, so match by text.
   await expect(page.getByRole("alert").filter({ hasText: "That password isn't right." })).toBeVisible();
-  await expect(page).toHaveURL(/\/admin\/login$/);
+  await expect(page).toHaveURL(/\/admin\/login\?as=super$/);
+});
+
+test("an unknown organizer email is rejected", async ({ page }) => {
+  await page.goto("/admin/login");
+  await page.getByLabel("Email").fill("nobody@example.com");
+  await page.getByLabel("Password", { exact: true }).fill("not-a-real-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "don't match an organizer account" })).toBeVisible();
 });
 
 test("the scoring screen needs a judge code", async ({ page }) => {
@@ -37,8 +47,8 @@ test("unknown results and LED links show the not-found page", async ({ page }) =
 });
 
 test("sign-in pages meet WCAG 2.1 AA", async ({ page }) => {
-  await page.goto("/admin/login");
-  await expectAccessible(page);
-  await page.goto("/judge");
-  await expectAccessible(page);
+  for (const path of ["/admin/login", "/admin/login?as=super", "/judge"]) {
+    await page.goto(path);
+    await expectAccessible(page);
+  }
 });

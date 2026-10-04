@@ -1,13 +1,13 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { KEY_GREEN, STAGE_H, STAGE_W } from "@/lib/led";
+import { STAGE_H, STAGE_W } from "@/lib/led";
 
 /**
  * A fixed 1920×1080 canvas scaled to fit its container, so the graphic lays out identically
  * on any LED processor resolution and in the admin preview.
  */
-export function FitStage({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+export function FitStage({ children, className = "", background }: { children: React.ReactNode; className?: string; background: string }) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
 
@@ -26,7 +26,7 @@ export function FitStage({ children, className = "" }: { children: React.ReactNo
   }, []);
 
   return (
-    <div ref={outer} className={`relative overflow-hidden ${className}`} style={{ backgroundColor: KEY_GREEN }}>
+    <div ref={outer} className={`relative overflow-hidden ${className}`} style={{ backgroundColor: background }}>
       <div
         ref={inner}
         className="absolute top-1/2 left-1/2 origin-center"

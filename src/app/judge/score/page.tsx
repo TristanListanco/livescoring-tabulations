@@ -1,21 +1,33 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getBoard, getJudgeContext } from "@/lib/data";
-import { sessionJudgeId } from "@/lib/session";
-import { ScoringPanel } from "./scoring-panel";
+import { getBoard, getDevice, getJudgeContext } from "@/lib/data";
+import { judgeSession } from "@/lib/session";
+import { ScoringPanel, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
 
 export default async function ScorePage() {
-  const judgeId = await sessionJudgeId();
-  const context = judgeId ? await getJudgeContext(judgeId) : null;
-  if (!context) redirect("/judge");
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) redirect("/judge");
 
   const board = await getBoard(context.activityId);
   if (!board) redirect("/judge");
 
-  // Judges only ever receive their own scores.
-  const mine = board.scores.filter((s) => s.judgeId === context.judge.id).map((s) => ({ entryId: s.entryId, value: s.value }));
+  // Scoring opens only on the device the organizer approved for this judge.
+  const device = session.deviceId ? await getDevice(session.deviceId) : null;
+  const gate: DeviceGate =
+    device && device.judgeId === context.judge.id && device.status !== "revoked"
+      ? device.status === "approved"
+        ? { status: "approved" }
+        : { status: "pending", pairingCode: device.pairingCode, label: device.label }
+      : { status: "revoked" };
 
-  return <ScoringPanel activity={board.activity} judge={context.judge} entries={board.entries} myScores={mine} />;
+  // Judges only ever receive their own scores, and nothing at all until their device is approved.
+  const mine =
+    gate.status === "approved"
+      ? board.scores.filter((s) => s.judgeId === context.judge.id).map((s) => ({ entryId: s.entryId, value: s.value }))
+      : [];
+
+  return <ScoringPanel activity={board.activity} judge={context.judge} entries={board.entries} myScores={mine} gate={gate} />;
 }

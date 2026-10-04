@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { formatAverage, formatScore, rankEntries, type RankedRow } from "@/lib/scoring";
+import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
 import { Avatar } from "./avatar";
 
@@ -71,7 +71,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
     ? `minmax(3.5rem, 6rem) minmax(12rem, 1.6fr) ${judgeCols} minmax(7rem, 1fr)`
     : `minmax(12rem, 1.6fr) ${judgeCols} minmax(7rem, 1fr)`;
   const mobileCols = ranked ? "grid-cols-[3rem_1fr_auto]" : "grid-cols-[1fr_auto]";
-  const cell = (value: number | undefined) => (value === undefined ? "—" : formatScore(value, activity.decimals));
+  const cell = (value: number | undefined) => (value === undefined ? "—" : scoreText(value, activity));
   const firstRestIndex = rows.findIndex((r) => placeOf(r, ranked) === "rest");
 
   return (
@@ -176,7 +176,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                       top ? "text-[clamp(1.9rem,3.6vw,4.5rem)]" : "text-[clamp(1.5rem,2.7vw,3.25rem)]"
                     }`}
                   >
-                    {formatAverage(row.averageHundredths)}
+                    {averageText(row.averageHundredths, activity)}
                   </p>
                 )}
                 {partial && (

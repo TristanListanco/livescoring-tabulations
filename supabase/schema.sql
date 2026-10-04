@@ -4,6 +4,22 @@
 
 create extension if not exists pgcrypto;
 
+-- Organizer accounts -----------------------------------------------------------
+-- Managed by the super admin (ADMIN_PASSWORD). No row level security policies, so only the
+-- server's secret key can read them: emails and password hashes never reach a browser.
+
+create table if not exists public.admins (
+  id             uuid primary key default gen_random_uuid(),
+  email          text not null unique check (email = lower(btrim(email)) and position('@' in email) > 1),
+  name           text not null check (length(btrim(name)) > 0),
+  photo_path     text,
+  password_hash  text not null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+-- Names and designations printed as signature lines on the results PDF.
+alter table public.admins add column if not exists signatories jsonb not null default '[]'::jsonb;
+
 -- Activities ---------------------------------------------------------------
 
 create table if not exists public.activities (
@@ -32,11 +48,27 @@ create table if not exists public.judges (
 );
 create index if not exists judges_activity_idx on public.judges (activity_id, position);
 
+-- Bumped whenever a judge's devices change, so open screens refresh over realtime.
+alter table public.judges add column if not exists devices_updated_at timestamptz;
+
 -- Access codes live apart from judges so the public role can never read them.
 create table if not exists public.judge_access (
   judge_id  uuid primary key references public.judges (id) on delete cascade,
   code      text not null unique
 );
+
+-- Every device that signs in with a judge's code waits for the organizer's approval; one per judge
+-- is approved. Server only, like judge_access.
+create table if not exists public.judge_devices (
+  id            uuid primary key default gen_random_uuid(),
+  judge_id      uuid not null references public.judges (id) on delete cascade,
+  pairing_code  text not null,
+  label         text not null,
+  status        text not null default 'pending' check (status in ('pending', 'approved', 'revoked')),
+  created_at    timestamptz not null default now(),
+  decided_at    timestamptz
+);
+create index if not exists judge_devices_judge_idx on public.judge_devices (judge_id);
 
 -- Entries ------------------------------------------------------------------
 
@@ -53,6 +85,28 @@ create index if not exists entries_activity_idx on public.entries (activity_id, 
 alter table public.activities add column if not exists show_rank boolean not null default true;
 -- The entry currently on the LED wall output; null shows only the green screen.
 alter table public.activities add column if not exists led_entry_id uuid references public.entries (id) on delete set null;
+-- The organizer who owns the activity; null means only the super admin manages it.
+alter table public.activities add column if not exists owner_id uuid references public.admins (id) on delete set null;
+create index if not exists activities_owner_idx on public.activities (owner_id);
+-- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
+alter table public.activities add column if not exists led_fullscreen boolean not null default false;
+alter table public.activities add column if not exists led_hold_scores boolean not null default false;
+-- Scoring: simple (min to max) or criteria (max points adding up to 100; the score is the total).
+alter table public.activities add column if not exists scoring_mode text not null default 'simple';
+alter table public.activities add column if not exists criteria jsonb not null default '[]'::jsonb;
+alter table public.activities add column if not exists criteria_display text not null default 'percent';
+-- Judging session: draft (not started), live, or ended; and the entry judges are scoring now.
+alter table public.activities add column if not exists session_state text not null default 'draft';
+alter table public.activities add column if not exists session_started_at timestamptz;
+alter table public.activities add column if not exists current_entry_id uuid references public.entries (id) on delete set null;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_session_state_check') then
+    alter table public.activities
+      add constraint activities_session_state_check check (session_state in ('draft', 'live', 'ended'));
+  end if;
+end;
+$$;
 
 -- Scores -------------------------------------------------------------------
 
@@ -65,6 +119,8 @@ create table if not exists public.scores (
   created_at   timestamptz not null default now(),
   unique (entry_id, judge_id)
 );
+-- Points per criterion, keyed by criterion id, for criteria-based activities.
+alter table public.scores add column if not exists breakdown jsonb;
 create index if not exists scores_activity_idx on public.scores (activity_id);
 
 -- Validate every new score against its activity, whoever inserts it.
@@ -119,9 +175,11 @@ create trigger scores_final
 -- Public read for the live board; no public writes. judge_access has no
 -- policies at all, so only the secret key can touch it.
 
+alter table public.admins       enable row level security;
 alter table public.activities   enable row level security;
 alter table public.judges       enable row level security;
 alter table public.judge_access enable row level security;
+alter table public.judge_devices enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 
@@ -156,4 +214,8 @@ $$;
 
 insert into storage.buckets (id, name, public)
 values ('judge-photos', 'judge-photos', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('organizer-photos', 'organizer-photos', true)
 on conflict (id) do nothing;

@@ -3,7 +3,7 @@
 import { useActionState, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
 import { createActivity, type FormResult } from "../../actions";
-import { RulesFields } from "../rules-fields";
+import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
 type DraftJudge = { key: number; name: string; photo: Blob | null; preview: string | null };
@@ -47,8 +47,8 @@ export function ActivityForm() {
         <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="Mr. and Ms. Intramurals 2026" />
       </Section>
 
-      <Section title="Scoring" hint="Judges can only submit scores inside this range.">
-        <RulesFields />
+      <Section title="Scoring" hint="A single score per judge, or points for each criterion adding up to 100.">
+        <ScoringFields />
       </Section>
 
       <Section title="Judges" hint="Each judge gets their own access code after you create the activity.">

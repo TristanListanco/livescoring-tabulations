@@ -13,10 +13,12 @@ export function Avatar({
 }: {
   name: string;
   src: string | null;
-  size?: number;
+  /** Pixels, or any CSS length (e.g. "min(20cqi, 12cqh)") for layouts that scale with their container. */
+  size?: number | string;
   className?: string;
 }) {
-  const style = { width: size, height: size, fontSize: Math.max(11, size * 0.36) };
+  const fontSize = typeof size === "number" ? Math.max(11, size * 0.36) : `calc(${size} * 0.36)`;
+  const style = { width: size, height: size, fontSize };
   if (src) {
     return (
       // Photos are already resized to small squares on upload, so the optimizer adds nothing here.

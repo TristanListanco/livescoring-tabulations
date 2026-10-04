@@ -37,7 +37,7 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
             <ConfirmDialog
               triggerLabel="Reset scores"
               triggerClassName="btn btn-danger"
-              triggerDisabled={scoreCount === 0}
+              triggerDisabled={scoreCount === 0 && activity.sessionState === "draft"}
               title="Reset all scores?"
               tone="danger"
               confirmLabel="Delete all scores"
@@ -48,11 +48,13 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
                 return result;
               }}
             >
-              This deletes all {scoreCount} submitted scores for {activity.name}. Judges can score every entry again, and the live results start over.
+              This deletes all {scoreCount} submitted scores for {activity.name} and puts the session back to not started. Judges can score every
+              entry again, and the judges and running order can be changed.
             </ConfirmDialog>
           }
         >
-          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"}. Judges, entries and access codes stay as they are.
+          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"} and puts the session back to not started. Judges, entries and access
+          codes stay as they are.
         </Tool>
 
         <Tool

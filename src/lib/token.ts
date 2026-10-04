@@ -4,7 +4,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 export const ADMIN_COOKIE = "ls_admin";
 export const JUDGE_COOKIE = "ls_judge";
 
-export type SessionPayload = { role: "admin" | "judge"; sub: string; exp: number };
+/** sub: "super", an organizer's id, or a judge's id. pv: the organizer's password version. dev: the judge's device. */
+export type SessionPayload = { role: "admin" | "judge"; sub: string; pv?: string; dev?: string; exp: number };
 
 function secret(): string {
   const value = process.env.SESSION_SECRET;
