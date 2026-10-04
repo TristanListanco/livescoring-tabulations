@@ -25,7 +25,6 @@ export async function AccessTab({
   devices,
   origin,
   liveUrl,
-  ledUrl,
   judges,
   codes,
   scoredBy,
@@ -35,7 +34,6 @@ export async function AccessTab({
   devices: JudgeDevice[];
   origin: string;
   liveUrl: string;
-  ledUrl: string;
   judges: Judge[];
   codes: Map<string, string>;
   scoredBy: Map<string, number>;
@@ -68,7 +66,7 @@ export async function AccessTab({
           {waiting ? `${waiting} ${waiting === 1 ? "device is" : "devices are"} waiting for approval.` : "No devices are waiting for approval."}
         </p>
         <ul className="mt-3 divide-y divide-line border-y border-line">
-          {judgeLinks.map(({ judge, code, url }, i) => (
+          {judgeLinks.map(({ judge, code }, i) => (
             <li key={judge.id} className="py-4">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                 <div className="flex min-w-48 flex-1 items-center gap-3">
@@ -87,10 +85,7 @@ export async function AccessTab({
                   <span className="sr-only">Code </span>
                   {code}
                 </p>
-                <div className="flex gap-2">
-                  <CopyButton value={code} label="Copy code" />
-                  <CopyButton value={url} label="Copy link" />
-                </div>
+                <CopyButton value={code} label="Copy code" />
               </div>
               <DeviceApproval judge={judge} devices={devices.filter((d) => d.judgeId === judge.id)} />
               <details className="group mt-2 sm:pl-14">
@@ -111,7 +106,8 @@ export async function AccessTab({
       <section>
         <h2 className="text-xl font-bold">Public live results</h2>
         <p className="hint mt-1 max-w-2xl">
-          Anyone with this link sees each entry&apos;s scores from every judge and the average, updating as scores come in. Put it on the venue screen or share it with the audience.
+          Anyone with this link sees each entry&apos;s scores from every judge and the average, updating as scores come in. Put it on the venue screen
+          or share it with the audience.
         </p>
         <div className="mt-4 flex max-w-2xl items-center gap-2">
           <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{liveUrl}</code>
@@ -119,18 +115,6 @@ export async function AccessTab({
         </div>
         <div className="mt-4">
           <Qr svg={liveQr} label="QR code for the live results page" />
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-xl font-bold">LED wall</h2>
-        <p className="hint mt-1 max-w-2xl">
-          One entry&apos;s scores, for the LED wall or video switcher. It follows the entry on the judges&apos; screens. You can also pick one in the LED
-          wall tab.
-        </p>
-        <div className="mt-4 flex max-w-2xl items-center gap-2">
-          <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{ledUrl}</code>
-          <CopyButton value={ledUrl} />
         </div>
       </section>
     </div>

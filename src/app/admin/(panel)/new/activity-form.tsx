@@ -18,9 +18,6 @@ export function ActivityForm() {
   const [pending, startTransition] = useTransition();
   const [judges, setJudges] = useState<DraftJudge[]>(() => [blankJudge(), blankJudge(), blankJudge()]);
   const [entriesText, setEntriesText] = useState("");
-  // The chair of the board of judges, by judge row; null for none.
-  const [chairKey, setChairKey] = useState<number | null>(null);
-  const chairIndex = judges.findIndex((j) => j.key === chairKey);
   const entryCount = entriesText.split(/\r?\n/).filter((l) => l.trim()).length;
 
   const setJudgeCount = (count: number) => {
@@ -125,37 +122,20 @@ export function ActivityForm() {
                   className="field max-w-56 min-w-36 flex-1"
                 />
               </div>
+              <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold has-checked:border-regal has-checked:bg-regal has-checked:text-mint">
+                <input type="radio" name="chair" value={i} required className="accent-mint" />
+                <span>
+                  Chair<span className="sr-only"> of the board of judges: judge {i + 1}</span>
+                </span>
+              </label>
             </li>
           ))}
         </ol>
-        <p className="hint mt-3">
-          Photos are optional; judges without one show their initials. The results PDF uses each judge&apos;s full name and the LED wall their first
-          name.
+        <p className="hint mt-3 max-w-2xl">
+          Pick the chair of the board of judges: besides you, the chair can move to the previous or next entry from their own screen. The chair
+          can&apos;t be changed after the activity is created. Photos are optional; judges without one show their initials. The results PDF uses
+          each judge&apos;s full name and the LED wall their first name.
         </p>
-
-        <div className="mt-6">
-          <label htmlFor="chair" className="label">
-            Chair of the board of judges
-          </label>
-          <select
-            id="chair"
-            name="chair"
-            value={chairIndex >= 0 ? chairIndex : ""}
-            onChange={(e) => setChairKey(e.target.value === "" ? null : judges[Number(e.target.value)].key)}
-            aria-describedby="chair-hint"
-            className="field max-w-sm"
-          >
-            <option value="">No chair</option>
-            {judges.map((j, i) => (
-              <option key={j.key} value={i}>
-                {fullName(j.first, j.last) || `Judge ${i + 1}`}
-              </option>
-            ))}
-          </select>
-          <p id="chair-hint" className="hint mt-1.5 max-w-xl">
-            Besides you, the chair can move to the previous or next entry from their own screen. You can change the chair later.
-          </p>
-        </div>
       </Section>
 
       <Section title="Entries" hint="The contestants, teams or performances being judged. You can add more later.">

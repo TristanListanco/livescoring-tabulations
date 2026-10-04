@@ -1,4 +1,4 @@
-import { ledNames } from "./names";
+import { firstNames } from "./names";
 import { rankEntries } from "./scoring";
 import type { Board, Entry, Judge } from "./types";
 
@@ -20,7 +20,7 @@ export type LedScene =
       kind: "entry";
       entry: Entry;
       number: number;
-      /** label: what the wall calls the judge, their first name (see ledNames). */
+      /** label: what the wall calls the judge, their first name (see firstNames). */
       tiles: { judge: Judge; label: string; state: TileState; value: number | null }[];
       /** hidden while held back; running while judges are still scoring; final once all have. value: as shown (see rankEntries). */
       average: { state: "none" | "hidden" | "running" | "final"; value: number | null; count: number; total: number };
@@ -34,7 +34,7 @@ export function ledScene(board: Board): LedScene {
 
   const complete = judges.length > 0 && row.count === judges.length;
   const hold = activity.ledHoldScores && !complete;
-  const labels = ledNames(judges);
+  const labels = firstNames(judges);
   const tiles = judges.map((judge) => {
     const label = labels.get(judge.id) ?? judge.name;
     const value = row.scores.get(judge.id);

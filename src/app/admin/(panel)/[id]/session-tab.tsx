@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { entryNeighbors } from "@/lib/judging";
 import type { ActionResult, Board, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { setCurrentEntry, setLedEntry, setSessionState } from "../../actions";
+import { setCurrentEntry, setSessionState } from "../../actions";
 
 const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
   draft: {
@@ -30,14 +30,10 @@ export function SessionTab({ board }: { board: Board }) {
       const r = await setCurrentEntry(activity.id, entryId);
       setResult(r.ok ? null : r);
     });
-  const toLed = (entryId: string) =>
-    startTransition(async () => {
-      const r = await setLedEntry(activity.id, entryId);
-      setResult(r.ok ? { ok: true, message: "It's on the LED wall." } : r);
-    });
-  const changeState = async (state: "live" | "ended") => {
-    const r = await setSessionState(activity.id, state);
-    setResult(r);
+  const changeState = async (state: "live" | "ended", password?: string) => {
+    const r = await setSessionState(activity.id, state, password);
+    // A wrong password shows in the dialog, which stays open.
+    if (r.ok || state !== "ended") setResult(r);
     return r;
   };
 
@@ -80,13 +76,20 @@ export function SessionTab({ board }: { board: Board }) {
             title="End the session?"
             tone="danger"
             confirmLabel="End session"
-            onConfirm={() => changeState("ended")}
+            passwordLabel="Your password"
+            onConfirm={(password) => changeState("ended", password)}
           >
-            Judges won&apos;t be able to submit any more scores. You can reopen the session if you need to.
+            Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can
+            reopen the session if you need to.
           </ConfirmDialog>
         )}
         {activity.sessionState === "ended" && (
-          <button type="button" className="btn btn-quiet" disabled={pending} onClick={() => startTransition(async () => void (await changeState("live")))}>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={pending}
+            onClick={() => startTransition(async () => void (await changeState("live")))}
+          >
             Reopen session
           </button>
         )}
@@ -104,18 +107,15 @@ export function SessionTab({ board }: { board: Board }) {
             On judges&apos; screens
           </h2>
           {entry ? (
-            <div className="mt-2 rounded-2xl bg-prussian p-6 text-mint">
+            // Looks like the judges' screens, so it keeps their colours in dark mode.
+            <div className="keep-light mt-2 rounded-2xl bg-prussian p-6 text-mint">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-powder">Now judging: No. {index + 1}</p>
                   <p className="mt-0.5 text-3xl leading-tight font-bold text-balance">{entry.name}</p>
                 </div>
-                {activity.ledEntryId === entry.id ? (
+                {activity.ledEntryId === entry.id && (
                   <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
-                ) : (
-                  <button type="button" className="btn btn-sm border border-oxford text-mint hover:bg-oxford" onClick={() => toLed(entry.id)} disabled={pending}>
-                    Put on LED wall
-                  </button>
                 )}
               </div>
 
@@ -157,11 +157,7 @@ export function SessionTab({ board }: { board: Board }) {
             </div>
           )}
 
-          {chair && (
-            <p className="hint mt-3">
-              {chair.name}, the chair of the board of judges, can also move entries from their own screen. Change the chair in the Judges tab.
-            </p>
-          )}
+          {chair && <p className="hint mt-3">{chair.name}, the chair of the board of judges, can also move entries from their own screen.</p>}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className="btn btn-quiet" onClick={() => previous && show(previous.id)} disabled={!previous || pending}>

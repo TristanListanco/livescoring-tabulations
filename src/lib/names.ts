@@ -19,10 +19,10 @@ export function nameParts(judge: Pick<Judge, "name" | "firstName" | "lastName">)
 }
 
 /**
- * What the LED wall calls each judge: their first name. Judges who share a first name also get their last
- * initial ("Maria S."), and judges saved before names were split show their full name.
+ * What the LED wall and the live results call each judge: their first name. Judges who share a first name
+ * also get their last initial ("Maria S."), and judges saved before names were split show their full name.
  */
-export function ledNames(judges: Pick<Judge, "id" | "name" | "firstName" | "lastName">[]): Map<string, string> {
+export function firstNames(judges: Pick<Judge, "id" | "name" | "firstName" | "lastName">[]): Map<string, string> {
   const key = (first: string) => first.trim().toLowerCase();
   const count = new Map<string, number>();
   for (const j of judges) if (j.firstName) count.set(key(j.firstName), (count.get(key(j.firstName)) ?? 0) + 1);

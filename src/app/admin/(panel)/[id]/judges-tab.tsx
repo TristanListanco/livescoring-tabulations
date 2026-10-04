@@ -1,12 +1,12 @@
 "use client";
 
-import { useActionState, useOptimistic, useState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Judge } from "@/lib/types";
 import { MAX_NAME_PART, nameParts } from "@/lib/names";
-import { addJudge, removeJudge, renameJudge, setChair, setJudgePhoto, type FormResult } from "../../actions";
+import { addJudge, removeJudge, renameJudge, setJudgePhoto, type FormResult } from "../../actions";
 
 function FormMessage({ state }: { state: FormResult }) {
   if (!state) return null;
@@ -61,6 +61,12 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
             {photoError}
           </p>
         )}
+        {judge.isChair && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="rounded-full bg-regal px-2.5 py-0.5 font-semibold text-mint">Chair of the board of judges</span>
+            <span className="hint">Can move entries from their own screen. Set when the activity was created.</span>
+          </p>
+        )}
         <p className="hint tabular">
           {scored} {scored === 1 ? "score" : "scores"} submitted
           {judge.photoUrl && !photoPending && (
@@ -77,6 +83,8 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
       <ConfirmDialog
         triggerLabel="Remove"
         triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+        // The chair is decided when the activity is created.
+        triggerDisabled={judge.isChair}
         title={`Remove ${judge.name}?`}
         tone="danger"
         confirmLabel="Remove judge"
@@ -127,55 +135,6 @@ function AddJudgeForm({ activityId }: { activityId: string }) {
   );
 }
 
-/**
- * The chair of the board of judges can move to the previous or next entry from their own screen, as the
- * organizer can from the Session tab. Saves on change and stays editable after the session starts.
- */
-function ChairPicker({ activityId, judges }: { activityId: string; judges: Judge[] }) {
-  const [chair, setChairShown] = useOptimistic(judges.find((j) => j.isChair)?.id ?? "");
-  const [result, setResult] = useState<FormResult>(null);
-  const [, startTransition] = useTransition();
-  const choose = (judgeId: string) =>
-    startTransition(async () => {
-      setChairShown(judgeId);
-      setResult(await setChair(activityId, judgeId || null));
-    });
-
-  return (
-    <section aria-labelledby="chair" className="mt-10">
-      <h2 id="chair" className="text-xl font-bold">
-        Chair of the board of judges
-      </h2>
-      <p className="hint mt-1 max-w-2xl">
-        Besides you, the chair can move entries. Once they&apos;ve scored an entry, their screen shows who else has scored and Previous and Next
-        entry buttons, and the LED wall follows. Their sign-off on the results PDF reads &ldquo;Chair, Board of Judges&rdquo;. You can change the
-        chair at any time, even during the session.
-      </p>
-      {judges.length === 0 ? (
-        <p className="hint mt-4">Add judges first.</p>
-      ) : (
-        <fieldset className="mt-4">
-          <legend className="sr-only">Chair of the board of judges</legend>
-          <div className="flex flex-wrap gap-2">
-            {[{ id: "", name: "No chair" }, ...judges].map((j) => (
-              <label
-                key={j.id || "none"}
-                className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint"
-              >
-                <input type="radio" name="chair" checked={chair === j.id} onChange={() => choose(j.id)} className="accent-mint" />
-                <span className="font-semibold">{j.name}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-      <div className="mt-3">
-        <FormMessage state={result} />
-      </div>
-    </section>
-  );
-}
-
 export function JudgesTab({
   activityId,
   judges,
@@ -211,7 +170,6 @@ export function JudgesTab({
         )}
         {!locked && <AddJudgeForm activityId={activityId} />}
       </fieldset>
-      <ChairPicker activityId={activityId} judges={judges} />
     </div>
   );
 }

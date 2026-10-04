@@ -154,17 +154,24 @@ export function EntriesTab({
   entries,
   scoredFor,
   started,
+  ended,
 }: {
   activityId: string;
   entries: Entry[];
   scoredFor: Record<string, number>;
   /** Once the session has started the running order is fixed and scored entries stay. */
   started: boolean;
+  /** Once judging has ended nothing about the entries can change. */
+  ended: boolean;
 }) {
   return (
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Entries</h2>
-      {started ? (
+      {ended ? (
+        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
+          Judging has ended, so entries can&apos;t be changed.
+        </p>
+      ) : started ? (
         <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
           The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename entries
           and change their photos.
@@ -175,24 +182,26 @@ export function EntriesTab({
           entry&apos;s name on the LED wall.
         </p>
       )}
-      {entries.length === 0 ? (
-        <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
-      ) : (
-        <ol className="mt-4 divide-y divide-line border-y border-line">
-          {entries.map((e, i) => (
-            <EntryRow
-              key={e.id}
-              entry={e}
-              number={i + 1}
-              isFirst={i === 0}
-              isLast={i === entries.length - 1}
-              scored={scoredFor[e.id] ?? 0}
-              started={started}
-            />
-          ))}
-        </ol>
-      )}
-      <AddEntriesForm activityId={activityId} />
+      <fieldset disabled={ended} className="min-w-0">
+        {entries.length === 0 ? (
+          <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
+        ) : (
+          <ol className="mt-4 divide-y divide-line border-y border-line">
+            {entries.map((e, i) => (
+              <EntryRow
+                key={e.id}
+                entry={e}
+                number={i + 1}
+                isFirst={i === 0}
+                isLast={i === entries.length - 1}
+                scored={scoredFor[e.id] ?? 0}
+                started={started}
+              />
+            ))}
+          </ol>
+        )}
+      </fieldset>
+      {!ended && <AddEntriesForm activityId={activityId} />}
     </div>
   );
 }

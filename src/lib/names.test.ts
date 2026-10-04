@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullName, ledNames, nameParts } from "./names";
+import { fullName, firstNames, nameParts } from "./names";
 
 const judge = (id: string, firstName: string | null, lastName: string | null, name = fullName(firstName ?? "", lastName ?? "")) => ({
   id,
@@ -20,7 +20,7 @@ describe("names", () => {
   });
 
   it("shows first names on the LED wall, with a last initial when two judges share one", () => {
-    const names = ledNames([judge("j1", "Maria", "Santos"), judge("j2", "maria", "Reyes"), judge("j3", "Ben", "Torres"), judge("j4", null, null, "Ana Cruz")]);
+    const names = firstNames([judge("j1", "Maria", "Santos"), judge("j2", "maria", "Reyes"), judge("j3", "Ben", "Torres"), judge("j4", null, null, "Ana Cruz")]);
     expect([...names.values()]).toEqual(["Maria S.", "maria R.", "Ben", "Ana Cruz"]);
   });
 });

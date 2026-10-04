@@ -47,6 +47,7 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("button", { name: "Remove a judge" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
+    await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
 
     await expect(page.getByText("Total 90 of 100 points. The criteria must add up to 100.")).toBeVisible();
@@ -58,13 +59,12 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("button", { name: "Create activity" }).click();
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
-    await expect(page.getByText("Criteria: Innovativeness 30, Design 70. Totals out of 100, shown as a percentage.")).toBeVisible();
 
     adminPath = new URL(page.url()).pathname;
     code = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Code ", "");
-    const links = await page.locator("code").allTextContents();
-    livePath = new URL(links.find((l) => l.includes("/live/"))!).pathname;
-    ledPath = new URL(links.find((l) => l.includes("/led/"))!).pathname;
+    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    await page.goto(`${adminPath}?tab=led`);
+    ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
 
   test("a judge scores each criterion on the keypad and the board shows the total", async ({ page, browser }) => {
@@ -115,6 +115,7 @@ test.describe.serial("criteria scoring", () => {
 
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.locator("dl")).toContainText("Innovativeness 30, Design 70");
     await expect(page.locator("dl")).toContainText("Totals shownAs a percentage");
     await expect(page.getByRole("radio")).toHaveCount(0);
   });

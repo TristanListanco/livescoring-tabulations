@@ -179,6 +179,14 @@ async function manage(activityId: string | null | undefined): Promise<AdminSessi
   return data ? session : null;
 }
 
+/** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */
+async function passwordMatches(session: AdminSession, password: string): Promise<boolean> {
+  if (!password) return false;
+  if (session.kind === "super") return checkSuperAdminPassword(password);
+  const account = await getAdminCredentials(session.admin.id);
+  return !!account && (await verifyPassword(password, account.passwordHash));
+}
+
 /** The activity a judge or entry belongs to, so actions addressed by judge or entry can be authorized. */
 async function parentActivity(table: "judges" | "entries", id: string): Promise<string | null> {
   if (!isUuid(id)) return null;
@@ -189,6 +197,7 @@ async function parentActivity(table: "judges" | "entries", id: string): Promise<
 
 const SESSION_HINT = "Judging sessions need a database update. Run supabase/migrations/005_judging_session.sql in the Supabase SQL editor.";
 const JUDGES_LOCKED = err("Judges are locked once the session has started. Reset scores in the Developer tab to unlock them.");
+const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
 /** The activity's judging session. Databases without migration 005 behave as "not started". */
 async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null }> {
@@ -286,9 +295,10 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
     judges.push({ name: judgeName, photo });
   }
-  // The chair of the board of judges, by position in the list; empty for none.
+  // The chair of the board of judges, by position in the list. Decided now: it can't change later.
   const chairText = String(formData.get("chair") ?? "");
   const chair = /^\d+$/.test(chairText) && Number(chairText) < judgeCount ? Number(chairText) : null;
+  if (chair === null) return err("Choose the chair of the board of judges.");
 
   const entries = entryNames(formData.get("entries"));
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
@@ -396,8 +406,11 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
  * Start (draft or ended → live) or end (live → ended) judging. Starting locks the judges and the
  * running order; judges' screens open as soon as it is live.
  */
-export async function setSessionState(activityId: string, state: "live" | "ended"): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
+export async function setSessionState(activityId: string, state: "live" | "ended", password = ""): Promise<ActionResult> {
+  const session = await manage(activityId);
+  if (!session) return NOT_FOUND;
+  // Ending judging is final for the judges, so it takes the signed-in admin's password.
+  if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
   const current = await sessionOf(activityId);
   if (state === "live" && current.state === "draft") {
     const [judges, entries] = await Promise.all([
@@ -478,20 +491,6 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
 
 const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
 
-/** Put an entry on the LED wall output, or pass null to clear it. */
-export async function setLedEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
-  if (entryId) {
-    const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
-    if (!data) return err("That entry isn't part of this activity.");
-  }
-  const { error } = await db().from("activities").update({ led_entry_id: entryId }).eq("id", activityId);
-  if (error) return err(error.message);
-  refresh();
-  return ok();
-}
-
 /** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
 export async function setLedOptions(activityId: string, options: { fullscreen?: boolean; holdScores?: boolean }): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
@@ -532,31 +531,6 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
   return ok(`${judgeName.name} added.`);
 }
 
-/**
- * The chair of the board of judges, who can move to the previous or next entry from their own screen; null
- * for none. One per activity. Allowed at any time, even mid-session, so the organizer can hand it over if
- * the chair's device fails.
- */
-export async function setChair(activityId: string, judgeId: string | null): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  let name: string | null = null;
-  if (judgeId !== null) {
-    if (!isUuid(judgeId)) return err("Judge not found.");
-    const { data } = await db().from("judges").select("name").eq("id", judgeId).eq("activity_id", activityId).maybeSingle();
-    if (!data) return err("That judge isn't part of this activity.");
-    name = (data as { name: string }).name;
-  }
-  // Clear the current chair first: the database allows only one per activity.
-  const cleared = await db().from("judges").update({ is_chair: false }).eq("activity_id", activityId).eq("is_chair", true);
-  if (cleared.error) return err(judgeError(cleared.error.message));
-  if (judgeId !== null) {
-    const { error } = await db().from("judges").update({ is_chair: true }).eq("id", judgeId);
-    if (error) return err(judgeError(error.message));
-  }
-  refresh();
-  return ok(name ? `${name} is the chair of the board of judges.` : "There's no chair. Only you can move entries.");
-}
-
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
@@ -594,7 +568,11 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
+  // "*" so this works on databases without migration 008's is_chair.
+  const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
+  if ((judge as { is_chair?: boolean } | null)?.is_chair) {
+    return err("The chair of the board of judges is set when the activity is created, so they can't be removed.");
+  }
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return err(error.message);
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
@@ -606,6 +584,7 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
 
 export async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const names = entryNames(formData.get("names"));
   if (names.length === 0) return err("Type at least one entry name.");
 
@@ -622,7 +601,9 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
 }
 
 export async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  if (!(await manage(await parentActivity("entries", entryId)))) return err("Entry not found.");
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
   const { error } = await db().from("entries").update({ name }).eq("id", entryId);
@@ -635,6 +616,7 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
 export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const photo = photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
@@ -655,7 +637,9 @@ export async function setEntryPhoto(entryId: string, formData: FormData): Promis
 export async function removeEntry(entryId: string): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state !== "draft") {
+  const { state } = await sessionOf(activityId);
+  if (state === "ended") return ENTRIES_ENDED;
+  if (state !== "draft") {
     const { count } = await db().from("scores").select("id", { count: "exact", head: true }).eq("entry_id", entryId);
     if (count) return err("Judges have already scored this entry, so it can't be removed during the session.");
   }
