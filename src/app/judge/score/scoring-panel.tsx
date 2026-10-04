@@ -143,7 +143,7 @@ function WaitingCard({
   const { title, body } = copy[view.kind];
 
   return (
-    <div role="status" className="flex w-full max-w-md flex-col items-center text-center lg:max-w-lg">
+    <div role="status" className="my-auto flex w-full max-w-md flex-col items-center text-center lg:max-w-lg">
       {view.kind === "scored" && (
         <div className="mb-8 w-full rounded-2xl border-2 border-oxford px-6 py-7">
           <p className="text-powder">
