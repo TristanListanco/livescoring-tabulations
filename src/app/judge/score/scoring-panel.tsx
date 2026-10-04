@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { LiveStatusBadge } from "@/components/live-status";
 import { applyKey, formatScore, parseScore, rangeLabel, type Key } from "@/lib/scoring";
@@ -31,7 +31,9 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
   const [chosenId, setChosenId] = useState<string | undefined>(() => nextUnscored(entries, scoredIds) ?? entries[0]?.id);
   const [buffer, setBuffer] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  // True only while the score is on its way to the server. The page refresh that follows must not
+  // lock the keypad, or taps for the next entry right after "Saved" would be dropped.
+  const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState<{ name: string; value: string } | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -50,13 +52,13 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
   };
 
   const press = (key: Key) => {
-    if (locked || pending) return;
+    if (locked || submitting) return;
     setError(null);
     setBuffer((b) => applyKey(b, key, activity));
   };
 
   const review = () => {
-    if (!selected || locked || pending) return;
+    if (!selected || locked || submitting) return;
     const parsed = parseScore(buffer, activity);
     if (!parsed.ok) {
       setError(parsed.error);
@@ -65,22 +67,22 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
     dialogRef.current?.showModal();
   };
 
-  const confirm = () => {
-    if (!selected) return;
+  const confirm = async () => {
+    if (!selected || submitting) return;
     const entryId = selected.id;
-    startTransition(async () => {
-      const result = await submitScore(entryId, buffer);
-      dialogRef.current?.close();
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      setSaved({ name: selected.name, value: formatScore(Number(buffer), activity.decimals) });
-      clearTimeout(savedTimer.current);
-      savedTimer.current = setTimeout(() => setSaved(null), 3500);
-      const next = nextUnscored(entries, new Set([...scoredIds, entryId]), entryId);
-      select(next ?? entryId);
-    });
+    setSubmitting(true);
+    const result = await submitScore(entryId, buffer).catch(() => ({ ok: false as const, error: "The score didn't save. Check your connection and try again." }));
+    setSubmitting(false);
+    dialogRef.current?.close();
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setSaved({ name: selected.name, value: formatScore(Number(buffer), activity.decimals) });
+    clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSaved(null), 3500);
+    const next = nextUnscored(entries, new Set([...scoredIds, entryId]), entryId);
+    select(next ?? entryId);
   };
 
   // Keep the chosen entry visible in the phone's sideways entry strip after auto-advancing.
@@ -165,7 +167,9 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
                           {formatScore(value, activity.decimals)}
                         </span>
                       ) : (
-                        <span className="ml-auto size-2.5 shrink-0 rounded-full border-2 border-powder/60" aria-label="Not scored yet" />
+                        <span className="ml-auto size-2.5 shrink-0 rounded-full border-2 border-powder/60">
+                          <span className="sr-only">Not scored yet</span>
+                        </span>
                       )}
                     </button>
                   </li>
@@ -261,7 +265,7 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
                   <button
                     type="button"
                     onClick={review}
-                    disabled={!typed.ok || pending}
+                    disabled={!typed.ok || submitting}
                     className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
                   >
                     Submit score
@@ -286,11 +290,11 @@ export function ScoringPanel({ activity, judge, entries, myScores }: Props) {
           <p className="mt-3 text-prussian/75">You can&apos;t change it after submitting.</p>
         </div>
         <div className="grid grid-cols-2 gap-3 px-6 pb-6">
-          <button type="button" className="btn h-14 rounded-xl btn-quiet text-lg" onClick={() => dialogRef.current?.close()} disabled={pending} autoFocus>
+          <button type="button" className="btn h-14 rounded-xl btn-quiet text-lg" onClick={() => dialogRef.current?.close()} disabled={submitting} autoFocus>
             Go back
           </button>
-          <button type="button" className="btn h-14 rounded-xl btn-primary text-lg" onClick={confirm} disabled={pending}>
-            {pending ? "Submitting…" : "Submit"}
+          <button type="button" className="btn h-14 rounded-xl btn-primary text-lg" onClick={confirm} disabled={submitting}>
+            {submitting ? "Submitting…" : "Submit"}
           </button>
         </div>
       </dialog>

@@ -65,9 +65,19 @@ Import the repository in Vercel and add the same environment variables. Set `NEX
 | --- | --- |
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build |
-| `npm test` | Unit tests for keypad input, score validation and ranking |
+| `npm test` | Unit tests for keypad input, score validation, ranking and progress |
+| `npm run test:e2e` | Web tests in a real browser (Playwright) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript |
+
+## Tests and CI
+
+GitHub Actions runs on every pull request and every push to `main` (`.github/workflows/ci.yml`):
+
+- **Lint, types and unit tests**: `npm run lint`, `npm run typecheck`, `npm test`.
+- **Web tests**: starts a throwaway local Supabase on the runner, loads `supabase/schema.sql`, builds the app and runs the Playwright tests in `e2e/` against it. They walk through a whole event: creating an activity with a judge photo, judges scoring on a phone and a tablet, the live board updating in real time, hiding ranks, the PDF export, the LED wall, and resetting and deleting. They also check sign-in guards and scan key pages for WCAG 2.1 AA issues. The HTML report is attached to each run.
+
+To run the web tests locally, start the app with `npm run dev` and run `E2E_PORT=3000 npm run test:e2e`. They use your `.env.local` project, create an activity named `E2E …` and delete it at the end.
 
 ## Fonts
 

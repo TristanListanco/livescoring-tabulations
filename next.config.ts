@@ -17,6 +17,9 @@ function lanAddresses(): string[] {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
+  // The corner badge would sit on top of the judge's Submit button and the LED wall's green.
+  // Build and runtime errors still open the full-screen overlay.
+  devIndicators: false,
   // The PDF renderer ships its own layout engine and font data; load it from node_modules as-is.
   serverExternalPackages: ["@react-pdf/renderer"],
   experimental: {

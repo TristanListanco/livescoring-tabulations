@@ -68,7 +68,8 @@ export async function AccessTab({
                     </p>
                   </div>
                 </div>
-                <p className="tabular text-2xl font-bold tracking-[0.2em] text-regal" aria-label={`Code ${code.split("").join(" ")}`}>
+                <p className="tabular text-2xl font-bold tracking-[0.2em] text-regal">
+                  <span className="sr-only">Code </span>
                   {code}
                 </p>
                 <div className="flex gap-2">
