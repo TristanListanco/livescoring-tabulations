@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LiveScoring
 
-## Getting Started
+Web tabulation for judged competitions. An admin sets up an activity, judges score entries from their own devices, and a public page shows every judge's score and the average, ranked live.
 
-First, run the development server:
+- **Admin panel** (`/admin`): create activities with a name, a score range (min to max), decimal places (whole numbers, 1 or 2 decimals), judges with names and photos, and entries. Each activity has tabs for access codes, judges, entries, live results, settings and developer tools (reset scores, delete activity). In **Settings** you can hide or show ranks on the public page, and download the official results as a PDF once every judge has scored every entry.
+- **Judge portal** (`/judge`): a judge enters their six-character code, or scans their QR code, to sign that device in. They pick an entry, type the score on a large keypad and submit it. Submitted scores are final.
+- **Live results** (`/live/<id>`): every judge's score and the average for each entry, updated in real time and made to be projected. With ranks on, entries are sorted by average and the top 3 stand out; with ranks off, entries stay in running order.
+- **LED wall** (`/led/<id>`): a broadcast-style lower third for one entry on a chroma green (`#00FF00`) background, for the LED wall or a video switcher to key over the camera shot. Each judge's score appears as it is submitted, and the average turns final when every judge has scored. The admin picks the entry in the **LED wall** tab.
+
+Built with Next.js 16, Supabase (Postgres, Realtime and Storage) and Tailwind CSS 4.
+
+## Setup
+
+1. **Create a Supabase project** at [supabase.com](https://supabase.com).
+2. **Create the database.** In the Supabase dashboard open **SQL Editor**, paste the contents of [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates the tables, the score rules, public read access, realtime and the `judge-photos` storage bucket. Running it again is safe.
+
+   If you set up the database before the "show ranks" setting and the LED wall existed, also run [`supabase/migrations/003_led_wall.sql`](supabase/migrations/003_led_wall.sql). It brings any older database up to date.
+3. **Configure the app.** Copy `.env.example` to `.env.local` and fill it in. The Supabase values are under **Project Settings > API Keys**. Keep real values out of `.env.example`, because that file is committed.
+4. **Run it.**
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+   Open http://localhost:3000/admin and sign in with `ADMIN_PASSWORD`.
+
+## Running an event
+
+1. Create the activity in the admin panel. You land on the **Access** tab.
+2. Give each judge their code, or have them scan their QR code. Judges can also open `/judge` and type the code.
+3. Open the public results link on the venue screen, or share it with the audience.
+4. For the LED wall, open the LED wall link full screen on the computer that feeds the wall or video switcher, and key out the green. Pick the entry on air from the **LED wall** tab: **Next** steps through the running order, **Clear screen** leaves only green.
+5. Use **Developer > Reset scores** after a rehearsal to start clean.
+
+### Running on a laptop over the venue Wi-Fi
+
+Judges' phones and tablets must be on the same Wi-Fi as the laptop. For the event itself, use a production build; it is faster and more reliable than the dev server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm start -- -H 0.0.0.0
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The admin panel works at `http://localhost:3000/admin` on the laptop. Judge links, QR codes and the results link automatically use the laptop's Wi-Fi address (for example `http://192.168.1.16:3000`) so other devices can open them. Set `NEXT_PUBLIC_SITE_URL` to pin a specific address.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`npm run dev -- -H 0.0.0.0` also works for testing on phones; the dev server allows this laptop's network addresses.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploying to Vercel
 
-## Learn More
+Import the repository in Vercel and add the same environment variables. Set `NEXT_PUBLIC_SITE_URL` to your production URL.
 
-To learn more about Next.js, take a look at the following resources:
+## How it works
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- All writes go through Next.js Server Actions using the Supabase secret key. The browser only gets the publishable key, which can read the public tables for realtime but cannot write.
+- Judge access codes live in a separate table with no public access.
+- Database triggers check every score against the activity's range and decimal places, and reject any attempt to change a submitted score.
+- Sessions are signed, http-only cookies (`SESSION_SECRET`). Admin sessions last 12 hours and judge sessions 3 days.
+- Live pages refresh on Supabase Realtime events, poll every 15 seconds as a fallback, and refresh when the tab regains focus.
+- Rankings use the average of the scores submitted so far, rounded to two decimals. Entries with equal averages share a rank.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm test` | Unit tests for keypad input, score validation and ranking |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Fonts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The UI uses Avenir Next, which is built into Apple devices. Other devices fall back to Nunito Sans from Google Fonts. If you have an Avenir web-font license, add the files with `next/font/local` in `src/app/layout.tsx`.
