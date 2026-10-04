@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Judge } from "@/lib/types";
+import { MAX_NAME_PART, nameParts } from "@/lib/names";
 import { addJudge, removeJudge, renameJudge, setJudgePhoto, type FormResult } from "../../actions";
 
 function FormMessage({ state }: { state: FormResult }) {
@@ -48,11 +49,8 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
       </div>
 
       <div className="min-w-0 flex-1 space-y-2">
-        <form action={rename} className="flex max-w-md items-center gap-2">
-          <label htmlFor={`name-${judge.id}`} className="sr-only">
-            Name
-          </label>
-          <input id={`name-${judge.id}`} name="name" required maxLength={120} defaultValue={judge.name} className="field" />
+        <form action={rename} className="flex max-w-xl flex-wrap items-end gap-2">
+          <NameFields idPrefix={judge.id} initial={nameParts(judge)} />
           <SubmitButton className="btn btn-quiet" pendingLabel="Saving…">
             Save
           </SubmitButton>
@@ -61,6 +59,12 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
         {photoError && (
           <p role="alert" className="text-sm font-semibold text-danger">
             {photoError}
+          </p>
+        )}
+        {judge.isChair && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="rounded-full bg-regal px-2.5 py-0.5 font-semibold text-mint">Chair of the board of judges</span>
+            <span className="hint">Can move entries from their own screen. Set when the activity was created.</span>
           </p>
         )}
         <p className="hint tabular">
@@ -79,6 +83,8 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
       <ConfirmDialog
         triggerLabel="Remove"
         triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+        // The chair is decided when the activity is created.
+        triggerDisabled={judge.isChair}
         title={`Remove ${judge.name}?`}
         tone="danger"
         confirmLabel="Remove judge"
@@ -93,17 +99,37 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
   );
 }
 
+/** First and last name. The full name goes on the results PDF; the LED wall shows the first name. */
+function NameFields({ idPrefix, initial }: { idPrefix: string; initial?: { first: string; last: string } }) {
+  return (
+    <>
+      <div className="min-w-36 flex-1">
+        <label htmlFor={`${idPrefix}-first`} className="mb-1 block text-sm font-semibold">
+          First name
+        </label>
+        <input id={`${idPrefix}-first`} name="first_name" required maxLength={MAX_NAME_PART} defaultValue={initial?.first} className="field" />
+      </div>
+      <div className="min-w-36 flex-1">
+        <label htmlFor={`${idPrefix}-last`} className="mb-1 block text-sm font-semibold">
+          Last name
+        </label>
+        <input id={`${idPrefix}-last`} name="last_name" required maxLength={MAX_NAME_PART} defaultValue={initial?.last} className="field" />
+      </div>
+    </>
+  );
+}
+
 function AddJudgeForm({ activityId }: { activityId: string }) {
   const [state, action] = useActionState<FormResult, FormData>(addJudge.bind(null, activityId), null);
   return (
     <form action={action} className="mt-6 space-y-2">
-      <label htmlFor="new-judge" className="label">
-        Add a judge
-      </label>
-      <div className="flex max-w-md gap-2">
-        <input id="new-judge" name="name" required maxLength={120} placeholder="Full name" className="field" />
-        <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
-      </div>
+      <fieldset>
+        <legend className="label">Add a judge</legend>
+        <div className="flex max-w-xl flex-wrap items-end gap-2">
+          <NameFields idPrefix="new-judge" />
+          <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
+        </div>
+      </fieldset>
       <FormMessage state={state} />
     </form>
   );

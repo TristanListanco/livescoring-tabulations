@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { LiveBoard } from "@/components/live-board";
 import { getAccessCodes, getBoard, listAdmins, listDevices } from "@/lib/data";
 import { siteOrigin } from "@/lib/origin";
 import { reportId } from "@/lib/report";
-import { rulesSummary, scoreProgress } from "@/lib/scoring";
+import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { AccessTab } from "./access-tab";
@@ -21,7 +20,6 @@ const TABS = [
   { id: "access", label: "Access" },
   { id: "judges", label: "Judges" },
   { id: "entries", label: "Entries" },
-  { id: "results", label: "Results" },
   { id: "led", label: "LED wall" },
   { id: "settings", label: "Settings" },
   { id: "developer", label: "Developer" },
@@ -87,15 +85,11 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
             </Link>
             {waitingDevices > 0 && (
-              <Link href={`/admin/${activity.id}?tab=session`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
+              <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
                 {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
               </Link>
             )}
           </div>
-          <p className="hint mt-1">
-            {rulesSummary(activity)}{" "}
-            {judges.length} {judges.length === 1 ? "judge" : "judges"}, {entries.length} {entries.length === 1 ? "entry" : "entries"}.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-5">
           <div className="w-44">
@@ -116,9 +110,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               />
             </div>
           </div>
-          <a href={liveUrl} target="_blank" rel="noreferrer" className="btn btn-quiet">
-            Open live results
-          </a>
         </div>
       </div>
 
@@ -150,24 +141,31 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
       <div className="pt-8">
         {tab === "access" && (
           <AccessTab
+            activityId={activity.id}
+            devices={devices}
             origin={origin}
             liveUrl={liveUrl}
-            ledUrl={ledUrl}
             judges={judges}
             codes={await getAccessCodes(judges.map((j) => j.id))}
             scoredBy={scoredBy}
             entryCount={entries.length}
           />
         )}
-        {tab === "session" && <SessionTab board={board} devices={devices} />}
+        {tab === "session" && <SessionTab board={board} />}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
-        {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} started={started} />}
-        {tab === "results" && <LiveBoard board={board} embedded />}
+        {tab === "entries" && (
+          <EntriesTab
+            activityId={activity.id}
+            entries={entries}
+            scoredFor={Object.fromEntries(scoredFor)}
+            started={started}
+            ended={activity.sessionState === "ended"}
+          />
+        )}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
-            hasScores={scores.length > 0 || started}
             progress={progress}
             reportId={reportId(board)}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}

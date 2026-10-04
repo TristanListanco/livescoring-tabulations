@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { judgeView } from "./judging";
+import { entryNeighbors, judgeView, showEntryColumns } from "./judging";
 
 const entries = [
   { id: "e1", name: "Agila", photoUrl: null, position: 0 },
@@ -28,5 +28,26 @@ describe("judgeView", () => {
 
   it("closes when the session ends", () => {
     expect(judgeView({ sessionState: "ended", currentEntryId: "e1" }, entries, none)).toEqual({ kind: "ended" });
+  });
+});
+
+describe("entryNeighbors", () => {
+  it("starts at the first entry when nothing is on screen", () => {
+    expect(entryNeighbors(entries, null)).toMatchObject({ index: -1, entry: null, previous: null, next: entries[0] });
+  });
+
+  it("finds the entries before and after the current one", () => {
+    expect(entryNeighbors(entries, "e1")).toMatchObject({ index: 0, entry: entries[0], previous: null, next: entries[1] });
+    expect(entryNeighbors(entries, "e2")).toMatchObject({ index: 1, entry: entries[1], previous: entries[0], next: null });
+  });
+});
+
+describe("showEntryColumns", () => {
+  it("puts the entry judges are shown on the LED wall too", () => {
+    expect(showEntryColumns("e2")).toEqual({ current_entry_id: "e2", led_entry_id: "e2" });
+  });
+
+  it("leaves the LED wall alone when judges go back to waiting", () => {
+    expect(showEntryColumns(null)).toEqual({ current_entry_id: null });
   });
 });

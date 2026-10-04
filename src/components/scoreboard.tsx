@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
+import { firstNames } from "@/lib/names";
 import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
 import { Avatar } from "./avatar";
@@ -25,6 +26,9 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
   const { activity, judges } = board;
   const ranking = rankEntries(board.entries, judges, board.scores, activity);
   const rows = ranked ? ranking : [...ranking].sort((a, b) => a.number - b.number);
+  // Judges go by their first names here, as on the LED wall.
+  const names = firstNames(judges);
+  const nameOf = (judgeId: string) => names.get(judgeId) ?? "";
   const listRef = useRef<HTMLOListElement>(null);
   const tops = useRef(new Map<string, number>());
   const knownScores = useRef<Set<string> | null>(null);
@@ -66,7 +70,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
     return <p className="px-6 py-16 text-center text-lg text-powder">No entries yet. Add them from the admin panel and they appear here.</p>;
   }
 
-  const judgeCols = `repeat(${judges.length}, minmax(4.5rem, 1fr))`;
+  const judgeCols = `repeat(${judges.length}, minmax(6rem, 1fr))`;
   const columns = ranked
     ? `minmax(3.5rem, 6rem) minmax(12rem, 1.6fr) ${judgeCols} minmax(7rem, 1fr)`
     : `minmax(12rem, 1.6fr) ${judgeCols} minmax(7rem, 1fr)`;
@@ -84,8 +88,8 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
         <span>Entry</span>
         {judges.map((j) => (
           <span key={j.id} className="flex min-w-0 flex-col items-center gap-2 text-center">
-            <Avatar name={j.name} src={j.photoUrl} size={52} />
-            <span className="w-full truncate text-[clamp(0.85rem,0.9vw,1.05rem)]">{j.name}</span>
+            <Avatar name={j.name} src={j.photoUrl} size={88} />
+            <span className="w-full truncate text-[clamp(0.95rem,1vw,1.2rem)]">{nameOf(j.id)}</span>
           </span>
         ))}
         <span className="text-right">Average</span>
@@ -141,8 +145,8 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                             top ? "bg-prussian/60" : "bg-oxford"
                           }`}
                         >
-                          <Avatar name={j.name} src={j.photoUrl} size={22} />
-                          <span className="sr-only">{j.name}:</span>
+                          <Avatar name={j.name} src={j.photoUrl} size={30} />
+                          <span className="sr-only">{nameOf(j.id)}:</span>
                           <span className={v === undefined ? "text-powder" : ""}>{cell(v)}</span>
                         </li>
                       );
@@ -161,7 +165,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                       v === undefined ? "text-[clamp(1rem,1.4vw,1.75rem)] text-powder" : "text-[clamp(1.05rem,1.8vw,2.25rem)] text-mint"
                     }`}
                   >
-                    <span className="sr-only">{j.name}: </span>
+                    <span className="sr-only">{nameOf(j.id)}: </span>
                     <span style={fit(cell(v))}>{cell(v)}</span>
                   </span>
                 );

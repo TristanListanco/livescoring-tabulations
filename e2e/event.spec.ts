@@ -72,6 +72,12 @@ async function openSession(page: Page) {
   await page.goto(`${adminPath}?tab=session`);
 }
 
+/** The organizer's Access tab, where judges' devices are approved. */
+async function openAccess(page: Page) {
+  await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
+  await page.goto(`${adminPath}?tab=access`);
+}
+
 test.describe.serial("a full event", () => {
   test.beforeAll(async ({ browser }) => {
     judge1 = await openDevice(browser, { ...devices["Pixel 7"] });
@@ -124,8 +130,12 @@ test.describe.serial("a full event", () => {
     await page.getByRole("link", { name: "New activity" }).first().click();
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Ana Cruz");
-    await page.getByLabel("Judge 2 name").fill("Ben Torres");
+    await page.getByLabel("Judge 1 first name").fill("Ana");
+    await page.getByLabel("Judge 1 last name").fill("Cruz");
+    await page.getByLabel("Judge 2 first name").fill("Ben");
+    await page.getByLabel("Judge 2 last name").fill("Torres");
+    // Ben chairs the board of judges: he can move entries from his own screen. Picking a chair is required.
+    await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
     await page.getByLabel("Photo for Ana Cruz").setInputFiles(PHOTO);
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
@@ -140,10 +150,14 @@ test.describe.serial("a full event", () => {
     const codeTexts = await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).allTextContents();
     codes = codeTexts.map((t) => t.replace("Code ", ""));
     expect(codes).toHaveLength(2);
-    const links = await page.locator("code").allTextContents();
-    livePath = new URL(links.find((l) => l.includes("/live/"))!).pathname;
-    ledPath = new URL(links.find((l) => l.includes("/led/"))!).pathname;
+    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    // Judges' codes, without per-judge links; the header has no live results button or rules line.
+    await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Open live results" })).toHaveCount(0);
+    await expect(page.getByText(/^Scores from 1 to 10/)).toHaveCount(0);
     await expectAccessible(page);
+    await page.goto(`${adminPath}?tab=led`);
+    ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
 
   test("only the device the organizer approves can judge", async ({ page }) => {
@@ -166,8 +180,10 @@ test.describe.serial("a full event", () => {
     const intruderCode = await pairingCode(intruder);
     expect(intruderCode).not.toBe(code1);
 
-    await openSession(page);
+    // Devices are approved from the Access tab, next to each judge's code.
+    await openAccess(page);
     await expect(page.getByRole("link", { name: "3 devices waiting for approval" })).toBeVisible();
+    await expect(page.getByText("3 devices are waiting for approval.")).toBeVisible();
     await page.getByRole("button", { name: `Approve Ana Cruz's device ${code1}` }).click();
     await page.getByRole("button", { name: `Approve Ben Torres's device ${code2}` }).click();
     await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
@@ -177,7 +193,8 @@ test.describe.serial("a full event", () => {
     await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
     await expect(page.getByRole("button", { name: `Approve Ana Cruz's device ${intruderCode}` })).toHaveCount(0);
     await expect(page.getByText("Approved: Android phone · Chrome")).toBeVisible();
-    await snap(page, "session tab, judge devices");
+    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).toContainText("Chair");
+    await snap(page, "access tab, judge devices");
 
     await live.goto(livePath);
     await expect(live.getByRole("status")).toHaveText("Live", { timeout: 30_000 });
@@ -189,12 +206,17 @@ test.describe.serial("a full event", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
     await expect(page.getByText("Session: Live")).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
-    await expect(heading(judge2)).toHaveText("Waiting for the first entry", REALTIME);
+    // Ben chairs the board of judges, so instead of waiting he can show the first entry himself.
+    await expect(heading(judge2)).toHaveText("Ready for the first entry", REALTIME);
+    await expect(judge2.getByRole("region", { name: "Chair of the board of judges" }).getByRole("button", { name: "Show first entry: Agila" })).toBeEnabled();
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
     await expect(page.getByRole("note")).toContainText("Judges are locked");
-    await expect(page.getByLabel("Name").first()).toBeDisabled();
+    await expect(page.getByLabel("First name").first()).toBeDisabled();
+    // The chair is shown in the panel, fixed since the activity was created.
+    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(1);
+    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" }).getByLabel("First name")).toHaveValue("Ben");
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);
@@ -231,6 +253,9 @@ test.describe.serial("a full event", () => {
     await submitScore(judge1, "Agila", "9.75");
     await expect(heading(judge1)).toHaveText("Waiting for the next entry");
     await expect(live.locator("li[data-entry]", { hasText: "Agila" })).toContainText("9.75", REALTIME);
+    // The live results call judges by their first names.
+    await expect(live.getByText("Ana", { exact: true }).first()).toBeVisible();
+    await expect(live.getByText("Ana Cruz")).toHaveCount(0);
     await expect(page.getByText("1 of 2 judges have scored.")).toBeVisible(REALTIME);
     await snap(judge1, "judge waiting for the next entry");
     await snap(page, "session tab, one judge in");
@@ -244,9 +269,12 @@ test.describe.serial("a full event", () => {
 
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=led`);
-    await page.getByRole("button", { name: "Show first" }).click();
-    // Only Ana has scored, so her 9.75 is both her score and the running average.
+    // Showing judges Agila put it on the LED wall too. Judges go by their first names there.
     await expect(led.getByText("Agila", { exact: true })).toBeVisible(REALTIME);
+    await expect(led.getByText("Ana", { exact: true })).toBeVisible();
+    await expect(led.getByText("Ben", { exact: true })).toBeVisible();
+    await expect(led.getByText("Ana Cruz", { exact: true })).toHaveCount(0);
+    // Only Ana has scored, so her 9.75 is both her score and the running average.
     await expect(led.getByText("9.75", { exact: true })).toHaveCount(2);
     // Agila's photo sits beside the name.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
@@ -272,17 +300,27 @@ test.describe.serial("a full event", () => {
     await led.goto(ledPath);
     await expect(led.getByText("9.50", { exact: true })).toBeVisible();
     await expect(led.getByText("Scored", { exact: true })).toHaveCount(0);
-    await led.context().close();
 
+    // The LED wall moves with the judges.
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
     await expect(heading(judge1)).toHaveText("Bagwis", REALTIME);
+    await expect(led.getByText("Bagwis", { exact: true })).toBeVisible(REALTIME);
     await submitScore(judge1, "Bagwis", "8.5", "8.50");
     await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
     await submitScore(judge2, "Bagwis", "8.75");
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
 
-    await page.getByRole("button", { name: "Show next entry: Kidlat" }).click();
+    // Ben, the chair, moves to the next entry from his own screen. Ana can't.
+    await expect(heading(judge2)).toHaveText("Your score is in");
+    const chair = judge2.getByRole("region", { name: "Chair of the board of judges" });
+    await expect(chair.getByRole("status")).toHaveText("Every judge has scored Bagwis.", REALTIME);
+    await snap(judge2, "chair after scoring");
+    await expect(judge1.getByRole("button", { name: /^Next/ })).toHaveCount(0);
+    await chair.getByRole("button", { name: "Next: Kidlat" }).click();
     await expect(heading(judge1)).toHaveText("Kidlat", REALTIME);
+    await expect(led.getByText("Kidlat", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
+    await led.context().close();
     await submitScore(judge1, "Kidlat", "9", "9.00");
     await expect(heading(judge2)).toHaveText("Kidlat", REALTIME);
     await submitScore(judge2, "Kidlat", "9.5", "9.50");
@@ -308,30 +346,33 @@ test.describe.serial("a full event", () => {
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
-  test("results show the decimal places the organizer picks, and tie on what they show", async ({ page }) => {
+  test("scoring can't be changed once the activity is created", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=settings`);
-    const places = () => page.getByLabel("Decimal places shown in results");
-    const save = () => page.getByRole("button", { name: "Save name and scoring" }).click();
-    await places().fill("5");
-    await expect(page.getByRole("alert").filter({ hasText: "0 to 4" })).toHaveText("Enter a whole number from 0 to 4.");
+    const scoring = page.locator("dl");
+    await expect(scoring).toContainText("Simple, scores from 1 to 10");
+    await expect(scoring).toContainText("Results show2 decimal places");
+    for (const field of ["Min score", "Max score", "Decimal places shown in results"]) await expect(page.getByLabel(field)).toHaveCount(0);
+    await expect(page.getByRole("radio")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save name" })).toBeVisible();
+  });
 
-    // Mid-session, the scoring is locked but decimal places can still change.
-    await places().fill("3");
-    await save();
-    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.625", REALTIME);
-    await expect(places()).toHaveValue("3");
+  test("the admin panel has a dark mode, remembered in this browser", async ({ page }) => {
+    await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
+    await page.goto(`${adminPath}?tab=access`);
+    const toggle = page.getByRole("button", { name: "Dark mode" });
+    const panel = page.locator("[data-admin-theme]");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(panel).toHaveCSS("background-color", "rgb(11, 23, 40)");
+    await expectAccessible(page);
+    await snap(page, "access tab, dark mode");
 
-    // Whole numbers: Kidlat's 9.25 and Bagwis's 8.625 both show 9, so they share second place.
-    await places().fill("0");
-    await save();
-    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
-    await expect(live.locator("li[data-entry]").nth(1)).toContainText("Rank 2");
-    await expect(live.locator("li[data-entry]").nth(2)).toContainText("Rank 2");
-
-    await places().fill("2");
-    await save();
-    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
+    await page.goto(`${adminPath}?tab=session`);
+    await expect(panel).toHaveCSS("background-color", "rgb(11, 23, 40)");
+    await expectAccessible(page);
+    await snap(page, "session tab, dark mode");
   });
 
   test("the results PDF downloads with a report ID", async ({ page }) => {
@@ -348,11 +389,30 @@ test.describe.serial("a full event", () => {
 
   test("ending the session closes the judges' screens", async ({ page }) => {
     await openSession(page);
+    // Ending takes the organizer's password.
     await page.getByRole("button", { name: "End session" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "End session" })).toBeDisabled();
+    await dialog.getByLabel("Your password").fill("not the password");
+    await dialog.getByRole("button", { name: "End session" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("That password isn't right.");
+    await dialog.getByLabel("Your password").fill(ORGANIZER.password);
+    await dialog.getByRole("button", { name: "End session" }).click();
     await expect(page.getByText("Session: Ended")).toBeVisible();
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
+
+    // The running order says every entry was judged, with nothing left to judge.
+    const order = page.getByRole("region", { name: "Running order" });
+    await expect(order.getByText("Judged", { exact: true })).toHaveCount(3);
+    await expect(order.getByText("Now judging", { exact: true })).toHaveCount(0);
+    await expect(order.getByRole("button", { name: "Judge now" })).toHaveCount(0);
+
+    // Entries can't change once judging has ended.
+    await page.goto(`${adminPath}?tab=entries`);
+    await expect(page.getByRole("note")).toHaveText("Judging has ended, so entries can't be changed.");
+    await expect(page.getByLabel("Entry 1 name")).toBeDisabled();
+    await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
   });
 
   test("another organizer can't see or export this activity", async ({ page }) => {

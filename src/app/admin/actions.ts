@@ -16,6 +16,8 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
+import { showEntryColumns } from "@/lib/judging";
+import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
@@ -126,24 +128,35 @@ function readScoring(formData: FormData): { scoring: Scoring } | { error: string
 }
 
 /** Columns for the scoring rules. The criteria columns are only written when they matter, so simple activities work on databases without migration 006. */
-function scoringColumns(scoring: Scoring, wasCriteria: boolean): Record<string, unknown> {
+function scoringColumns(scoring: Scoring): Record<string, unknown> {
   const columns: Record<string, unknown> = { min_score: scoring.rules.min, max_score: scoring.rules.max, decimals: scoring.rules.decimals };
-  if (scoring.mode === "criteria" || wasCriteria) {
+  if (scoring.mode === "criteria") {
     columns.scoring_mode = scoring.mode;
     columns.criteria = scoring.criteria;
+    if (scoring.display) columns.criteria_display = scoring.display;
   }
-  if (scoring.display && (scoring.mode === "criteria" || wasCriteria)) columns.criteria_display = scoring.display;
   return columns;
-}
-
-/** Criteria as a comparable string, whatever key order they were stored in. */
-function criteriaKey(value: unknown): string {
-  if (!Array.isArray(value)) return "[]";
-  return JSON.stringify(value.map((c: { id?: unknown; name?: unknown; max?: unknown }) => [String(c?.id), String(c?.name), Number(c?.max)]));
 }
 
 const SCORING_HINT =
   "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
+/** The database hasn't run migration 008 yet: PostgREST can't find its columns. Other errors about them are real errors. */
+const missingJudgeColumns = (message: string) => /first_name|last_name|is_chair/.test(message) && /schema cache|does not exist/.test(message);
+const JUDGES_HINT =
+  "Judges' first and last names and the chair need a database update. Run supabase/migrations/008_judge_names_and_chair.sql in the Supabase SQL editor.";
+const judgeError = (message: string) => (missingJudgeColumns(message) ? JUDGES_HINT : message);
+
+/** A judge's first and last name from a form, and the full name built from them. */
+function readJudgeName(formData: FormData, prefix: string, who: string): { first: string; last: string; name: string } | { error: string } {
+  const part = (key: string) => String(formData.get(`${prefix}${key}`) ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME_PART);
+  const first = part("first_name");
+  const last = part("last_name");
+  if (!first || !last) return { error: `Enter ${who}'s first and last name.` };
+  return { first, last, name: fullName(first, last) };
+}
+
+/** Columns for a judge's name. */
+const nameColumns = (n: { first: string; last: string; name: string }) => ({ name: n.name, first_name: n.first, last_name: n.last });
 const PHOTOS_AND_PLACES_HINT =
   "This needs a database update. Run supabase/migrations/007_entry_photos_result_decimals.sql in the Supabase SQL editor.";
 
@@ -166,6 +179,14 @@ async function manage(activityId: string | null | undefined): Promise<AdminSessi
   return data ? session : null;
 }
 
+/** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */
+async function passwordMatches(session: AdminSession, password: string): Promise<boolean> {
+  if (!password) return false;
+  if (session.kind === "super") return checkSuperAdminPassword(password);
+  const account = await getAdminCredentials(session.admin.id);
+  return !!account && (await verifyPassword(password, account.passwordHash));
+}
+
 /** The activity a judge or entry belongs to, so actions addressed by judge or entry can be authorized. */
 async function parentActivity(table: "judges" | "entries", id: string): Promise<string | null> {
   if (!isUuid(id)) return null;
@@ -176,6 +197,7 @@ async function parentActivity(table: "judges" | "entries", id: string): Promise<
 
 const SESSION_HINT = "Judging sessions need a database update. Run supabase/migrations/005_judging_session.sql in the Supabase SQL editor.";
 const JUDGES_LOCKED = err("Judges are locked once the session has started. Reset scores in the Developer tab to unlock them.");
+const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
 /** The activity's judging session. Databases without migration 005 behave as "not started". */
 async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null }> {
@@ -211,12 +233,6 @@ async function uploadPhoto(activityId: string, ownerId: string, file: File): Pro
 async function removeFiles(paths: (string | null | undefined)[]) {
   const list = paths.filter((p): p is string => Boolean(p));
   if (list.length) await db().storage.from(PHOTO_BUCKET).remove(list);
-}
-
-async function activityHasScores(activityId: string): Promise<boolean> {
-  const { count, error } = await db().from("scores").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
-  check(error);
-  return (count ?? 0) > 0;
 }
 
 async function nextPosition(table: "judges" | "entries", activityId: string): Promise<number> {
@@ -271,14 +287,18 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
     return err(`An activity needs 1 to ${MAX_JUDGES} judges.`);
   }
-  const judges: { name: string; photo: File | null }[] = [];
+  const judges: { name: { first: string; last: string; name: string }; photo: File | null }[] = [];
   for (let i = 0; i < judgeCount; i++) {
-    const judgeName = cleanName(formData.get(`judge-${i}-name`));
-    if (!judgeName) return err(`Judge ${i + 1} needs a name.`);
+    const judgeName = readJudgeName(formData, `judge-${i}-`, `judge ${i + 1}`);
+    if ("error" in judgeName) return err(judgeName.error.replace(/^Enter judge/, "Enter Judge"));
     const photo = photoFile(formData.get(`judge-${i}-photo`));
-    if (photo === "invalid") return err(`The photo for ${judgeName} must be an image under 2 MB.`);
+    if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
     judges.push({ name: judgeName, photo });
   }
+  // The chair of the board of judges, by position in the list. Decided now: it can't change later.
+  const chairText = String(formData.get("chair") ?? "");
+  const chair = /^\d+$/.test(chairText) && Number(chairText) < judgeCount ? Number(chairText) : null;
+  if (chair === null) return err("Choose the chair of the board of judges.");
 
   const entries = entryNames(formData.get("entries"));
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
@@ -292,7 +312,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
         name,
         owner_id,
         public_id: newPublicId(),
-        ...scoringColumns(parsed.scoring, false),
+        ...scoringColumns(parsed.scoring),
         // Only written when changed, so databases without migration 007 can still create activities.
         ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
       })
@@ -309,7 +329,8 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   try {
     const { data, error } = await db()
       .from("judges")
-      .insert(judges.map((j, position) => ({ activity_id: activityId, name: j.name, position })))
+      // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
+      .insert(judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: position === chair })))
       .select("id, position");
     check(error);
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
@@ -335,50 +356,25 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   } catch (e) {
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
-    return err(`Could not create the activity: ${e instanceof Error ? e.message : "unknown error"}`);
+    const message = e instanceof Error ? e.message : "unknown error";
+    return err(missingJudgeColumns(message) ? JUDGES_HINT : `Could not create the activity: ${message}`);
   }
 
   redirect(`/admin/${activityId}`);
 }
 
+/**
+ * Only the name can change. Scoring (mode, range or criteria, decimal places, how totals and results show)
+ * is fixed when the activity is created, so results can't be changed by changing the rules afterwards.
+ */
 export async function updateSettings(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
-  const parsed = readScoring(formData);
-  if ("error" in parsed) return err(parsed.error);
-  const { scoring } = parsed;
-  const resultDecimals = readResultDecimals(formData);
-  if (typeof resultDecimals !== "number") return err(resultDecimals.error);
-
-  const { data: current, error } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
-  check(error);
-  if (!current) return NOT_FOUND;
-  const wasCriteria = current.scoring_mode === "criteria";
-  const rulesChanged =
-    Number(current.min_score) !== scoring.rules.min ||
-    Number(current.max_score) !== scoring.rules.max ||
-    current.decimals !== scoring.rules.decimals ||
-    (current.scoring_mode ?? "simple") !== scoring.mode ||
-    // Compare field by field: Postgres stores JSON with its keys reordered.
-    criteriaKey(current.criteria) !== criteriaKey(scoring.criteria);
-  if (rulesChanged && ((await sessionOf(activityId)).state !== "draft" || (await activityHasScores(activityId)))) {
-    return err("The session has started. Reset scores in the Developer tab before changing the range or decimals.");
-  }
-
-  // How results are shown isn't a scoring rule: it can change mid-session, and screens follow within seconds.
-  const placesChanged = (current.result_decimals ?? 2) !== resultDecimals;
-
-  const update = await db()
-    .from("activities")
-    .update({ name, ...(rulesChanged ? scoringColumns(scoring, wasCriteria) : {}), ...(placesChanged ? { result_decimals: resultDecimals } : {}) })
-    .eq("id", activityId);
-  if (update.error && /scoring_mode|criteria/.test(update.error.message)) return err(SCORING_HINT);
-  if (update.error && /result_decimals/.test(update.error.message)) return err(PHOTOS_AND_PLACES_HINT);
-  check(update.error);
+  const { error } = await db().from("activities").update({ name }).eq("id", activityId);
+  if (error) return err(error.message);
   refresh();
-  return ok("Settings saved.");
+  return ok("Name saved.");
 }
 
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
@@ -387,18 +383,6 @@ export async function setShowRank(activityId: string, show: boolean): Promise<Ac
   if (error) return err(error.message);
   refresh();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
-}
-
-/** Show criteria totals as a percentage or scaled to 10. Allowed at any time; screens follow within seconds. */
-export async function setCriteriaDisplay(activityId: string, display: CriteriaDisplay): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  const { error } = await db()
-    .from("activities")
-    .update({ criteria_display: display === "ten" ? "ten" : "percent" })
-    .eq("id", activityId);
-  if (error) return err(/criteria_display/.test(error.message) ? SCORING_HINT : error.message);
-  refresh();
-  return ok(display === "ten" ? "Totals are shown scaled to 10." : "Totals are shown as percentages.");
 }
 
 /**
@@ -422,8 +406,11 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
  * Start (draft or ended → live) or end (live → ended) judging. Starting locks the judges and the
  * running order; judges' screens open as soon as it is live.
  */
-export async function setSessionState(activityId: string, state: "live" | "ended"): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
+export async function setSessionState(activityId: string, state: "live" | "ended", password = ""): Promise<ActionResult> {
+  const session = await manage(activityId);
+  if (!session) return NOT_FOUND;
+  // Ending judging is final for the judges, so it takes the signed-in admin's password.
+  if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
   const current = await sessionOf(activityId);
   if (state === "live" && current.state === "draft") {
     const [judges, entries] = await Promise.all([
@@ -453,7 +440,7 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
     const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
     if (!data) return err("That entry isn't part of this activity.");
   }
-  const { error } = await db().from("activities").update({ current_entry_id: entryId }).eq("id", activityId);
+  const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activityId);
   if (error) return err(/current_entry_id/.test(error.message) ? SESSION_HINT : error.message);
   refresh();
   return ok();
@@ -504,20 +491,6 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
 
 const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
 
-/** Put an entry on the LED wall output, or pass null to clear it. */
-export async function setLedEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
-  if (entryId) {
-    const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
-    if (!data) return err("That entry isn't part of this activity.");
-  }
-  const { error } = await db().from("activities").update({ led_entry_id: entryId }).eq("id", activityId);
-  if (error) return err(error.message);
-  refresh();
-  return ok();
-}
-
 /** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
 export async function setLedOptions(activityId: string, options: { fullscreen?: boolean; holdScores?: boolean }): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
@@ -535,18 +508,18 @@ export async function setLedOptions(activityId: string, options: { fullscreen?: 
 export async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const name = cleanName(formData.get("name"));
-  if (!name) return err("Enter the judge's name.");
+  const judgeName = readJudgeName(formData, "", "the judge");
+  if ("error" in judgeName) return err(judgeName.error);
 
   const { count } = await db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
   if ((count ?? 0) >= MAX_JUDGES) return err(`An activity can have up to ${MAX_JUDGES} judges.`);
 
   const { data, error } = await db()
     .from("judges")
-    .insert({ activity_id: activityId, name, position: await nextPosition("judges", activityId) })
+    .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName) })
     .select("id")
     .single();
-  if (error) return err(error.message);
+  if (error) return err(judgeError(error.message));
   const judgeId = (data as { id: string }).id;
   try {
     await assignCodes([judgeId]);
@@ -555,17 +528,17 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
     return err(e instanceof Error ? e.message : "Could not add the judge.");
   }
   refresh();
-  return ok(`${name} added.`);
+  return ok(`${judgeName.name} added.`);
 }
 
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const name = cleanName(formData.get("name"));
-  if (!name) return err("Enter the judge's name.");
-  const { error } = await db().from("judges").update({ name }).eq("id", judgeId);
-  if (error) return err(error.message);
+  const judgeName = readJudgeName(formData, "", "the judge");
+  if ("error" in judgeName) return err(judgeName.error);
+  const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
+  if (error) return err(judgeError(error.message));
   refresh();
   return ok("Saved.");
 }
@@ -595,7 +568,11 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
+  // "*" so this works on databases without migration 008's is_chair.
+  const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
+  if ((judge as { is_chair?: boolean } | null)?.is_chair) {
+    return err("The chair of the board of judges is set when the activity is created, so they can't be removed.");
+  }
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return err(error.message);
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
@@ -607,6 +584,7 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
 
 export async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const names = entryNames(formData.get("names"));
   if (names.length === 0) return err("Type at least one entry name.");
 
@@ -623,7 +601,9 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
 }
 
 export async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  if (!(await manage(await parentActivity("entries", entryId)))) return err("Entry not found.");
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
   const { error } = await db().from("entries").update({ name }).eq("id", entryId);
@@ -636,6 +616,7 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
 export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const photo = photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
@@ -656,7 +637,9 @@ export async function setEntryPhoto(entryId: string, formData: FormData): Promis
 export async function removeEntry(entryId: string): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state !== "draft") {
+  const { state } = await sessionOf(activityId);
+  if (state === "ended") return ENTRIES_ENDED;
+  if (state !== "draft") {
     const { count } = await db().from("scores").select("id", { count: "exact", head: true }).eq("entry_id", entryId);
     if (count) return err("Judges have already scored this entry, so it can't be removed during the session.");
   }

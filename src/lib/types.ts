@@ -57,9 +57,15 @@ export type AdminAccount = {
 
 export type Judge = {
   id: string;
+  /** Full name, e.g. "Maria Santos": on the results PDF and in the admin panel. */
   name: string;
+  /** First and last name. Null for judges added before names were split; the full name stands in. */
+  firstName: string | null;
+  lastName: string | null;
   photoUrl: string | null;
   position: number;
+  /** Chair of the board of judges: can move to the previous or next entry from their own screen. One per activity. */
+  isChair: boolean;
 };
 
 export type Entry = {

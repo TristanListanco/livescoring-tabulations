@@ -3,21 +3,21 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import type { ActionResult, Board, JudgeDevice, SessionState } from "@/lib/types";
+import { entryNeighbors } from "@/lib/judging";
+import type { ActionResult, Board, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { setCurrentEntry, setLedEntry, setSessionState } from "../../actions";
-import { JudgeDevices } from "./judge-devices";
+import { setCurrentEntry, setSessionState } from "../../actions";
 
 const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
   draft: {
     label: "Not started",
-    body: "Judges who sign in see a waiting screen. Starting the session locks the judges and the running order. You can still add and rename entries.",
+    body: "Judges who sign in see a waiting screen once you approve their device in the Access tab. Starting the session locks the judges and the running order. You can still add and rename entries.",
   },
-  live: { label: "Live", body: "Judges score the entry you show them, one at a time." },
+  live: { label: "Live", body: "Judges score the entry you show them, one at a time. The LED wall moves to it too." },
   ended: { label: "Ended", body: "Judges can't submit scores. Reopen the session to continue judging." },
 };
 
-export function SessionTab({ board, devices }: { board: Board; devices: JudgeDevice[] }) {
+export function SessionTab({ board }: { board: Board }) {
   useLiveRefresh(board.activity.id);
   const { activity, judges, entries, scores } = board;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
@@ -30,21 +30,15 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
       const r = await setCurrentEntry(activity.id, entryId);
       setResult(r.ok ? null : r);
     });
-  const toLed = (entryId: string) =>
-    startTransition(async () => {
-      const r = await setLedEntry(activity.id, entryId);
-      setResult(r.ok ? { ok: true, message: "It's on the LED wall." } : r);
-    });
-  const changeState = async (state: "live" | "ended") => {
-    const r = await setSessionState(activity.id, state);
-    setResult(r);
+  const changeState = async (state: "live" | "ended", password?: string) => {
+    const r = await setSessionState(activity.id, state, password);
+    // A wrong password shows in the dialog, which stays open.
+    if (r.ok || state !== "ended") setResult(r);
     return r;
   };
 
-  const index = entries.findIndex((e) => e.id === current);
-  const entry = index >= 0 ? entries[index] : null;
-  const previous = index > 0 ? entries[index - 1] : null;
-  const next = index < 0 ? entries[0] : entries[index + 1];
+  const { index, entry, previous, next } = entryNeighbors(entries, current);
+  const chair = judges.find((j) => j.isChair);
   const scoredBy = new Set(scores.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const allIn = entry !== null && judges.length > 0 && judges.every((j) => scoredBy.has(j.id));
   const live = activity.sessionState === "live";
@@ -82,13 +76,20 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
             title="End the session?"
             tone="danger"
             confirmLabel="End session"
-            onConfirm={() => changeState("ended")}
+            passwordLabel="Your password"
+            onConfirm={(password) => changeState("ended", password)}
           >
-            Judges won&apos;t be able to submit any more scores. You can reopen the session if you need to.
+            Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can
+            reopen the session if you need to.
           </ConfirmDialog>
         )}
         {activity.sessionState === "ended" && (
-          <button type="button" className="btn btn-quiet" disabled={pending} onClick={() => startTransition(async () => void (await changeState("live")))}>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={pending}
+            onClick={() => startTransition(async () => void (await changeState("live")))}
+          >
             Reopen session
           </button>
         )}
@@ -100,26 +101,21 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
         </p>
       )}
 
-      <JudgeDevices judges={judges} devices={devices} />
-
       {live && (
         <section aria-labelledby="now-judging">
           <h2 id="now-judging" className="text-sm font-semibold text-prussian/70">
             On judges&apos; screens
           </h2>
           {entry ? (
-            <div className="mt-2 rounded-2xl bg-prussian p-6 text-mint">
+            // Looks like the judges' screens, so it keeps their colours in dark mode.
+            <div className="keep-light mt-2 rounded-2xl bg-prussian p-6 text-mint">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-powder">Now judging: No. {index + 1}</p>
                   <p className="mt-0.5 text-3xl leading-tight font-bold text-balance">{entry.name}</p>
                 </div>
-                {activity.ledEntryId === entry.id ? (
+                {activity.ledEntryId === entry.id && (
                   <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
-                ) : (
-                  <button type="button" className="btn btn-sm border border-oxford text-mint hover:bg-oxford" onClick={() => toLed(entry.id)} disabled={pending}>
-                    Put on LED wall
-                  </button>
                 )}
               </div>
 
@@ -130,6 +126,7 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
                     <li key={j.id} className="flex items-center gap-3 rounded-xl bg-oxford px-3 py-2.5">
                       <Avatar name={j.name} src={j.photoUrl} size={36} />
                       <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
+                      {j.isChair && <span className="text-xs font-semibold text-powder">Chair</span>}
                       {done ? (
                         <span className="flex items-center gap-1.5 text-sm font-semibold text-mint">
                           <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
@@ -159,6 +156,8 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
               <p className="hint mt-1">Show the first one when the contestant is ready.</p>
             </div>
           )}
+
+          {chair && <p className="hint mt-3">{chair.name}, the chair of the board of judges, can also move entries from their own screen.</p>}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className="btn btn-quiet" onClick={() => previous && show(previous.id)} disabled={!previous || pending}>
@@ -191,7 +190,12 @@ export function SessionTab({ board, devices }: { board: Board; devices: JudgeDev
                   <span className="tabular hint hidden sm:inline">
                     {scoreCount(e.id)} of {judges.length} scores
                   </span>
-                  {now ? (
+                  {activity.sessionState === "ended" ? (
+                    // Judging is over: no "now judging" or "judge now" to suggest otherwise.
+                    <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
+                      {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
+                    </span>
+                  ) : now ? (
                     <span className="inline-flex h-9 items-center gap-2 rounded-md bg-regal px-3 text-sm font-semibold text-mint">Now judging</span>
                   ) : (
                     <button type="button" className="btn btn-quiet btn-sm" onClick={() => show(e.id)} disabled={!live || pending}>

@@ -14,10 +14,23 @@ type Props = {
   tone?: "primary" | "danger";
   /** When set, the confirm button stays disabled until this exact text is typed. */
   requireText?: string;
-  onConfirm: () => Promise<ActionResult | void>;
+  /** When set, asks for a password (with this label) and passes it to onConfirm, which checks it. */
+  passwordLabel?: string;
+  onConfirm: (password: string) => Promise<ActionResult | void>;
 };
 
-export function ConfirmDialog({ triggerLabel, triggerClassName, triggerDisabled, title, children, confirmLabel, tone = "primary", requireText, onConfirm }: Props) {
+export function ConfirmDialog({
+  triggerLabel,
+  triggerClassName,
+  triggerDisabled,
+  title,
+  children,
+  confirmLabel,
+  tone = "primary",
+  requireText,
+  passwordLabel,
+  onConfirm,
+}: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [typed, setTyped] = useState("");
@@ -32,7 +45,7 @@ export function ConfirmDialog({ triggerLabel, triggerClassName, triggerDisabled,
 
   const confirm = () =>
     startTransition(async () => {
-      const result = await onConfirm();
+      const result = await onConfirm(typed);
       if (result && !result.ok) {
         setError(result.error);
         return;
@@ -40,18 +53,14 @@ export function ConfirmDialog({ triggerLabel, triggerClassName, triggerDisabled,
       ref.current?.close();
     });
 
-  const blocked = requireText !== undefined && typed.trim() !== requireText;
+  const blocked = (requireText !== undefined && typed.trim() !== requireText) || (passwordLabel !== undefined && typed === "");
 
   return (
     <>
       <button type="button" onClick={open} className={triggerClassName} disabled={triggerDisabled}>
         {triggerLabel}
       </button>
-      <dialog
-        ref={ref}
-        aria-labelledby={titleId}
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
-      >
+      <dialog ref={ref} aria-labelledby={titleId} className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl">
         <div className="p-6">
           <h2 id={titleId} className="text-xl font-bold">
             {title}
@@ -72,6 +81,19 @@ export function ConfirmDialog({ triggerLabel, triggerClassName, triggerDisabled,
               />
             </label>
           )}
+          {passwordLabel !== undefined && (
+            <label className="mt-4 block">
+              <span className="label">{passwordLabel}</span>
+              <input
+                type="password"
+                className="field"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !blocked && !pending && confirm()}
+                autoComplete="current-password"
+              />
+            </label>
+          )}
           {error && (
             <p role="alert" className="mt-3 text-sm font-semibold text-danger">
               {error}
@@ -82,12 +104,7 @@ export function ConfirmDialog({ triggerLabel, triggerClassName, triggerDisabled,
           <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()} disabled={pending}>
             Cancel
           </button>
-          <button
-            type="button"
-            className={`btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`}
-            onClick={confirm}
-            disabled={blocked || pending}
-          >
+          <button type="button" className={`btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`} onClick={confirm} disabled={blocked || pending}>
             {pending ? "Working…" : confirmLabel}
           </button>
         </div>

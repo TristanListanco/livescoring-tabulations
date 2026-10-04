@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { LiveStatusBadge } from "@/components/live-status";
-import { judgeView, type JudgeView } from "@/lib/judging";
+import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { applyKey, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
 import type { Activity, Entry, Judge } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { leavePortal, requestApproval, submitScore } from "../actions";
+import { leavePortal, moveToEntry, requestApproval, submitScore } from "../actions";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
 export type DeviceGate = { status: "approved" } | { status: "pending"; pairingCode: string; label: string } | { status: "revoked" };
+
+/** For the chair of the board of judges: the panel, and whether each judge has scored the entry on screen. */
+export type PanelJudge = { id: string; name: string; photoUrl: string | null; scored: boolean };
 
 type Props = {
   activity: Activity;
@@ -18,6 +21,8 @@ type Props = {
   entries: Entry[];
   myScores: { entryId: string; value: number }[];
   gate: DeviceGate;
+  /** Only for the chair, who can move entries. */
+  panel: PanelJudge[] | null;
 };
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -50,7 +55,7 @@ function myScoreText(value: number, activity: Activity): string {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, gate }: Props) {
+export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }: Props) {
   const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS);
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
@@ -152,7 +157,10 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate }: Props
               <Keypad key={view.entry.id} activity={activity} entry={view.entry} number={view.number} onSaved={onSaved} />
             )
           ) : (
-            <WaitingCard view={view} judge={judge} activity={activity} scoredCount={scores.size} />
+            <div className="my-auto flex w-full max-w-md flex-col items-center lg:max-w-lg">
+              <WaitingCard view={view} judge={judge} activity={activity} scoredCount={scores.size} movesEntries={!!panel} />
+              {panel && (view.kind === "waiting" || view.kind === "scored") && <EntryControls activity={activity} entries={entries} panel={panel} />}
+            </div>
           )}
         </main>
       </div>
@@ -207,11 +215,14 @@ function WaitingCard({
   judge,
   activity,
   scoredCount,
+  movesEntries,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
   judge: Judge;
   activity: Activity;
   scoredCount: number;
+  /** The chair shows the next entry themselves, so they aren't told to wait. */
+  movesEntries: boolean;
 }) {
   const firstName = judge.name.split(" ").find((w) => !/\.$/.test(w)) ?? judge.name;
   const copy: Record<typeof view.kind, { title: string; body: string }> = {
@@ -223,10 +234,17 @@ function WaitingCard({
     scored: { title: "Waiting for the next entry", body: "Your score is in. The organizer will show the next entry when every judge is ready." },
     ended: { title: "Judging has ended", body: `Thank you, ${firstName}. You scored ${scoredCount} ${scoredCount === 1 ? "entry" : "entries"}.` },
   };
-  const { title, body } = copy[view.kind];
+  const tabulatorCopy: Partial<typeof copy> = {
+    waiting: {
+      title: scoredCount ? "Ready for the next entry" : "Ready for the first entry",
+      body: "Show it below when the contestant is ready. The organizer can move entries too.",
+    },
+    scored: { title: "Your score is in", body: "Show the next entry below once every judge has scored. The organizer can move entries too." },
+  };
+  const { title, body } = (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind];
 
   return (
-    <div role="status" className="my-auto flex w-full max-w-md flex-col items-center text-center lg:max-w-lg">
+    <div role="status" className="flex w-full flex-col items-center text-center">
       {view.kind === "scored" && (
         <div className="mb-8 w-full rounded-2xl border-2 border-oxford px-6 py-7">
           <p className="text-powder">
@@ -236,10 +254,91 @@ function WaitingCard({
           <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>
         </div>
       )}
-      {view.kind !== "ended" && <WaitingDots />}
+      {view.kind !== "ended" && !movesEntries && <WaitingDots />}
       <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">{title}</h1>
       <p className="mt-3 text-lg text-powder text-balance">{body}</p>
     </div>
+  );
+}
+
+/**
+ * The chair of the board of judges gets the organizer's Previous and Next entry controls on their own screen.
+ * Shown once they've scored the entry on screen (or before the first entry), with who else has scored it.
+ */
+function EntryControls({ activity, entries, panel }: { activity: Activity; entries: Entry[]; panel: PanelJudge[] }) {
+  const { entry, previous, next } = entryNeighbors(entries, activity.currentEntryId);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const scored = panel.filter((j) => j.scored).length;
+  const allIn = entry !== null && panel.length > 0 && scored === panel.length;
+
+  const go = (entryId: string) =>
+    startTransition(async () => {
+      setError(null);
+      const result = await moveToEntry(entryId).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
+      if (!result.ok) setError(result.error);
+    });
+
+  return (
+    <section aria-labelledby="move-entries" className="mt-8 w-full rounded-2xl border-2 border-oxford p-5 text-left">
+      <h2 id="move-entries" className="font-semibold text-powder">
+        Chair of the board of judges
+      </h2>
+      {entry && (
+        <ul className="mt-3 space-y-1.5" aria-label={`Who has scored ${entry.name}`}>
+          {panel.map((j) => (
+            <li key={j.id} className="flex items-center gap-3 rounded-xl bg-oxford px-3 py-2">
+              <Avatar name={j.name} src={j.photoUrl} size={32} />
+              <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
+              {j.scored ? (
+                <span className="flex items-center gap-1.5 text-sm font-semibold">
+                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                    <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Scored
+                </span>
+              ) : (
+                <span className="text-sm text-powder">Waiting</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p role="status" className="mt-3 font-semibold">
+        {!entry
+          ? "No entry on screen yet."
+          : allIn
+            ? next
+              ? `Every judge has scored ${entry.name}.`
+              : `Every judge has scored ${entry.name}. That was the last entry.`
+            : `${scored} of ${panel.length} judges have scored.`}
+      </p>
+      <div className="mt-4 grid grid-cols-[auto_1fr] gap-3">
+        <button
+          type="button"
+          onClick={() => previous && go(previous.id)}
+          disabled={!previous || pending}
+          className="btn h-14 rounded-xl border border-oxford px-5 text-lg text-mint hover:bg-oxford disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          onClick={() => next && go(next.id)}
+          disabled={!next || pending}
+          className={`btn h-14 min-w-0 rounded-xl text-lg ${
+            allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-oxford text-mint hover:bg-oxford"
+          } disabled:bg-oxford disabled:text-powder disabled:opacity-100`}
+        >
+          <span className="truncate">{entry ? (next ? `Next: ${next.name}` : "No more entries") : next ? `Show first entry: ${next.name}` : "No entries"}</span>
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className={`mt-3 text-sm font-semibold ${ERROR_TEXT}`}>
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 

@@ -6,8 +6,8 @@ import type { Board } from "./types";
 const board: Board = {
   activity: activityFixture({ id: "a1" }),
   judges: [
-    { id: "j1", name: "Ana", photoUrl: null, position: 0 },
-    { id: "j2", name: "Ben", photoUrl: null, position: 1 },
+    { id: "j1", name: "Ana", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false },
+    { id: "j2", name: "Ben", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false },
   ],
   entries: [{ id: "e1", name: "Agila", photoUrl: null, position: 0 }],
   scores: [

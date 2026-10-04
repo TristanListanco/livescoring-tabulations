@@ -31,8 +31,11 @@ test.describe.serial("judge devices without realtime", () => {
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Judge Alpha");
-    await page.getByLabel("Judge 2 name").fill("Judge Bravo");
+    await page.getByLabel("Judge 1 first name").fill("Judge");
+    await page.getByLabel("Judge 1 last name").fill("Alpha");
+    await page.getByLabel("Judge 2 first name").fill("Judge");
+    await page.getByLabel("Judge 2 last name").fill("Bravo");
+    await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
     await page.getByRole("button", { name: "Create activity" }).click();
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
@@ -45,7 +48,7 @@ test.describe.serial("judge devices without realtime", () => {
     await phone.goto(`/judge/join/${codes[0]}`);
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=session`);
+    await page.goto(`${adminPath}?tab=access`);
     await page.getByRole("button", { name: `Approve Judge Alpha's device ${code}` }).click();
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", QUICKLY);
   });
@@ -54,13 +57,13 @@ test.describe.serial("judge devices without realtime", () => {
     await phone.goto(`/judge/join/${codes[1]}`);
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=session`);
-    const panel = page.locator("section[aria-labelledby=judge-devices]");
-    await expect(panel.getByRole("listitem").filter({ hasText: "Judge Alpha" }).first()).toContainText("No device approved. Last device signed out");
+    await page.goto(`${adminPath}?tab=access`);
+    const row = (name: string) => page.getByRole("listitem").filter({ hasText: name }).first();
+    await expect(row("Judge Alpha")).toContainText("No device approved. Last device signed out");
 
     await page.getByRole("button", { name: `Approve Judge Bravo's device ${code}` }).click();
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", QUICKLY);
     await expect(phone.getByRole("banner")).toContainText("Judge Bravo");
-    await expect(panel.getByRole("listitem").filter({ hasText: "Judge Bravo" }).first()).toContainText("Approved:");
+    await expect(row("Judge Bravo")).toContainText("Approved:");
   });
 });

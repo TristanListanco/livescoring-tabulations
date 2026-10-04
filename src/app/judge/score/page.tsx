@@ -29,5 +29,16 @@ export default async function ScorePage() {
       ? board.scores.filter((s) => s.judgeId === context.judge.id).map((s) => ({ entryId: s.entryId, value: s.value }))
       : [];
 
-  return <ScoringPanel activity={board.activity} judge={context.judge} entries={board.entries} myScores={mine} gate={gate} />;
+  // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
+  const panel =
+    gate.status === "approved" && context.judge.isChair
+      ? board.judges.map((j) => ({
+          id: j.id,
+          name: j.name,
+          photoUrl: j.photoUrl,
+          scored: board.scores.some((s) => s.judgeId === j.id && s.entryId === board.activity.currentEntryId),
+        }))
+      : null;
+
+  return <ScoringPanel activity={board.activity} judge={context.judge} entries={board.entries} myScores={mine} gate={gate} panel={panel} />;
 }

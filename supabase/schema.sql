@@ -46,6 +46,12 @@ create table if not exists public.judges (
   position     integer not null default 0,
   created_at   timestamptz not null default now()
 );
+-- First and last name; name stays the full name. The LED wall shows the first name, the PDF the full name.
+alter table public.judges add column if not exists first_name text;
+alter table public.judges add column if not exists last_name text;
+-- The chair of the board of judges can move to the previous or next entry from their own screen. One per activity.
+alter table public.judges add column if not exists is_chair boolean not null default false;
+create unique index if not exists judges_one_chair_idx on public.judges (activity_id) where is_chair;
 create index if not exists judges_activity_idx on public.judges (activity_id, position);
 
 -- Bumped whenever a judge's devices change, so open screens refresh over realtime.

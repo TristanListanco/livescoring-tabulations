@@ -40,10 +40,14 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Criterion 2 name").fill("Design");
     await page.getByLabel("Criterion 2 max points").fill("60");
     await page.getByRole("radio", { name: /1 decimal place/ }).check();
-    await page.getByRole("radio", { name: /Scaled to 10/ }).check();
+    // Totals as a percentage with four decimal places: the widest numbers the LED wall has to fit.
+    await page.getByRole("radio", { name: /As a percentage/ }).check();
+    await page.getByLabel("Decimal places shown in results").fill("4");
     await page.getByRole("button", { name: "Remove a judge" }).click();
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Ana Cruz");
+    await page.getByLabel("Judge 1 first name").fill("Ana");
+    await page.getByLabel("Judge 1 last name").fill("Cruz");
+    await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
 
     await expect(page.getByText("Total 90 of 100 points. The criteria must add up to 100.")).toBeVisible();
@@ -55,13 +59,12 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("button", { name: "Create activity" }).click();
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
-    await expect(page.getByText("Criteria: Innovativeness 30, Design 70. Totals out of 100, shown scaled to 10.")).toBeVisible();
 
     adminPath = new URL(page.url()).pathname;
     code = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Code ", "");
-    const links = await page.locator("code").allTextContents();
-    livePath = new URL(links.find((l) => l.includes("/live/"))!).pathname;
-    ledPath = new URL(links.find((l) => l.includes("/led/"))!).pathname;
+    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    await page.goto(`${adminPath}?tab=led`);
+    ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
 
   test("a judge scores each criterion on the keypad and the board shows the total", async ({ page, browser }) => {
@@ -69,8 +72,10 @@ test.describe.serial("criteria scoring", () => {
     const pairing = (await judge.locator("p").filter({ hasText: /^Pairing code [A-Z0-9]{4}$/ }).textContent())!.replace("Pairing code ", "");
 
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=session`);
+    await page.goto(`${adminPath}?tab=access`);
     await page.getByRole("button", { name: `Approve Ana Cruz's device ${pairing}` }).click();
+    await expect(page.getByText(/^Approved: /)).toBeVisible();
+    await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
     await page.getByRole("button", { name: "Show first entry" }).click();
@@ -101,30 +106,26 @@ test.describe.serial("criteria scoring", () => {
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila");
 
-    // Scaled to 10: the judge's 87.5 shows as 8.75, and so does the average.
+    // The judge's 87.5 and the average both show as percentages to four decimal places.
     const live = await (await browser.newContext()).newPage();
     await live.goto(livePath);
     const row = live.locator("li[data-entry]", { hasText: "Agila" });
-    await expect(row).toContainText("8.75", REALTIME);
-
-    await page.goto(`${adminPath}?tab=settings`);
-    await page.getByRole("radio", { name: /As a percentage/ }).check();
-    await expect(page.getByText("Totals are shown as percentages.")).toBeVisible();
-    await expect(row).toContainText("87.50%", REALTIME);
+    await expect(row).toContainText("87.5000%", REALTIME);
     await live.context().close();
+
+    // How totals show is part of the scoring, so it's fixed now.
+    await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.locator("dl")).toContainText("Innovativeness 30, Design 70");
+    await expect(page.locator("dl")).toContainText("Totals shownAs a percentage");
+    await expect(page.getByRole("radio")).toHaveCount(0);
   });
 
   test("long percentages shrink to fit the LED wall instead of overflowing", async ({ page, browser }) => {
-    await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=settings`);
-    await page.getByLabel("Decimal places shown in results").fill("4");
-    await page.getByRole("button", { name: "Save name and scoring" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
-
+    // Agila went on the LED wall when the judges were shown it.
     const led = await (await browser.newContext({ viewport: { width: 1920, height: 1080 } })).newPage();
     await led.goto(ledPath);
+    await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=led`);
-    await page.getByRole("button", { name: "Show first" }).click();
 
     // Ana's total and the average are both 87.5000%: wider than their tiles at full size.
     const values = led.getByText("87.5000%", { exact: true });

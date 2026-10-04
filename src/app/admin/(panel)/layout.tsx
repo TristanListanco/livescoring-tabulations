@@ -1,14 +1,18 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
+import { THEME_COOKIE } from "@/lib/theme";
+import { ThemeToggle } from "./theme-toggle";
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const session = await requireAdmin();
+  const theme = (await cookies()).get(THEME_COOKIE)?.value === "dark" ? "dark" : "light";
 
   return (
-    <div className="min-h-dvh">
-      <header className="bg-prussian text-mint">
+    <div data-admin-theme data-theme={theme} className="min-h-dvh bg-mint text-prussian">
+      <header className="keep-light bg-prussian text-mint">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 sm:gap-6 sm:px-6">
           <Link href="/admin" className="text-lg font-bold">
             LiveScoring
@@ -35,6 +39,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
             ) : (
               <span className="rounded-md border border-oxford px-2.5 py-1 text-sm font-semibold text-powder">Super admin</span>
             )}
+            <ThemeToggle initial={theme} />
             <form action={logout}>
               <button className="btn btn-sm text-powder hover:bg-oxford hover:text-mint">Sign out</button>
             </form>

@@ -20,6 +20,47 @@
   --font-sans: "Avenir Next", Avenir, var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
 }
 
+/*
+ * Admin dark mode (the panel's data-theme="dark"). The palette swaps light and dark: page and cards go dark,
+ * text goes light, and the accent becomes a light blue that keeps its contrast with dark text on buttons.
+ * Everything built from the palette follows without its own dark styles.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-prussian: #e3ebf3;
+  --color-oxford: #c3d2e3;
+  --color-regal: #9fc2ea;
+  --color-powder: #6f8fb3;
+  --color-mint: #0b1728;
+  --color-white: #12233a;
+  --color-line: #2a4060;
+  --color-field: #6e8bb0;
+  --color-placeholder: #93a7bf;
+  --color-wash: #19304d;
+  --color-danger: #ff8a80;
+  --color-danger-ink: #ffb1a9;
+}
+/* Parts that keep their own colours in dark mode: the navy header, and previews of the LED wall and judges' screens. */
+[data-theme="dark"] .keep-light {
+  color-scheme: light;
+  --color-prussian: #0b2545;
+  --color-oxford: #13315c;
+  --color-regal: #134074;
+  --color-powder: #8da9c4;
+  --color-mint: #eef4ed;
+  --color-white: #fff;
+  --color-line: #c8d6e2;
+  --color-field: #718cac;
+  --color-placeholder: #607186;
+  --color-wash: #e2ebe9;
+  --color-danger: #b3261e;
+  --color-danger-ink: #8c1d17;
+}
+/* No light flash past the edges of the page when scrolling beyond them. */
+body:has([data-theme="dark"]) {
+  background-color: #0b1728;
+}
+
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;

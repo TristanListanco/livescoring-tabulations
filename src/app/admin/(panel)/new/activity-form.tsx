@@ -2,15 +2,16 @@
 
 import { useActionState, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
+import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { createActivity, type FormResult } from "../../actions";
 import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
-type DraftJudge = { key: number; name: string; photo: Blob | null; preview: string | null };
+type DraftJudge = { key: number; first: string; last: string; photo: Blob | null; preview: string | null };
 
 const MAX_JUDGES = 20;
 let nextKey = 0;
-const blankJudge = (): DraftJudge => ({ key: nextKey++, name: "", photo: null, preview: null });
+const blankJudge = (): DraftJudge => ({ key: nextKey++, first: "", last: "", photo: null, preview: null });
 
 export function ActivityForm() {
   const [state, dispatch] = useActionState<FormResult, FormData>(createActivity, null);
@@ -47,7 +48,10 @@ export function ActivityForm() {
         <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="Mr. and Ms. Intramurals 2026" />
       </Section>
 
-      <Section title="Scoring" hint="A single score per judge, or points for each criterion adding up to 100.">
+      <Section
+        title="Scoring"
+        hint="A single score per judge, or points for each criterion adding up to 100. Check it carefully: scoring can't be changed once the activity is created."
+      >
         <ScoringFields />
       </Section>
 
@@ -85,30 +89,53 @@ export function ActivityForm() {
           {judges.map((j, i) => (
             <li key={j.key} className="flex items-center gap-4">
               <PhotoPicker
-                name={j.name}
+                name={fullName(j.first, j.last)}
                 currentUrl={j.preview}
                 size={56}
                 onPick={(photo, preview) => updateJudge(j.key, { photo, preview })}
               />
-              <div className="min-w-0 flex-1">
-                <label htmlFor={`judge-${i}-name`} className="sr-only">
-                  Judge {i + 1} name
+              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                <label htmlFor={`judge-${i}-first_name`} className="sr-only">
+                  Judge {i + 1} first name
                 </label>
                 <input
-                  id={`judge-${i}-name`}
-                  name={`judge-${i}-name`}
+                  id={`judge-${i}-first_name`}
+                  name={`judge-${i}-first_name`}
                   required
-                  maxLength={120}
-                  value={j.name}
-                  onChange={(e) => updateJudge(j.key, { name: e.target.value })}
-                  placeholder={`Judge ${i + 1} name`}
-                  className="field max-w-md"
+                  maxLength={MAX_NAME_PART}
+                  value={j.first}
+                  onChange={(e) => updateJudge(j.key, { first: e.target.value })}
+                  placeholder="First name"
+                  className="field max-w-56 min-w-36 flex-1"
+                />
+                <label htmlFor={`judge-${i}-last_name`} className="sr-only">
+                  Judge {i + 1} last name
+                </label>
+                <input
+                  id={`judge-${i}-last_name`}
+                  name={`judge-${i}-last_name`}
+                  required
+                  maxLength={MAX_NAME_PART}
+                  value={j.last}
+                  onChange={(e) => updateJudge(j.key, { last: e.target.value })}
+                  placeholder="Last name"
+                  className="field max-w-56 min-w-36 flex-1"
                 />
               </div>
+              <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold has-checked:border-regal has-checked:bg-regal has-checked:text-mint">
+                <input type="radio" name="chair" value={i} required className="accent-mint" />
+                <span>
+                  Chair<span className="sr-only"> of the board of judges: judge {i + 1}</span>
+                </span>
+              </label>
             </li>
           ))}
         </ol>
-        <p className="hint mt-3">Photos are optional. Judges without one show their initials.</p>
+        <p className="hint mt-3 max-w-2xl">
+          Pick the chair of the board of judges: besides you, the chair can move to the previous or next entry from their own screen. The chair
+          can&apos;t be changed after the activity is created. Photos are optional; judges without one show their initials. The results PDF uses
+          each judge&apos;s full name and the LED wall their first name.
+        </p>
       </Section>
 
       <Section title="Entries" hint="The contestants, teams or performances being judged. You can add more later.">
