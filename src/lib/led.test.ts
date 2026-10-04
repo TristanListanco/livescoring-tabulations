@@ -1,25 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ledScene } from "./led";
+import { activityFixture } from "./test-fixtures";
 import type { Board } from "./types";
 
 function board(options: { hold: boolean; onAir: string | null; scores: [string, string, number][] }): Board {
   return {
-    activity: {
-      id: "a",
-      name: "Finals",
-      publicId: "p",
-      min: 1,
-      max: 10,
-      decimals: 2,
-      showRank: true,
-      ledEntryId: options.onAir,
-      ledFullscreen: false,
-      ledHoldScores: options.hold,
-      ownerId: null,
-      sessionState: "draft",
-      currentEntryId: null,
-      createdAt: "",
-    },
+    activity: activityFixture({ ledEntryId: options.onAir, ledHoldScores: options.hold }),
     judges: [
       { id: "j1", name: "Ana", photoUrl: null, position: 0 },
       { id: "j2", name: "Ben", photoUrl: null, position: 1 },

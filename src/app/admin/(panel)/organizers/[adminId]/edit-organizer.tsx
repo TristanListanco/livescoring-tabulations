@@ -6,10 +6,11 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
-import type { AdminAccount } from "@/lib/types";
+import type { AdminAccount, Signatory } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
 import { Section } from "../../section";
+import { SignatoriesEditor } from "../../signatories-editor";
 
 function Message({ state }: { state: FormResult }) {
   if (!state) return null;
@@ -20,7 +21,15 @@ function Message({ state }: { state: FormResult }) {
   );
 }
 
-export function EditOrganizer({ organizer, activities }: { organizer: AdminAccount; activities: { id: string; name: string }[] }) {
+export function EditOrganizer({
+  organizer,
+  activities,
+  signatories,
+}: {
+  organizer: AdminAccount;
+  activities: { id: string; name: string }[];
+  signatories: Signatory[];
+}) {
   const [state, action] = useActionState<FormResult, FormData>(updateOrganizer.bind(null, organizer.id), null);
   const [photoPending, startPhoto] = useTransition();
   const [photoState, setPhotoState] = useState<FormResult>(null);
@@ -85,6 +94,13 @@ export function EditOrganizer({ organizer, activities }: { organizer: AdminAccou
           <Message state={state} />
         </div>
       </form>
+
+      <Section
+        title="Results PDF signatories"
+        hint="Board of tabulators, representatives and others who sign the results. Each prints as a signature line with their designation, under the organizer's photo and name."
+      >
+        <SignatoriesEditor adminId={organizer.id} initial={signatories} />
+      </Section>
 
       <Section title="Activities" hint="Activities this organizer can manage. Change an activity's organizer from its Settings tab.">
         {activities.length === 0 ? (

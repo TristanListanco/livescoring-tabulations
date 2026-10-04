@@ -1,6 +1,6 @@
 "use client";
 
-import { rangeLabel, scoreProgress } from "@/lib/scoring";
+import { rulesSummary, scoreProgress } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { LiveStatusBadge } from "./live-status";
@@ -16,9 +16,7 @@ export function LiveBoard({ board, embedded = false }: { board: Board; embedded?
   const ranked = embedded || activity.showRank;
   const { submitted, possible } = scoreProgress(board);
 
-  const summary = ranked
-    ? `Ranked by the average of the scores submitted so far. Scores range from ${rangeLabel(activity)}.`
-    : `Averages of the scores submitted so far. Scores range from ${rangeLabel(activity)}.`;
+  const summary = `${ranked ? "Ranked by the average of the scores submitted so far." : "Averages of the scores submitted so far."} ${rulesSummary(activity)}`;
 
   return (
     <section className={`bg-prussian text-mint ${embedded ? "overflow-hidden rounded-2xl pb-2" : "min-h-dvh pb-10"}`}>

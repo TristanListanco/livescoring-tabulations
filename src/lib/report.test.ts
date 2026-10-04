@@ -1,24 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { reportId } from "./report";
+import { activityFixture } from "./test-fixtures";
 import type { Board } from "./types";
 
 const board: Board = {
-  activity: {
-    id: "a1",
-    name: "Finals",
-    publicId: "p",
-    min: 1,
-    max: 10,
-    decimals: 2,
-    showRank: true,
-    ledEntryId: null,
-    ledFullscreen: false,
-    ledHoldScores: false,
-    ownerId: null,
-    sessionState: "draft",
-    currentEntryId: null,
-    createdAt: "",
-  },
+  activity: activityFixture({ id: "a1" }),
   judges: [
     { id: "j1", name: "Ana", photoUrl: null, position: 0 },
     { id: "j2", name: "Ben", photoUrl: null, position: 1 },

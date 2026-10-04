@@ -15,8 +15,10 @@ import {
   startSuperAdminSession,
   type AdminSession,
 } from "@/lib/session";
+import { touchJudge } from "@/lib/devices";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
-import type { ActionResult, Decimals, SessionState } from "@/lib/types";
+import { newFileTag as newCriterionId } from "@/lib/codes";
+import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ScoringMode, SessionState } from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -71,6 +73,67 @@ function readRules(formData: FormData): { rules: ScoreRules } | { error: string 
   if (max <= min) return { error: "Max score must be higher than min score." };
   return { rules: { min, max, decimals: decimals as Decimals } };
 }
+
+type Scoring = { mode: ScoringMode; rules: ScoreRules; criteria: Criterion[]; display: CriteriaDisplay | null };
+
+/**
+ * Simple scoring (min to max) or criteria (max points per criterion, adding up to 100; judges' totals
+ * are then out of 100). Criteria keep their ids across edits so stored breakdowns still line up.
+ */
+function readScoring(formData: FormData): { scoring: Scoring } | { error: string } {
+  const displayValue = formData.get("criteria_display");
+  const display: CriteriaDisplay | null = displayValue === "ten" ? "ten" : displayValue === "percent" ? "percent" : null;
+  if (formData.get("scoring_mode") !== "criteria") {
+    const parsed = readRules(formData);
+    return "error" in parsed ? parsed : { scoring: { mode: "simple", rules: parsed.rules, criteria: [], display } };
+  }
+
+  const decimals = Number(formData.get("decimals"));
+  if (decimals !== 0 && decimals !== 1 && decimals !== 2) return { error: "Choose how many decimal places judges can use." };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(String(formData.get("criteria") ?? "[]"));
+  } catch {
+    return { error: "The criteria couldn't be read. Try again." };
+  }
+  if (!Array.isArray(raw) || raw.length === 0) return { error: "Add at least one criterion." };
+  if (raw.length > 20) return { error: "An activity can have up to 20 criteria." };
+
+  const criteria: Criterion[] = [];
+  const names = new Set<string>();
+  for (const item of raw as { id?: unknown; name?: unknown; max?: unknown }[]) {
+    const name = String(item?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const max = Number(item?.max);
+    if (!name) return { error: "Every criterion needs a name." };
+    if (names.has(name.toLowerCase())) return { error: `"${name}" is listed twice. Give each criterion its own name.` };
+    if (!Number.isInteger(max) || max < 1 || max > 100) return { error: `Give ${name} a max of 1 to 100 points.` };
+    names.add(name.toLowerCase());
+    const id = typeof item?.id === "string" && /^[a-z0-9]{1,40}$/.test(item.id) ? item.id : newCriterionId();
+    criteria.push({ id, name, max });
+  }
+  const total = criteria.reduce((sum, c) => sum + c.max, 0);
+  if (total !== 100) return { error: `The criteria add up to ${total} points. They must add up to 100.` };
+  return { scoring: { mode: "criteria", rules: { min: 0, max: 100, decimals: decimals as Decimals }, criteria, display } };
+}
+
+/** Columns for the scoring rules. The criteria columns are only written when they matter, so simple activities work on databases without migration 006. */
+function scoringColumns(scoring: Scoring, wasCriteria: boolean): Record<string, unknown> {
+  const columns: Record<string, unknown> = { min_score: scoring.rules.min, max_score: scoring.rules.max, decimals: scoring.rules.decimals };
+  if (scoring.mode === "criteria" || wasCriteria) {
+    columns.scoring_mode = scoring.mode;
+    columns.criteria = scoring.criteria;
+  }
+  if (scoring.display && (scoring.mode === "criteria" || wasCriteria)) columns.criteria_display = scoring.display;
+  return columns;
+}
+
+/** Criteria as a comparable string, whatever key order they were stored in. */
+function criteriaKey(value: unknown): string {
+  if (!Array.isArray(value)) return "[]";
+  return JSON.stringify(value.map((c: { id?: unknown; name?: unknown; max?: unknown }) => [String(c?.id), String(c?.name), Number(c?.max)]));
+}
+
+const SCORING_HINT = "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
 
 /**
  * The signed-in admin, when they may manage this activity: the super admin manages every activity,
@@ -179,7 +242,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
 
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
-  const parsed = readRules(formData);
+  const parsed = readScoring(formData);
   if ("error" in parsed) return err(parsed.error);
 
   const judgeCount = Number(formData.get("judgeCount"));
@@ -203,9 +266,10 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
     const { data, error } = await db()
       .from("activities")
-      .insert({ name, owner_id, public_id: newPublicId(), min_score: parsed.rules.min, max_score: parsed.rules.max, decimals: parsed.rules.decimals })
+      .insert({ name, owner_id, public_id: newPublicId(), ...scoringColumns(parsed.scoring, false) })
       .select("id")
       .single();
+    if (error && /scoring_mode|criteria/.test(error.message)) return err(SCORING_HINT);
     if (error && error.code !== "23505") return err(`Could not create the activity: ${error.message}`);
     activityId = (data as { id: string } | null)?.id ?? null;
   }
@@ -246,22 +310,30 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
 
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
-  const parsed = readRules(formData);
+  const parsed = readScoring(formData);
   if ("error" in parsed) return err(parsed.error);
+  const { scoring } = parsed;
 
-  const { data: current, error } = await db().from("activities").select("min_score, max_score, decimals").eq("id", activityId).maybeSingle();
+  const { data: current, error } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
   check(error);
   if (!current) return NOT_FOUND;
+  const wasCriteria = current.scoring_mode === "criteria";
   const rulesChanged =
-    Number(current.min_score) !== parsed.rules.min || Number(current.max_score) !== parsed.rules.max || current.decimals !== parsed.rules.decimals;
+    Number(current.min_score) !== scoring.rules.min ||
+    Number(current.max_score) !== scoring.rules.max ||
+    current.decimals !== scoring.rules.decimals ||
+    (current.scoring_mode ?? "simple") !== scoring.mode ||
+    // Compare field by field: Postgres stores JSON with its keys reordered.
+    criteriaKey(current.criteria) !== criteriaKey(scoring.criteria);
   if (rulesChanged && ((await sessionOf(activityId)).state !== "draft" || (await activityHasScores(activityId)))) {
     return err("The session has started. Reset scores in the Developer tab before changing the range or decimals.");
   }
 
   const update = await db()
     .from("activities")
-    .update({ name, min_score: parsed.rules.min, max_score: parsed.rules.max, decimals: parsed.rules.decimals })
+    .update({ name, ...(rulesChanged ? scoringColumns(scoring, wasCriteria) : {}) })
     .eq("id", activityId);
+  if (update.error && /scoring_mode|criteria/.test(update.error.message)) return err(SCORING_HINT);
   check(update.error);
   refresh();
   return ok("Settings saved.");
@@ -273,6 +345,15 @@ export async function setShowRank(activityId: string, show: boolean): Promise<Ac
   if (error) return err(error.message);
   refresh();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
+}
+
+/** Show criteria totals as a percentage or scaled to 10. Allowed at any time; screens follow within seconds. */
+export async function setCriteriaDisplay(activityId: string, display: CriteriaDisplay): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const { error } = await db().from("activities").update({ criteria_display: display === "ten" ? "ten" : "percent" }).eq("id", activityId);
+  if (error) return err(/criteria_display/.test(error.message) ? SCORING_HINT : error.message);
+  refresh();
+  return ok(display === "ten" ? "Totals are shown scaled to 10." : "Totals are shown as percentages.");
 }
 
 /** Hand an activity to an organizer, or back to the super admin with null. Super admin only. */
@@ -324,6 +405,47 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
   }
   const { error } = await db().from("activities").update({ current_entry_id: entryId }).eq("id", activityId);
   if (error) return err(/current_entry_id/.test(error.message) ? SESSION_HINT : error.message);
+  refresh();
+  return ok();
+}
+
+// Judge devices -----------------------------------------------------------------------
+
+/** The judge and activity a device belongs to, if the signed-in admin manages that activity. */
+async function managedDevice(deviceId: string): Promise<{ judgeId: string } | null> {
+  if (!isUuid(deviceId)) return null;
+  const { data } = await db().from("judge_devices").select("judge_id").eq("id", deviceId).maybeSingle();
+  const judgeId = (data as { judge_id: string } | null)?.judge_id;
+  if (!judgeId || !(await manage(await parentActivity("judges", judgeId)))) return null;
+  return { judgeId };
+}
+
+/** Let this device score for its judge. Every other device of that judge is signed out, so only one can record scores. */
+export async function approveDevice(deviceId: string): Promise<ActionResult> {
+  const device = await managedDevice(deviceId);
+  if (!device) return err("That device request is gone. The judge may have signed in again.");
+  const now = new Date().toISOString();
+  const { error } = await db()
+    .from("judge_devices")
+    .update({ status: "revoked", decided_at: now })
+    .eq("judge_id", device.judgeId)
+    .neq("id", deviceId)
+    .neq("status", "revoked");
+  if (error) return err(error.message);
+  const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }).eq("id", deviceId);
+  if (approved.error) return err(approved.error.message);
+  await touchJudge(device.judgeId);
+  refresh();
+  return ok("Device approved.");
+}
+
+/** Turn a request away, or sign out an approved device. The judge can ask for approval again. */
+export async function revokeDevice(deviceId: string): Promise<ActionResult> {
+  const device = await managedDevice(deviceId);
+  if (!device) return err("That device request is gone.");
+  const { error } = await db().from("judge_devices").update({ status: "revoked", decided_at: new Date().toISOString() }).eq("id", deviceId);
+  if (error) return err(error.message);
+  await touchJudge(device.judgeId);
   refresh();
   return ok();
 }

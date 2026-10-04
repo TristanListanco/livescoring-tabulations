@@ -1,4 +1,4 @@
-import type { Board, Decimals, Entry, Judge, Score } from "./types";
+import type { Activity, Board, Criterion, Decimals, Entry, Judge, Score } from "./types";
 
 export type ScoreRules = { min: number; max: number; decimals: Decimals };
 
@@ -126,4 +126,52 @@ export function scoreProgress(board: Board): { submitted: number; possible: numb
   const submitted = board.scores.filter((s) => judgeIds.has(s.judgeId) && entryIds.has(s.entryId)).length;
   const possible = judgeIds.size * entryIds.size;
   return { submitted, possible, complete: possible > 0 && submitted === possible };
+}
+
+// Display -------------------------------------------------------------------------------
+
+type DisplayRules = Pick<Activity, "scoringMode" | "criteriaDisplay" | "decimals">;
+
+/**
+ * One judge's score as the audience sees it. Simple mode: the score itself. Criteria mode: the total
+ * out of 100, as a percentage ("87.5%") or scaled to 10 ("8.75").
+ */
+export function scoreText(value: number, rules: DisplayRules): string {
+  if (rules.scoringMode !== "criteria") return formatScore(value, rules.decimals);
+  return rules.criteriaDisplay === "ten" ? (value / 10).toFixed(2) : `${formatScore(value, rules.decimals)}%`;
+}
+
+/** An average (in hundredths of the score or total) as the audience sees it. */
+export function averageText(hundredths: number | null, rules: DisplayRules): string {
+  if (hundredths === null) return "—";
+  if (rules.scoringMode !== "criteria") return formatAverage(hundredths);
+  return rules.criteriaDisplay === "ten" ? (hundredths / 1000).toFixed(2) : `${(hundredths / 100).toFixed(2)}%`;
+}
+
+/** One line describing how the activity is scored, for headers and the PDF. */
+export function rulesSummary(activity: Pick<Activity, "scoringMode" | "criteria" | "criteriaDisplay" | "min" | "max" | "decimals">): string {
+  if (activity.scoringMode !== "criteria") {
+    const places = activity.decimals === 0 ? "whole numbers" : `${activity.decimals} decimal place${activity.decimals > 1 ? "s" : ""}`;
+    return `Scores from ${rangeLabel(activity)}, ${places}.`;
+  }
+  const list = activity.criteria.map((c) => `${c.name} ${formatBound(c.max)}`).join(", ");
+  const shown = activity.criteriaDisplay === "ten" ? "scaled to 10" : "as a percentage";
+  return `Criteria: ${list}. Totals out of 100, shown ${shown}.`;
+}
+
+/** Criteria mode: points per criterion → total, or an error. Each value is checked against its criterion's max. */
+export function parseBreakdown(
+  typed: Record<string, string>,
+  criteria: Criterion[],
+  decimals: Decimals,
+): { ok: true; total: number; breakdown: Record<string, number> } | { ok: false; error: string } {
+  const breakdown: Record<string, number> = {};
+  let hundredths = 0;
+  for (const c of criteria) {
+    const parsed = parseScore(typed[c.id] ?? "", { min: 0, max: c.max, decimals });
+    if (!parsed.ok) return { ok: false, error: `${c.name}: ${parsed.error}` };
+    breakdown[c.id] = parsed.value;
+    hundredths += Math.round(parsed.value * 100);
+  }
+  return { ok: true, total: hundredths / 100, breakdown };
 }

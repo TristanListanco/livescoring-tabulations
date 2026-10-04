@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
-import type { Activity, AdminAccount, Board, Decimals, Entry, Judge, Score } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, Score, Signatory } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -19,6 +19,9 @@ type ActivityRow = {
   owner_id?: string | null;
   session_state?: string;
   current_entry_id?: string | null;
+  scoring_mode?: string;
+  criteria?: unknown;
+  criteria_display?: string;
   created_at: string;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
@@ -32,6 +35,15 @@ const ACTIVITY_COLUMNS = "*";
 
 function fail(error: { message: string } | null): asserts error is null {
   if (error) throw new Error(error.message);
+}
+
+/** Criteria are stored as JSON; anything malformed is dropped rather than trusted. */
+function toCriteria(value: unknown): Criterion[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((c): c is { id: unknown; name: unknown; max: unknown } => typeof c === "object" && c !== null)
+    .map((c) => ({ id: String(c.id), name: String(c.name), max: Number(c.max) }))
+    .filter((c) => c.id && c.name && Number.isFinite(c.max) && c.max > 0);
 }
 
 function toActivity(row: ActivityRow): Activity {
@@ -49,6 +61,9 @@ function toActivity(row: ActivityRow): Activity {
     ownerId: row.owner_id ?? null,
     sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
     currentEntryId: row.current_entry_id ?? null,
+    scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
+    criteria: toCriteria(row.criteria),
+    criteriaDisplay: row.criteria_display === "ten" ? "ten" : "percent",
     createdAt: row.created_at,
   };
 }
@@ -198,4 +213,55 @@ export async function getJudgeContext(judgeId: string): Promise<{ judge: Judge; 
   if (!data) return null;
   const row = data as JudgeRow & { activity_id: string };
   return { judge: toJudge(row), activityId: row.activity_id };
+}
+
+// Judge devices ---------------------------------------------------------------------
+
+type DeviceRow = { id: string; judge_id: string; pairing_code: string; label: string; status: string; created_at: string };
+const DEVICE_COLUMNS = "id, judge_id, pairing_code, label, status, created_at";
+const toDevice = (row: DeviceRow): JudgeDevice => ({
+  id: row.id,
+  judgeId: row.judge_id,
+  pairingCode: row.pairing_code,
+  label: row.label,
+  status: row.status === "approved" || row.status === "revoked" ? row.status : "pending",
+  createdAt: row.created_at,
+});
+
+export async function getDevice(deviceId: string): Promise<JudgeDevice | null> {
+  if (!isUuid(deviceId)) return null;
+  const { data, error } = await db().from("judge_devices").select(DEVICE_COLUMNS).eq("id", deviceId).maybeSingle();
+  if (error) return null; // Before migration 006 there are no devices.
+  return data ? toDevice(data as DeviceRow) : null;
+}
+
+/** Approved and waiting devices for these judges, newest first. Revoked ones are history and left out. */
+export async function listDevices(judgeIds: string[]): Promise<JudgeDevice[]> {
+  if (judgeIds.length === 0) return [];
+  const { data, error } = await db()
+    .from("judge_devices")
+    .select(DEVICE_COLUMNS)
+    .in("judge_id", judgeIds)
+    .neq("status", "revoked")
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data as DeviceRow[]).map(toDevice);
+}
+
+// Report signatories --------------------------------------------------------------------
+
+function toSignatories(value: unknown): Signatory[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((s): s is { name: unknown; designation: unknown } => typeof s === "object" && s !== null)
+    .map((s) => ({ name: String(s.name ?? "").trim(), designation: String(s.designation ?? "").trim() }))
+    .filter((s) => s.name);
+}
+
+/** The names and designations an organizer prints on their results PDFs. */
+export async function getSignatories(adminId: string): Promise<Signatory[]> {
+  if (!isUuid(adminId)) return [];
+  const { data, error } = await db().from("admins").select("signatories").eq("id", adminId).maybeSingle();
+  if (error || !data) return [];
+  return toSignatories((data as { signatories: unknown }).signatories);
 }

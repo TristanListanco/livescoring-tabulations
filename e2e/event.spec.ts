@@ -30,6 +30,8 @@ let codes: string[] = [];
 let judge1: Page;
 let judge2: Page;
 let live: Page;
+// Someone else who got hold of Ana's QR code.
+let intruder: Page;
 
 /** A page in its own context, the way a separate device would see the app. */
 async function openDevice(browser: Browser, options: BrowserContextOptions = {}) {
@@ -38,6 +40,12 @@ async function openDevice(browser: Browser, options: BrowserContextOptions = {})
 }
 
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
+
+/** The pairing code a waiting device shows, for the organizer to match. */
+async function pairingCode(page: Page) {
+  const text = await page.locator("p").filter({ hasText: /^Pairing code [A-Z0-9]{4}$/ }).textContent();
+  return text!.replace("Pairing code ", "");
+}
 
 /** Background colour of the LED output: chroma green for the overlay, navy for full screen. */
 function ledBackground(led: Page) {
@@ -69,10 +77,11 @@ test.describe.serial("a full event", () => {
     judge1 = await openDevice(browser, { ...devices["Pixel 7"] });
     judge2 = await openDevice(browser, { viewport: { width: 1180, height: 820 }, hasTouch: true });
     live = await openDevice(browser);
+    intruder = await openDevice(browser, { ...devices["iPhone 13"] });
   });
 
   test.afterAll(async () => {
-    for (const page of [judge1, judge2, live]) await page?.context().close();
+    for (const page of [judge1, judge2, live, intruder]) await page?.context().close();
     await deleteActivityNamed(NAME);
     await deleteOrganizerByEmail(ORGANIZER.email);
     await deleteOrganizerByEmail(OTHER.email);
@@ -85,6 +94,13 @@ test.describe.serial("a full event", () => {
     await createOrganizer(page, ORGANIZER, true);
     await createOrganizer(page, OTHER, false);
     await expectAccessible(page);
+
+    // Signatories print on the organizer's results PDFs.
+    await page.getByRole("link", { name: ORGANIZER.name }).click();
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+    await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
+    await page.getByRole("button", { name: "Save signatories" }).click();
+    await expect(page.getByText("Saved. 1 signatory prints on the results PDF.")).toBeVisible();
   });
 
   test("an organizer signs in, sees their profile and creates an activity", async ({ page }) => {
@@ -95,6 +111,10 @@ test.describe.serial("a full event", () => {
     const photo = header.locator('img[src*="/organizer-photos/"]');
     await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
     await expect(page.getByText("No activities yet")).toBeVisible();
+    await page.getByRole("link", { name: /Your profile|E2E Organizer/ }).first().click();
+    await expect(page).toHaveURL(/\/admin\/profile$/);
+    await expect(page.getByLabel("Signatory 1 full name")).toHaveValue("Maria Reyes");
+    await page.goto("/admin");
 
     await page.getByRole("link", { name: "New activity" }).first().click();
     await page.getByLabel("Name", { exact: true }).fill(NAME);
@@ -120,21 +140,41 @@ test.describe.serial("a full event", () => {
     await expectAccessible(page);
   });
 
-  test("judges who sign in early wait for the session to start", async () => {
+  test("only the device the organizer approves can judge", async ({ page }) => {
     await judge1.goto(`/judge/join/${codes[0]}`);
     await expect(judge1).toHaveURL(/\/judge\/score$/);
-    await expect(heading(judge1)).toHaveText("Waiting for the organizer to start");
+    await expect(heading(judge1)).toHaveText("Waiting for the organizer to approve this device");
     await expect(judge1.getByRole("button", { name: "5", exact: true })).toHaveCount(0);
+    const code1 = await pairingCode(judge1);
+    await snap(judge1, "judge device waiting for approval");
+    await expectAccessible(judge1);
 
     await judge2.goto("/judge");
     await judge2.getByLabel("Judge code").fill(codes[1].toLowerCase());
     await judge2.getByRole("button", { name: "Start judging" }).click();
-    await expect(heading(judge2)).toHaveText("Waiting for the organizer to start");
+    await expect(heading(judge2)).toHaveText("Waiting for the organizer to approve this device");
+    const code2 = await pairingCode(judge2);
+
+    // Someone else scans Ana's QR code too: their request shows a different pairing code.
+    await intruder.goto(`/judge/join/${codes[0]}`);
+    const intruderCode = await pairingCode(intruder);
+    expect(intruderCode).not.toBe(code1);
+
+    await openSession(page);
+    await expect(page.getByRole("link", { name: "3 devices waiting for approval" })).toBeVisible();
+    await page.getByRole("button", { name: `Approve Ana Cruz's device ${code1}` }).click();
+    await page.getByRole("button", { name: `Approve Ben Torres's device ${code2}` }).click();
+    await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
+    await expect(heading(judge2)).toHaveText("Waiting for the organizer to start", REALTIME);
+
+    // Approving Ana's phone signed out every other device for her, including the intruder's.
+    await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
+    await expect(page.getByRole("button", { name: `Approve Ana Cruz's device ${intruderCode}` })).toHaveCount(0);
+    await expect(page.getByText("Approved: Android phone · Chrome")).toBeVisible();
+    await snap(page, "session tab, judge devices");
 
     await live.goto(livePath);
     await expect(live.getByRole("status")).toHaveText("Live", { timeout: 30_000 });
-    await snap(judge1, "judge waiting for the session");
-    await expectAccessible(judge1);
   });
 
   test("starting the session opens the judges' screens and locks the panel", async ({ page }) => {

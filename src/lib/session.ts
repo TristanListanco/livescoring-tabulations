@@ -69,8 +69,9 @@ export async function requireSuperAdmin(): Promise<AdminSession> {
   return session;
 }
 
-export async function startJudgeSession(judgeId: string) {
-  const token = signToken({ role: "judge", sub: judgeId, exp: Date.now() + JUDGE_TTL_S * 1000 });
+/** Signs this browser in as a judge's device. The device still needs the organizer's approval to score. */
+export async function startJudgeSession(judgeId: string, deviceId: string) {
+  const token = signToken({ role: "judge", sub: judgeId, dev: deviceId, exp: Date.now() + JUDGE_TTL_S * 1000 });
   (await cookies()).set(JUDGE_COOKIE, token, await cookieOptions(JUDGE_TTL_S));
 }
 
@@ -78,6 +79,8 @@ export async function endJudgeSession() {
   (await cookies()).delete(JUDGE_COOKIE);
 }
 
-export async function sessionJudgeId(): Promise<string | null> {
-  return verifyToken((await cookies()).get(JUDGE_COOKIE)?.value, "judge")?.sub ?? null;
+/** The judge and device this browser signed in as, if any. */
+export async function judgeSession(): Promise<{ judgeId: string; deviceId: string | null } | null> {
+  const payload = verifyToken((await cookies()).get(JUDGE_COOKIE)?.value, "judge");
+  return payload ? { judgeId: payload.sub, deviceId: payload.dev ?? null } : null;
 }

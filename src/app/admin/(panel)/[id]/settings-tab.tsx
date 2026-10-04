@@ -3,8 +3,8 @@
 import { useActionState, useState, useTransition } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity, ActionResult } from "@/lib/types";
-import { setActivityOwner, setShowRank, updateSettings, type FormResult } from "../../actions";
-import { RulesFields } from "../rules-fields";
+import { setActivityOwner, setCriteriaDisplay, setShowRank, updateSettings, type FormResult } from "../../actions";
+import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
 function Message({ state }: { state: FormResult }) {
@@ -64,6 +64,44 @@ function RankingSwitch({ activity }: { activity: Activity }) {
       </div>
       {result && <Message state={result} />}
     </div>
+  );
+}
+
+/** Criteria activities: show totals as a percentage or scaled to 10. Saves on change, even mid-session. */
+function CriteriaDisplayChoice({ activity }: { activity: Activity }) {
+  const [display, setDisplay] = useState(activity.criteriaDisplay);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const choose = (next: typeof display) =>
+    startTransition(async () => {
+      setDisplay(next);
+      const r = await setCriteriaDisplay(activity.id, next);
+      setResult(r);
+      if (!r.ok) setDisplay(activity.criteriaDisplay);
+    });
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="font-semibold">Show totals</legend>
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { value: "percent", label: "As a percentage", example: "87.5%" },
+            { value: "ten", label: "Scaled to 10", example: "8.75" },
+          ] as const
+        ).map((o) => (
+          <label
+            key={o.value}
+            className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint"
+          >
+            <input type="radio" name="show-totals" checked={display === o.value} onChange={() => choose(o.value)} disabled={pending} className="accent-mint" />
+            <span className="font-semibold">{o.label}</span>
+            <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
+          </label>
+        ))}
+      </div>
+      {result && <Message state={result} />}
+    </fieldset>
   );
 }
 
@@ -199,18 +237,21 @@ export function SettingsTab({
           hint={
             hasScores
               ? "Locked once the session has started. Reset scores in the Developer tab to change it."
-              : "Judges can only submit scores inside this range."
+              : "A single score per judge, or points for each criterion adding up to 100."
           }
         >
-          {hasScores && (
-            <>
-              {/* Disabled fields aren't submitted, so send the current values instead. */}
-              <input type="hidden" name="min" value={activity.min} />
-              <input type="hidden" name="max" value={activity.max} />
-              <input type="hidden" name="decimals" value={activity.decimals} />
-            </>
-          )}
-          <RulesFields min={activity.min} max={activity.max} decimals={activity.decimals} locked={hasScores} />
+          <ScoringFields
+            initial={{
+              mode: activity.scoringMode,
+              min: activity.min,
+              max: activity.max,
+              decimals: activity.decimals,
+              criteria: activity.criteria,
+              display: activity.criteriaDisplay,
+            }}
+            locked={hasScores}
+            showDisplay={false}
+          />
         </Section>
         <div className="flex flex-wrap items-center gap-4 pb-8 md:pl-[calc(14rem+2.5rem)]">
           <SubmitButton>Save name and scoring</SubmitButton>
@@ -225,7 +266,10 @@ export function SettingsTab({
       )}
 
       <Section title="Live results page" hint="What the audience sees on the public link.">
-        <RankingSwitch activity={activity} />
+        <div className="space-y-6">
+          <RankingSwitch activity={activity} />
+          {activity.scoringMode === "criteria" && <CriteriaDisplayChoice activity={activity} />}
+        </div>
       </Section>
 
       <Section title="Export" hint="An official results sheet with every judge's score, averages, ranks, a report ID and each judge's sign-off.">

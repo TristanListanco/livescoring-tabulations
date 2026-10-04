@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LiveBoard } from "@/components/live-board";
-import { getAccessCodes, getBoard, listAdmins } from "@/lib/data";
+import { getAccessCodes, getBoard, listAdmins, listDevices } from "@/lib/data";
 import { siteOrigin } from "@/lib/origin";
 import { reportId } from "@/lib/report";
-import { rangeLabel, scoreProgress } from "@/lib/scoring";
+import { rulesSummary, scoreProgress } from "@/lib/scoring";
 import { currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { AccessTab } from "./access-tab";
@@ -48,6 +48,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // Before judging starts the organizer needs the codes; once it's live, the session controls.
   const tab = TABS.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
   const started = activity.sessionState !== "draft";
+  const devices = await listDevices(judges.map((j) => j.id));
+  const waitingDevices = devices.filter((d) => d.status === "pending").length;
   const progress = scoreProgress(board);
   const origin = await siteOrigin();
   const liveUrl = `${origin}/live/${activity.publicId}`;
@@ -82,9 +84,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             >
               {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
             </Link>
+            {waitingDevices > 0 && (
+              <Link href={`/admin/${activity.id}?tab=session`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
+                {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
+              </Link>
+            )}
           </div>
           <p className="hint mt-1">
-            Scores {rangeLabel(activity)}, {activity.decimals === 0 ? "whole numbers" : `${activity.decimals} decimal place${activity.decimals > 1 ? "s" : ""}`}.{" "}
+            {rulesSummary(activity)}{" "}
             {judges.length} {judges.length === 1 ? "judge" : "judges"}, {entries.length} {entries.length === 1 ? "entry" : "entries"}.
           </p>
         </div>
@@ -150,7 +157,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             entryCount={entries.length}
           />
         )}
-        {tab === "session" && <SessionTab board={board} />}
+        {tab === "session" && <SessionTab board={board} devices={devices} />}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
         {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} started={started} />}
         {tab === "results" && <LiveBoard board={board} embedded />}

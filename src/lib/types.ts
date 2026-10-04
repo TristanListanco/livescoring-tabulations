@@ -2,6 +2,18 @@ export type Decimals = 0 | 1 | 2;
 
 export type SessionState = "draft" | "live" | "ended";
 
+/** simple: one score per judge between min and max. criteria: judges score each criterion; totals are out of 100. */
+export type ScoringMode = "simple" | "criteria";
+export type Criterion = { id: string; name: string; max: number };
+/** How criteria totals (out of 100) are shown: as a percentage, or scaled to 10. */
+export type CriteriaDisplay = "percent" | "ten";
+
+/** A name and designation printed as a signature line on the results PDF. */
+export type Signatory = { name: string; designation: string };
+
+export type DeviceStatus = "pending" | "approved" | "revoked";
+export type JudgeDevice = { id: string; judgeId: string; pairingCode: string; label: string; status: DeviceStatus; createdAt: string };
+
 export type Activity = {
   id: string;
   name: string;
@@ -19,6 +31,10 @@ export type Activity = {
   ledHoldScores: boolean;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
+  scoringMode: ScoringMode;
+  /** Criteria mode only; their max points add up to 100. */
+  criteria: Criterion[];
+  criteriaDisplay: CriteriaDisplay;
   /** draft: not started, judges wait. live: judging is open. ended: judging is closed. */
   sessionState: SessionState;
   /** The entry every judge is scoring right now, chosen by the organizer. */

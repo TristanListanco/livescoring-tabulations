@@ -3,9 +3,10 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import type { ActionResult, Board, SessionState } from "@/lib/types";
+import type { ActionResult, Board, JudgeDevice, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setLedEntry, setSessionState } from "../../actions";
+import { JudgeDevices } from "./judge-devices";
 
 const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
   draft: {
@@ -16,7 +17,7 @@ const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
   ended: { label: "Ended", body: "Judges can't submit scores. Reopen the session to continue judging." },
 };
 
-export function SessionTab({ board }: { board: Board }) {
+export function SessionTab({ board, devices }: { board: Board; devices: JudgeDevice[] }) {
   useLiveRefresh(board.activity.id);
   const { activity, judges, entries, scores } = board;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
@@ -98,6 +99,8 @@ export function SessionTab({ board }: { board: Board }) {
           {result.ok ? result.message : result.error}
         </p>
       )}
+
+      <JudgeDevices judges={judges} devices={devices} />
 
       {live && (
         <section aria-labelledby="now-judging">

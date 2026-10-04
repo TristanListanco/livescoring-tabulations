@@ -4,9 +4,9 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { isUuid, newFileTag } from "@/lib/codes";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
-import { requireSuperAdmin } from "@/lib/session";
+import { requireAdmin, requireSuperAdmin } from "@/lib/session";
 import { db, ORGANIZER_BUCKET } from "@/lib/supabase/server";
-import type { ActionResult } from "@/lib/types";
+import type { ActionResult, Signatory } from "@/lib/types";
 import type { FormResult } from "./actions";
 
 // Organizer accounts. Only the super admin can create, change or delete them.
@@ -128,4 +128,35 @@ export async function deleteOrganizer(adminId: string): Promise<ActionResult> {
   if (error) return err(error.message);
   await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
   redirect("/admin/organizers");
+}
+
+// Report signatories ------------------------------------------------------------------
+
+const MAX_SIGNATORIES = 12;
+
+/**
+ * Names and designations printed as signature lines on an organizer's results PDFs. The super admin can
+ * edit any organizer's; an organizer can edit their own (adminId null).
+ */
+export async function saveSignatories(adminId: string | null, signatories: Signatory[]): Promise<ActionResult> {
+  const session = await requireAdmin();
+  const target = adminId ?? (session.kind === "organizer" ? session.admin.id : null);
+  if (!target || !isUuid(target)) return err("Organizer not found.");
+  if (session.kind === "organizer" && session.admin.id !== target) return err("Organizer not found.");
+
+  const clean = (Array.isArray(signatories) ? signatories : [])
+    .map((s) => ({
+      name: String(s?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+      designation: String(s?.designation ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+    }))
+    .filter((s) => s.name || s.designation);
+  if (clean.some((s) => !s.name)) return err("Every signatory needs a name.");
+  if (clean.length > MAX_SIGNATORIES) return err(`Up to ${MAX_SIGNATORIES} signatories fit on the sheet.`);
+
+  const { error } = await db().from("admins").update({ signatories: clean, updated_at: new Date().toISOString() }).eq("id", target);
+  if (error) {
+    return err(error.message.includes("signatories") ? "Signatories need a database update. Run supabase/migrations/006_devices_criteria_signatories.sql." : error.message);
+  }
+  refresh();
+  return ok(clean.length ? `Saved. ${clean.length} ${clean.length === 1 ? "signatory prints" : "signatories print"} on the results PDF.` : "Saved. No signatories will print.");
 }

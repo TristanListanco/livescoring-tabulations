@@ -25,13 +25,13 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           )}
           <div className="ml-auto flex min-w-0 items-center gap-3 sm:gap-5">
             {session.kind === "organizer" ? (
-              <div className="flex min-w-0 items-center gap-3">
+              <Link href="/admin/profile" className="flex min-w-0 items-center gap-3 rounded-lg px-1.5 py-1 hover:bg-oxford" title="Your profile">
                 <Avatar name={session.admin.name} src={session.admin.photoUrl} size={36} />
                 <div className="min-w-0 leading-tight">
                   <p className="truncate text-sm font-semibold">{session.admin.name}</p>
                   <p className="hidden truncate text-xs text-powder sm:block">{session.admin.email}</p>
                 </div>
-              </div>
+              </Link>
             ) : (
               <span className="rounded-md border border-oxford px-2.5 py-1 text-sm font-semibold text-powder">Super admin</span>
             )}

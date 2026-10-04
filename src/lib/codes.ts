@@ -12,6 +12,8 @@ function random(alphabet: string, length: number): string {
 }
 
 export const newAccessCode = () => random(CODE_ALPHABET, 6);
+/** Shown on a judge's device and in the admin panel, so the organizer approves the right one. */
+export const newPairingCode = () => random(CODE_ALPHABET, 4);
 export const newPublicId = () => random(ID_ALPHABET, 10);
 export const newFileTag = () => random(ID_ALPHABET, 8);
 

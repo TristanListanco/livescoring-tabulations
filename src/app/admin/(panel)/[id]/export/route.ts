@@ -1,6 +1,6 @@
-import { getAdmin, getBoard } from "@/lib/data";
+import { getAdmin, getBoard, getSignatories } from "@/lib/data";
 import { reportId } from "@/lib/report";
-import { renderResultsPdf } from "@/lib/results-pdf";
+import { renderResultsPdf, type ReportOrganizer } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { currentAdmin } from "@/lib/session";
 
@@ -12,6 +12,23 @@ function fileName(name: string): string {
     .replace(/\s+/g, "-")
     .toLowerCase();
   return `${slug || "activity"}-results.pdf`;
+}
+
+/** The activity's organizer for the sheet's header and signature lines. A photo that won't load is left out, not fatal. */
+async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer | null> {
+  if (!ownerId) return null;
+  const [admin, signatories] = await Promise.all([getAdmin(ownerId), getSignatories(ownerId)]);
+  if (!admin) return null;
+  let photo: Buffer | null = null;
+  if (admin.photoUrl) {
+    try {
+      const response = await fetch(admin.photoUrl, { signal: AbortSignal.timeout(5000) });
+      if (response.ok) photo = Buffer.from(await response.arrayBuffer());
+    } catch {
+      photo = null;
+    }
+  }
+  return { name: admin.name, photo, signatories };
 }
 
 /** Results sheet as a PDF. Only once every judge has scored every entry. */
@@ -33,8 +50,7 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
   }
 
   const timeZone = new URL(request.url).searchParams.get("tz") ?? undefined;
-  const organizer = board.activity.ownerId ? await getAdmin(board.activity.ownerId) : null;
-  const pdf = await renderResultsPdf(board, { timeZone, reportId: reportId(board), organizer: organizer?.name ?? null });
+  const pdf = await renderResultsPdf(board, { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) });
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

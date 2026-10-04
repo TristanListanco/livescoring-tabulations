@@ -1,8 +1,8 @@
 "use client";
 
 import { KEY_GREEN, ledScene, type LedScene, type TileState } from "@/lib/led";
-import { formatAverage, formatScore } from "@/lib/scoring";
-import type { Board, Judge } from "@/lib/types";
+import { averageText, scoreText } from "@/lib/scoring";
+import type { Activity, Board, Judge } from "@/lib/types";
 import { Avatar } from "../avatar";
 import { FitStage } from "./fit-stage";
 
@@ -20,7 +20,7 @@ function WaitingDots({ label }: { label: string }) {
 }
 
 /** A judge's score, a "scored" mark while scores are held back, or dots while they're still deciding. Each state fades in. */
-function TileValue({ judge, state, value, decimals }: { judge: Judge; state: TileState; value: number | null; decimals: number }) {
+function TileValue({ judge, state, value, activity }: { judge: Judge; state: TileState; value: number | null; activity: Activity }) {
   if (state === "waiting") return <WaitingDots key={`${judge.id}-waiting`} label="Waiting for score" />;
   if (state === "submitted") {
     return (
@@ -34,7 +34,7 @@ function TileValue({ judge, state, value, decimals }: { judge: Judge; state: Til
   }
   return (
     <span key={`${judge.id}-shown`} className="led-fade tabular leading-none font-bold">
-      {formatScore(value ?? 0, decimals)}
+      {scoreText(value ?? 0, activity)}
     </span>
   );
 }
@@ -88,7 +88,7 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
               </span>
             </div>
             <span style={{ fontSize: size.score }}>
-              <TileValue judge={t.judge} state={t.state} value={t.value} decimals={activity.decimals} />
+              <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
             </span>
           </div>
         ))}
@@ -106,7 +106,7 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
                   <WaitingDots label="Average appears when every judge has scored" />
                 </span>
               ) : (
-                formatAverage(scene.average.hundredths)
+                averageText(scene.average.hundredths, activity)
               )}
             </p>
             {!final && <p className="tabular mt-2 text-[24px] leading-tight text-mint/80">{averageNote(scene)}</p>}
@@ -156,10 +156,10 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
             className="flex min-w-0 flex-col items-center justify-center gap-[2cqh] bg-oxford px-[1.2cqw]"
             style={{ containerType: "inline-size" }}
           >
-            <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(26cqi, 16cqh)" />
+            <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
             <p className="w-full truncate text-center text-[length:min(11cqi,3.6cqh)] font-semibold">{t.judge.name}</p>
             <span className="text-[length:min(30cqi,14cqh)]">
-              <TileValue judge={t.judge} state={t.state} value={t.value} decimals={activity.decimals} />
+              <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
             </span>
           </div>
         ))}
@@ -171,7 +171,7 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
         >
           <span className={`text-[length:min(9cqi,3.6cqh)] font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
           <span className="tabular text-[length:min(32cqi,20cqh)] leading-none font-bold">
-            {scene.average.state === "hidden" ? <WaitingDots label="Average appears when every judge has scored" /> : formatAverage(scene.average.hundredths)}
+            {scene.average.state === "hidden" ? <WaitingDots label="Average appears when every judge has scored" /> : averageText(scene.average.hundredths, activity)}
           </span>
           {!final && <span className="tabular text-[length:min(7cqi,3cqh)] text-mint/80">{averageNote(scene)}</span>}
         </div>

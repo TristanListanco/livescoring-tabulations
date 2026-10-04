@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { activityFixture } from "./test-fixtures";
 import { applyKey, formatAverage, parseScore, rankEntries, scoreProgress, type Key, type ScoreRules } from "./scoring";
 
 const press = (keys: Key[], rules: ScoreRules) => keys.reduce((buf, k) => applyKey(buf, k, rules), "");
@@ -109,7 +110,7 @@ describe("rankEntries", () => {
 });
 
 describe("scoreProgress", () => {
-  const activity = { id: "a", name: "A", publicId: "p", min: 1, max: 10, decimals: 2 as const, showRank: true, ledEntryId: null, ledFullscreen: false, ledHoldScores: false, ownerId: null, sessionState: "draft" as const, currentEntryId: null, createdAt: "" };
+  const activity = activityFixture();
   const judges = [{ id: "j1", name: "A", photoUrl: null, position: 0 }, { id: "j2", name: "B", photoUrl: null, position: 1 }];
   const entries = [{ id: "e1", name: "One", position: 0 }];
 

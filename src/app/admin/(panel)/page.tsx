@@ -39,7 +39,7 @@ export default async function ActivitiesPage() {
               <tr>
                 <th className="py-3 pr-4 font-semibold">Activity</th>
                 {isSuper && <th className="px-4 py-3 font-semibold">Organizer</th>}
-                <th className="px-4 py-3 font-semibold">Range</th>
+                <th className="px-4 py-3 font-semibold">Scoring</th>
                 <th className="px-4 py-3 text-right font-semibold">Judges</th>
                 <th className="px-4 py-3 text-right font-semibold">Entries</th>
                 <th className="px-4 py-3 text-right font-semibold">Scores in</th>
@@ -58,7 +58,7 @@ export default async function ActivitiesPage() {
                     </td>
                     {isSuper && <td className="px-4 py-4 text-prussian/70">{a.organizer ?? "You"}</td>}
                     <td className="px-4 py-4">
-                      {formatBound(a.min)} to {formatBound(a.max)}
+                      {a.scoringMode === "criteria" ? `${a.criteria.length} criteria, 100 points` : `${formatBound(a.min)} to ${formatBound(a.max)}`}
                     </td>
                     <td className="px-4 py-4 text-right">{a.judgeCount}</td>
                     <td className="px-4 py-4 text-right">{a.entryCount}</td>
