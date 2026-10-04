@@ -1,26 +1,124 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-prussian: #0b2545;
+  --color-oxford: #13315c;
+  --color-regal: #134074;
+  --color-powder: #8da9c4;
+  --color-mint: #eef4ed;
+  /* Hairlines and quiet fills derived from powder blue for the light admin surfaces. */
+  --color-line: #c8d6e2;
+  /* Form control outlines: 3.5:1 on white, the minimum for identifying a field (WCAG 1.4.11). */
+  --color-field: #718cac;
+  /* Placeholder text: 5:1 on white. */
+  --color-placeholder: #607186;
+  --color-wash: #e2ebe9;
+  --color-danger: #b3261e;
+  --color-danger-ink: #8c1d17;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Avenir ships with Apple devices; Nunito Sans is the closest open fallback elsewhere. */
+  --font-sans: "Avenir Next", Avenir, var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-powder);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-[15px] font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-regal text-mint hover:bg-oxford;
+  }
+  .btn-quiet {
+    @apply border border-line bg-white/60 text-regal hover:bg-white;
+  }
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-danger-ink;
+  }
+  .btn-sm {
+    @apply h-9 rounded-md px-3 text-sm;
+  }
+  .field {
+    @apply block h-11 w-full rounded-lg border border-field bg-white px-3 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-prussian;
+  }
+  .hint {
+    @apply text-sm text-prussian/70;
+  }
+}
+
+dialog::backdrop {
+  background: rgb(11 37 69 / 0.6);
+  backdrop-filter: blur(2px);
+}
+
+/* Confirmation that drops in from the top after a judge submits a score. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.75rem);
+  }
+}
+.toast-in {
+  animation: toast-in 0.25s ease-out;
+}
+
+/* LED wall graphic. Wipes and solid colour changes only: fades over the chroma green would tint it. */
+@keyframes led-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.led-wipe {
+  animation: led-wipe 0.6s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+@keyframes led-reveal {
+  from {
+    clip-path: inset(100% 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.led-reveal {
+  animation: led-reveal 0.5s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+@keyframes led-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.led-dot {
+  animation: led-dot 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
