@@ -13,9 +13,11 @@ import { DeveloperTab } from "./developer-tab";
 import { EntriesTab } from "./entries-tab";
 import { JudgesTab } from "./judges-tab";
 import { LedTab } from "./led-tab";
+import { SessionTab } from "./session-tab";
 import { SettingsTab } from "./settings-tab";
 
 const TABS = [
+  { id: "session", label: "Session" },
   { id: "access", label: "Access" },
   { id: "judges", label: "Judges" },
   { id: "entries", label: "Entries" },
@@ -42,8 +44,10 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   if (!canSee(session, board)) notFound();
 
   const requested = (await searchParams).tab;
-  const tab = TABS.find((t) => t.id === requested)?.id ?? "access";
   const { activity, judges, entries, scores } = board;
+  // Before judging starts the organizer needs the codes; once it's live, the session controls.
+  const tab = TABS.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
+  const started = activity.sessionState !== "draft";
   const progress = scoreProgress(board);
   const origin = await siteOrigin();
   const liveUrl = `${origin}/live/${activity.publicId}`;
@@ -63,7 +67,22 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
       </Link>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight text-balance">{activity.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-3xl font-bold tracking-tight text-balance">{activity.name}</h1>
+            <Link
+              href={`/admin/${activity.id}?tab=session`}
+              scroll={false}
+              className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                activity.sessionState === "live"
+                  ? "bg-regal text-mint"
+                  : activity.sessionState === "ended"
+                    ? "bg-wash text-prussian/80"
+                    : "border border-field text-prussian/80"
+              }`}
+            >
+              {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
+            </Link>
+          </div>
           <p className="hint mt-1">
             Scores {rangeLabel(activity)}, {activity.decimals === 0 ? "whole numbers" : `${activity.decimals} decimal place${activity.decimals > 1 ? "s" : ""}`}.{" "}
             {judges.length} {judges.length === 1 ? "judge" : "judges"}, {entries.length} {entries.length === 1 ? "entry" : "entries"}.
@@ -131,14 +150,15 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             entryCount={entries.length}
           />
         )}
-        {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} />}
-        {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} />}
+        {tab === "session" && <SessionTab board={board} />}
+        {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
+        {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} started={started} />}
         {tab === "results" && <LiveBoard board={board} embedded />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
-            hasScores={scores.length > 0}
+            hasScores={scores.length > 0 || started}
             progress={progress}
             reportId={reportId(board)}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}

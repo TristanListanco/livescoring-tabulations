@@ -16,7 +16,7 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
-import type { ActionResult, Decimals } from "@/lib/types";
+import type { ActionResult, Decimals, SessionState } from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -92,6 +92,18 @@ async function parentActivity(table: "judges" | "entries", id: string): Promise<
   const { data, error } = await db().from(table).select("activity_id").eq("id", id).maybeSingle();
   check(error);
   return (data as { activity_id: string } | null)?.activity_id ?? null;
+}
+
+const SESSION_HINT = "Judging sessions need a database update. Run supabase/migrations/005_judging_session.sql in the Supabase SQL editor.";
+const JUDGES_LOCKED = err("Judges are locked once the session has started. Reset scores in the Developer tab to unlock them.");
+
+/** The activity's judging session. Databases without migration 005 behave as "not started". */
+async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null }> {
+  const { data, error } = await db().from("activities").select("session_state, current_entry_id").eq("id", activityId).maybeSingle();
+  if (error) return { state: "draft", currentEntryId: null };
+  const row = data as { session_state: string; current_entry_id: string | null } | null;
+  const state = row?.session_state === "live" || row?.session_state === "ended" ? row.session_state : "draft";
+  return { state, currentEntryId: row?.current_entry_id ?? null };
 }
 
 /** Insert judges' access codes, regenerating on the (rare) collision. */
@@ -242,8 +254,8 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   if (!current) return NOT_FOUND;
   const rulesChanged =
     Number(current.min_score) !== parsed.rules.min || Number(current.max_score) !== parsed.rules.max || current.decimals !== parsed.rules.decimals;
-  if (rulesChanged && (await activityHasScores(activityId))) {
-    return err("Judges have already submitted scores. Reset scores in the Developer tab before changing the range or decimals.");
+  if (rulesChanged && ((await sessionOf(activityId)).state !== "draft" || (await activityHasScores(activityId)))) {
+    return err("The session has started. Reset scores in the Developer tab before changing the range or decimals.");
   }
 
   const update = await db()
@@ -271,6 +283,49 @@ export async function setActivityOwner(activityId: string, ownerId: string | nul
   if (error) return err(error.message);
   refresh();
   return ok(ownerId ? "The organizer can now manage this activity." : "Only you can manage this activity now.");
+}
+
+// Judging session ------------------------------------------------------------------
+
+/**
+ * Start (draft or ended → live) or end (live → ended) judging. Starting locks the judges and the
+ * running order; judges' screens open as soon as it is live.
+ */
+export async function setSessionState(activityId: string, state: "live" | "ended"): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const current = await sessionOf(activityId);
+  if (state === "live" && current.state === "draft") {
+    const [judges, entries] = await Promise.all([
+      db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
+      db().from("entries").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
+    ]);
+    if (!judges.count) return err("Add at least one judge before starting the session.");
+    if (!entries.count) return err("Add at least one entry before starting the session.");
+  }
+  if (state === "ended" && current.state !== "live") return err("The session isn't running.");
+
+  const update: Record<string, string | null> = { session_state: state };
+  if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
+  const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error) return err(/session_/.test(error.message) ? SESSION_HINT : error.message);
+  refresh();
+  if (state === "ended") return ok("The session has ended. Judges can no longer submit scores.");
+  return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
+}
+
+/** Show judges the entry to score next, or null to have them wait. Only while the session is live. */
+export async function setCurrentEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  if ((await sessionOf(activityId)).state !== "live") return err("Start the session first.");
+  if (entryId !== null) {
+    if (!isUuid(entryId)) return err("Entry not found.");
+    const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
+    if (!data) return err("That entry isn't part of this activity.");
+  }
+  const { error } = await db().from("activities").update({ current_entry_id: entryId }).eq("id", activityId);
+  if (error) return err(/current_entry_id/.test(error.message) ? SESSION_HINT : error.message);
+  refresh();
+  return ok();
 }
 
 // LED wall ----------------------------------------------------------------------
@@ -307,6 +362,7 @@ export async function setLedOptions(activityId: string, options: { fullscreen?: 
 
 export async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Enter the judge's name.");
 
@@ -331,7 +387,9 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
 }
 
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  if (!(await manage(await parentActivity("judges", judgeId)))) return err("Judge not found.");
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Enter the judge's name.");
   const { error } = await db().from("judges").update({ name }).eq("id", judgeId);
@@ -343,6 +401,7 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
 export async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
 
   const photo = photoFile(formData.get("photo"));
@@ -361,7 +420,9 @@ export async function setJudgePhoto(judgeId: string, formData: FormData): Promis
 }
 
 export async function removeJudge(judgeId: string): Promise<ActionResult> {
-  if (!(await manage(await parentActivity("judges", judgeId)))) return err("Judge not found.");
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return err(error.message);
@@ -400,7 +461,12 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
 }
 
 export async function removeEntry(entryId: string): Promise<ActionResult> {
-  if (!(await manage(await parentActivity("entries", entryId)))) return err("Entry not found.");
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state !== "draft") {
+    const { count } = await db().from("scores").select("id", { count: "exact", head: true }).eq("entry_id", entryId);
+    if (count) return err("Judges have already scored this entry, so it can't be removed during the session.");
+  }
   const { error } = await db().from("entries").delete().eq("id", entryId);
   if (error) return err(error.message);
   refresh();
@@ -410,6 +476,7 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
 export async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return err("The running order is locked once the session has started.");
 
   const { data, error } = await db().from("entries").select("id, position").eq("activity_id", activityId).order("position").order("created_at");
   check(error);
@@ -436,8 +503,10 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return err(error.message);
+  // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
+  await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
   refresh();
-  return ok("All scores were deleted.");
+  return ok("All scores were deleted and the session is back to not started.");
 }
 
 export async function deleteActivity(activityId: string): Promise<ActionResult> {

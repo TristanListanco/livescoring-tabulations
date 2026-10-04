@@ -17,6 +17,8 @@ type ActivityRow = {
   led_fullscreen?: boolean;
   led_hold_scores?: boolean;
   owner_id?: string | null;
+  session_state?: string;
+  current_entry_id?: string | null;
   created_at: string;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
@@ -45,6 +47,8 @@ function toActivity(row: ActivityRow): Activity {
     ledFullscreen: row.led_fullscreen ?? false,
     ledHoldScores: row.led_hold_scores ?? false,
     ownerId: row.owner_id ?? null,
+    sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
+    currentEntryId: row.current_entry_id ?? null,
     createdAt: row.created_at,
   };
 }

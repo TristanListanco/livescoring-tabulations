@@ -1,5 +1,7 @@
 export type Decimals = 0 | 1 | 2;
 
+export type SessionState = "draft" | "live" | "ended";
+
 export type Activity = {
   id: string;
   name: string;
@@ -17,6 +19,10 @@ export type Activity = {
   ledHoldScores: boolean;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
+  /** draft: not started, judges wait. live: judging is open. ended: judging is closed. */
+  sessionState: SessionState;
+  /** The entry every judge is scoring right now, chosen by the organizer. */
+  currentEntryId: string | null;
   createdAt: string;
 };
 

@@ -198,7 +198,7 @@ export function SettingsTab({
           title="Scoring"
           hint={
             hasScores
-              ? "Locked while scores exist. Reset scores in the Developer tab to change it."
+              ? "Locked once the session has started. Reset scores in the Developer tab to change it."
               : "Judges can only submit scores inside this range."
           }
         >

@@ -15,6 +15,8 @@ const board: Board = {
     ledFullscreen: false,
     ledHoldScores: false,
     ownerId: null,
+    sessionState: "draft",
+    currentEntryId: null,
     createdAt: "",
   },
   judges: [

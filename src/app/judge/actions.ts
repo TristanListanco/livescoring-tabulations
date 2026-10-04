@@ -33,6 +33,10 @@ export async function submitScore(entryId: string, typed: string): Promise<Actio
   const activity = await getActivity(context.activityId);
   if (!activity) return { ok: false, error: "This activity no longer exists." };
 
+  // The organizer decides what is judged: only the entry on screen, and only while the session is live.
+  if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
+  if (activity.currentEntryId !== entryId) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
+
   const parsed = parseScore(typed, activity);
   if (!parsed.ok) return parsed;
 

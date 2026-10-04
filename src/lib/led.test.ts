@@ -16,6 +16,8 @@ function board(options: { hold: boolean; onAir: string | null; scores: [string, 
       ledFullscreen: false,
       ledHoldScores: options.hold,
       ownerId: null,
+      sessionState: "draft",
+      currentEntryId: null,
       createdAt: "",
     },
     judges: [

@@ -73,6 +73,18 @@ create index if not exists activities_owner_idx on public.activities (owner_id);
 -- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
 alter table public.activities add column if not exists led_fullscreen boolean not null default false;
 alter table public.activities add column if not exists led_hold_scores boolean not null default false;
+-- Judging session: draft (not started), live, or ended; and the entry judges are scoring now.
+alter table public.activities add column if not exists session_state text not null default 'draft';
+alter table public.activities add column if not exists session_started_at timestamptz;
+alter table public.activities add column if not exists current_entry_id uuid references public.entries (id) on delete set null;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_session_state_check') then
+    alter table public.activities
+      add constraint activities_session_state_check check (session_state in ('draft', 'live', 'ended'));
+  end if;
+end;
+$$;
 
 -- Scores -------------------------------------------------------------------
 

@@ -48,7 +48,8 @@ export async function AccessTab({
       <section>
         <h2 className="text-xl font-bold">Judge portal</h2>
         <p className="hint mt-1 max-w-2xl">
-          Open this link on each judge&apos;s device and enter their code. Or scan a judge&apos;s QR code to sign that device in directly.
+          Open this link on each judge&apos;s device and enter their code. Or scan a judge&apos;s QR code to sign that device in directly. Judges can
+          sign in any time; their screen waits until you start the session.
         </p>
         <div className="mt-4 flex max-w-2xl items-center gap-2">
           <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{portalUrl}</code>
