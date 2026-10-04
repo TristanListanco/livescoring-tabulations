@@ -139,6 +139,8 @@ function scoringColumns(scoring: Scoring): Record<string, unknown> {
 
 const SCORING_HINT =
   "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
+/** The database hasn't run migration 008 yet: PostgREST can't find the column. Other errors about it are real errors. */
+const missingMoveColumn = (message: string) => /can_move_entries/.test(message) && /schema cache|does not exist/.test(message);
 const MOVE_ENTRIES_HINT =
   "Letting judges move entries needs a database update. Run supabase/migrations/008_judges_move_entries.sql in the Supabase SQL editor.";
 const PHOTOS_AND_PLACES_HINT =
@@ -300,8 +302,16 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   try {
     const { data, error } = await db()
       .from("judges")
-      // can_move_entries only when set, so databases without migration 008 can still create activities.
-      .insert(judges.map((j, position) => ({ activity_id: activityId, name: j.name, position, ...(j.movesEntries ? { can_move_entries: true } : {}) })))
+      // can_move_entries only when someone is ticked, so databases without migration 008 can still create activities. When
+      // it is sent, every row gets it: in a bulk insert a missing key becomes null, not the column's default.
+      .insert(
+        judges.map((j, position) => ({
+          activity_id: activityId,
+          name: j.name,
+          position,
+          ...(judges.some((x) => x.movesEntries) ? { can_move_entries: j.movesEntries } : {}),
+        })),
+      )
       .select("id, position");
     check(error);
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
@@ -328,7 +338,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
-    return err(/can_move_entries/.test(message) ? MOVE_ENTRIES_HINT : `Could not create the activity: ${message}`);
+    return err(missingMoveColumn(message) ? MOVE_ENTRIES_HINT : `Could not create the activity: ${message}`);
   }
 
   redirect(`/admin/${activityId}`);
@@ -506,7 +516,7 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
     })
     .select("id")
     .single();
-  if (error) return err(/can_move_entries/.test(error.message) ? MOVE_ENTRIES_HINT : error.message);
+  if (error) return err(missingMoveColumn(error.message) ? MOVE_ENTRIES_HINT : error.message);
   const judgeId = (data as { id: string }).id;
   try {
     await assignCodes([judgeId]);
@@ -526,7 +536,7 @@ export async function setJudgeMovesEntries(judgeId: string, moves: boolean): Pro
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   const { data, error } = await db().from("judges").update({ can_move_entries: moves }).eq("id", judgeId).select("name").single();
-  if (error) return err(/can_move_entries/.test(error.message) ? MOVE_ENTRIES_HINT : error.message);
+  if (error) return err(missingMoveColumn(error.message) ? MOVE_ENTRIES_HINT : error.message);
   refresh();
   const name = (data as { name: string }).name;
   return ok(moves ? `${name} can move entries.` : `${name} can no longer move entries.`);
