@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { judgeView } from "./judging";
 
 const entries = [
-  { id: "e1", name: "Agila", position: 0 },
-  { id: "e2", name: "Bagwis", position: 1 },
+  { id: "e1", name: "Agila", photoUrl: null, position: 0 },
+  { id: "e2", name: "Bagwis", photoUrl: null, position: 1 },
 ];
 const none = new Map<string, number>();
 

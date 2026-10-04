@@ -9,7 +9,7 @@ const board: Board = {
     { id: "j1", name: "Ana", photoUrl: null, position: 0 },
     { id: "j2", name: "Ben", photoUrl: null, position: 1 },
   ],
-  entries: [{ id: "e1", name: "Agila", position: 0 }],
+  entries: [{ id: "e1", name: "Agila", photoUrl: null, position: 0 }],
   scores: [
     { entryId: "e1", judgeId: "j1", value: 9.5 },
     { entryId: "e1", judgeId: "j2", value: 8.75 },
@@ -24,6 +24,11 @@ describe("reportId", () => {
   it("is the same for the same results, whatever the order they were loaded in", () => {
     const shuffled = { ...board, judges: [...board.judges].reverse(), scores: [...board.scores].reverse() };
     expect(reportId(shuffled)).toBe(reportId(board));
+  });
+
+  it("changes when the results' decimal places change, since they decide ties", () => {
+    const places = { ...board, activity: { ...board.activity, resultDecimals: 3 as const } };
+    expect(reportId(places)).not.toBe(reportId(board));
   });
 
   it("changes when any score changes", () => {

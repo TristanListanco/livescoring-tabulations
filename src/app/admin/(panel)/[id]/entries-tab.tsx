@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Entry } from "@/lib/types";
-import { addEntries, moveEntry, removeEntry, renameEntry, type FormResult } from "../../actions";
+import { addEntries, moveEntry, removeEntry, renameEntry, setEntryPhoto, type FormResult } from "../../actions";
 
 function Arrow({ up }: { up?: boolean }) {
   return (
@@ -32,29 +33,77 @@ function EntryRow({
   const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
   const [moving, startMove] = useTransition();
   const move = (direction: -1 | 1) => startMove(async () => void (await moveEntry(entry.id, direction)));
+  const [photoPending, startPhoto] = useTransition();
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+
+  const changePhoto = (photo: Blob | null, previewUrl: string | null) =>
+    startPhoto(async () => {
+      setPhotoError(null);
+      setPreview(previewUrl);
+      const data = new FormData();
+      if (photo) data.set("photo", photo, "photo.jpg");
+      const result = await setEntryPhoto(entry.id, data);
+      if (!result.ok) setPhotoError(result.error);
+    });
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
       <span className="tabular w-8 text-right font-semibold text-prussian/60">{number}</span>
-      <form action={rename} className="flex min-w-56 flex-1 items-center gap-2">
-        <label htmlFor={`entry-${entry.id}`} className="sr-only">
-          Entry {number} name
-        </label>
-        <input id={`entry-${entry.id}`} name="name" required maxLength={120} defaultValue={entry.name} className="field max-w-md" />
-        <SubmitButton className="btn btn-quiet btn-sm" pendingLabel="Saving…">
-          Save
-        </SubmitButton>
-        {state && !state.ok && (
-          <span role="alert" className="text-sm font-semibold text-danger">
-            {state.error}
-          </span>
+      <div className={photoPending ? "opacity-60" : undefined}>
+        <PhotoPicker
+          name={entry.name}
+          currentUrl={photoPending ? preview : entry.photoUrl}
+          size={48}
+          square
+          pixels={480}
+          label={`Photo for ${entry.name} (optional, shown on the LED wall)`}
+          onPick={(photo, url) => changePhoto(photo, url)}
+        />
+      </div>
+      <div className="min-w-56 flex-1 space-y-1">
+        <form action={rename} className="flex items-center gap-2">
+          <label htmlFor={`entry-${entry.id}`} className="sr-only">
+            Entry {number} name
+          </label>
+          <input id={`entry-${entry.id}`} name="name" required maxLength={120} defaultValue={entry.name} className="field max-w-md" />
+          <SubmitButton className="btn btn-quiet btn-sm" pendingLabel="Saving…">
+            Save
+          </SubmitButton>
+          {state && !state.ok && (
+            <span role="alert" className="text-sm font-semibold text-danger">
+              {state.error}
+            </span>
+          )}
+        </form>
+        {photoError && (
+          <p role="alert" className="text-sm font-semibold text-danger">
+            {photoError}
+          </p>
         )}
-      </form>
+        {entry.photoUrl && !photoPending && (
+          <button type="button" className="text-sm font-semibold text-regal hover:underline" onClick={() => changePhoto(null, null)}>
+            Remove photo
+          </button>
+        )}
+      </div>
       <div className="flex items-center gap-1">
-        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(-1)} disabled={started || isFirst || moving} aria-label={`Move ${entry.name} up`}>
+        <button
+          type="button"
+          className="btn btn-quiet btn-sm px-2.5"
+          onClick={() => move(-1)}
+          disabled={started || isFirst || moving}
+          aria-label={`Move ${entry.name} up`}
+        >
           <Arrow up />
         </button>
-        <button type="button" className="btn btn-quiet btn-sm px-2.5" onClick={() => move(1)} disabled={started || isLast || moving} aria-label={`Move ${entry.name} down`}>
+        <button
+          type="button"
+          className="btn btn-quiet btn-sm px-2.5"
+          onClick={() => move(1)}
+          disabled={started || isLast || moving}
+          aria-label={`Move ${entry.name} down`}
+        >
           <Arrow />
         </button>
         <ConfirmDialog
@@ -80,7 +129,14 @@ function AddEntriesForm({ activityId }: { activityId: string }) {
       <label htmlFor="new-entries" className="label">
         Add entries, one per line
       </label>
-      <textarea id="new-entries" name="names" rows={4} required className="field h-auto py-2.5 leading-relaxed" placeholder={"Maria Santos\nJuan dela Cruz"} />
+      <textarea
+        id="new-entries"
+        name="names"
+        rows={4}
+        required
+        className="field h-auto py-2.5 leading-relaxed"
+        placeholder={"Maria Santos\nJuan dela Cruz"}
+      />
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>
         {state && (
@@ -110,11 +166,14 @@ export function EntriesTab({
       <h2 className="text-xl font-bold">Entries</h2>
       {started ? (
         <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
-          The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename
-          entries.
+          The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename entries
+          and change their photos.
         </p>
       ) : (
-        <p className="hint mt-1">This is the running order. On the live results entries are ranked by average once scores come in.</p>
+        <p className="hint mt-1">
+          This is the running order. On the live results entries are ranked by average once scores come in. Add a photo to show it beside the
+          entry&apos;s name on the LED wall.
+        </p>
       )}
       {entries.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>

@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, Score, Signatory } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Score, Signatory } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -22,11 +22,12 @@ type ActivityRow = {
   scoring_mode?: string;
   criteria?: unknown;
   criteria_display?: string;
+  result_decimals?: number;
   created_at: string;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = { id: string; name: string; photo_path: string | null; position: number };
-type EntryRow = { id: string; name: string; position: number };
+type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string };
 
 // "*" rather than a column list so the app keeps working on databases that
@@ -46,6 +47,12 @@ function toCriteria(value: unknown): Criterion[] {
     .filter((c) => c.id && c.name && Number.isFinite(c.max) && c.max > 0);
 }
 
+/** 2 on databases without migration 007. */
+function toResultDecimals(value: number | undefined): ResultDecimals {
+  const places = Number(value ?? 2);
+  return (Number.isInteger(places) && places >= 0 && places <= 4 ? places : 2) as ResultDecimals;
+}
+
 function toActivity(row: ActivityRow): Activity {
   return {
     id: row.id,
@@ -54,6 +61,7 @@ function toActivity(row: ActivityRow): Activity {
     min: Number(row.min_score),
     max: Number(row.max_score),
     decimals: row.decimals as Decimals,
+    resultDecimals: toResultDecimals(row.result_decimals),
     showRank: row.show_rank ?? true,
     ledEntryId: row.led_entry_id ?? null,
     ledFullscreen: row.led_fullscreen ?? false,
@@ -74,7 +82,7 @@ const toJudge = (row: JudgeRow): Judge => ({
   photoUrl: photoUrl(row.photo_path),
   position: row.position,
 });
-const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, position: row.position });
+const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value) });
 
 const toAdmin = (row: AdminRow): AdminAccount => ({
@@ -86,8 +94,8 @@ const toAdmin = (row: AdminRow): AdminAccount => ({
 
 export type ActivitySummary = Activity & { judgeCount: number; entryCount: number; scoreCount: number; organizer: string | null };
 
-/** An organizer's own activities, or every activity for the super admin (ownerId undefined). */
-export async function listActivities(ownerId?: string): Promise<ActivitySummary[]> {
+/** An organizer's activities, or with null the super admin's own (activities no organizer owns). */
+export async function listActivities(ownerId: string | null): Promise<ActivitySummary[]> {
   await connection();
   let query = db()
     .from("activities")
@@ -95,7 +103,7 @@ export async function listActivities(ownerId?: string): Promise<ActivitySummary[
       `${ACTIVITY_COLUMNS}, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)`,
     )
     .order("created_at", { ascending: false });
-  if (ownerId) query = query.eq("owner_id", ownerId);
+  query = ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null);
   const { data, error } = await query;
   fail(error);
   type Row = ActivityRow & Record<"judges" | "entries" | "scores", { count: number }[]> & { owner: { name: string } | null };
@@ -106,6 +114,24 @@ export async function listActivities(ownerId?: string): Promise<ActivitySummary[
     entryCount: row.entries[0]?.count ?? 0,
     scoreCount: row.scores[0]?.count ?? 0,
   }));
+}
+
+/**
+ * Organizers' activities as the super admin sees them: the name and who runs it, nothing more. Only these
+ * columns are read, so nothing else about them reaches the super admin's pages.
+ */
+export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string }[]> {
+  await connection();
+  let query = db()
+    .from("activities")
+    .select("id, name, owner:admins!activities_owner_id_fkey(name)")
+    .not("owner_id", "is", null)
+    .order("created_at", { ascending: false });
+  if (ownerId) query = query.eq("owner_id", ownerId);
+  const { data, error } = await query;
+  fail(error);
+  type Row = { id: string; name: string; owner: { name: string } | null };
+  return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "" }));
 }
 
 // Organizer accounts -------------------------------------------------------------
@@ -149,7 +175,8 @@ export async function getAdminCredentials(idOrEmail: string): Promise<{ admin: A
 async function loadBoard(activity: Activity): Promise<Board> {
   const [judges, entries, scores] = await Promise.all([
     db().from("judges").select("id, name, photo_path, position").eq("activity_id", activity.id).order("position").order("created_at"),
-    db().from("entries").select("id, name, position").eq("activity_id", activity.id).order("position").order("created_at"),
+    // "*" so entries load on databases without migration 007's photo column.
+    db().from("entries").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
     db().from("scores").select("entry_id, judge_id, value").eq("activity_id", activity.id),
   ]);
   fail(judges.error);
@@ -204,11 +231,7 @@ export async function findJudgeIdByCode(input: string): Promise<string | null> {
 export async function getJudgeContext(judgeId: string): Promise<{ judge: Judge; activityId: string } | null> {
   await connection();
   if (!isUuid(judgeId)) return null;
-  const { data, error } = await db()
-    .from("judges")
-    .select("id, name, photo_path, position, activity_id")
-    .eq("id", judgeId)
-    .maybeSingle();
+  const { data, error } = await db().from("judges").select("id, name, photo_path, position, activity_id").eq("id", judgeId).maybeSingle();
   fail(error);
   if (!data) return null;
   const row = data as JudgeRow & { activity_id: string };

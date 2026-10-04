@@ -10,7 +10,13 @@ export function reportId(board: Board): string {
   const byId = <T extends { id: string }>(list: T[]) => [...list].sort((a, b) => a.id.localeCompare(b.id));
   const canonical = JSON.stringify({
     activity: board.activity.id,
-    rules: [board.activity.min, board.activity.max, board.activity.decimals],
+    // Result decimals decide ties, so they count, but only when changed: sheets printed before stay valid.
+    rules: [
+      board.activity.min,
+      board.activity.max,
+      board.activity.decimals,
+      ...(board.activity.resultDecimals === 2 ? [] : [board.activity.resultDecimals]),
+    ],
     judges: byId(board.judges).map((j) => [j.id, j.name]),
     entries: byId(board.entries).map((e) => [e.id, e.name]),
     scores: board.scores

@@ -10,20 +10,30 @@ export function PhotoPicker({
   currentUrl,
   onPick,
   size = 64,
+  square = false,
+  pixels,
+  label,
 }: {
   name: string;
   currentUrl: string | null;
   onPick: (photo: Blob, previewUrl: string) => void;
   size?: number;
+  /** A rounded square instead of a circle. */
+  square?: boolean;
+  /** Width and height of the saved JPEG. Bigger for photos shown large on the LED wall. */
+  pixels?: number;
+  /** What the file input is called for screen readers. */
+  label?: string;
 }) {
   const id = useId();
+  const shape = square ? "rounded-lg" : "rounded-full";
   const [error, setError] = useState<string | null>(null);
 
   const handle = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
     try {
-      const blob = await squareJpeg(file);
+      const blob = await squareJpeg(file, pixels);
       onPick(blob, URL.createObjectURL(blob));
     } catch {
       setError("That file isn't an image we can read.");
@@ -34,20 +44,22 @@ export function PhotoPicker({
     <div className="flex flex-col items-center gap-1">
       <label
         htmlFor={id}
-        className="group relative cursor-pointer rounded-full focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-powder"
+        className={`group relative cursor-pointer ${shape} focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-powder`}
         title="Choose photo"
       >
         {currentUrl ? (
           <>
-            <Avatar name={name} src={currentUrl} size={size} />
-            <span className="absolute inset-0 flex items-center justify-center rounded-full bg-prussian/60 text-xs font-semibold text-mint opacity-0 transition-opacity group-hover:opacity-100">
+            <Avatar name={name} src={currentUrl} size={size} square={square} />
+            <span
+              className={`absolute inset-0 flex items-center justify-center ${shape} bg-prussian/60 text-xs font-semibold text-mint opacity-0 transition-opacity group-hover:opacity-100`}
+            >
               Change
             </span>
           </>
         ) : (
           <span
             style={{ width: size, height: size }}
-            className="flex flex-col items-center justify-center rounded-full border-2 border-dashed border-powder bg-white/70 text-regal transition-colors group-hover:border-regal"
+            className={`flex flex-col items-center justify-center ${shape} border-2 border-dashed border-powder bg-white/70 text-regal transition-colors group-hover:border-regal`}
           >
             <svg viewBox="0 0 24 24" className="size-5" aria-hidden>
               <path
@@ -67,7 +79,7 @@ export function PhotoPicker({
           type="file"
           accept="image/*"
           className="sr-only"
-          aria-label={`Photo for ${name || "judge"}`}
+          aria-label={label ?? `Photo for ${name || "judge"}`}
           onChange={(e) => {
             void handle(e.target.files?.[0]);
             e.target.value = "";

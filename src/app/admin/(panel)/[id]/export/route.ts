@@ -2,7 +2,7 @@ import { getAdmin, getBoard, getSignatories } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { renderResultsPdf, type ReportOrganizer } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
-import { currentAdmin } from "@/lib/session";
+import { canManageActivity, currentAdmin } from "@/lib/session";
 
 function fileName(name: string): string {
   const slug = name
@@ -37,8 +37,8 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
   if (!session) return new Response("Sign in to the admin panel first.", { status: 401 });
 
   const board = await getBoard((await params).id);
-  // Organizers can only export their own activities; anything else is "not found".
-  if (!board || (session.kind === "organizer" && board.activity.ownerId !== session.admin.id)) {
+  // Organizers export only their own activities, the super admin only those no organizer owns.
+  if (!board || !canManageActivity(session, board.activity.ownerId)) {
     return new Response("Activity not found.", { status: 404 });
   }
 

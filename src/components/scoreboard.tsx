@@ -23,7 +23,7 @@ const ROW_BG: Record<Place, string> = { first: "bg-regal", podium: "bg-oxford", 
  */
 export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean }) {
   const { activity, judges } = board;
-  const ranking = rankEntries(board.entries, judges, board.scores);
+  const ranking = rankEntries(board.entries, judges, board.scores, activity);
   const rows = ranked ? ranking : [...ranking].sort((a, b) => a.number - b.number);
   const listRef = useRef<HTMLOListElement>(null);
   const tops = useRef(new Map<string, number>());
@@ -72,6 +72,9 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
     : `minmax(12rem, 1.6fr) ${judgeCols} minmax(7rem, 1fr)`;
   const mobileCols = ranked ? "grid-cols-[3rem_1fr_auto]" : "grid-cols-[1fr_auto]";
   const cell = (value: number | undefined) => (value === undefined ? "—" : scoreText(value, activity));
+  // Columns are sized for about five characters ("87.33"). Longer values (percentages, extra decimal
+  // places) get proportionally smaller type so they stay inside their column.
+  const fit = (text: string, chars = 5) => (text.length > chars ? { fontSize: `${chars / text.length}em` } : undefined);
   const firstRestIndex = rows.findIndex((r) => placeOf(r, ranked) === "rest");
 
   return (
@@ -159,13 +162,13 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                     }`}
                   >
                     <span className="sr-only">{j.name}: </span>
-                    {cell(v)}
+                    <span style={fit(cell(v))}>{cell(v)}</span>
                   </span>
                 );
               })}
 
               <div className="text-right">
-                {row.averageHundredths === null ? (
+                {row.average === null ? (
                   <p className="text-[clamp(1.25rem,2vw,2.25rem)] leading-none text-powder">
                     <span aria-hidden>—</span>
                     <span className="sr-only">No scores yet</span>
@@ -176,7 +179,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                       top ? "text-[clamp(1.9rem,3.6vw,4.5rem)]" : "text-[clamp(1.5rem,2.7vw,3.25rem)]"
                     }`}
                   >
-                    {averageText(row.averageHundredths, activity)}
+                    <span style={fit(averageText(row.average, activity))}>{averageText(row.average, activity)}</span>
                   </p>
                 )}
                 {partial && (

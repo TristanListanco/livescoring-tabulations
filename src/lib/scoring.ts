@@ -1,5 +1,8 @@
 import type { Activity, Board, Criterion, Decimals, Entry, Judge, Score } from "./types";
 
+/** What changes how results are shown: the scoring mode, how criteria totals are shown, and decimal places. */
+export type DisplayRules = Pick<Activity, "scoringMode" | "criteriaDisplay" | "decimals" | "resultDecimals">;
+
 export type ScoreRules = { min: number; max: number; decimals: Decimals };
 
 export type Key = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "." | "back" | "clear";
@@ -37,6 +40,19 @@ export function applyKey(buffer: string, key: Key, rules: ScoreRules): string {
 
 export type ParsedScore = { ok: true; value: number } | { ok: false; error: string };
 
+/**
+ * Whether a typed score is already above the max. More digits can only make it bigger, so judges are told
+ * straight away instead of when they try to submit.
+ */
+export function overMax(input: string, rules: Pick<ScoreRules, "max">): boolean {
+  const text = input.trim();
+  return /^\d+(\.\d*)?$/.test(text) && Math.round(Number(text) * 100) > Math.round(rules.max * 100);
+}
+
+export function overMaxMessage(input: string, rules: Pick<ScoreRules, "max">): string {
+  return `${input} is above the maximum of ${formatBound(rules.max)}.`;
+}
+
 export function rangeLabel(rules: ScoreRules): string {
   return `${formatBound(rules.min)} to ${formatBound(rules.max)}`;
 }
@@ -67,20 +83,33 @@ export type RankedRow = {
   number: number;
   scores: Map<string, number>;
   count: number;
-  /** Average in hundredths, rounded, so ties match what is displayed. */
-  averageHundredths: number | null;
+  /**
+   * The average as the audience sees it: rounded to the results' decimal places, and for criteria shown
+   * scaled to 10, already divided by 10. Ranks compare this, so ties match what is displayed.
+   */
+  average: number | null;
   rank: number | null;
 };
 
-export function formatAverage(hundredths: number | null): string {
-  return hundredths === null ? "—" : (hundredths / 100).toFixed(2);
+/** Criteria totals shown "scaled to 10" are the total out of 100 divided by 10. */
+function shownDivisor(rules: DisplayRules): number {
+  return rules.scoringMode === "criteria" && rules.criteriaDisplay === "ten" ? 10 : 1;
+}
+
+/**
+ * numerator ÷ denominator rounded half up to `places` decimals. Called with whole numbers (sums of scores in
+ * hundredths), so a value exactly halfway between two results always rounds up, whatever the float error.
+ */
+function roundShown(numerator: number, denominator: number, places: number): number {
+  return Math.round((numerator * 10 ** places) / denominator) / 10 ** places;
 }
 
 /**
  * Rank entries by the average of the scores submitted so far.
  * Ties share a rank (1, 1, 3). Unscored entries go last, unranked, in entry order.
  */
-export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[]): RankedRow[] {
+export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], rules: DisplayRules): RankedRow[] {
+  const divisor = shownDivisor(rules);
   const judgeIds = new Set(judges.map((j) => j.id));
   const ordered = [...entries].sort((a, b) => a.position - b.position);
 
@@ -98,23 +127,23 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[]):
       number: index + 1,
       scores: mine,
       count,
-      averageHundredths: count ? Math.round(sum / count) : null,
+      average: count ? roundShown(sum, 100 * count * divisor, rules.resultDecimals) : null,
       rank: null,
     };
   });
 
   rows.sort((a, b) => {
-    if (a.averageHundredths === null || b.averageHundredths === null) {
-      if (a.averageHundredths !== b.averageHundredths) return a.averageHundredths === null ? 1 : -1;
+    if (a.average === null || b.average === null) {
+      if (a.average !== b.average) return a.average === null ? 1 : -1;
       return a.number - b.number;
     }
-    return b.averageHundredths - a.averageHundredths || a.number - b.number;
+    return b.average - a.average || a.number - b.number;
   });
 
   rows.forEach((row, i) => {
-    if (row.averageHundredths === null) return;
+    if (row.average === null) return;
     const prev = rows[i - 1];
-    row.rank = prev && prev.averageHundredths === row.averageHundredths ? prev.rank : i + 1;
+    row.rank = prev && prev.average === row.average ? prev.rank : i + 1;
   });
   return rows;
 }
@@ -130,22 +159,22 @@ export function scoreProgress(board: Board): { submitted: number; possible: numb
 
 // Display -------------------------------------------------------------------------------
 
-type DisplayRules = Pick<Activity, "scoringMode" | "criteriaDisplay" | "decimals">;
+const percentSign = (rules: DisplayRules) => (rules.scoringMode === "criteria" && rules.criteriaDisplay !== "ten" ? "%" : "");
 
 /**
- * One judge's score as the audience sees it. Simple mode: the score itself. Criteria mode: the total
- * out of 100, as a percentage ("87.5%") or scaled to 10 ("8.75").
+ * One judge's score as the audience sees it. Simple mode: the score exactly as the judge entered it.
+ * Criteria mode: the total out of 100 with the results' decimal places, as a percentage ("87.50%") or
+ * scaled to 10 ("8.75").
  */
 export function scoreText(value: number, rules: DisplayRules): string {
   if (rules.scoringMode !== "criteria") return formatScore(value, rules.decimals);
-  return rules.criteriaDisplay === "ten" ? (value / 10).toFixed(2) : `${formatScore(value, rules.decimals)}%`;
+  const shown = roundShown(Math.round(value * 100), 100 * shownDivisor(rules), rules.resultDecimals);
+  return `${shown.toFixed(rules.resultDecimals)}${percentSign(rules)}`;
 }
 
-/** An average (in hundredths of the score or total) as the audience sees it. */
-export function averageText(hundredths: number | null, rules: DisplayRules): string {
-  if (hundredths === null) return "—";
-  if (rules.scoringMode !== "criteria") return formatAverage(hundredths);
-  return rules.criteriaDisplay === "ten" ? (hundredths / 1000).toFixed(2) : `${(hundredths / 100).toFixed(2)}%`;
+/** An average from rankEntries as the audience sees it. */
+export function averageText(average: number | null, rules: DisplayRules): string {
+  return average === null ? "—" : `${average.toFixed(rules.resultDecimals)}${percentSign(rules)}`;
 }
 
 /** One line describing how the activity is scored, for headers and the PDF. */

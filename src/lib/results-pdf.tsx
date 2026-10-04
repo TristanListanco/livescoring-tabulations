@@ -36,7 +36,8 @@ const s = StyleSheet.create({
   number: { width: 34, color: C.muted },
   entry: { flexGrow: 3, flexBasis: 0 },
   judge: { flexGrow: 1, flexBasis: 0, textAlign: "center" },
-  average: { width: 64, textAlign: "right", fontFamily: "Helvetica-Bold" },
+  // Wide enough for "100.0000%" at four decimal places.
+  average: { width: 72, textAlign: "right", fontFamily: "Helvetica-Bold" },
   sectionTitle: { fontFamily: "Helvetica-Bold", fontSize: 12, marginTop: 30 },
   sectionNote: { marginTop: 3, color: C.muted },
   signatures: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
@@ -56,7 +57,7 @@ type ReportInfo = { generatedAt: string; reportId: string; organizer: ReportOrga
 function ResultsDocument({ board, info }: { board: Board; info: ReportInfo }) {
   const { generatedAt, reportId, organizer } = info;
   const { activity, judges } = board;
-  const rows = rankEntries(board.entries, judges, board.scores);
+  const rows = rankEntries(board.entries, judges, board.scores, activity);
   const signatories = organizer?.signatories ?? [];
 
   return (
@@ -109,7 +110,7 @@ function ResultsDocument({ board, info }: { board: Board; info: ReportInfo }) {
                   </Text>
                 );
               })}
-              <Text style={[s.cell, s.average]}>{averageText(row.averageHundredths, activity)}</Text>
+              <Text style={[s.cell, s.average]}>{averageText(row.average, activity)}</Text>
             </View>
           ))}
         </View>

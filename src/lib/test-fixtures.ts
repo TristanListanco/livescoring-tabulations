@@ -9,6 +9,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     min: 1,
     max: 10,
     decimals: 2,
+    resultDecimals: 2,
     showRank: true,
     ledEntryId: null,
     ledFullscreen: false,

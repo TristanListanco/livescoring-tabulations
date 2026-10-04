@@ -1,5 +1,5 @@
-import { devices, expect, test, type Page } from "@playwright/test";
-import { deleteActivityNamed, signInAsSuperAdmin, tapScore } from "./helpers";
+import { devices, expect, test, type Locator, type Page } from "@playwright/test";
+import { deleteActivityNamed, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -7,6 +7,16 @@ const REALTIME = { timeout: 20_000 };
 
 let adminPath = "";
 let livePath = "";
+let ledPath = "";
+
+/** Shrunk text stays inside the box it was fitted to, whole: no overflow and nothing cut off. */
+function fitsItsBox(text: Locator) {
+  return text.evaluate((el) => {
+    const box = el.parentElement!.getBoundingClientRect();
+    const own = el.getBoundingClientRect();
+    return el.scrollWidth <= el.clientWidth + 1 && own.left >= box.left - 1 && own.right <= box.right + 1 && box.width > 0;
+  });
+}
 let code = "";
 let judge: Page;
 
@@ -49,7 +59,9 @@ test.describe.serial("criteria scoring", () => {
 
     adminPath = new URL(page.url()).pathname;
     code = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Code ", "");
-    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    const links = await page.locator("code").allTextContents();
+    livePath = new URL(links.find((l) => l.includes("/live/"))!).pathname;
+    ledPath = new URL(links.find((l) => l.includes("/led/"))!).pathname;
   });
 
   test("a judge scores each criterion on the keypad and the board shows the total", async ({ page, browser }) => {
@@ -64,12 +76,18 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("button", { name: "Show first entry" }).click();
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
 
-    // Innovativeness is out of 30, so 35 can't go through.
+    // Innovativeness is out of 30, so 35 can't go through, and the judge is told why straight away.
     await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toHaveAttribute("aria-pressed", "true");
     await tapScore(judge, "35");
+    // Next.js has its own (empty) alert for route announcements, so look for this one by its text.
+    const tooHigh = judge.getByRole("alert").filter({ hasText: "above the maximum" });
+    await expect(tooHigh).toHaveText("Innovativeness: 35 is above the maximum of 30. Delete it and type a lower score.");
+    await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toContainText("Too high");
     await expect(judge.getByRole("button", { name: "Next: Design" })).toBeDisabled();
+    await snap(judge, "criteria keypad above the max");
     await judge.getByRole("button", { name: "Delete last digit" }).click();
     await judge.getByRole("button", { name: "Delete last digit" }).click();
+    await expect(tooHigh).toHaveCount(0);
     await tapScore(judge, "25");
     await judge.getByRole("button", { name: "Next: Design" }).click();
     await expect(judge.getByRole("button", { name: /^Design/ })).toHaveAttribute("aria-pressed", "true");
@@ -93,7 +111,32 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("radio", { name: /As a percentage/ }).check();
     await expect(page.getByText("Totals are shown as percentages.")).toBeVisible();
     await expect(row).toContainText("87.50%", REALTIME);
-    await expect(row).toContainText("87.5%");
     await live.context().close();
+  });
+
+  test("long percentages shrink to fit the LED wall instead of overflowing", async ({ page, browser }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByLabel("Decimal places shown in results").fill("4");
+    await page.getByRole("button", { name: "Save name and scoring" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
+
+    const led = await (await browser.newContext({ viewport: { width: 1920, height: 1080 } })).newPage();
+    await led.goto(ledPath);
+    await page.goto(`${adminPath}?tab=led`);
+    await page.getByRole("button", { name: "Show first" }).click();
+
+    // Ana's total and the average are both 87.5000%: wider than their tiles at full size.
+    const values = led.getByText("87.5000%", { exact: true });
+    await expect(values).toHaveCount(2, REALTIME);
+    for (const value of await values.all()) expect(await fitsItsBox(value)).toBe(true);
+    await snap(led, "LED overlay with long percentages");
+
+    await page.getByLabel("Full screen").check();
+    await expect(led.locator("main > div").first()).toHaveCSS("background-color", "rgb(11, 37, 69)", REALTIME);
+    await expect(values).toHaveCount(2);
+    for (const value of await values.all()) expect(await fitsItsBox(value)).toBe(true);
+    await snap(led, "LED full screen with long percentages");
+    await led.context().close();
   });
 });

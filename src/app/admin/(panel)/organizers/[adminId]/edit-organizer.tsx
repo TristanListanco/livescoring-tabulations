@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
@@ -27,7 +26,8 @@ export function EditOrganizer({
   signatories,
 }: {
   organizer: AdminAccount;
-  activities: { id: string; name: string }[];
+  /** Names only: an organizer's activities are private to them. */
+  activities: string[];
   signatories: Signatory[];
 }) {
   const [state, action] = useActionState<FormResult, FormData>(updateOrganizer.bind(null, organizer.id), null);
@@ -102,23 +102,21 @@ export function EditOrganizer({
         <SignatoriesEditor adminId={organizer.id} initial={signatories} />
       </Section>
 
-      <Section title="Activities" hint="Activities this organizer can manage. Change an activity's organizer from its Settings tab.">
+      <Section title="Activities" hint="Private to this organizer: you see their names only. Hand them one of your own activities from its Settings tab.">
         {activities.length === 0 ? (
           <p className="hint">None yet. Activities they create appear here.</p>
         ) : (
-          <ul className="space-y-1.5">
-            {activities.map((a) => (
-              <li key={a.id}>
-                <Link href={`/admin/${a.id}`} className="font-semibold text-regal hover:underline">
-                  {a.name}
-                </Link>
+          <ul className="list-disc space-y-1.5 pl-5">
+            {activities.map((name, i) => (
+              <li key={i} className="font-semibold">
+                {name}
               </li>
             ))}
           </ul>
         )}
       </Section>
 
-      <Section title="Delete account" hint="They can no longer sign in. Their activities stay, and only you can manage them afterwards.">
+      <Section title="Delete account" hint="They can no longer sign in, and their activities are deleted with the account, scores and all.">
         <ConfirmDialog
           triggerLabel="Delete organizer"
           triggerClassName="btn btn-danger"
@@ -130,7 +128,7 @@ export function EditOrganizer({
         >
           {organizer.name} will be signed out and can&apos;t sign in again.{" "}
           {activities.length > 0
-            ? `Their ${activities.length} ${activities.length === 1 ? "activity stays" : "activities stay"}, managed only by you.`
+            ? `Their ${activities.length} ${activities.length === 1 ? "activity is" : "activities are"} deleted too, with every judge, entry, score and photo. This can't be undone.`
             : "They have no activities."}
         </ConfirmDialog>
       </Section>

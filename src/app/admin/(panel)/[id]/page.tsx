@@ -6,7 +6,7 @@ import { getAccessCodes, getBoard, listAdmins, listDevices } from "@/lib/data";
 import { siteOrigin } from "@/lib/origin";
 import { reportId } from "@/lib/report";
 import { rulesSummary, scoreProgress } from "@/lib/scoring";
-import { currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
+import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { AccessTab } from "./access-tab";
 import { DeveloperTab } from "./developer-tab";
@@ -27,10 +27,12 @@ const TABS = [
   { id: "developer", label: "Developer" },
 ] as const;
 
-/** Organizers only see their own activities; anything else is "not found", not "forbidden". */
+/**
+ * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
+ * else is "not found", not "forbidden", so it doesn't even confirm the activity exists.
+ */
 function canSee(session: AdminSession | null, board: Board | null): board is Board {
-  if (!session || !board) return false;
-  return session.kind === "super" || board.activity.ownerId === session.admin.id;
+  return !!board && canManageActivity(session, board.activity.ownerId);
 }
 
 export async function generateMetadata({ params }: PageProps<"/admin/[id]">): Promise<Metadata> {

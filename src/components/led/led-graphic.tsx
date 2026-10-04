@@ -4,6 +4,7 @@ import { KEY_GREEN, ledScene, type LedScene, type TileState } from "@/lib/led";
 import { averageText, scoreText } from "@/lib/scoring";
 import type { Activity, Board, Judge } from "@/lib/types";
 import { Avatar } from "../avatar";
+import { FitText } from "../fit-text";
 import { FitStage } from "./fit-stage";
 
 type EntryScene = Extract<LedScene, { kind: "entry" }>;
@@ -19,8 +20,30 @@ function WaitingDots({ label }: { label: string }) {
   );
 }
 
-/** A judge's score, a "scored" mark while scores are held back, or dots while they're still deciding. Each state fades in. */
-function TileValue({ judge, state, value, activity }: { judge: Judge; state: TileState; value: number | null; activity: Activity }) {
+/** The entry's photo beside its name. Square-cornered so the green screen keys cleanly around it. */
+function EntryPhoto({ src, style, className = "" }: { src: string; style?: React.CSSProperties; className?: string }) {
+  // Photos are already resized to small squares on upload, so the optimizer adds nothing here.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" data-entry-photo style={style} className={`shrink-0 object-cover ${className}`} />;
+}
+
+/**
+ * A judge's score, a "scored" mark while scores are held back, or dots while they're still deciding. Each state
+ * fades in. Scores shrink to fit their tile, so long percentages and extra decimal places never overflow it.
+ */
+function TileValue({
+  judge,
+  state,
+  value,
+  activity,
+  align = "start",
+}: {
+  judge: Judge;
+  state: TileState;
+  value: number | null;
+  activity: Activity;
+  align?: "start" | "center";
+}) {
   if (state === "waiting") return <WaitingDots key={`${judge.id}-waiting`} label="Waiting for score" />;
   if (state === "submitted") {
     return (
@@ -33,9 +56,9 @@ function TileValue({ judge, state, value, activity }: { judge: Judge; state: Til
     );
   }
   return (
-    <span key={`${judge.id}-shown`} className="led-fade tabular leading-none font-bold">
+    <FitText key={`${judge.id}-shown`} className="led-fade tabular leading-none font-bold" align={align}>
       {scoreText(value ?? 0, activity)}
-    </span>
+    </FitText>
   );
 }
 
@@ -70,9 +93,14 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
           <span className="text-[28px] leading-none font-semibold">No.</span>
           <span className="tabular mt-1 text-[76px] leading-none font-bold">{scene.number}</span>
         </div>
+        {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} className="h-full w-[150px]" />}
         <div className="flex min-w-0 flex-1 flex-col justify-center px-12">
-          <p className="truncate text-[84px] leading-[1.05] font-bold tracking-tight">{scene.entry.name}</p>
-          <p className="mt-1 truncate text-[28px] text-powder">{activity.name}</p>
+          <FitText className="text-[84px] leading-[1.05] font-bold tracking-tight" minScale={0.45}>
+            {scene.entry.name}
+          </FitText>
+          <FitText className="mt-1 text-[28px] text-powder" minScale={0.7}>
+            {activity.name}
+          </FitText>
         </div>
       </div>
 
@@ -83,13 +111,13 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
           <div key={t.judge.id} className="flex min-w-0 flex-1 flex-col justify-between bg-oxford px-7 py-6">
             <div className="flex min-w-0 items-center gap-4">
               <Avatar name={t.judge.name} src={t.judge.photoUrl} size={size.photo} />
-              <span className="truncate font-semibold" style={{ fontSize: size.name }}>
+              <FitText className="flex-1 font-semibold" style={{ fontSize: size.name }} minScale={0.6}>
                 {t.judge.name}
-              </span>
+              </FitText>
             </div>
-            <span style={{ fontSize: size.score }}>
+            <div style={{ fontSize: size.score }}>
               <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
-            </span>
+            </div>
           </div>
         ))}
 
@@ -99,16 +127,15 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
         >
           <span className={`text-[30px] leading-none font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
           <div>
-            <p className="tabular text-[120px] leading-[0.9] font-bold">
-              {scene.average.state === "hidden" ? (
-                // Smaller than the number it stands in for, so the note below stays inside the tile.
-                <span className="text-[64px]">
-                  <WaitingDots label="Average appears when every judge has scored" />
-                </span>
-              ) : (
-                averageText(scene.average.hundredths, activity)
-              )}
-            </p>
+            {scene.average.state === "hidden" ? (
+              // Smaller than the number it stands in for, so the note below stays inside the tile.
+              <p className="text-[64px] leading-[0.9]">
+                <WaitingDots label="Average appears when every judge has scored" />
+              </p>
+            ) : (
+              // Shrinks to fit: "87.50%" or four decimal places are wider than the tile at full size.
+              <FitText className="tabular text-[120px] leading-[0.9] font-bold">{averageText(scene.average.value, activity)}</FitText>
+            )}
             {!final && <p className="tabular mt-2 text-[24px] leading-tight text-mint/80">{averageNote(scene)}</p>}
           </div>
         </div>
@@ -119,6 +146,9 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
 
 // Full screen -------------------------------------------------------------------
 
+/** The height of the "No." box: its two lines of text and padding. The entry photo beside it matches. */
+const NUMBER_BOX = "calc(min(1.8cqw, 3.4cqh) + min(6cqw, 11cqh) + 3cqh)";
+
 /**
  * The scoresheet filling the whole screen. Sizes use container units, so it fills any LED wall
  * shape (16:9, ultra-wide, portrait) and the admin preview alike.
@@ -128,8 +158,10 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
 
   if (scene.kind === "empty") {
     return (
-      <div key="empty" className="led-fade flex h-full items-center justify-center px-[6cqw] text-center">
-        <p className="text-[length:min(7cqw,13cqh)] leading-tight font-bold tracking-tight text-balance">{activity.name}</p>
+      <div key="empty" className="led-fade h-full px-[6cqw] py-[8cqh] text-center">
+        <FitText wrap className="h-full text-[length:min(7cqw,13cqh)] leading-tight font-bold tracking-tight text-balance">
+          {activity.name}
+        </FitText>
       </div>
     );
   }
@@ -139,13 +171,20 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
 
   return (
     <div key={scene.entry.id} className="led-fade flex h-full flex-col gap-[3cqh] px-[4cqw] py-[5cqh]">
-      <p className="truncate text-[length:min(2.2cqw,4cqh)] text-powder">{activity.name}</p>
+      <FitText className="text-[length:min(2.2cqw,4cqh)] text-powder" minScale={0.6}>
+        {activity.name}
+      </FitText>
       <div className="flex min-w-0 items-stretch gap-[2cqw]">
         <div className="flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian">
           <span className="text-[length:min(1.8cqw,3.4cqh)] leading-none font-semibold">No.</span>
           <span className="tabular text-[length:min(6cqw,11cqh)] leading-none font-bold">{scene.number}</span>
         </div>
-        <p className="min-w-0 self-center truncate text-[length:min(8cqw,15cqh)] leading-[1.05] font-bold tracking-tight">{scene.entry.name}</p>
+        {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: NUMBER_BOX, height: NUMBER_BOX }} />}
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <FitText className="text-[length:min(8cqw,15cqh)] leading-[1.05] font-bold tracking-tight" minScale={0.4}>
+            {scene.entry.name}
+          </FitText>
+        </div>
       </div>
       <div className="h-[0.6cqh] bg-powder" />
 
@@ -157,10 +196,12 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
             style={{ containerType: "inline-size" }}
           >
             <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
-            <p className="w-full truncate text-center text-[length:min(11cqi,3.6cqh)] font-semibold">{t.judge.name}</p>
-            <span className="text-[length:min(30cqi,14cqh)]">
-              <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
-            </span>
+            <FitText className="w-full text-[length:min(11cqi,3.6cqh)] font-semibold" align="center" minScale={0.6}>
+              {t.judge.name}
+            </FitText>
+            <div className="w-full text-center text-[length:min(30cqi,14cqh)]">
+              <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} align="center" />
+            </div>
           </div>
         ))}
 
@@ -170,9 +211,15 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
           style={{ containerType: "inline-size" }}
         >
           <span className={`text-[length:min(9cqi,3.6cqh)] font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
-          <span className="tabular text-[length:min(32cqi,20cqh)] leading-none font-bold">
-            {scene.average.state === "hidden" ? <WaitingDots label="Average appears when every judge has scored" /> : averageText(scene.average.hundredths, activity)}
-          </span>
+          {scene.average.state === "hidden" ? (
+            <span className="text-[length:min(32cqi,20cqh)] leading-none">
+              <WaitingDots label="Average appears when every judge has scored" />
+            </span>
+          ) : (
+            <FitText className="tabular w-full text-[length:min(32cqi,20cqh)] leading-none font-bold" align="center">
+              {averageText(scene.average.value, activity)}
+            </FitText>
+          )}
           {!final && <span className="tabular text-[length:min(7cqi,3cqh)] text-mint/80">{averageNote(scene)}</span>}
         </div>
       </div>

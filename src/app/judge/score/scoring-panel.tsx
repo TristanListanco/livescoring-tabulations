@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { LiveStatusBadge } from "@/components/live-status";
 import { judgeView, type JudgeView } from "@/lib/judging";
-import { applyKey, formatBound, formatScore, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
+import { applyKey, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
 import type { Activity, Entry, Judge } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { leavePortal, requestApproval, submitScore } from "../actions";
@@ -22,6 +22,19 @@ type Props = {
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const NETWORK_ERROR = "The score didn't save. Check your connection and try again.";
+/** Error red that stays readable on the navy panels. */
+const ERROR_TEXT = "text-[#f4b4ae]";
+const ERROR_RING = "ring-3 ring-[#f4b4ae]";
+
+function WarningIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="mr-1.5 inline size-4 -translate-y-px" aria-hidden>
+      <path d="M10 2.5l8 14H2l8-14z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M10 8v3.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="10" cy="14.2" r="1" fill="currentColor" />
+    </svg>
+  );
+}
 
 /** A judge's own score as they think of it: the score, or criteria points out of 100. */
 function myScoreText(value: number, activity: Activity): string {
@@ -88,14 +101,20 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate }: Props
                 const value = scores.get(entry.id);
                 const current = entry.id === currentId;
                 return (
-                  <li key={entry.id} aria-current={current ? "true" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 ${current ? "bg-regal" : ""}`}>
+                  <li
+                    key={entry.id}
+                    aria-current={current ? "true" : undefined}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-3 ${current ? "bg-regal" : ""}`}
+                  >
                     <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{i + 1}</span>
                     <span className="min-w-0 flex-1 truncate font-semibold">
                       {entry.name}
                       {current && <span className="sr-only"> (now judging)</span>}
                     </span>
                     {value !== undefined ? (
-                      <span className={`tabular text-sm font-semibold ${current ? "text-mint/80" : "text-powder"}`}>{formatScore(value, activity.decimals)}</span>
+                      <span className={`tabular text-sm font-semibold ${current ? "text-mint/80" : "text-powder"}`}>
+                        {formatScore(value, activity.decimals)}
+                      </span>
                     ) : (
                       <span className="text-sm text-powder">
                         <span aria-hidden>–</span>
@@ -158,7 +177,9 @@ function DeviceGateCard({ gate }: { gate: Exclude<DeviceGate, { status: "approve
       <div role="status" className="my-auto flex w-full max-w-md flex-col items-center text-center">
         <WaitingDots />
         <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">Waiting for the organizer to approve this device</h1>
-        <p className="mt-3 text-lg text-powder text-balance">Show or read this code to the organizer. Scoring opens on this device once they approve it.</p>
+        <p className="mt-3 text-lg text-powder text-balance">
+          Show or read this code to the organizer. Scoring opens on this device once they approve it.
+        </p>
         <p className="tabular mt-6 rounded-2xl bg-oxford px-8 py-4 text-6xl font-bold tracking-[0.25em]">
           <span className="sr-only">Pairing code </span>
           {gate.pairingCode}
@@ -181,7 +202,17 @@ function DeviceGateCard({ gate }: { gate: Exclude<DeviceGate, { status: "approve
   );
 }
 
-function WaitingCard({ view, judge, activity, scoredCount }: { view: Exclude<JudgeView, { kind: "scoring" }>; judge: Judge; activity: Activity; scoredCount: number }) {
+function WaitingCard({
+  view,
+  judge,
+  activity,
+  scoredCount,
+}: {
+  view: Exclude<JudgeView, { kind: "scoring" }>;
+  judge: Judge;
+  activity: Activity;
+  scoredCount: number;
+}) {
   const firstName = judge.name.split(" ").find((w) => !/\.$/.test(w)) ?? judge.name;
   const copy: Record<typeof view.kind, { title: string; body: string }> = {
     "not-started": { title: "Waiting for the organizer to start", body: "Your screen opens by itself when judging begins. Keep this page open." },
@@ -290,7 +321,11 @@ function ConfirmScore({
   children: React.ReactNode;
 }) {
   return (
-    <dialog ref={dialogRef} aria-labelledby="confirm-title" className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-3xl bg-mint p-0 text-prussian shadow-2xl">
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="confirm-title"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-3xl bg-mint p-0 text-prussian shadow-2xl"
+    >
       <div className="px-6 pt-7 pb-6 text-center">
         <h2 id="confirm-title" className="text-lg font-semibold">
           Submit this score for {entry.name}?
@@ -299,7 +334,13 @@ function ConfirmScore({
         <p className="mt-3 text-prussian/75">You can&apos;t change it after submitting.</p>
       </div>
       <div className="grid grid-cols-2 gap-3 px-6 pb-6">
-        <button type="button" className="btn btn-quiet h-14 rounded-xl text-lg" onClick={() => dialogRef.current?.close()} disabled={submitting} autoFocus>
+        <button
+          type="button"
+          className="btn btn-quiet h-14 rounded-xl text-lg"
+          onClick={() => dialogRef.current?.close()}
+          disabled={submitting}
+          autoFocus
+        >
           Go back
         </button>
         <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm} disabled={submitting}>
@@ -345,14 +386,21 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
 
   const decimalsHint = activity.decimals === 0 ? "whole numbers only" : `up to ${activity.decimals} decimal place${activity.decimals > 1 ? "s" : ""}`;
   const typed = parseScore(buffer, activity);
+  // Told as soon as it happens: no more typing can bring a score back under the max.
+  const tooHigh = overMax(buffer, activity);
+  const message = error ?? (tooHigh ? overMaxMessage(buffer, activity) : null);
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
       <p className="text-powder">Now judging: No. {number}</p>
       <h1 className="text-[clamp(1.6rem,4vw,2.5rem)] leading-tight font-bold text-balance">{entry.name}</h1>
 
-      <div className="mt-4 flex items-center rounded-2xl bg-oxford px-5 py-3" aria-live="polite">
-        <output aria-label="Score" className={`tabular flex-1 text-[clamp(3.25rem,10vh,5rem)] leading-none font-bold ${buffer ? "" : "text-powder/40"}`}>
+      <div className={`mt-4 flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
+        <output
+          aria-label="Score"
+          aria-describedby="score-hint"
+          className={`tabular flex-1 text-[clamp(3.25rem,10vh,5rem)] leading-none font-bold ${tooHigh ? ERROR_TEXT : buffer ? "" : "text-powder/40"}`}
+        >
           {buffer || (
             <>
               <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full bg-powder/70" />
@@ -366,8 +414,16 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
           </button>
         )}
       </div>
-      <p className={`mt-2 text-sm ${error ? "font-semibold text-[#f4b4ae]" : "text-powder"}`} role={error ? "alert" : undefined}>
-        {error ?? `Score from ${rangeLabel(activity)}, ${decimalsHint}.`}
+      <p id="score-hint" className={`mt-2 text-sm ${message ? `font-semibold ${ERROR_TEXT}` : "text-powder"}`} role={message ? "alert" : undefined}>
+        {message ? (
+          <>
+            <WarningIcon />
+            {message}
+            {tooHigh && !error && " Clear it and type a lower score."}
+          </>
+        ) : (
+          `Score from ${rangeLabel(activity)}, ${decimalsHint}.`
+        )}
       </p>
 
       <KeypadGrid decimals={activity.decimals} onPress={press} />
@@ -438,6 +494,10 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
     return parsed.ok ? sum + Math.round(parsed.value * 100) : sum;
   }, 0);
   const typedActive = values[active?.id ?? ""] ?? "";
+  const tooHigh = (c: { id: string; max: number }) => overMax(values[c.id] ?? "", c);
+  const activeTooHigh = !!active && tooHigh(active);
+  const message = error ?? (active && activeTooHigh ? `${active.name}: ${overMaxMessage(typedActive, active)}` : null);
+  const overCount = criteria.filter(tooHigh).length;
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
@@ -448,6 +508,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
         {criteria.map((c) => {
           const isActive = c.id === active?.id;
           const value = values[c.id];
+          const over = tooHigh(c);
           return (
             <li key={c.id}>
               <button
@@ -455,11 +516,16 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
                 onClick={() => setActiveId(c.id)}
                 aria-pressed={isActive}
                 className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left transition-colors ${
-                  isActive ? "bg-regal ring-2 ring-powder" : "bg-oxford hover:bg-regal/60"
+                  over
+                    ? `${isActive ? "bg-regal" : "bg-oxford"} ${ERROR_RING}`
+                    : isActive
+                      ? "bg-regal ring-2 ring-powder"
+                      : "bg-oxford hover:bg-regal/60"
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
-                <span className="tabular text-lg font-bold">{value || <span className="text-powder/60">–</span>}</span>
+                {over && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too high</span>}
+                <span className={`tabular text-lg font-bold ${over ? ERROR_TEXT : ""}`}>{value || <span className="text-powder/60">–</span>}</span>
                 <span className="tabular w-12 text-right text-sm text-powder">/ {formatBound(c.max)}</span>
               </button>
             </li>
@@ -474,9 +540,13 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
       </p>
 
       {active && (
-        <div className="mt-3 flex items-center rounded-2xl bg-oxford px-5 py-2.5" aria-live="polite">
+        <div className={`mt-3 flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
           <span className="mr-3 max-w-[40%] truncate text-sm text-powder">{active.name}</span>
-          <output aria-label={`${active.name} score`} className={`tabular flex-1 text-[clamp(2.5rem,7vh,4rem)] leading-none font-bold ${typedActive ? "" : "text-powder/40"}`}>
+          <output
+            aria-label={`${active.name} score`}
+            aria-describedby={message ? "criteria-error" : undefined}
+            className={`tabular flex-1 text-[clamp(2.5rem,7vh,4rem)] leading-none font-bold ${activeTooHigh ? ERROR_TEXT : typedActive ? "" : "text-powder/40"}`}
+          >
             {typedActive || (
               <>
                 <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full bg-powder/70" />
@@ -487,10 +557,20 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
           <span className="tabular text-lg text-powder">/ {formatBound(active.max)}</span>
         </div>
       )}
-      {error && (
-        <p className="mt-2 text-sm font-semibold text-[#f4b4ae]" role="alert">
-          {error}
+      {message ? (
+        <p id="criteria-error" className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`} role="alert">
+          <WarningIcon />
+          {message}
+          {activeTooHigh && !error && " Delete it and type a lower score."}
         </p>
+      ) : (
+        overCount > 0 && (
+          <p className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`} role="alert">
+            <WarningIcon />
+            {overCount === 1 ? "One criterion is" : `${overCount} criteria are`} above the maximum. Tap {overCount === 1 ? "it" : "each one"} to fix
+            it.
+          </p>
+        )
       )}
 
       <KeypadGrid decimals={decimals} onPress={press} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CriteriaDisplay, Criterion, Decimals, ScoringMode } from "@/lib/types";
+import type { CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode } from "@/lib/types";
 
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 0, label: "Whole numbers", example: "9" },
@@ -19,9 +19,48 @@ export type ScoringValues = {
   decimals: Decimals;
   criteria: Criterion[];
   display: CriteriaDisplay;
+  resultDecimals: ResultDecimals;
 };
 
-export const DEFAULT_SCORING: ScoringValues = { mode: "simple", min: 1, max: 10, decimals: 2, criteria: [], display: "percent" };
+export const DEFAULT_SCORING: ScoringValues = { mode: "simple", min: 1, max: 10, decimals: 2, criteria: [], display: "percent", resultDecimals: 2 };
+
+/** How many decimal places averages and totals show. Not part of the scoring rules, so it can change at any time. */
+function ResultDecimalsField({ initial }: { initial: ResultDecimals }) {
+  const [value, setValue] = useState(String(initial));
+  const valid = /^[0-4]$/.test(value);
+  const example = valid ? (8.66667).toFixed(Number(value)) : null;
+  return (
+    <div>
+      <label htmlFor="result_decimals" className="label">
+        Decimal places shown in results
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          id="result_decimals"
+          name="result_decimals"
+          type="number"
+          inputMode="numeric"
+          required
+          min={0}
+          max={4}
+          step={1}
+          // Uncontrolled, so the form's reset after saving shows the saved value; keyed on it by the caller.
+          defaultValue={initial}
+          onChange={(e) => setValue(e.target.value)}
+          aria-invalid={!valid}
+          aria-describedby="result_decimals-hint"
+          className={`field tabular w-20 ${valid ? "" : "border-danger ring-2 ring-danger/30"}`}
+        />
+        {example && <span className="tabular hint">Average of 8, 9 and 9: {example}</span>}
+      </div>
+      <p id="result_decimals-hint" className={`mt-1.5 text-sm ${valid ? "hint" : "font-semibold text-danger"}`} role={valid ? undefined : "alert"}>
+        {valid
+          ? "0 to 4. For averages and criteria totals on the live results, LED wall and PDF. Equal averages at this many places share a rank. You can change it at any time."
+          : "Enter a whole number from 0 to 4."}
+      </p>
+    </div>
+  );
+}
 
 type Row = { key: number; id: string; name: string; max: string };
 let nextKey = 0;
@@ -80,7 +119,13 @@ export function ScoringFields({
               ] as const
             ).map((o) => (
               <label key={o.value} className={choice}>
-                <input type="radio" name="scoring-mode-choice" className="mt-1 accent-mint" checked={mode === o.value} onChange={() => setMode(o.value)} />
+                <input
+                  type="radio"
+                  name="scoring-mode-choice"
+                  className="mt-1 accent-mint"
+                  checked={mode === o.value}
+                  onChange={() => setMode(o.value)}
+                />
                 <span>
                   <span className="block font-semibold">{o.label}</span>
                   <span className="block text-sm opacity-80">{o.hint}</span>
@@ -96,13 +141,35 @@ export function ScoringFields({
               <label htmlFor="min" className="label">
                 Min score
               </label>
-              <input id="min" name="min" type="number" inputMode="decimal" required min={0} max={9999} step={step} defaultValue={initial.min} className="field tabular" />
+              <input
+                id="min"
+                name="min"
+                type="number"
+                inputMode="decimal"
+                required
+                min={0}
+                max={9999}
+                step={step}
+                defaultValue={initial.min}
+                className="field tabular"
+              />
             </div>
             <div className="w-36">
               <label htmlFor="max" className="label">
                 Max score
               </label>
-              <input id="max" name="max" type="number" inputMode="decimal" required min={0} max={9999} step={step} defaultValue={initial.max} className="field tabular" />
+              <input
+                id="max"
+                name="max"
+                type="number"
+                inputMode="decimal"
+                required
+                min={0}
+                max={9999}
+                step={step}
+                defaultValue={initial.max}
+                className="field tabular"
+              />
             </div>
           </div>
         ) : (
@@ -168,7 +235,14 @@ export function ScoringFields({
           <div className="flex flex-wrap gap-2">
             {DECIMAL_OPTIONS.map((o) => (
               <label key={o.value} className={`${choice} items-center`}>
-                <input type="radio" name="decimals" value={o.value} checked={places === o.value} onChange={() => setPlaces(o.value)} className="accent-mint" />
+                <input
+                  type="radio"
+                  name="decimals"
+                  value={o.value}
+                  checked={places === o.value}
+                  onChange={() => setPlaces(o.value)}
+                  className="accent-mint"
+                />
                 <span className="font-semibold">{o.label}</span>
                 <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
               </label>
@@ -187,7 +261,13 @@ export function ScoringFields({
                 ] as const
               ).map((o) => (
                 <label key={o.value} className={`${choice} items-center`}>
-                  <input type="radio" name="criteria-display-choice" checked={display === o.value} onChange={() => setDisplay(o.value)} className="accent-mint" />
+                  <input
+                    type="radio"
+                    name="criteria-display-choice"
+                    checked={display === o.value}
+                    onChange={() => setDisplay(o.value)}
+                    className="accent-mint"
+                  />
                   <span className="font-semibold">{o.label}</span>
                   <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
                 </label>
@@ -196,6 +276,11 @@ export function ScoringFields({
           </fieldset>
         )}
       </fieldset>
+
+      {/* Outside the locked fieldset: how results look can change mid-session. */}
+      <div className="mt-6">
+        <ResultDecimalsField key={initial.resultDecimals} initial={initial.resultDecimals} />
+      </div>
     </>
   );
 }

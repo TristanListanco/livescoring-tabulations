@@ -14,6 +14,15 @@ const JUDGE_TTL_S = 60 * 60 * 24 * 3;
 export type AdminSession = { kind: "super" } | { kind: "organizer"; admin: AdminAccount };
 
 /**
+ * Who may open and manage an activity: its organizer, or the super admin for activities no organizer owns.
+ * Organizers' activities are private to them; the super admin only sees their names.
+ */
+export function canManageActivity(session: AdminSession | null, ownerId: string | null): boolean {
+  if (!session) return false;
+  return session.kind === "super" ? ownerId === null : ownerId === session.admin.id;
+}
+
+/**
  * Secure only when the request really arrived over HTTPS. A production server on the venue
  * Wi-Fi is plain http://192.168.x.x, where browsers silently drop Secure cookies.
  */

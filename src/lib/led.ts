@@ -20,14 +20,14 @@ export type LedScene =
       entry: Entry;
       number: number;
       tiles: { judge: Judge; state: TileState; value: number | null }[];
-      /** hidden while held back; running while judges are still scoring; final once all have. */
-      average: { state: "none" | "hidden" | "running" | "final"; hundredths: number | null; count: number; total: number };
+      /** hidden while held back; running while judges are still scoring; final once all have. value: as shown (see rankEntries). */
+      average: { state: "none" | "hidden" | "running" | "final"; value: number | null; count: number; total: number };
     };
 
 /** What the LED wall should show right now for the entry the admin put on air. */
 export function ledScene(board: Board): LedScene {
   const { activity, judges } = board;
-  const row = rankEntries(board.entries, judges, board.scores).find((r) => r.entry.id === activity.ledEntryId);
+  const row = rankEntries(board.entries, judges, board.scores, activity).find((r) => r.entry.id === activity.ledEntryId);
   if (!row) return { kind: "empty" };
 
   const complete = judges.length > 0 && row.count === judges.length;
@@ -44,6 +44,6 @@ export function ledScene(board: Board): LedScene {
     entry: row.entry,
     number: row.number,
     tiles,
-    average: { state, hundredths: state === "final" || state === "running" ? row.averageHundredths : null, count: row.count, total: judges.length },
+    average: { state, value: state === "final" || state === "running" ? row.average : null, count: row.count, total: judges.length },
   };
 }
