@@ -80,7 +80,6 @@ export default async function ActivitiesPage() {
           <h2 id="organizer-activities" className="text-xl font-bold">
             Organizers&apos; activities
           </h2>
-          <p className="hint mt-1 max-w-2xl">Each organizer&apos;s activities are private to them. You see the name and who runs it, nothing else.</p>
           <table className="mt-4 w-full max-w-3xl text-left">
             <thead className="border-b border-line text-sm text-prussian/70">
               <tr>

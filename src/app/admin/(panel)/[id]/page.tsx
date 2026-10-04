@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAccessCodes, getBoard, listAdmins, listDevices } from "@/lib/data";
+import { isProductionSite } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
+import { qrSvg } from "@/lib/qr";
 import { reportId } from "@/lib/report";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
@@ -46,7 +48,9 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const requested = (await searchParams).tab;
   const { activity, judges, entries, scores } = board;
   // Before judging starts the organizer needs the codes; once it's live, the session controls.
-  const tab = TABS.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
+  // Developer tools are for rehearsals; the live site only offers deleting the activity, from Settings.
+  const tabs = isProductionSite() ? TABS.filter((t) => t.id !== "developer") : TABS;
+  const tab = tabs.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
   const started = activity.sessionState !== "draft";
   const devices = await listDevices(judges.map((j) => j.id));
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
@@ -85,7 +89,11 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
             </Link>
             {waitingDevices > 0 && (
-              <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint">
+              <Link
+                href={`/admin/${activity.id}?tab=access`}
+                scroll={false}
+                className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
+              >
                 {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
               </Link>
             )}
@@ -118,7 +126,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         className="mt-6 -mr-4 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:mr-0 sm:[mask-image:none]"
       >
         <ul className="flex min-w-max gap-1">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const active = t.id === tab;
             return (
               <li key={t.id} className={t.id === "developer" ? "pr-8 sm:ml-auto sm:pr-0 sm:pl-6" : undefined}>
@@ -144,14 +152,13 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             activityId={activity.id}
             devices={devices}
             origin={origin}
-            liveUrl={liveUrl}
             judges={judges}
             codes={await getAccessCodes(judges.map((j) => j.id))}
             scoredBy={scoredBy}
             entryCount={entries.length}
           />
         )}
-        {tab === "session" && <SessionTab board={board} />}
+        {tab === "session" && <SessionTab board={board} liveUrl={liveUrl} liveQr={await qrSvg(liveUrl)} />}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
         {tab === "entries" && (
           <EntriesTab

@@ -2,22 +2,17 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
+import { CopyButton } from "@/components/copy-button";
+import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { entryNeighbors } from "@/lib/judging";
 import type { ActionResult, Board, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 
-const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
-  draft: {
-    label: "Not started",
-    body: "Judges who sign in see a waiting screen once you approve their device in the Access tab. Starting the session locks the judges and the running order. You can still add and rename entries.",
-  },
-  live: { label: "Live", body: "Judges score the entry you show them, one at a time. The LED wall moves to it too." },
-  ended: { label: "Ended", body: "Judges can't submit scores. Reopen the session to continue judging." },
-};
+const STATE_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", ended: "Ended" };
 
-export function SessionTab({ board }: { board: Board }) {
+export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: string; liveQr: string }) {
   useLiveRefresh(board.activity.id);
   const { activity, judges, entries, scores } = board;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
@@ -38,7 +33,6 @@ export function SessionTab({ board }: { board: Board }) {
   };
 
   const { index, entry, previous, next } = entryNeighbors(entries, current);
-  const chair = judges.find((j) => j.isChair);
   const scoredBy = new Set(scores.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const allIn = entry !== null && judges.length > 0 && judges.every((j) => scoredBy.has(j.id));
   const live = activity.sessionState === "live";
@@ -53,9 +47,8 @@ export function SessionTab({ board }: { board: Board }) {
               aria-hidden
               className={`size-3 rounded-full ${live ? "bg-regal ring-4 ring-regal/20" : activity.sessionState === "ended" ? "bg-prussian/40" : "border-2 border-field"}`}
             />
-            Session: {STATE_COPY[activity.sessionState].label}
+            Session: {STATE_LABEL[activity.sessionState]}
           </p>
-          <p className="hint mt-1.5">{STATE_COPY[activity.sessionState].body}</p>
         </div>
         {activity.sessionState === "draft" && (
           <ConfirmDialog
@@ -153,11 +146,8 @@ export function SessionTab({ board }: { board: Board }) {
           ) : (
             <div className="mt-2 rounded-2xl border border-dashed border-field px-6 py-8 text-center">
               <p className="font-semibold">Judges are waiting for an entry.</p>
-              <p className="hint mt-1">Show the first one when the contestant is ready.</p>
             </div>
           )}
-
-          {chair && <p className="hint mt-3">{chair.name}, the chair of the board of judges, can also move entries from their own screen.</p>}
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className="btn btn-quiet" onClick={() => previous && show(previous.id)} disabled={!previous || pending}>
@@ -208,6 +198,19 @@ export function SessionTab({ board }: { board: Board }) {
           </ol>
         </section>
       )}
+
+      <section aria-labelledby="live-results">
+        <h2 id="live-results" className="font-bold">
+          Public live results
+        </h2>
+        <div className="mt-3 flex max-w-2xl items-center gap-2">
+          <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{liveUrl}</code>
+          <CopyButton value={liveUrl} />
+        </div>
+        <div className="mt-4">
+          <Qr svg={liveQr} label="QR code for the live results page" />
+        </div>
+      </section>
     </div>
   );
 }

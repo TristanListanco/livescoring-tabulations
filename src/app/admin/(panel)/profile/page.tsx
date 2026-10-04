@@ -19,7 +19,7 @@ export default async function ProfilePage() {
     <>
       <h1 className="text-3xl font-bold tracking-tight">Profile</h1>
       <div className="mt-6 max-w-4xl">
-        <Section title="Organizer" hint="Shown in your admin panel and on your results PDFs. Ask the super admin to change these." flush>
+        <Section title="Organizer" flush>
           <div className="flex items-center gap-4">
             <Avatar name={admin.name} src={admin.photoUrl} size={72} />
             <div className="min-w-0">
@@ -28,10 +28,7 @@ export default async function ProfilePage() {
             </div>
           </div>
         </Section>
-        <Section
-          title="Results PDF signatories"
-          hint="Board of tabulators, representatives and others who sign your results. Each prints as a signature line with their designation."
-        >
+        <Section title="Results PDF signatories">
           <SignatoriesEditor adminId={null} initial={signatories} />
         </Section>
       </div>

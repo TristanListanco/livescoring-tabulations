@@ -15,9 +15,6 @@ export default async function OrganizersPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Organizers</h1>
-          <p className="hint mt-1 max-w-xl">
-            Organizer accounts sign in with their email and password, and see and manage only their own activities.
-          </p>
         </div>
         <Link href="/admin/organizers/new" className="btn btn-primary">
           New organizer
@@ -27,7 +24,9 @@ export default async function OrganizersPage() {
       {organizers.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-powder px-6 py-14 text-center">
           <p className="text-lg font-semibold">No organizer accounts yet</p>
-          <p className="hint mx-auto mt-1 max-w-md">Create one for each event organizer. You can hand them existing activities from each activity&apos;s Settings tab.</p>
+          <p className="hint mx-auto mt-1 max-w-md">
+            Create one for each event organizer. You can hand them existing activities from each activity&apos;s Settings tab.
+          </p>
         </div>
       ) : (
         <ul className="mt-8 divide-y divide-line border-y border-line">

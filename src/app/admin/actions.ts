@@ -16,11 +16,12 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
+import { isProductionSite } from "@/lib/environment";
 import { showEntryColumns } from "@/lib/judging";
 import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
-import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
+import type { ActionResult, CriteriaDisplay, Criterion, Decimals, LedTransition, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -492,12 +493,19 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
 const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
 
 /** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
-export async function setLedOptions(activityId: string, options: { fullscreen?: boolean; holdScores?: boolean }): Promise<ActionResult> {
+export async function setLedOptions(
+  activityId: string,
+  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition },
+): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  const update: Record<string, boolean> = {};
+  const update: Record<string, boolean | string> = {};
   if (typeof options.fullscreen === "boolean") update.led_fullscreen = options.fullscreen;
   if (typeof options.holdScores === "boolean") update.led_hold_scores = options.holdScores;
+  if (options.transition === "fade" || options.transition === "wipe") update.led_transition = options.transition;
   const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error && /led_transition/.test(error.message)) {
+    return err("LED wall animations need a database update. Run supabase/migrations/009_led_transition.sql in the Supabase SQL editor.");
+  }
   if (error) return err(/led_(fullscreen|hold_scores)/.test(error.message) ? MIGRATION_HINT : error.message);
   refresh();
   return ok();
@@ -683,8 +691,10 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
 
 // Developer -------------------------------------------------------------------
 
+/** Developer tool for rehearsals: refused on the live site. */
 export async function resetScores(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
+  if (isProductionSite()) return err("Resetting scores isn't available on the live site.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return err(error.message);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.

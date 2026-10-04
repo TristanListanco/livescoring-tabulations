@@ -176,12 +176,7 @@ export function EntriesTab({
           The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename entries
           and change their photos.
         </p>
-      ) : (
-        <p className="hint mt-1">
-          This is the running order. On the live results entries are ranked by average once scores come in. Add a photo to show it beside the
-          entry&apos;s name on the LED wall.
-        </p>
-      )}
+      ) : null}
       <fieldset disabled={ended} className="min-w-0">
         {entries.length === 0 ? (
           <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>

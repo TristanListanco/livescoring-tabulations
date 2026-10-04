@@ -18,7 +18,6 @@ const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
 function ResultDecimalsField() {
   const [value, setValue] = useState(String(DEFAULT_RESULT_DECIMALS));
   const valid = /^[0-4]$/.test(value);
-  const example = valid ? (8.66667).toFixed(Number(value)) : null;
   return (
     <div>
       <label htmlFor="result_decimals" className="label">
@@ -37,16 +36,15 @@ function ResultDecimalsField() {
           defaultValue={DEFAULT_RESULT_DECIMALS}
           onChange={(e) => setValue(e.target.value)}
           aria-invalid={!valid}
-          aria-describedby="result_decimals-hint"
+          aria-describedby={valid ? undefined : "result_decimals-hint"}
           className={`field tabular w-20 ${valid ? "" : "border-danger ring-2 ring-danger/30"}`}
         />
-        {example && <span className="tabular hint">Average of 8, 9 and 9: {example}</span>}
       </div>
-      <p id="result_decimals-hint" className={`mt-1.5 text-sm ${valid ? "hint" : "font-semibold text-danger"}`} role={valid ? undefined : "alert"}>
-        {valid
-          ? "0 to 4. For averages and criteria totals on the live results, LED wall and PDF. Equal averages at this many places share a rank."
-          : "Enter a whole number from 0 to 4."}
-      </p>
+      {!valid && (
+        <p id="result_decimals-hint" className="mt-1.5 text-sm font-semibold text-danger" role="alert">
+          Enter a whole number from 0 to 4.
+        </p>
+      )}
     </div>
   );
 }
