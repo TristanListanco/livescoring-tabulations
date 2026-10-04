@@ -39,6 +39,8 @@ export function JudgeDevices({ judges, devices }: { judges: Judge[]; devices: Ju
           const mine = devices.filter((d) => d.judgeId === judge.id);
           const approved = mine.find((d) => d.status === "approved");
           const requests = mine.filter((d) => d.status === "pending");
+          // Newest first, so this is the device most recently signed out, denied or replaced.
+          const lastSignedOut = mine.find((d) => d.status === "revoked");
           return (
             <li key={judge.id} className="flex flex-wrap items-start gap-x-4 gap-y-3 py-4">
               <div className="flex min-w-48 flex-1 items-center gap-3">
@@ -53,7 +55,10 @@ export function JudgeDevices({ judges, devices }: { judges: Judge[]; devices: Ju
                       <span className="truncate">Approved: {approved.label}</span>
                     </p>
                   ) : (
-                    <p className="hint">No device approved</p>
+                    <p className="hint">
+                      No device approved
+                      {lastSignedOut && requests.length === 0 && <>. Last device signed out: {lastSignedOut.label}</>}
+                    </p>
                   )}
                 </div>
                 {approved && (

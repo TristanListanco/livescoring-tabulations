@@ -32,8 +32,13 @@ function myScoreText(value: number, activity: Activity): string {
  * The judge's screen. Nothing opens until the organizer approves this device. After that the organizer
  * decides which entry is judged and when: judges only ever see the entry on screen, and wait in between.
  */
+// A device waiting for approval checks every few seconds even when realtime is down, so the organizer's
+// approval lands on the judge's screen right away. Other judge screens check a little less often.
+const PENDING_POLL_MS = 2_500;
+const JUDGE_POLL_MS = 5_000;
+
 export function ScoringPanel({ activity, judge, entries, myScores, gate }: Props) {
-  const status = useLiveRefresh(activity.id);
+  const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS);
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
   const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);

@@ -1,6 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
-import { newPairingCode } from "./codes";
+import { isUuid, newPairingCode } from "./codes";
 import { getDevice } from "./data";
 import { deviceLabel } from "./device-label";
 import { judgeSession, startJudgeSession } from "./session";
@@ -25,6 +25,18 @@ export async function signInJudgeDevice(judgeId: string): Promise<{ error: strin
       await startJudgeSession(judgeId, device.id);
       return null;
     }
+  }
+
+  // This browser is switching to another judge: it stops being the previous judge's device, so the
+  // organizer never sees "Approved" for a judge whose phone has moved on.
+  if (current && current.judgeId !== judgeId && current.deviceId && isUuid(current.deviceId)) {
+    await db()
+      .from("judge_devices")
+      .update({ status: "revoked", decided_at: new Date().toISOString() })
+      .eq("id", current.deviceId)
+      .eq("judge_id", current.judgeId)
+      .neq("status", "revoked");
+    await touchJudge(current.judgeId);
   }
 
   const { data, error } = await db()

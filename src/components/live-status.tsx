@@ -3,7 +3,7 @@ import type { LiveStatus } from "@/lib/use-live-refresh";
 const COPY: Record<LiveStatus, string> = {
   live: "Live",
   connecting: "Connecting",
-  polling: "Updating every 15 s",
+  polling: "Updating automatically",
   offline: "Offline",
 };
 

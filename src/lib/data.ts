@@ -235,15 +235,15 @@ export async function getDevice(deviceId: string): Promise<JudgeDevice | null> {
   return data ? toDevice(data as DeviceRow) : null;
 }
 
-/** Approved and waiting devices for these judges, newest first. Revoked ones are history and left out. */
+/** These judges' devices, newest first: approved, waiting, and recently signed out (to explain an empty slot). */
 export async function listDevices(judgeIds: string[]): Promise<JudgeDevice[]> {
   if (judgeIds.length === 0) return [];
   const { data, error } = await db()
     .from("judge_devices")
     .select(DEVICE_COLUMNS)
     .in("judge_id", judgeIds)
-    .neq("status", "revoked")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(500);
   if (error) return [];
   return (data as DeviceRow[]).map(toDevice);
 }
