@@ -200,7 +200,9 @@ test.describe.serial("a full event", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
     await expect(page.getByText("Session: Live")).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
-    await expect(heading(judge2)).toHaveText("Waiting for the first entry", REALTIME);
+    // Ben is on the board of tabulators, so instead of waiting he can show the first entry himself.
+    await expect(heading(judge2)).toHaveText("Ready for the first entry", REALTIME);
+    await expect(judge2.getByRole("region", { name: "Board of tabulators" }).getByRole("button", { name: "Show first entry: Agila" })).toBeEnabled();
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
