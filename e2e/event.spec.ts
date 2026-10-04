@@ -216,11 +216,11 @@ test.describe.serial("a full event", () => {
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
-    await expect(page.getByRole("note")).toContainText("Judges are locked");
-    await expect(page.getByLabel("First name").first()).toBeDisabled();
+    await expect(page.getByRole("note")).toHaveText("Judges can't change once the session has started.");
+    await expect(page.getByLabel("First name")).toHaveCount(0);
     // The chair is shown in the panel, fixed since the activity was created.
     await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(1);
-    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" }).getByLabel("First name")).toHaveValue("Ben");
+    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toContainText("Ben Torres");
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);

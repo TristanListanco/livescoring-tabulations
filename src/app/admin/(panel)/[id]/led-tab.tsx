@@ -11,7 +11,7 @@ import { setLedOptions } from "../../actions";
 type LedOptions = { fullscreen: boolean; holdScores: boolean; transition: LedTransition };
 
 const choice =
-  "flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-white px-4 py-3 font-semibold has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed";
+  "flex cursor-pointer items-center gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 font-semibold has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed";
 
 /** Display mode, animation, and whether scores wait for every judge. Saves on change; the wall follows within seconds. */
 function DisplaySettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
@@ -19,7 +19,7 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
     <div className="space-y-5">
       <fieldset>
         <legend className="label">Display</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex flex-wrap gap-2">
           {[
             { fullscreen: false, label: "Green screen overlay" },
             { fullscreen: true, label: "Full screen" },
@@ -40,7 +40,7 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
       </fieldset>
       <fieldset>
         <legend className="label">Animation</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex flex-wrap gap-2">
           {(
             [
               { transition: "fade", label: "Fade" },

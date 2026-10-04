@@ -77,7 +77,7 @@ export function ScoringFields() {
 
       <div className="space-y-6">
         <fieldset>
-          <legend className="label">Scoring</legend>
+          <legend className="label">Method</legend>
           <div className="grid gap-2 sm:grid-cols-2">
             {(
               [

@@ -65,7 +65,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
   const criteria = activity.scoringMode === "criteria";
   const rows: [string, React.ReactNode][] = criteria
     ? [
-        ["Scoring", "Criteria"],
+        ["Method", "Criteria"],
         [
           "Criteria",
           <table key="criteria" className="w-full max-w-sm text-left">
@@ -98,7 +98,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
         ["Results show", places(activity.resultDecimals)],
       ]
     : [
-        ["Scoring", `Simple, scores from ${rangeLabel(activity)}`],
+        ["Method", `Simple, scores from ${rangeLabel(activity)}`],
         ["Judges score with", places(activity.decimals)],
         ["Results show", places(activity.resultDecimals)],
       ];
@@ -127,8 +127,8 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
   if (organizers.length === 0) return <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>;
   return (
     <div className="space-y-3">
-      <label htmlFor="owner" className="label">
-        Organizer
+      <label htmlFor="owner" className="sr-only">
+        Organizer to hand this activity to
       </label>
       <div className="flex max-w-xl flex-wrap gap-2">
         <select id="owner" value={owner} onChange={(e) => setOwner(e.target.value)} className="field max-w-sm flex-1">

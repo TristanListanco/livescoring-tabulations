@@ -197,7 +197,7 @@ async function parentActivity(table: "judges" | "entries", id: string): Promise<
 }
 
 const SESSION_HINT = "Judging sessions need a database update. Run supabase/migrations/005_judging_session.sql in the Supabase SQL editor.";
-const JUDGES_LOCKED = err("Judges are locked once the session has started. Reset scores in the Developer tab to unlock them.");
+const JUDGES_LOCKED = err("Judges can't change once the session has started.");
 const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
 /** The activity's judging session. Databases without migration 005 behave as "not started". */

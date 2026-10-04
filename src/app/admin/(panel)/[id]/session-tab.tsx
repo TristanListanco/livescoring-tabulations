@@ -39,17 +39,15 @@ export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: 
   const scoreCount = (entryId: string) => scores.filter((s) => s.entryId === entryId).length;
 
   return (
-    <div className="max-w-4xl space-y-10">
-      <section className="flex flex-wrap items-start justify-between gap-6 rounded-2xl border border-line bg-white/60 p-6">
-        <div className="max-w-xl">
-          <p className="flex items-center gap-2.5 text-xl font-bold">
-            <span
-              aria-hidden
-              className={`size-3 rounded-full ${live ? "bg-regal ring-4 ring-regal/20" : activity.sessionState === "ended" ? "bg-prussian/40" : "border-2 border-field"}`}
-            />
-            Session: {STATE_LABEL[activity.sessionState]}
-          </p>
-        </div>
+    <div className="max-w-4xl space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="flex items-center gap-2.5 text-lg font-bold">
+          <span
+            aria-hidden
+            className={`size-3 rounded-full ${live ? "bg-regal ring-4 ring-regal/20" : activity.sessionState === "ended" ? "bg-prussian/40" : "border-2 border-field"}`}
+          />
+          Session: {STATE_LABEL[activity.sessionState]}
+        </p>
         {activity.sessionState === "draft" && (
           <ConfirmDialog
             triggerLabel="Start session"
@@ -86,7 +84,7 @@ export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: 
             Reopen session
           </button>
         )}
-      </section>
+      </div>
 
       {result && (
         <p role={result.ok ? "status" : "alert"} className={result.ok ? "text-regal" : "font-semibold text-danger"}>
@@ -95,23 +93,25 @@ export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: 
       )}
 
       {live && (
-        <section aria-labelledby="now-judging">
-          <h2 id="now-judging" className="text-sm font-semibold text-prussian/70">
-            On judges&apos; screens
-          </h2>
-          {entry ? (
-            // Looks like the judges' screens, so it keeps their colours in dark mode.
-            <div className="keep-light mt-2 rounded-2xl bg-prussian p-6 text-mint">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-powder">Now judging: No. {index + 1}</p>
-                  <p className="mt-0.5 text-3xl leading-tight font-bold text-balance">{entry.name}</p>
-                </div>
-                {activity.ledEntryId === entry.id && (
-                  <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
-                )}
+        // The control desk: what judges see now, who has scored, and where to go next. It looks like the judges'
+        // screens, so it keeps their colours in dark mode.
+        <section aria-labelledby="now-judging" className="keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+          <div className="px-6 pt-6 pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 id="now-judging" className="text-powder">
+                  {entry ? `Now judging: No. ${index + 1} of ${entries.length}` : "On judges' screens"}
+                </h2>
+                <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold text-balance">
+                  {entry ? entry.name : "Judges are waiting for an entry"}
+                </p>
               </div>
+              {entry && activity.ledEntryId === entry.id && (
+                <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
+              )}
+            </div>
 
+            {entry && (
               <ul className="mt-5 grid gap-2 sm:grid-cols-2">
                 {judges.map((j) => {
                   const done = scoredBy.has(j.id);
@@ -134,38 +134,39 @@ export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: 
                   );
                 })}
               </ul>
+            )}
+          </div>
 
-              <p role="status" className="mt-5 font-semibold">
-                {allIn
+          <div className="flex flex-wrap items-center gap-3 border-t border-oxford px-6 py-4">
+            <p role="status" className="min-w-48 flex-1 font-semibold">
+              {entry &&
+                (allIn
                   ? next
                     ? `Every judge has scored ${entry.name}.`
                     : `Every judge has scored ${entry.name}. That was the last entry: end the session when you're ready.`
-                  : `${scoredBy.size} of ${judges.length} judges have scored.`}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 rounded-2xl border border-dashed border-field px-6 py-8 text-center">
-              <p className="font-semibold">Judges are waiting for an entry.</p>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className="btn btn-quiet" onClick={() => previous && show(previous.id)} disabled={!previous || pending}>
+                  : `${scoredBy.size} of ${judges.length} judges have scored.`)}
+            </p>
+            <button
+              type="button"
+              className="btn border border-oxford text-mint hover:bg-oxford"
+              onClick={() => previous && show(previous.id)}
+              disabled={!previous || pending}
+            >
               Previous entry
             </button>
             <button
               type="button"
-              className={`btn ${allIn || !entry ? "btn-primary" : "btn-quiet"}`}
+              className={`btn min-w-0 ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`}
               onClick={() => next && show(next.id)}
               disabled={!next || pending}
             >
-              {entry ? (next ? `Show next entry: ${next.name}` : "No more entries") : "Show first entry"}
+              <span className="truncate">{entry ? (next ? `Show next entry: ${next.name}` : "No more entries") : "Show first entry"}</span>
             </button>
           </div>
         </section>
       )}
 
-      {activity.sessionState !== "draft" && (
+      {entries.length > 0 && (
         <section aria-labelledby="running-order">
           <h2 id="running-order" className="font-bold">
             Running order
@@ -180,7 +181,7 @@ export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: 
                   <span className="tabular hint hidden sm:inline">
                     {scoreCount(e.id)} of {judges.length} scores
                   </span>
-                  {activity.sessionState === "ended" ? (
+                  {activity.sessionState === "draft" ? null : activity.sessionState === "ended" ? (
                     // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                     <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
                       {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
