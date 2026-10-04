@@ -18,7 +18,7 @@ import {
 import { touchJudge } from "@/lib/devices";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
-import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ScoringMode, SessionState } from "@/lib/types";
+import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -36,7 +36,10 @@ function check(error: { message: string } | null) {
 }
 
 function cleanName(value: FormDataEntryValue | null): string {
-  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME);
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_NAME);
 }
 
 function entryNames(value: FormDataEntryValue | null): string[] {
@@ -65,7 +68,10 @@ function readRules(formData: FormData): { rules: ScoreRules } | { error: string 
   const places = (t: string) => t.split(".")[1]?.length ?? 0;
   if (places(minText) > decimals || places(maxText) > decimals) {
     return {
-      error: decimals === 0 ? "Whole-number scoring needs a whole-number min and max." : `Min and max can have at most ${decimals} decimal place${decimals > 1 ? "s" : ""}.`,
+      error:
+        decimals === 0
+          ? "Whole-number scoring needs a whole-number min and max."
+          : `Min and max can have at most ${decimals} decimal place${decimals > 1 ? "s" : ""}.`,
     };
   }
   const min = Number(minText);
@@ -102,7 +108,10 @@ function readScoring(formData: FormData): { scoring: Scoring } | { error: string
   const criteria: Criterion[] = [];
   const names = new Set<string>();
   for (const item of raw as { id?: unknown; name?: unknown; max?: unknown }[]) {
-    const name = String(item?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const name = String(item?.name ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 60);
     const max = Number(item?.max);
     if (!name) return { error: "Every criterion needs a name." };
     if (names.has(name.toLowerCase())) return { error: `"${name}" is listed twice. Give each criterion its own name.` };
@@ -133,18 +142,26 @@ function criteriaKey(value: unknown): string {
   return JSON.stringify(value.map((c: { id?: unknown; name?: unknown; max?: unknown }) => [String(c?.id), String(c?.name), Number(c?.max)]));
 }
 
-const SCORING_HINT = "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
+const SCORING_HINT =
+  "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
+const PHOTOS_AND_PLACES_HINT =
+  "This needs a database update. Run supabase/migrations/007_entry_photos_result_decimals.sql in the Supabase SQL editor.";
+
+/** Decimal places for averages and totals in results, 0 to 4. A missing field (older forms) keeps 2. */
+function readResultDecimals(formData: FormData): ResultDecimals | { error: string } {
+  const text = String(formData.get("result_decimals") ?? "2").trim();
+  return /^[0-4]$/.test(text) ? (Number(text) as ResultDecimals) : { error: "Decimal places shown in results must be a whole number from 0 to 4." };
+}
 
 /**
- * The signed-in admin, when they may manage this activity: the super admin manages every activity,
- * an organizer only their own. Every action that touches an activity goes through here.
+ * The signed-in admin, when they may manage this activity: an organizer their own activities, the super
+ * admin only activities no organizer owns. Every action that touches an activity goes through here.
  */
 async function manage(activityId: string | null | undefined): Promise<AdminSession | null> {
   const session = await requireAdmin();
   if (!activityId || !isUuid(activityId)) return null;
-  let query = db().from("activities").select("id").eq("id", activityId);
-  if (session.kind === "organizer") query = query.eq("owner_id", session.admin.id);
-  const { data, error } = await query.maybeSingle();
+  const query = db().from("activities").select("id").eq("id", activityId);
+  const { data, error } = await (session.kind === "organizer" ? query.eq("owner_id", session.admin.id) : query.is("owner_id", null)).maybeSingle();
   check(error);
   return data ? session : null;
 }
@@ -181,8 +198,9 @@ async function assignCodes(judgeIds: string[]) {
   throw new Error("Could not generate unique judge codes. Try again.");
 }
 
-async function uploadPhoto(activityId: string, judgeId: string, file: File): Promise<string> {
-  const path = `${activityId}/${judgeId}-${newFileTag()}.jpg`;
+/** Judge and entry photos live in the activity's folder, so deleting the activity removes them all. */
+async function uploadPhoto(activityId: string, ownerId: string, file: File): Promise<string> {
+  const path = `${activityId}/${ownerId}-${newFileTag()}.jpg`;
   const { error } = await db()
     .storage.from(PHOTO_BUCKET)
     .upload(path, file, { contentType: file.type || "image/jpeg", cacheControl: "31536000", upsert: false });
@@ -221,7 +239,9 @@ export async function login(_prev: FormResult, formData: FormData): Promise<Form
     redirect("/admin");
   }
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
   const account = email ? await getAdminCredentials(email) : null;
   decoyHash ??= hashPassword("decoy password");
   const valid = await verifyPassword(password, account?.passwordHash ?? (await decoyHash));
@@ -244,6 +264,8 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!name) return err("Give the activity a name.");
   const parsed = readScoring(formData);
   if ("error" in parsed) return err(parsed.error);
+  const resultDecimals = readResultDecimals(formData);
+  if (typeof resultDecimals !== "number") return err(resultDecimals.error);
 
   const judgeCount = Number(formData.get("judgeCount"));
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
@@ -266,10 +288,18 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
     const { data, error } = await db()
       .from("activities")
-      .insert({ name, owner_id, public_id: newPublicId(), ...scoringColumns(parsed.scoring, false) })
+      .insert({
+        name,
+        owner_id,
+        public_id: newPublicId(),
+        ...scoringColumns(parsed.scoring, false),
+        // Only written when changed, so databases without migration 007 can still create activities.
+        ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
+      })
       .select("id")
       .single();
     if (error && /scoring_mode|criteria/.test(error.message)) return err(SCORING_HINT);
+    if (error && /result_decimals/.test(error.message)) return err(PHOTOS_AND_PLACES_HINT);
     if (error && error.code !== "23505") return err(`Could not create the activity: ${error.message}`);
     activityId = (data as { id: string } | null)?.id ?? null;
   }
@@ -294,7 +324,13 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     }
 
     if (entries.length) {
-      check((await db().from("entries").insert(entries.map((n, position) => ({ activity_id: activityId, name: n, position })))).error);
+      check(
+        (
+          await db()
+            .from("entries")
+            .insert(entries.map((n, position) => ({ activity_id: activityId, name: n, position })))
+        ).error,
+      );
     }
   } catch (e) {
     await db().from("activities").delete().eq("id", activityId);
@@ -313,6 +349,8 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   const parsed = readScoring(formData);
   if ("error" in parsed) return err(parsed.error);
   const { scoring } = parsed;
+  const resultDecimals = readResultDecimals(formData);
+  if (typeof resultDecimals !== "number") return err(resultDecimals.error);
 
   const { data: current, error } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
   check(error);
@@ -329,11 +367,15 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
     return err("The session has started. Reset scores in the Developer tab before changing the range or decimals.");
   }
 
+  // How results are shown isn't a scoring rule: it can change mid-session, and screens follow within seconds.
+  const placesChanged = (current.result_decimals ?? 2) !== resultDecimals;
+
   const update = await db()
     .from("activities")
-    .update({ name, ...(rulesChanged ? scoringColumns(scoring, wasCriteria) : {}) })
+    .update({ name, ...(rulesChanged ? scoringColumns(scoring, wasCriteria) : {}), ...(placesChanged ? { result_decimals: resultDecimals } : {}) })
     .eq("id", activityId);
   if (update.error && /scoring_mode|criteria/.test(update.error.message)) return err(SCORING_HINT);
+  if (update.error && /result_decimals/.test(update.error.message)) return err(PHOTOS_AND_PLACES_HINT);
   check(update.error);
   refresh();
   return ok("Settings saved.");
@@ -350,20 +392,28 @@ export async function setShowRank(activityId: string, show: boolean): Promise<Ac
 /** Show criteria totals as a percentage or scaled to 10. Allowed at any time; screens follow within seconds. */
 export async function setCriteriaDisplay(activityId: string, display: CriteriaDisplay): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  const { error } = await db().from("activities").update({ criteria_display: display === "ten" ? "ten" : "percent" }).eq("id", activityId);
+  const { error } = await db()
+    .from("activities")
+    .update({ criteria_display: display === "ten" ? "ten" : "percent" })
+    .eq("id", activityId);
   if (error) return err(/criteria_display/.test(error.message) ? SCORING_HINT : error.message);
   refresh();
   return ok(display === "ten" ? "Totals are shown scaled to 10." : "Totals are shown as percentages.");
 }
 
-/** Hand an activity to an organizer, or back to the super admin with null. Super admin only. */
-export async function setActivityOwner(activityId: string, ownerId: string | null): Promise<ActionResult> {
+/**
+ * Hand one of the super admin's own activities to an organizer. From then on it is private to them: the
+ * super admin can no longer open it, so this goes back to the activity list.
+ */
+export async function setActivityOwner(activityId: string, ownerId: string): Promise<ActionResult> {
   await requireSuperAdmin();
-  if (!isUuid(activityId) || (ownerId !== null && !isUuid(ownerId))) return err("Choose an organizer from the list.");
-  const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId);
+  if (!(await manage(activityId))) return NOT_FOUND;
+  if (!isUuid(ownerId)) return err("Choose an organizer from the list.");
+  const { data: organizer } = await db().from("admins").select("id").eq("id", ownerId).maybeSingle();
+  if (!organizer) return err("That organizer account no longer exists.");
+  const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId).is("owner_id", null);
   if (error) return err(error.message);
-  refresh();
-  return ok(ownerId ? "The organizer can now manage this activity." : "Only you can manage this activity now.");
+  redirect("/admin");
 }
 
 // Judging session ------------------------------------------------------------------
@@ -582,6 +632,27 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
   return ok("Saved.");
 }
 
+/** An entry's photo for the LED wall, or null to remove it. Allowed at any time, even mid-session. */
+export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  const photo = photoFile(formData.get("photo"));
+  if (photo === "invalid") return err("Photos must be images under 2 MB.");
+
+  // "*" so a database without migration 007 gets the update hint below rather than a failed read.
+  const { data: entry } = await db().from("entries").select("*").eq("id", entryId).maybeSingle();
+  let path: string | null = null;
+  if (photo) path = await uploadPhoto(activityId, entryId, photo);
+  const { error } = await db().from("entries").update({ photo_path: path }).eq("id", entryId);
+  if (error) {
+    await removeFiles([path]);
+    return err(/photo_path/.test(error.message) ? PHOTOS_AND_PLACES_HINT : error.message);
+  }
+  await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
+  refresh();
+  return ok();
+}
+
 export async function removeEntry(entryId: string): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
@@ -589,8 +660,10 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
     const { count } = await db().from("scores").select("id", { count: "exact", head: true }).eq("entry_id", entryId);
     if (count) return err("Judges have already scored this entry, so it can't be removed during the session.");
   }
+  const { data: entry } = await db().from("entries").select("*").eq("id", entryId).maybeSingle();
   const { error } = await db().from("entries").delete().eq("id", entryId);
   if (error) return err(error.message);
+  await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   refresh();
   return ok();
 }
@@ -612,7 +685,13 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
   const current = new Map((data as { id: string; position: number }[]).map((r) => [r.id, r.position]));
   await Promise.all(
     order.map((id, position) =>
-      current.get(id) === position ? null : db().from("entries").update({ position }).eq("id", id).then(({ error: e }) => check(e)),
+      current.get(id) === position
+        ? null
+        : db()
+            .from("entries")
+            .update({ position })
+            .eq("id", id)
+            .then(({ error: e }) => check(e)),
     ),
   );
   refresh();

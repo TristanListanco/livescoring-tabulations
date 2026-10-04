@@ -97,10 +97,15 @@ test.describe.serial("a full event", () => {
 
     // Signatories print on the organizer's results PDFs.
     await page.getByRole("link", { name: ORGANIZER.name }).click();
+    await page.getByRole("button", { name: "Add signatory" }).click();
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
+    // A row left empty isn't saved, and disappears once the rest are.
+    await page.getByRole("button", { name: "Add signatory" }).click();
+    await expect(page.getByLabel("Signatory 2 full name")).toBeVisible();
     await page.getByRole("button", { name: "Save signatories" }).click();
     await expect(page.getByText("Saved. 1 signatory prints on the results PDF.")).toBeVisible();
+    await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
   });
 
   test("an organizer signs in, sees their profile and creates an activity", async ({ page }) => {
@@ -194,6 +199,9 @@ test.describe.serial("a full event", () => {
 
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("button", { name: "Move Agila down" })).toBeDisabled();
+    // Photos can still change: they're only for the LED wall.
+    await page.getByLabel("Photo for Agila").setInputFiles(PHOTO);
+    await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
     await page.getByLabel("Add entries, one per line").fill("Dalisay");
     await page.getByRole("button", { name: "Add entries" }).click();
     await expect(page.getByText("Dalisay added.")).toBeVisible();
@@ -211,9 +219,13 @@ test.describe.serial("a full event", () => {
     // Judges can't pick entries themselves.
     await expect(judge2.getByRole("button", { name: /Bagwis/ })).toHaveCount(0);
 
-    // The keypad accepts 11, but it's out of range, so it can't be submitted.
+    // The keypad accepts 11, but it's out of range: the judge is told straight away and can't submit it.
     await tapScore(judge1, "11");
+    await expect(judge1.getByRole("alert").filter({ hasText: "above the maximum" })).toHaveText(
+      "11 is above the maximum of 10. Clear it and type a lower score.",
+    );
     await expect(judge1.getByRole("button", { name: "Submit score" })).toBeDisabled();
+    await snap(judge1, "judge typed a score above the max");
     await judge1.getByRole("button", { name: "Clear" }).click();
 
     await submitScore(judge1, "Agila", "9.75");
@@ -236,6 +248,8 @@ test.describe.serial("a full event", () => {
     // Only Ana has scored, so her 9.75 is both her score and the running average.
     await expect(led.getByText("Agila", { exact: true })).toBeVisible(REALTIME);
     await expect(led.getByText("9.75", { exact: true })).toHaveCount(2);
+    // Agila's photo sits beside the name.
+    await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 
     await page.getByRole("switch", { name: "Show scores only when every judge has scored" }).click();
     await expect(led.getByText("Scored", { exact: true })).toBeVisible(REALTIME);
@@ -244,6 +258,7 @@ test.describe.serial("a full event", () => {
     await page.getByLabel("Full screen").check();
     await expect.poll(() => ledBackground(led), REALTIME).toBe("rgb(11, 37, 69)");
     await expect(led.getByText("Scored", { exact: true })).toBeVisible();
+    await expect(led.locator("img[data-entry-photo]")).toBeVisible();
     await led.context().close();
   });
 
@@ -293,6 +308,32 @@ test.describe.serial("a full event", () => {
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
+  test("results show the decimal places the organizer picks, and tie on what they show", async ({ page }) => {
+    await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
+    await page.goto(`${adminPath}?tab=settings`);
+    const places = () => page.getByLabel("Decimal places shown in results");
+    const save = () => page.getByRole("button", { name: "Save name and scoring" }).click();
+    await places().fill("5");
+    await expect(page.getByRole("alert").filter({ hasText: "0 to 4" })).toHaveText("Enter a whole number from 0 to 4.");
+
+    // Mid-session, the scoring is locked but decimal places can still change.
+    await places().fill("3");
+    await save();
+    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.625", REALTIME);
+    await expect(places()).toHaveValue("3");
+
+    // Whole numbers: Kidlat's 9.25 and Bagwis's 8.625 both show 9, so they share second place.
+    await places().fill("0");
+    await save();
+    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
+    await expect(live.locator("li[data-entry]").nth(1)).toContainText("Rank 2");
+    await expect(live.locator("li[data-entry]").nth(2)).toContainText("Rank 2");
+
+    await places().fill("2");
+    await save();
+    await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
+  });
+
   test("the results PDF downloads with a report ID", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=settings`);
@@ -322,12 +363,23 @@ test.describe.serial("a full event", () => {
     expect((await page.request.get(`${adminPath}/export`)).status()).toBe(404);
   });
 
-  test("the super admin sees every activity and who organizes it", async ({ page }) => {
+  test("the super admin sees only the name of an organizer's activity", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    const row = page.getByRole("row").filter({ hasText: NAME });
-    await expect(row).toContainText(ORGANIZER.name);
+    const theirs = page.getByRole("region", { name: "Organizers' activities" });
+    await expect(theirs.getByRole("row").filter({ hasText: NAME })).toContainText(ORGANIZER.name);
+    await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
+    await expect(theirs).not.toContainText("Scores in");
+
+    // Not openable or exportable by address either.
     await page.goto(`${adminPath}?tab=settings`);
-    await expect(page.getByLabel("Managed by").locator("option:checked")).toContainText(ORGANIZER.name);
+    await expect(page.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
+    expect((await page.request.get(`${adminPath}/export`)).status()).toBe(404);
+
+    // The organizer's page lists it by name, without a link.
+    await page.goto("/admin/organizers");
+    await page.getByRole("link", { name: ORGANIZER.name }).click();
+    await expect(page.getByRole("listitem").filter({ hasText: NAME })).toBeVisible();
+    await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
   });
 
   test("resetting scores puts the session back to not started, then the activity is deleted", async ({ page }) => {

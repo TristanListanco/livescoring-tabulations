@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity, ActionResult } from "@/lib/types";
 import { setActivityOwner, setCriteriaDisplay, setShowRank, updateSettings, type FormResult } from "../../actions";
@@ -109,36 +110,41 @@ function CriteriaDisplayChoice({ activity }: { activity: Activity }) {
 
 type OrganizerOption = { id: string; name: string; email: string };
 
-/** Super admin only: which organizer manages this activity. */
+/**
+ * Super admin only: hand this activity to an organizer. Organizers' activities are private to them, so
+ * the super admin can't open it afterwards.
+ */
 function OwnerPicker({ activity, organizers }: { activity: Activity; organizers: OrganizerOption[] }) {
-  const [owner, setOwner] = useState(activity.ownerId ?? "");
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [pending, startTransition] = useTransition();
-  const save = () =>
-    startTransition(async () => {
-      setResult(await setActivityOwner(activity.id, owner || null));
-    });
+  const [owner, setOwner] = useState("");
+  const chosen = organizers.find((o) => o.id === owner);
 
+  if (organizers.length === 0) return <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>;
   return (
     <div className="space-y-3">
       <label htmlFor="owner" className="label">
-        Managed by
+        Organizer
       </label>
       <div className="flex max-w-xl flex-wrap gap-2">
         <select id="owner" value={owner} onChange={(e) => setOwner(e.target.value)} className="field max-w-sm flex-1">
-          <option value="">Only me (super admin)</option>
+          <option value="">Choose an organizer</option>
           {organizers.map((o) => (
             <option key={o.id} value={o.id}>
               {o.name} ({o.email})
             </option>
           ))}
         </select>
-        <button type="button" className="btn btn-quiet" onClick={save} disabled={pending || owner === (activity.ownerId ?? "")}>
-          {pending ? "Saving…" : "Save"}
-        </button>
+        <ConfirmDialog
+          triggerLabel="Hand over"
+          triggerClassName="btn btn-quiet"
+          triggerDisabled={!chosen}
+          title={`Hand ${activity.name} to ${chosen?.name ?? "this organizer"}?`}
+          confirmLabel="Hand over"
+          onConfirm={() => setActivityOwner(activity.id, owner)}
+        >
+          They&apos;ll manage it from their own admin panel. After this you&apos;ll only see its name in your list: you won&apos;t be able to
+          open it, change it or export its results.
+        </ConfirmDialog>
       </div>
-      {organizers.length === 0 && <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>}
-      {result && <Message state={result} />}
     </div>
   );
 }
@@ -238,7 +244,7 @@ export function SettingsTab({
           title="Scoring"
           hint={
             hasScores
-              ? "Locked once the session has started. Reset scores in the Developer tab to change it."
+              ? "How judges score is locked once the session has started. Reset scores in the Developer tab to change it. Decimal places in results can still change."
               : "A single score per judge, or points for each criterion adding up to 100."
           }
         >
@@ -250,6 +256,7 @@ export function SettingsTab({
               decimals: activity.decimals,
               criteria: activity.criteria,
               display: activity.criteriaDisplay,
+              resultDecimals: activity.resultDecimals,
             }}
             locked={hasScores}
             showDisplay={false}
@@ -262,7 +269,7 @@ export function SettingsTab({
       </form>
 
       {organizers && (
-        <Section title="Organizer" hint="The organizer account that can manage this activity. You can always manage it.">
+        <Section title="Organizer" hint="Only you manage this activity. Hand it to an organizer to have them run it instead.">
           <OwnerPicker activity={activity} organizers={organizers} />
         </Section>
       )}

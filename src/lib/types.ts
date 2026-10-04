@@ -1,4 +1,6 @@
 export type Decimals = 0 | 1 | 2;
+/** Decimal places shown for averages and criteria totals in results. */
+export type ResultDecimals = 0 | 1 | 2 | 3 | 4;
 
 export type SessionState = "draft" | "live" | "ended";
 
@@ -20,7 +22,10 @@ export type Activity = {
   publicId: string;
   min: number;
   max: number;
+  /** Decimal places judges enter scores with. */
   decimals: Decimals;
+  /** Decimal places for averages and criteria totals on the live results, LED wall and PDF. Ranks tie on what is shown. */
+  resultDecimals: ResultDecimals;
   /** Whether the public live results page shows ranks and sorts by placement. */
   showRank: boolean;
   /** The entry on the LED wall output, or null for an empty screen. */
@@ -60,6 +65,8 @@ export type Judge = {
 export type Entry = {
   id: string;
   name: string;
+  /** Optional photo, shown on the LED wall. */
+  photoUrl: string | null;
   position: number;
 };
 

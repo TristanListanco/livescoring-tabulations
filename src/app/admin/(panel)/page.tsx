@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listActivities } from "@/lib/data";
+import { listActivities, listOrganizerActivityNames } from "@/lib/data";
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 
@@ -11,7 +11,10 @@ const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric
 export default async function ActivitiesPage() {
   const session = await requireAdmin();
   const isSuper = session.kind === "super";
-  const activities = await listActivities(isSuper ? undefined : session.admin.id);
+  const [activities, organizerActivities] = await Promise.all([
+    listActivities(isSuper ? null : session.admin.id),
+    isSuper ? listOrganizerActivityNames() : Promise.resolve([]),
+  ]);
 
   return (
     <>
@@ -38,7 +41,6 @@ export default async function ActivitiesPage() {
             <thead className="border-b border-line text-sm text-prussian/70">
               <tr>
                 <th className="py-3 pr-4 font-semibold">Activity</th>
-                {isSuper && <th className="px-4 py-3 font-semibold">Organizer</th>}
                 <th className="px-4 py-3 font-semibold">Scoring</th>
                 <th className="px-4 py-3 text-right font-semibold">Judges</th>
                 <th className="px-4 py-3 text-right font-semibold">Entries</th>
@@ -56,7 +58,6 @@ export default async function ActivitiesPage() {
                         {a.name}
                       </Link>
                     </td>
-                    {isSuper && <td className="px-4 py-4 text-prussian/70">{a.organizer ?? "You"}</td>}
                     <td className="px-4 py-4">
                       {a.scoringMode === "criteria" ? `${a.criteria.length} criteria, 100 points` : `${formatBound(a.min)} to ${formatBound(a.max)}`}
                     </td>
@@ -72,6 +73,31 @@ export default async function ActivitiesPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {isSuper && organizerActivities.length > 0 && (
+        <section aria-labelledby="organizer-activities" className="mt-12">
+          <h2 id="organizer-activities" className="text-xl font-bold">
+            Organizers&apos; activities
+          </h2>
+          <p className="hint mt-1 max-w-2xl">Each organizer&apos;s activities are private to them. You see the name and who runs it, nothing else.</p>
+          <table className="mt-4 w-full max-w-3xl text-left">
+            <thead className="border-b border-line text-sm text-prussian/70">
+              <tr>
+                <th className="py-3 pr-4 font-semibold">Activity</th>
+                <th className="py-3 pl-4 font-semibold">Organizer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {organizerActivities.map((a) => (
+                <tr key={a.id} className="border-b border-line">
+                  <td className="py-3.5 pr-4 font-semibold">{a.name}</td>
+                  <td className="py-3.5 pl-4 text-prussian/70">{a.organizer}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
     </>
   );

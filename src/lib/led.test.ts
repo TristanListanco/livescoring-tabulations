@@ -11,8 +11,8 @@ function board(options: { hold: boolean; onAir: string | null; scores: [string, 
       { id: "j2", name: "Ben", photoUrl: null, position: 1 },
     ],
     entries: [
-      { id: "e1", name: "Agila", position: 0 },
-      { id: "e2", name: "Bagwis", position: 1 },
+      { id: "e1", name: "Agila", photoUrl: null, position: 0 },
+      { id: "e2", name: "Bagwis", photoUrl: null, position: 1 },
     ],
     scores: options.scores.map(([entryId, judgeId, value]) => ({ entryId, judgeId, value })),
   };
@@ -31,7 +31,7 @@ describe("ledScene", () => {
       ["shown", 9.5],
       ["waiting", null],
     ]);
-    expect(scene.average).toMatchObject({ state: "running", hundredths: 950, count: 1, total: 2 });
+    expect(scene.average).toMatchObject({ state: "running", value: 9.5, count: 1, total: 2 });
   });
 
   it("holds scores back until every judge has scored", () => {
@@ -41,12 +41,21 @@ describe("ledScene", () => {
       ["submitted", null],
       ["waiting", null],
     ]);
-    expect(partial.average).toMatchObject({ state: "hidden", hundredths: null });
+    expect(partial.average).toMatchObject({ state: "hidden", value: null });
 
-    const complete = ledScene(board({ hold: true, onAir: "e1", scores: [["e1", "j1", 9.5], ["e1", "j2", 9]] }));
+    const complete = ledScene(
+      board({
+        hold: true,
+        onAir: "e1",
+        scores: [
+          ["e1", "j1", 9.5],
+          ["e1", "j2", 9],
+        ],
+      }),
+    );
     if (complete.kind !== "entry") throw new Error("expected an entry");
     expect(complete.tiles.every((t) => t.state === "shown")).toBe(true);
-    expect(complete.average).toMatchObject({ state: "final", hundredths: 925 });
+    expect(complete.average).toMatchObject({ state: "final", value: 9.25 });
   });
 
   it("has no average before the first score", () => {

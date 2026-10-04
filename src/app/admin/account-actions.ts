@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { isUuid, newFileTag } from "@/lib/codes";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { requireAdmin, requireSuperAdmin } from "@/lib/session";
-import { db, ORGANIZER_BUCKET } from "@/lib/supabase/server";
+import { db, ORGANIZER_BUCKET, PHOTO_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Signatory } from "@/lib/types";
 import type { FormResult } from "./actions";
 
@@ -119,11 +119,31 @@ export async function setOrganizerPhoto(adminId: string, formData: FormData): Pr
 }
 
 /** Deletes the account. Their activities stay, and only the super admin can manage them afterwards. */
+/**
+ * Delete an organizer and their activities. Their activities are private to them, so they are deleted
+ * rather than handed to the super admin.
+ */
 export async function deleteOrganizer(adminId: string): Promise<ActionResult> {
   await requireSuperAdmin();
   if (!isUuid(adminId)) return err("Organizer not found.");
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
   if (!current) return err("Organizer not found.");
+
+  const { data: owned, error: listError } = await db().from("activities").select("id").eq("owner_id", adminId);
+  if (listError) return err(listError.message);
+  const activityIds = (owned as { id: string }[]).map((a) => a.id);
+  const photos: string[] = [];
+  for (const id of activityIds) {
+    const { data: files } = await db().storage.from(PHOTO_BUCKET).list(id, { limit: 1000 });
+    photos.push(...(files ?? []).map((f) => `${id}/${f.name}`));
+  }
+  if (activityIds.length) {
+    // Judges, entries, scores and devices go with their activity.
+    const { error: deleteError } = await db().from("activities").delete().in("id", activityIds);
+    if (deleteError) return err(deleteError.message);
+    if (photos.length) await db().storage.from(PHOTO_BUCKET).remove(photos);
+  }
+
   const { error } = await db().from("admins").delete().eq("id", adminId);
   if (error) return err(error.message);
   await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);

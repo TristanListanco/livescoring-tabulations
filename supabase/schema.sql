@@ -80,6 +80,8 @@ create table if not exists public.entries (
   created_at   timestamptz not null default now()
 );
 create index if not exists entries_activity_idx on public.entries (activity_id, position);
+-- An optional photo per entry, shown on the LED wall.
+alter table public.entries add column if not exists photo_path text;
 
 -- Settings added after the first release (also in supabase/migrations/).
 alter table public.activities add column if not exists show_rank boolean not null default true;
@@ -95,6 +97,16 @@ alter table public.activities add column if not exists led_hold_scores boolean n
 alter table public.activities add column if not exists scoring_mode text not null default 'simple';
 alter table public.activities add column if not exists criteria jsonb not null default '[]'::jsonb;
 alter table public.activities add column if not exists criteria_display text not null default 'percent';
+-- Decimal places for averages and criteria totals in results (0 to 4); judges still enter 0 to 2.
+alter table public.activities add column if not exists result_decimals smallint not null default 2;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_result_decimals_check') then
+    alter table public.activities
+      add constraint activities_result_decimals_check check (result_decimals between 0 and 4);
+  end if;
+end;
+$$;
 -- Judging session: draft (not started), live, or ended; and the entry judges are scoring now.
 alter table public.activities add column if not exists session_state text not null default 'draft';
 alter table public.activities add column if not exists session_started_at timestamptz;
