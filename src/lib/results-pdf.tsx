@@ -1,7 +1,10 @@
 import "server-only";
-import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { formatAverage, formatScore, rangeLabel, rankEntries } from "./scoring";
 import type { Board } from "./types";
+
+// Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
+Font.registerHyphenationCallback((word) => [word]);
 
 const C = {
   prussian: "#0b2545",
