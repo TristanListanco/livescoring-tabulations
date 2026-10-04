@@ -13,12 +13,13 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   return (
     <div data-admin-theme data-theme={theme} className="min-h-dvh bg-mint text-prussian">
       <header className="keep-light bg-prussian text-mint">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 sm:gap-6 sm:px-6">
+        {/* On phones the super admin's links drop to a second row, so nothing runs off the screen. */}
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 sm:h-16 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-0">
           <Link href="/admin" className="text-lg font-bold">
             LiveScoring
           </Link>
           {session.kind === "super" && (
-            <nav aria-label="Admin" className="flex items-center gap-1 text-sm font-semibold">
+            <nav aria-label="Admin" className="order-last -ml-2.5 flex w-full items-center gap-1 text-sm font-semibold sm:order-none sm:ml-0 sm:w-auto">
               <Link href="/admin" className="rounded-md px-2.5 py-1.5 text-powder hover:bg-oxford hover:text-mint">
                 Activities
               </Link>
@@ -27,7 +28,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
               </Link>
             </nav>
           )}
-          <div className="ml-auto flex min-w-0 items-center gap-3 sm:gap-5">
+          <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-5">
             {session.kind === "organizer" ? (
               <Link href="/admin/profile" className="flex min-w-0 items-center gap-3 rounded-lg px-1.5 py-1 hover:bg-oxford" title="Your profile">
                 <Avatar name={session.admin.name} src={session.admin.photoUrl} size={36} />
@@ -37,7 +38,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
                 </div>
               </Link>
             ) : (
-              <span className="rounded-md border border-oxford px-2.5 py-1 text-sm font-semibold text-powder">Super admin</span>
+              <span className="hidden rounded-md border border-oxford px-2.5 py-1 text-sm font-semibold text-powder sm:inline">Super admin</span>
             )}
             <ThemeToggle initial={theme} />
             <form action={logout}>

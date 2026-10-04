@@ -2,22 +2,17 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
+import { CopyButton } from "@/components/copy-button";
+import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { entryNeighbors } from "@/lib/judging";
 import type { ActionResult, Board, SessionState } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 
-const STATE_COPY: Record<SessionState, { label: string; body: string }> = {
-  draft: {
-    label: "Not started",
-    body: "Judges who sign in see a waiting screen once you approve their device in the Access tab. Starting the session locks the judges and the running order. You can still add and rename entries.",
-  },
-  live: { label: "Live", body: "Judges score the entry you show them, one at a time. The LED wall moves to it too." },
-  ended: { label: "Ended", body: "Judges can't submit scores. Reopen the session to continue judging." },
-};
+const STATE_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", ended: "Ended" };
 
-export function SessionTab({ board }: { board: Board }) {
+export function SessionTab({ board, liveUrl, liveQr }: { board: Board; liveUrl: string; liveQr: string }) {
   useLiveRefresh(board.activity.id);
   const { activity, judges, entries, scores } = board;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
@@ -38,25 +33,21 @@ export function SessionTab({ board }: { board: Board }) {
   };
 
   const { index, entry, previous, next } = entryNeighbors(entries, current);
-  const chair = judges.find((j) => j.isChair);
   const scoredBy = new Set(scores.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const allIn = entry !== null && judges.length > 0 && judges.every((j) => scoredBy.has(j.id));
   const live = activity.sessionState === "live";
   const scoreCount = (entryId: string) => scores.filter((s) => s.entryId === entryId).length;
 
   return (
-    <div className="max-w-4xl space-y-10">
-      <section className="flex flex-wrap items-start justify-between gap-6 rounded-2xl border border-line bg-white/60 p-6">
-        <div className="max-w-xl">
-          <p className="flex items-center gap-2.5 text-xl font-bold">
-            <span
-              aria-hidden
-              className={`size-3 rounded-full ${live ? "bg-regal ring-4 ring-regal/20" : activity.sessionState === "ended" ? "bg-prussian/40" : "border-2 border-field"}`}
-            />
-            Session: {STATE_COPY[activity.sessionState].label}
-          </p>
-          <p className="hint mt-1.5">{STATE_COPY[activity.sessionState].body}</p>
-        </div>
+    <div className="max-w-4xl space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="flex items-center gap-2.5 text-lg font-bold">
+          <span
+            aria-hidden
+            className={`size-3 rounded-full ${live ? "bg-regal ring-4 ring-regal/20" : activity.sessionState === "ended" ? "bg-prussian/40" : "border-2 border-field"}`}
+          />
+          Session: {STATE_LABEL[activity.sessionState]}
+        </p>
         {activity.sessionState === "draft" && (
           <ConfirmDialog
             triggerLabel="Start session"
@@ -93,7 +84,7 @@ export function SessionTab({ board }: { board: Board }) {
             Reopen session
           </button>
         )}
-      </section>
+      </div>
 
       {result && (
         <p role={result.ok ? "status" : "alert"} className={result.ok ? "text-regal" : "font-semibold text-danger"}>
@@ -102,23 +93,25 @@ export function SessionTab({ board }: { board: Board }) {
       )}
 
       {live && (
-        <section aria-labelledby="now-judging">
-          <h2 id="now-judging" className="text-sm font-semibold text-prussian/70">
-            On judges&apos; screens
-          </h2>
-          {entry ? (
-            // Looks like the judges' screens, so it keeps their colours in dark mode.
-            <div className="keep-light mt-2 rounded-2xl bg-prussian p-6 text-mint">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-powder">Now judging: No. {index + 1}</p>
-                  <p className="mt-0.5 text-3xl leading-tight font-bold text-balance">{entry.name}</p>
-                </div>
-                {activity.ledEntryId === entry.id && (
-                  <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
-                )}
+        // The control desk: what judges see now, who has scored, and where to go next. It looks like the judges'
+        // screens, so it keeps their colours in dark mode.
+        <section aria-labelledby="now-judging" className="keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+          <div className="px-6 pt-6 pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 id="now-judging" className="text-powder">
+                  {entry ? `Now judging: No. ${index + 1} of ${entries.length}` : "On judges' screens"}
+                </h2>
+                <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold text-balance">
+                  {entry ? entry.name : "Judges are waiting for an entry"}
+                </p>
               </div>
+              {entry && activity.ledEntryId === entry.id && (
+                <span className="rounded-md border border-oxford px-3 py-1.5 text-sm font-semibold text-powder">On the LED wall</span>
+              )}
+            </div>
 
+            {entry && (
               <ul className="mt-5 grid gap-2 sm:grid-cols-2">
                 {judges.map((j) => {
                   const done = scoredBy.has(j.id);
@@ -141,41 +134,39 @@ export function SessionTab({ board }: { board: Board }) {
                   );
                 })}
               </ul>
+            )}
+          </div>
 
-              <p role="status" className="mt-5 font-semibold">
-                {allIn
+          <div className="flex flex-wrap items-center gap-3 border-t border-oxford px-6 py-4">
+            <p role="status" className="min-w-48 flex-1 font-semibold">
+              {entry &&
+                (allIn
                   ? next
                     ? `Every judge has scored ${entry.name}.`
                     : `Every judge has scored ${entry.name}. That was the last entry: end the session when you're ready.`
-                  : `${scoredBy.size} of ${judges.length} judges have scored.`}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2 rounded-2xl border border-dashed border-field px-6 py-8 text-center">
-              <p className="font-semibold">Judges are waiting for an entry.</p>
-              <p className="hint mt-1">Show the first one when the contestant is ready.</p>
-            </div>
-          )}
-
-          {chair && <p className="hint mt-3">{chair.name}, the chair of the board of judges, can also move entries from their own screen.</p>}
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className="btn btn-quiet" onClick={() => previous && show(previous.id)} disabled={!previous || pending}>
+                  : `${scoredBy.size} of ${judges.length} judges have scored.`)}
+            </p>
+            <button
+              type="button"
+              className="btn border border-oxford text-mint hover:bg-oxford"
+              onClick={() => previous && show(previous.id)}
+              disabled={!previous || pending}
+            >
               Previous entry
             </button>
             <button
               type="button"
-              className={`btn ${allIn || !entry ? "btn-primary" : "btn-quiet"}`}
+              className={`btn min-w-0 ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`}
               onClick={() => next && show(next.id)}
               disabled={!next || pending}
             >
-              {entry ? (next ? `Show next entry: ${next.name}` : "No more entries") : "Show first entry"}
+              <span className="truncate">{entry ? (next ? `Show next entry: ${next.name}` : "No more entries") : "Show first entry"}</span>
             </button>
           </div>
         </section>
       )}
 
-      {activity.sessionState !== "draft" && (
+      {entries.length > 0 && (
         <section aria-labelledby="running-order">
           <h2 id="running-order" className="font-bold">
             Running order
@@ -190,7 +181,7 @@ export function SessionTab({ board }: { board: Board }) {
                   <span className="tabular hint hidden sm:inline">
                     {scoreCount(e.id)} of {judges.length} scores
                   </span>
-                  {activity.sessionState === "ended" ? (
+                  {activity.sessionState === "draft" ? null : activity.sessionState === "ended" ? (
                     // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                     <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
                       {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
@@ -208,6 +199,19 @@ export function SessionTab({ board }: { board: Board }) {
           </ol>
         </section>
       )}
+
+      <section aria-labelledby="live-results">
+        <h2 id="live-results" className="font-bold">
+          Public live results
+        </h2>
+        <div className="mt-3 flex max-w-2xl items-center gap-2">
+          <code className="tabular min-w-0 flex-1 truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px]">{liveUrl}</code>
+          <CopyButton value={liveUrl} />
+        </div>
+        <div className="mt-4">
+          <Qr svg={liveQr} label="QR code for the live results page" />
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
@@ -64,7 +65,6 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
         {judge.isChair && (
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="rounded-full bg-regal px-2.5 py-0.5 font-semibold text-mint">Chair of the board of judges</span>
-            <span className="hint">Can move entries from their own screen. Set when the activity was created.</span>
           </p>
         )}
         <p className="hint tabular">
@@ -147,18 +147,43 @@ export function JudgesTab({
   /** Once the session has started the panel can't change. */
   locked: boolean;
 }) {
+  // Once judging starts the panel is fixed, so it reads as a list rather than a page of disabled forms.
+  if (locked) {
+    return (
+      <div className="max-w-3xl">
+        <h2 className="text-xl font-bold">Judges</h2>
+        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
+          Judges can&apos;t change once the session has started.
+        </p>
+        <ul className="mt-4 divide-y divide-line border-y border-line">
+          {judges.map((j) => {
+            const scored = scoredBy[j.id] ?? 0;
+            return (
+              <li key={j.id} className="flex items-center gap-4 py-4">
+                <Avatar name={j.name} src={j.photoUrl} size={48} />
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="truncate text-lg font-semibold">{j.name}</span>
+                    {j.isChair && (
+                      <span className="rounded-full bg-regal px-2.5 py-0.5 text-sm font-semibold text-mint">Chair of the board of judges</span>
+                    )}
+                  </p>
+                  <p className="hint tabular">
+                    {scored} {scored === 1 ? "score" : "scores"} submitted
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Judges</h2>
-      {locked ? (
-        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
-          Judges are locked because the session has started. To change them, reset scores in the Developer tab, which puts the session back to not
-          started.
-        </p>
-      ) : (
-        <p className="hint mt-1">Click a photo to change it. New judges get an access code right away, shown in the Access tab.</p>
-      )}
-      <fieldset disabled={locked} className="min-w-0">
+      <fieldset className="min-w-0">
         {judges.length === 0 ? (
           <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
         ) : (
@@ -168,7 +193,7 @@ export function JudgesTab({
             ))}
           </ul>
         )}
-        {!locked && <AddJudgeForm activityId={activityId} />}
+        <AddJudgeForm activityId={activityId} />
       </fieldset>
     </div>
   );

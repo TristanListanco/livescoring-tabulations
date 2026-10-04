@@ -47,7 +47,7 @@ export function EditOrganizer({
   return (
     <div className="mt-6 max-w-4xl">
       <form action={action}>
-        <Section title="Organizer" hint="Shown in their admin panel after they sign in." flush>
+        <Section title="Organizer" flush>
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex flex-col items-center gap-2">
               <div className={photoPending ? "opacity-60" : undefined}>
@@ -86,7 +86,14 @@ export function EditOrganizer({
           <label htmlFor="password" className="label">
             New password
           </label>
-          <input id="password" name="password" type="password" minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" className="field max-w-md" />
+          <input
+            id="password"
+            name="password"
+            type="password"
+            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="new-password"
+            className="field max-w-md"
+          />
         </Section>
 
         <div className="flex flex-wrap items-center gap-4 pb-8 md:pl-[calc(14rem+2.5rem)]">
@@ -95,14 +102,11 @@ export function EditOrganizer({
         </div>
       </form>
 
-      <Section
-        title="Results PDF signatories"
-        hint="Board of tabulators, representatives and others who sign the results. Each prints as a signature line with their designation, under the organizer's photo and name."
-      >
+      <Section title="Results PDF signatories">
         <SignatoriesEditor adminId={organizer.id} initial={signatories} />
       </Section>
 
-      <Section title="Activities" hint="Private to this organizer: you see their names only. Hand them one of your own activities from its Settings tab.">
+      <Section title="Activities">
         {activities.length === 0 ? (
           <p className="hint">None yet. Activities they create appear here.</p>
         ) : (
@@ -116,7 +120,7 @@ export function EditOrganizer({
         )}
       </Section>
 
-      <Section title="Delete account" hint="They can no longer sign in, and their activities are deleted with the account, scores and all.">
+      <Section title="Delete account">
         <ConfirmDialog
           triggerLabel="Delete organizer"
           triggerClassName="btn btn-danger"

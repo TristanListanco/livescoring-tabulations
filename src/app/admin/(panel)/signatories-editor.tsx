@@ -50,7 +50,7 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
 
   return (
     <div className="space-y-3">
-      {rows.length === 0 && <p className="hint">No signatories. The results PDF prints without signature lines for them.</p>}
+      {rows.length === 0 && <p className="hint">No signatories yet.</p>}
       <ol className="space-y-2">
         {rows.map((r, i) => {
           const invalid = missingName.has(r.key);

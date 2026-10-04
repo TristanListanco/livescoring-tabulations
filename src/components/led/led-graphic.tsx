@@ -232,14 +232,20 @@ export function LedOutput({ board, className = "" }: { board: Board; className?:
   const scene = ledScene(board);
   if (board.activity.ledFullscreen) {
     return (
-      <div className={`relative overflow-hidden bg-prussian text-mint ${className}`} style={{ containerType: "size" }}>
+      <div
+        data-transition={board.activity.ledTransition}
+        className={`relative overflow-hidden bg-prussian text-mint ${className}`}
+        style={{ containerType: "size" }}
+      >
         <FullScreen board={board} scene={scene} />
       </div>
     );
   }
   return (
     <FitStage className={className} background={KEY_GREEN}>
-      <Overlay board={board} scene={scene} />
+      <div data-transition={board.activity.ledTransition} className="contents">
+        <Overlay board={board} scene={scene} />
+      </div>
     </FitStage>
   );
 }

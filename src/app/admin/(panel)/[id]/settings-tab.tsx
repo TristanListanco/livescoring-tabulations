@@ -5,7 +5,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity, ActionResult } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
-import { setActivityOwner, setShowRank, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOwner, setShowRank, updateSettings, type FormResult } from "../../actions";
 import { Section } from "../section";
 
 function Message({ state }: { state: FormResult }) {
@@ -34,16 +34,15 @@ function RankingSwitch({ activity }: { activity: Activity }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         <button
           type="button"
           role="switch"
           aria-checked={on}
           aria-labelledby="rank-label"
-          aria-describedby="rank-hint"
           onClick={toggle}
           disabled={pending}
-          className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors disabled:opacity-60 ${
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 transition-colors disabled:opacity-60 ${
             on ? "border-regal bg-regal" : "border-field bg-white"
           }`}
         >
@@ -51,17 +50,9 @@ function RankingSwitch({ activity }: { activity: Activity }) {
             className={`inline-block size-5 rounded-full shadow transition-transform ${on ? "translate-x-5.5 bg-mint" : "translate-x-0.5 bg-field"}`}
           />
         </button>
-        <div>
-          <p id="rank-label" className="font-semibold">
-            Show ranks on the live results page
-          </p>
-          <p id="rank-hint" className="hint mt-0.5 max-w-xl">
-            {on
-              ? "Entries are sorted by average, numbered by placement, and the top 3 stand out."
-              : "Entries stay in their running order with no placements, so the audience sees scores without the standings."}{" "}
-            The change shows on every open results screen within seconds.
-          </p>
-        </div>
+        <p id="rank-label" className="font-semibold">
+          Show ranks on the live results page
+        </p>
       </div>
       {result && <Message state={result} />}
     </div>
@@ -71,19 +62,46 @@ function RankingSwitch({ activity }: { activity: Activity }) {
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
-  const rows: [string, string][] =
-    activity.scoringMode === "criteria"
-      ? [
-          ["Scoring", `Criteria, adding up to 100 points: ${activity.criteria.map((c) => `${c.name} ${formatBound(c.max)}`).join(", ")}`],
-          ["Judges give points in", places(activity.decimals)],
-          ["Totals shown", activity.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"],
-          ["Results show", places(activity.resultDecimals)],
-        ]
-      : [
-          ["Scoring", `Simple, scores from ${rangeLabel(activity)}`],
-          ["Judges score with", places(activity.decimals)],
-          ["Results show", places(activity.resultDecimals)],
-        ];
+  const criteria = activity.scoringMode === "criteria";
+  const rows: [string, React.ReactNode][] = criteria
+    ? [
+        ["Method", "Criteria"],
+        [
+          "Criteria",
+          <table key="criteria" className="w-full max-w-sm text-left">
+            <thead className="sr-only">
+              <tr>
+                <th scope="col">Criterion</th>
+                <th scope="col">Max points</th>
+              </tr>
+            </thead>
+            <tbody className="tabular">
+              {activity.criteria.map((c) => (
+                <tr key={c.id} className="border-b border-line">
+                  <td className="py-1.5 pr-4">{c.name}</td>
+                  <td className="py-1.5 text-right">{formatBound(c.max)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="tabular font-semibold text-prussian">
+              <tr>
+                <th scope="row" className="pt-1.5 pr-4 font-semibold">
+                  Total
+                </th>
+                <td className="pt-1.5 text-right">100</td>
+              </tr>
+            </tfoot>
+          </table>,
+        ],
+        ["Judges give points in", places(activity.decimals)],
+        ["Totals shown", activity.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"],
+        ["Results show", places(activity.resultDecimals)],
+      ]
+    : [
+        ["Method", `Simple, scores from ${rangeLabel(activity)}`],
+        ["Judges score with", places(activity.decimals)],
+        ["Results show", places(activity.resultDecimals)],
+      ];
   return (
     <dl className="grid max-w-2xl gap-x-8 gap-y-3 sm:grid-cols-[auto_1fr]">
       {rows.map(([term, value]) => (
@@ -109,8 +127,8 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
   if (organizers.length === 0) return <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>;
   return (
     <div className="space-y-3">
-      <label htmlFor="owner" className="label">
-        Organizer
+      <label htmlFor="owner" className="sr-only">
+        Organizer to hand this activity to
       </label>
       <div className="flex max-w-xl flex-wrap gap-2">
         <select id="owner" value={owner} onChange={(e) => setOwner(e.target.value)} className="field max-w-sm flex-1">
@@ -129,8 +147,8 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
           confirmLabel="Hand over"
           onConfirm={() => setActivityOwner(activity.id, owner)}
         >
-          They&apos;ll manage it from their own admin panel. After this you&apos;ll only see its name in your list: you won&apos;t be able to
-          open it, change it or export its results.
+          They&apos;ll manage it from their own admin panel. After this you&apos;ll only see its name in your list: you won&apos;t be able to open it,
+          change it or export its results.
         </ConfirmDialog>
       </div>
     </div>
@@ -173,7 +191,6 @@ function ExportResults({
         <>
           <p className="text-[15px]">
             Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
-            <span className="hint block">Printed on the sheet. It changes if any score changes, so a printout can be checked against this page.</span>
           </p>
           <a
             href={`/admin/${activityId}/export`}
@@ -231,27 +248,38 @@ export function SettingsTab({
         </Section>
       </form>
 
-      <Section
-        title="Scoring"
-        hint="Set when the activity was created and can't be changed, so no one can alter results by changing the rules. To score differently, create a new activity."
-      >
+      <Section title="Scoring">
         <ScoringSummary activity={activity} />
       </Section>
 
       {organizers && (
-        <Section title="Organizer" hint="Only you manage this activity. Hand it to an organizer to have them run it instead.">
+        <Section title="Organizer">
           <OwnerPicker activity={activity} organizers={organizers} />
         </Section>
       )}
 
-      <Section title="Live results page" hint="What the audience sees on the public link.">
+      <Section title="Live results page">
         <div className="space-y-6">
           <RankingSwitch activity={activity} />
         </div>
       </Section>
 
-      <Section title="Export" hint="An official results sheet with every judge's score, averages, ranks, a report ID and each judge's sign-off.">
+      <Section title="Export">
         <ExportResults activityId={activity.id} progress={progress} reportId={reportId} />
+      </Section>
+
+      <Section title="Delete activity">
+        <ConfirmDialog
+          triggerLabel="Delete activity"
+          triggerClassName="btn btn-danger"
+          title="Delete this activity?"
+          tone="danger"
+          confirmLabel="Delete activity"
+          requireText={activity.name}
+          onConfirm={() => deleteActivity(activity.id)}
+        >
+          This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop working.
+        </ConfirmDialog>
       </Section>
     </div>
   );

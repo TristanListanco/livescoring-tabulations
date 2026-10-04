@@ -23,7 +23,7 @@ export function OrganizerForm() {
 
   return (
     <form onSubmit={submit} className="mt-6 max-w-4xl">
-      <Section title="Organizer" hint="Shown in their admin panel after they sign in." flush>
+      <Section title="Organizer" flush>
         <div className="flex flex-wrap items-start gap-6">
           <PhotoPicker name={name} currentUrl={photo?.url ?? null} size={80} onPick={(blob, url) => setPhoto({ blob, url })} />
           <div className="min-w-64 flex-1 space-y-4">
@@ -31,7 +31,15 @@ export function OrganizerForm() {
               <label htmlFor="name" className="label">
                 Organizer name
               </label>
-              <input id="name" name="name" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} className="field max-w-md" />
+              <input
+                id="name"
+                name="name"
+                required
+                maxLength={120}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="field max-w-md"
+              />
             </div>
             <div>
               <label htmlFor="email" className="label">
@@ -43,7 +51,7 @@ export function OrganizerForm() {
         </div>
       </Section>
 
-      <Section title="Password" hint="Share it with the organizer privately. You can set a new one later from their page.">
+      <Section title="Password">
         <label htmlFor="password" className="label">
           Password
         </label>

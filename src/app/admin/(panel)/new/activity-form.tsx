@@ -24,8 +24,7 @@ export function ActivityForm() {
     const n = Math.max(1, Math.min(MAX_JUDGES, count));
     setJudges((list) => (n > list.length ? [...list, ...Array.from({ length: n - list.length }, blankJudge)] : list.slice(0, n)));
   };
-  const updateJudge = (key: number, patch: Partial<DraftJudge>) =>
-    setJudges((list) => list.map((j) => (j.key === key ? { ...j, ...patch } : j)));
+  const updateJudge = (key: number, patch: Partial<DraftJudge>) => setJudges((list) => list.map((j) => (j.key === key ? { ...j, ...patch } : j)));
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -48,14 +47,11 @@ export function ActivityForm() {
         <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="Mr. and Ms. Intramurals 2026" />
       </Section>
 
-      <Section
-        title="Scoring"
-        hint="A single score per judge, or points for each criterion adding up to 100. Check it carefully: scoring can't be changed once the activity is created."
-      >
+      <Section title="Scoring" hint="Scoring can't be changed after the activity is created.">
         <ScoringFields />
       </Section>
 
-      <Section title="Judges" hint="Each judge gets their own access code after you create the activity.">
+      <Section title="Judges">
         <div className="flex items-center gap-3">
           <span className="label mb-0" id="judge-count-label">
             Number of judges
@@ -131,14 +127,9 @@ export function ActivityForm() {
             </li>
           ))}
         </ol>
-        <p className="hint mt-3 max-w-2xl">
-          Pick the chair of the board of judges: besides you, the chair can move to the previous or next entry from their own screen. The chair
-          can&apos;t be changed after the activity is created. Photos are optional; judges without one show their initials. The results PDF uses
-          each judge&apos;s full name and the LED wall their first name.
-        </p>
       </Section>
 
-      <Section title="Entries" hint="The contestants, teams or performances being judged. You can add more later.">
+      <Section title="Entries">
         <label htmlFor="entries" className="label">
           Entry names, one per line
         </label>

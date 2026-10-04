@@ -150,14 +150,18 @@ test.describe.serial("a full event", () => {
     const codeTexts = await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).allTextContents();
     codes = codeTexts.map((t) => t.replace("Code ", ""));
     expect(codes).toHaveLength(2);
-    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
-    // Judges' codes, without per-judge links; the header has no live results button or rules line.
+    // Judges' codes show without copy buttons or links; the header has no live results button or rules line.
     await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copy code" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Open live results" })).toHaveCount(0);
     await expect(page.getByText(/^Scores from 1 to 10/)).toHaveCount(0);
     await expectAccessible(page);
     await page.goto(`${adminPath}?tab=led`);
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
+    // The public live results link and its QR code are in the Session tab.
+    await page.goto(`${adminPath}?tab=session`);
+    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    await expect(page.getByRole("img", { name: "QR code for the live results page" })).toBeVisible();
   });
 
   test("only the device the organizer approves can judge", async ({ page }) => {
@@ -212,11 +216,11 @@ test.describe.serial("a full event", () => {
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
-    await expect(page.getByRole("note")).toContainText("Judges are locked");
-    await expect(page.getByLabel("First name").first()).toBeDisabled();
+    await expect(page.getByRole("note")).toHaveText("Judges can't change once the session has started.");
+    await expect(page.getByLabel("First name")).toHaveCount(0);
     // The chair is shown in the panel, fixed since the activity was created.
     await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(1);
-    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" }).getByLabel("First name")).toHaveValue("Ben");
+    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toContainText("Ben Torres");
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);
@@ -287,6 +291,11 @@ test.describe.serial("a full event", () => {
     await expect.poll(() => ledBackground(led), REALTIME).toBe("rgb(11, 37, 69)");
     await expect(led.getByText("Scored", { exact: true })).toBeVisible();
     await expect(led.locator("img[data-entry-photo]")).toBeVisible();
+
+    // Entries and scores can wipe in instead of fading.
+    await expect(led.locator('[data-transition="fade"]')).toHaveCount(1);
+    await page.getByLabel("Wipe").check();
+    await expect(led.locator('[data-transition="wipe"]')).toHaveCount(1, REALTIME);
     await led.context().close();
   });
 
@@ -456,6 +465,8 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
 
+    // Deleting the activity is in Settings; on the live site there's no Developer tab at all.
+    await page.goto(`${adminPath}?tab=settings`);
     await page.getByRole("button", { name: "Delete activity" }).click();
     dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(NAME);

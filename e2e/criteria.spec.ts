@@ -62,6 +62,7 @@ test.describe.serial("criteria scoring", () => {
 
     adminPath = new URL(page.url()).pathname;
     code = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Code ", "");
+    await page.goto(`${adminPath}?tab=session`);
     livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
     await page.goto(`${adminPath}?tab=led`);
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
@@ -115,7 +116,10 @@ test.describe.serial("criteria scoring", () => {
 
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);
-    await expect(page.locator("dl")).toContainText("Innovativeness 30, Design 70");
+    // The criteria are listed with their points and the total.
+    await expect(page.getByRole("row", { name: "Innovativeness 30" })).toBeVisible();
+    await expect(page.getByRole("row", { name: "Design 70" })).toBeVisible();
+    await expect(page.getByRole("row", { name: "Total 100" })).toBeVisible();
     await expect(page.locator("dl")).toContainText("Totals shownAs a percentage");
     await expect(page.getByRole("radio")).toHaveCount(0);
   });

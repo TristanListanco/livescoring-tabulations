@@ -99,6 +99,16 @@ create index if not exists activities_owner_idx on public.activities (owner_id);
 -- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
 alter table public.activities add column if not exists led_fullscreen boolean not null default false;
 alter table public.activities add column if not exists led_hold_scores boolean not null default false;
+-- LED wall animation: fade (default) or wipe.
+alter table public.activities add column if not exists led_transition text not null default 'fade';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then
+    alter table public.activities
+      add constraint activities_led_transition_check check (led_transition in ('fade', 'wipe'));
+  end if;
+end;
+$$;
 -- Scoring: simple (min to max) or criteria (max points adding up to 100; the score is the total).
 alter table public.activities add column if not exists scoring_mode text not null default 'simple';
 alter table public.activities add column if not exists criteria jsonb not null default '[]'::jsonb;

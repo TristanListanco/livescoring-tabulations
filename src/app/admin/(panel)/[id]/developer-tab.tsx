@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Activity } from "@/lib/types";
-import { deleteActivity, resetScores } from "../../actions";
+import { resetScores } from "../../actions";
 
 function Tool({ title, children, action }: { title: string; children: React.ReactNode; action: React.ReactNode }) {
   return (
@@ -23,7 +23,7 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
   return (
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Developer tools</h2>
-      <p className="hint mt-1">For testing and rehearsals. Neither action can be undone.</p>
+      <p className="hint mt-1">For testing and rehearsals. Not available on the live site.</p>
       {notice && (
         <p role="status" className="mt-4 rounded-lg bg-wash px-4 py-3 font-semibold text-regal">
           {notice}
@@ -53,27 +53,8 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
             </ConfirmDialog>
           }
         >
-          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"} and puts the session back to not started. Judges, entries and access
-          codes stay as they are.
-        </Tool>
-
-        <Tool
-          title="Delete activity"
-          action={
-            <ConfirmDialog
-              triggerLabel="Delete activity"
-              triggerClassName="btn btn-danger"
-              title="Delete this activity?"
-              tone="danger"
-              confirmLabel="Delete activity"
-              requireText={activity.name}
-              onConfirm={() => deleteActivity(activity.id)}
-            >
-              This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop working.
-            </ConfirmDialog>
-          }
-        >
-          Removes the activity and everything in it. Judge codes and the live results link stop working.
+          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"} and puts the session back to not started. Judges, entries and
+          access codes stay as they are.
         </Tool>
       </div>
     </div>
