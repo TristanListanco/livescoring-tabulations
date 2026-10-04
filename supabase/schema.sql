@@ -4,6 +4,20 @@
 
 create extension if not exists pgcrypto;
 
+-- Organizer accounts -----------------------------------------------------------
+-- Managed by the super admin (ADMIN_PASSWORD). No row level security policies, so only the
+-- server's secret key can read them: emails and password hashes never reach a browser.
+
+create table if not exists public.admins (
+  id             uuid primary key default gen_random_uuid(),
+  email          text not null unique check (email = lower(btrim(email)) and position('@' in email) > 1),
+  name           text not null check (length(btrim(name)) > 0),
+  photo_path     text,
+  password_hash  text not null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
 -- Activities ---------------------------------------------------------------
 
 create table if not exists public.activities (
@@ -53,6 +67,12 @@ create index if not exists entries_activity_idx on public.entries (activity_id, 
 alter table public.activities add column if not exists show_rank boolean not null default true;
 -- The entry currently on the LED wall output; null shows only the green screen.
 alter table public.activities add column if not exists led_entry_id uuid references public.entries (id) on delete set null;
+-- The organizer who owns the activity; null means only the super admin manages it.
+alter table public.activities add column if not exists owner_id uuid references public.admins (id) on delete set null;
+create index if not exists activities_owner_idx on public.activities (owner_id);
+-- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
+alter table public.activities add column if not exists led_fullscreen boolean not null default false;
+alter table public.activities add column if not exists led_hold_scores boolean not null default false;
 
 -- Scores -------------------------------------------------------------------
 
@@ -119,6 +139,7 @@ create trigger scores_final
 -- Public read for the live board; no public writes. judge_access has no
 -- policies at all, so only the secret key can touch it.
 
+alter table public.admins       enable row level security;
 alter table public.activities   enable row level security;
 alter table public.judges       enable row level security;
 alter table public.judge_access enable row level security;
@@ -156,4 +177,8 @@ $$;
 
 insert into storage.buckets (id, name, public)
 values ('judge-photos', 'judge-photos', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('organizer-photos', 'organizer-photos', true)
 on conflict (id) do nothing;

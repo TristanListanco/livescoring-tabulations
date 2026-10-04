@@ -2,8 +2,8 @@ import "server-only";
 import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
-import { db, photoUrl } from "./supabase/server";
-import type { Activity, Board, Decimals, Entry, Judge, Score } from "./types";
+import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
+import type { Activity, AdminAccount, Board, Decimals, Entry, Judge, Score } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -14,8 +14,12 @@ type ActivityRow = {
   decimals: number;
   show_rank?: boolean;
   led_entry_id?: string | null;
+  led_fullscreen?: boolean;
+  led_hold_scores?: boolean;
+  owner_id?: string | null;
   created_at: string;
 };
+type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = { id: string; name: string; photo_path: string | null; position: number };
 type EntryRow = { id: string; name: string; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string };
@@ -38,6 +42,9 @@ function toActivity(row: ActivityRow): Activity {
     decimals: row.decimals as Decimals,
     showRank: row.show_rank ?? true,
     ledEntryId: row.led_entry_id ?? null,
+    ledFullscreen: row.led_fullscreen ?? false,
+    ledHoldScores: row.led_hold_scores ?? false,
+    ownerId: row.owner_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -51,24 +58,73 @@ const toJudge = (row: JudgeRow): Judge => ({
 const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, position: row.position });
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value) });
 
-export type ActivitySummary = Activity & { judgeCount: number; entryCount: number; scoreCount: number };
+const toAdmin = (row: AdminRow): AdminAccount => ({
+  id: row.id,
+  email: row.email,
+  name: row.name,
+  photoUrl: photoUrl(row.photo_path, ORGANIZER_BUCKET),
+});
 
-export async function listActivities(): Promise<ActivitySummary[]> {
+export type ActivitySummary = Activity & { judgeCount: number; entryCount: number; scoreCount: number; organizer: string | null };
+
+/** An organizer's own activities, or every activity for the super admin (ownerId undefined). */
+export async function listActivities(ownerId?: string): Promise<ActivitySummary[]> {
   await connection();
-  const { data, error } = await db()
+  let query = db()
     .from("activities")
     .select(
-      `${ACTIVITY_COLUMNS}, judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)`,
+      `${ACTIVITY_COLUMNS}, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)`,
     )
     .order("created_at", { ascending: false });
+  if (ownerId) query = query.eq("owner_id", ownerId);
+  const { data, error } = await query;
   fail(error);
-  type Row = ActivityRow & Record<"judges" | "entries" | "scores", { count: number }[]>;
-  return (data as Row[]).map((row) => ({
+  type Row = ActivityRow & Record<"judges" | "entries" | "scores", { count: number }[]> & { owner: { name: string } | null };
+  return (data as unknown as Row[]).map((row) => ({
     ...toActivity(row),
+    organizer: row.owner?.name ?? null,
     judgeCount: row.judges[0]?.count ?? 0,
     entryCount: row.entries[0]?.count ?? 0,
     scoreCount: row.scores[0]?.count ?? 0,
   }));
+}
+
+// Organizer accounts -------------------------------------------------------------
+
+export type AdminSummary = AdminAccount & { activityCount: number; createdAt: string };
+
+export async function listAdmins(): Promise<AdminSummary[]> {
+  await connection();
+  const { data, error } = await db()
+    .from("admins")
+    .select("id, email, name, photo_path, created_at, activities!activities_owner_id_fkey(count)")
+    .order("name");
+  fail(error);
+  type Row = AdminRow & { created_at: string; activities: { count: number }[] };
+  return (data as unknown as Row[]).map((row) => ({ ...toAdmin(row), createdAt: row.created_at, activityCount: row.activities[0]?.count ?? 0 }));
+}
+
+export async function getAdmin(id: string): Promise<AdminAccount | null> {
+  await connection();
+  if (!isUuid(id)) return null;
+  const { data, error } = await db().from("admins").select("id, email, name, photo_path").eq("id", id).maybeSingle();
+  fail(error);
+  return data ? toAdmin(data as AdminRow) : null;
+}
+
+/** For signing in and checking sessions only: includes the password hash. */
+export async function getAdminCredentials(idOrEmail: string): Promise<{ admin: AdminAccount; passwordHash: string } | null> {
+  const column = isUuid(idOrEmail) ? "id" : "email";
+  if (column === "email" && !idOrEmail.includes("@")) return null;
+  const { data, error } = await db()
+    .from("admins")
+    .select("id, email, name, photo_path, password_hash")
+    .eq(column, column === "email" ? idOrEmail.trim().toLowerCase() : idOrEmail)
+    .maybeSingle();
+  fail(error);
+  if (!data) return null;
+  const row = data as AdminRow & { password_hash: string };
+  return { admin: toAdmin(row), passwordHash: row.password_hash };
 }
 
 async function loadBoard(activity: Activity): Promise<Board> {

@@ -2,6 +2,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export const PHOTO_BUCKET = "judge-photos";
+export const ORGANIZER_BUCKET = "organizer-photos";
 
 let client: SupabaseClient | undefined;
 
@@ -20,7 +21,7 @@ export function db(): SupabaseClient {
   return client;
 }
 
-export function photoUrl(path: string | null): string | null {
+export function photoUrl(path: string | null, bucket: string = PHOTO_BUCKET): string | null {
   if (!path) return null;
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${PHOTO_BUCKET}/${path}`;
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 }

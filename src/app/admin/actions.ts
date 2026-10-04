@@ -3,8 +3,18 @@
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
+import { getAdminCredentials } from "@/lib/data";
+import { hashPassword, verifyPassword } from "@/lib/password";
 import type { ScoreRules } from "@/lib/scoring";
-import { checkAdminPassword, endAdminSession, requireAdmin, startAdminSession } from "@/lib/session";
+import {
+  checkSuperAdminPassword,
+  endAdminSession,
+  requireAdmin,
+  requireSuperAdmin,
+  startOrganizerSession,
+  startSuperAdminSession,
+  type AdminSession,
+} from "@/lib/session";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Decimals } from "@/lib/types";
 
@@ -17,6 +27,7 @@ const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
+const NOT_FOUND = err("Activity not found.");
 
 function check(error: { message: string } | null) {
   if (error) throw new Error(error.message);
@@ -61,6 +72,28 @@ function readRules(formData: FormData): { rules: ScoreRules } | { error: string 
   return { rules: { min, max, decimals: decimals as Decimals } };
 }
 
+/**
+ * The signed-in admin, when they may manage this activity: the super admin manages every activity,
+ * an organizer only their own. Every action that touches an activity goes through here.
+ */
+async function manage(activityId: string | null | undefined): Promise<AdminSession | null> {
+  const session = await requireAdmin();
+  if (!activityId || !isUuid(activityId)) return null;
+  let query = db().from("activities").select("id").eq("id", activityId);
+  if (session.kind === "organizer") query = query.eq("owner_id", session.admin.id);
+  const { data, error } = await query.maybeSingle();
+  check(error);
+  return data ? session : null;
+}
+
+/** The activity a judge or entry belongs to, so actions addressed by judge or entry can be authorized. */
+async function parentActivity(table: "judges" | "entries", id: string): Promise<string | null> {
+  if (!isUuid(id)) return null;
+  const { data, error } = await db().from(table).select("activity_id").eq("id", id).maybeSingle();
+  check(error);
+  return (data as { activity_id: string } | null)?.activity_id ?? null;
+}
+
 /** Insert judges' access codes, regenerating on the (rare) collision. */
 async function assignCodes(judgeIds: string[]) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -101,9 +134,24 @@ async function nextPosition(table: "judges" | "entries", activityId: string): Pr
 
 // Session ---------------------------------------------------------------------
 
+// Checked when an email has no account, so a wrong email takes as long as a wrong password.
+let decoyHash: Promise<string> | undefined;
+
 export async function login(_prev: FormResult, formData: FormData): Promise<FormResult> {
-  if (!checkAdminPassword(String(formData.get("password") ?? ""))) return err("That password isn't right.");
-  await startAdminSession();
+  const password = String(formData.get("password") ?? "");
+
+  if (formData.get("as") === "super") {
+    if (!checkSuperAdminPassword(password)) return err("That password isn't right.");
+    await startSuperAdminSession();
+    redirect("/admin");
+  }
+
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const account = email ? await getAdminCredentials(email) : null;
+  decoyHash ??= hashPassword("decoy password");
+  const valid = await verifyPassword(password, account?.passwordHash ?? (await decoyHash));
+  if (!account || !valid) return err("That email and password don't match an organizer account.");
+  await startOrganizerSession(account.admin.id, account.passwordHash);
   redirect("/admin");
 }
 
@@ -115,7 +163,7 @@ export async function logout() {
 // Activities ------------------------------------------------------------------
 
 export async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
+  const session = await requireAdmin();
 
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
@@ -138,11 +186,12 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   const entries = entryNames(formData.get("entries"));
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
 
+  const owner_id = session.kind === "organizer" ? session.admin.id : null;
   let activityId: string | null = null;
   for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
     const { data, error } = await db()
       .from("activities")
-      .insert({ name, public_id: newPublicId(), min_score: parsed.rules.min, max_score: parsed.rules.max, decimals: parsed.rules.decimals })
+      .insert({ name, owner_id, public_id: newPublicId(), min_score: parsed.rules.min, max_score: parsed.rules.max, decimals: parsed.rules.decimals })
       .select("id")
       .single();
     if (error && error.code !== "23505") return err(`Could not create the activity: ${error.message}`);
@@ -181,8 +230,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
 }
 
 export async function updateSettings(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
 
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
@@ -191,7 +239,7 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
 
   const { data: current, error } = await db().from("activities").select("min_score, max_score, decimals").eq("id", activityId).maybeSingle();
   check(error);
-  if (!current) return err("Activity not found.");
+  if (!current) return NOT_FOUND;
   const rulesChanged =
     Number(current.min_score) !== parsed.rules.min || Number(current.max_score) !== parsed.rules.max || current.decimals !== parsed.rules.decimals;
   if (rulesChanged && (await activityHasScores(activityId))) {
@@ -208,50 +256,57 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
 }
 
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
-  if (error) {
-    if (error.message.includes("show_rank")) {
-      return err("This setting needs a database update. Run supabase/migrations/003_led_wall.sql in the Supabase SQL editor.");
-    }
-    return err(error.message);
-  }
+  if (error) return err(error.message);
   refresh();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
 }
 
-/** Put an entry on the LED wall output, or pass null to show only the green screen. */
+/** Hand an activity to an organizer, or back to the super admin with null. Super admin only. */
+export async function setActivityOwner(activityId: string, ownerId: string | null): Promise<ActionResult> {
+  await requireSuperAdmin();
+  if (!isUuid(activityId) || (ownerId !== null && !isUuid(ownerId))) return err("Choose an organizer from the list.");
+  const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId);
+  if (error) return err(error.message);
+  refresh();
+  return ok(ownerId ? "The organizer can now manage this activity." : "Only you can manage this activity now.");
+}
+
+// LED wall ----------------------------------------------------------------------
+
+const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
+
+/** Put an entry on the LED wall output, or pass null to clear it. */
 export async function setLedEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(activityId) || (entryId !== null && !isUuid(entryId))) return err("Entry not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
+  if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
   if (entryId) {
     const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
     if (!data) return err("That entry isn't part of this activity.");
   }
   const { error } = await db().from("activities").update({ led_entry_id: entryId }).eq("id", activityId);
-  if (error) {
-    if (error.message.includes("led_entry_id")) {
-      return err("The LED wall needs a database update. Run supabase/migrations/003_led_wall.sql in the Supabase SQL editor.");
-    }
-    return err(error.message);
-  }
+  if (error) return err(error.message);
+  refresh();
+  return ok();
+}
+
+/** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
+export async function setLedOptions(activityId: string, options: { fullscreen?: boolean; holdScores?: boolean }): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const update: Record<string, boolean> = {};
+  if (typeof options.fullscreen === "boolean") update.led_fullscreen = options.fullscreen;
+  if (typeof options.holdScores === "boolean") update.led_hold_scores = options.holdScores;
+  const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error) return err(/led_(fullscreen|hold_scores)/.test(error.message) ? MIGRATION_HINT : error.message);
   refresh();
   return ok();
 }
 
 // Judges ----------------------------------------------------------------------
 
-async function judgeActivity(judgeId: string): Promise<{ activity_id: string; photo_path: string | null } | null> {
-  if (!isUuid(judgeId)) return null;
-  const { data, error } = await db().from("judges").select("activity_id, photo_path").eq("id", judgeId).maybeSingle();
-  check(error);
-  return data as { activity_id: string; photo_path: string | null } | null;
-}
-
 export async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Enter the judge's name.");
 
@@ -276,7 +331,7 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
 }
 
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
+  if (!(await manage(await parentActivity("judges", judgeId)))) return err("Judge not found.");
   const name = cleanName(formData.get("name"));
   if (!name) return err("Enter the judge's name.");
   const { error } = await db().from("judges").update({ name }).eq("id", judgeId);
@@ -286,32 +341,31 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
 }
 
 export async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
-  await requireAdmin();
-  const judge = await judgeActivity(judgeId);
-  if (!judge) return err("Judge not found.");
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
 
   const photo = photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
   let path: string | null = null;
-  if (photo) path = await uploadPhoto(judge.activity_id, judgeId, photo);
+  if (photo) path = await uploadPhoto(activityId, judgeId, photo);
   const { error } = await db().from("judges").update({ photo_path: path }).eq("id", judgeId);
   if (error) {
     await removeFiles([path]);
     return err(error.message);
   }
-  await removeFiles([judge.photo_path]);
+  await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   refresh();
   return ok();
 }
 
 export async function removeJudge(judgeId: string): Promise<ActionResult> {
-  await requireAdmin();
-  const judge = await judgeActivity(judgeId);
-  if (!judge) return err("Judge not found.");
+  if (!(await manage(await parentActivity("judges", judgeId)))) return err("Judge not found.");
+  const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return err(error.message);
-  await removeFiles([judge.photo_path]);
+  await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   refresh();
   return ok();
 }
@@ -319,8 +373,7 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
 // Entries ---------------------------------------------------------------------
 
 export async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
   const names = entryNames(formData.get("names"));
   if (names.length === 0) return err("Type at least one entry name.");
 
@@ -337,7 +390,7 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
 }
 
 export async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
-  await requireAdmin();
+  if (!(await manage(await parentActivity("entries", entryId)))) return err("Entry not found.");
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
   const { error } = await db().from("entries").update({ name }).eq("id", entryId);
@@ -347,8 +400,7 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
 }
 
 export async function removeEntry(entryId: string): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(entryId)) return err("Entry not found.");
+  if (!(await manage(await parentActivity("entries", entryId)))) return err("Entry not found.");
   const { error } = await db().from("entries").delete().eq("id", entryId);
   if (error) return err(error.message);
   refresh();
@@ -356,12 +408,10 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
 }
 
 export async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(entryId)) return err("Entry not found.");
-  const { data: entry } = await db().from("entries").select("activity_id").eq("id", entryId).maybeSingle();
-  if (!entry) return err("Entry not found.");
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
 
-  const { data, error } = await db().from("entries").select("id, position").eq("activity_id", entry.activity_id).order("position").order("created_at");
+  const { data, error } = await db().from("entries").select("id, position").eq("activity_id", activityId).order("position").order("created_at");
   check(error);
   const order = (data as { id: string; position: number }[]).map((r) => r.id);
   const from = order.indexOf(entryId);
@@ -383,8 +433,7 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
 // Developer -------------------------------------------------------------------
 
 export async function resetScores(activityId: string): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return err(error.message);
   refresh();
@@ -392,8 +441,7 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
 }
 
 export async function deleteActivity(activityId: string): Promise<ActionResult> {
-  await requireAdmin();
-  if (!isUuid(activityId)) return err("Activity not found.");
+  if (!(await manage(activityId))) return NOT_FOUND;
 
   const { data: files } = await db().storage.from(PHOTO_BUCKET).list(activityId, { limit: 1000 });
   const { error } = await db().from("activities").delete().eq("id", activityId);

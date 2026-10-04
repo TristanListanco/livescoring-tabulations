@@ -9,8 +9,9 @@ export const metadata: Metadata = { title: "Activities" };
 const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
 
 export default async function ActivitiesPage() {
-  await requireAdmin();
-  const activities = await listActivities();
+  const session = await requireAdmin();
+  const isSuper = session.kind === "super";
+  const activities = await listActivities(isSuper ? undefined : session.admin.id);
 
   return (
     <>
@@ -33,10 +34,11 @@ export default async function ActivitiesPage() {
         </div>
       ) : (
         <div className="mt-8 overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-left">
+          <table className="w-full min-w-[44rem] text-left">
             <thead className="border-b border-line text-sm text-prussian/70">
               <tr>
                 <th className="py-3 pr-4 font-semibold">Activity</th>
+                {isSuper && <th className="px-4 py-3 font-semibold">Organizer</th>}
                 <th className="px-4 py-3 font-semibold">Range</th>
                 <th className="px-4 py-3 text-right font-semibold">Judges</th>
                 <th className="px-4 py-3 text-right font-semibold">Entries</th>
@@ -54,6 +56,7 @@ export default async function ActivitiesPage() {
                         {a.name}
                       </Link>
                     </td>
+                    {isSuper && <td className="px-4 py-4 text-prussian/70">{a.organizer ?? "You"}</td>}
                     <td className="px-4 py-4">
                       {formatBound(a.min)} to {formatBound(a.max)}
                     </td>

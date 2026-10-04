@@ -15,7 +15,10 @@ const C = {
 
 const s = StyleSheet.create({
   page: { paddingTop: 40, paddingBottom: 56, paddingHorizontal: 40, fontFamily: "Helvetica", fontSize: 10, color: C.prussian },
+  topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
   eyebrow: { fontFamily: "Helvetica-Bold", fontSize: 10, color: C.regal },
+  reportId: { fontFamily: "Helvetica-Bold", fontSize: 10, letterSpacing: 0.5 },
+  reportLabel: { fontFamily: "Helvetica", color: C.muted },
   title: { fontFamily: "Helvetica-Bold", fontSize: 22, marginTop: 4 },
   meta: { marginTop: 6, color: C.muted, maxWidth: 480 },
   table: { marginTop: 22 },
@@ -34,11 +37,15 @@ const s = StyleSheet.create({
   signature: { width: "33.33%", paddingRight: 24, marginTop: 30 },
   signLine: { borderBottomWidth: 0.75, borderBottomColor: C.prussian, height: 22 },
   signName: { fontFamily: "Helvetica-Bold", marginTop: 5 },
+  signed: { fontFamily: "Helvetica-Oblique", marginTop: 3 },
   signRole: { color: C.muted, marginTop: 2 },
   footer: { position: "absolute", bottom: 26, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: C.muted },
 });
 
-function ResultsDocument({ board, generatedAt }: { board: Board; generatedAt: string }) {
+type ReportInfo = { generatedAt: string; reportId: string; organizer: string | null };
+
+function ResultsDocument({ board, info }: { board: Board; info: ReportInfo }) {
+  const { generatedAt, reportId, organizer } = info;
   const { activity, judges } = board;
   const rows = rankEntries(board.entries, judges, board.scores);
   const decimals =
@@ -47,11 +54,18 @@ function ResultsDocument({ board, generatedAt }: { board: Board; generatedAt: st
   return (
     <Document title={`${activity.name} results`} author="LiveScoring" creator="LiveScoring">
       <Page size="A4" orientation={judges.length > 4 ? "landscape" : "portrait"} style={s.page}>
-        <Text style={s.eyebrow}>Official results</Text>
+        <View style={s.topRow}>
+          <Text style={s.eyebrow}>Official results</Text>
+          <Text style={s.reportId}>
+            <Text style={s.reportLabel}>Report ID </Text>
+            {reportId}
+          </Text>
+        </View>
         <Text style={s.title}>{activity.name}</Text>
         {/* One string: react-pdf spaces mixed text children unevenly. */}
         <Text style={s.meta}>
-          {`Scores from ${rangeLabel(activity)}, ${decimals}. ${judges.length} judges, ${board.entries.length} entries. ` +
+          {(organizer ? `Organized by ${organizer}. ` : "") +
+            `Scores from ${rangeLabel(activity)}, ${decimals}. ${judges.length} judges, ${board.entries.length} entries. ` +
             `Ranked by the average of all judges' scores; equal averages share a rank. Generated ${generatedAt}.`}
         </Text>
 
@@ -87,12 +101,15 @@ function ResultsDocument({ board, generatedAt }: { board: Board; generatedAt: st
 
         <View wrap={false}>
           <Text style={s.sectionTitle}>Certified correct</Text>
-          <Text style={s.sectionNote}>Signed by the judges and the tabulator.</Text>
+          <Text style={s.sectionNote}>
+            {"Each judge submitted every score above from their own device with a personal access code, and submitted scores are final. " +
+              "(Sgd.) marks each judge's verified sign-off."}
+          </Text>
           <View style={s.signatures}>
             {judges.map((j) => (
               <View key={j.id} style={s.signature}>
-                <View style={s.signLine} />
                 <Text style={s.signName}>{j.name}</Text>
+                <Text style={s.signed}>(Sgd.)</Text>
                 <Text style={s.signRole}>Judge</Text>
               </View>
             ))}
@@ -105,7 +122,7 @@ function ResultsDocument({ board, generatedAt }: { board: Board; generatedAt: st
         </View>
 
         <View style={s.footer} fixed>
-          <Text>{`${activity.name}, generated ${generatedAt}`}</Text>
+          <Text>{`${activity.name}, report ${reportId}, generated ${generatedAt}`}</Text>
           <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
         </View>
       </Page>
@@ -113,7 +130,10 @@ function ResultsDocument({ board, generatedAt }: { board: Board; generatedAt: st
   );
 }
 
-export function renderResultsPdf(board: Board, timeZone?: string): Promise<Buffer> {
+export function renderResultsPdf(
+  board: Board,
+  { timeZone, reportId, organizer }: { timeZone?: string; reportId: string; organizer: string | null },
+): Promise<Buffer> {
   let zone: string | undefined = timeZone;
   try {
     if (zone) new Intl.DateTimeFormat("en", { timeZone: zone });
@@ -121,5 +141,5 @@ export function renderResultsPdf(board: Board, timeZone?: string): Promise<Buffe
     zone = undefined;
   }
   const generatedAt = new Intl.DateTimeFormat("en", { dateStyle: "long", timeStyle: "short", timeZone: zone }).format(new Date());
-  return renderToBuffer(<ResultsDocument board={board} generatedAt={generatedAt} />);
+  return renderToBuffer(<ResultsDocument board={board} info={{ generatedAt, reportId, organizer }} />);
 }

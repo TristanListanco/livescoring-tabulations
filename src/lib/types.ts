@@ -9,9 +9,23 @@ export type Activity = {
   decimals: Decimals;
   /** Whether the public live results page shows ranks and sorts by placement. */
   showRank: boolean;
-  /** The entry on the LED wall output, or null for an empty green screen. */
+  /** The entry on the LED wall output, or null for an empty screen. */
   ledEntryId: string | null;
+  /** LED wall shows the full-screen scoresheet instead of the green screen overlay. */
+  ledFullscreen: boolean;
+  /** LED wall hides scores until every judge has scored the entry on air. */
+  ledHoldScores: boolean;
+  /** The organizer who owns the activity; null when only the super admin manages it. */
+  ownerId: string | null;
   createdAt: string;
+};
+
+/** An organizer account, as shown in the admin panel. Never includes the password hash. */
+export type AdminAccount = {
+  id: string;
+  email: string;
+  name: string;
+  photoUrl: string | null;
 };
 
 export type Judge = {

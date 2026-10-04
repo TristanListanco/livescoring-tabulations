@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LiveBoard } from "@/components/live-board";
-import { getAccessCodes, getBoard } from "@/lib/data";
+import { getAccessCodes, getBoard, listAdmins } from "@/lib/data";
 import { siteOrigin } from "@/lib/origin";
+import { reportId } from "@/lib/report";
 import { rangeLabel, scoreProgress } from "@/lib/scoring";
-import { requireAdmin } from "@/lib/session";
+import { currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
+import type { Board } from "@/lib/types";
 import { AccessTab } from "./access-tab";
 import { DeveloperTab } from "./developer-tab";
 import { EntriesTab } from "./entries-tab";
@@ -23,15 +25,21 @@ const TABS = [
   { id: "developer", label: "Developer" },
 ] as const;
 
+/** Organizers only see their own activities; anything else is "not found", not "forbidden". */
+function canSee(session: AdminSession | null, board: Board | null): board is Board {
+  if (!session || !board) return false;
+  return session.kind === "super" || board.activity.ownerId === session.admin.id;
+}
+
 export async function generateMetadata({ params }: PageProps<"/admin/[id]">): Promise<Metadata> {
-  const board = await getBoard((await params).id);
-  return { title: board?.activity.name ?? "Activity not found" };
+  const [session, board] = await Promise.all([currentAdmin(), getBoard((await params).id)]);
+  return { title: canSee(session, board) ? board.activity.name : "Activity not found" };
 }
 
 export default async function ActivityPage({ params, searchParams }: PageProps<"/admin/[id]">) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const board = await getBoard((await params).id);
-  if (!board) notFound();
+  if (!canSee(session, board)) notFound();
 
   const requested = (await searchParams).tab;
   const tab = TABS.find((t) => t.id === requested)?.id ?? "access";
@@ -127,7 +135,15 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {tab === "entries" && <EntriesTab activityId={activity.id} entries={entries} scoredFor={Object.fromEntries(scoredFor)} />}
         {tab === "results" && <LiveBoard board={board} embedded />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
-        {tab === "settings" && <SettingsTab activity={activity} hasScores={scores.length > 0} progress={progress} />}
+        {tab === "settings" && (
+          <SettingsTab
+            activity={activity}
+            hasScores={scores.length > 0}
+            progress={progress}
+            reportId={reportId(board)}
+            organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}
+          />
+        )}
         {tab === "developer" && <DeveloperTab activity={activity} scoreCount={scores.length} />}
       </div>
     </>
