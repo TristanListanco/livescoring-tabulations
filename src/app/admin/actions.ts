@@ -17,6 +17,7 @@ import {
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
 import { showEntryColumns } from "@/lib/judging";
+import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import type { ActionResult, CriteriaDisplay, Criterion, Decimals, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
@@ -139,10 +140,23 @@ function scoringColumns(scoring: Scoring): Record<string, unknown> {
 
 const SCORING_HINT =
   "Criteria scoring needs a database update. Run supabase/migrations/006_devices_criteria_signatories.sql in the Supabase SQL editor.";
-/** The database hasn't run migration 008 yet: PostgREST can't find the column. Other errors about it are real errors. */
-const missingMoveColumn = (message: string) => /can_move_entries/.test(message) && /schema cache|does not exist/.test(message);
-const MOVE_ENTRIES_HINT =
-  "Letting judges move entries needs a database update. Run supabase/migrations/008_judges_move_entries.sql in the Supabase SQL editor.";
+/** The database hasn't run migration 008 yet: PostgREST can't find its columns. Other errors about them are real errors. */
+const missingJudgeColumns = (message: string) => /first_name|last_name|is_chair/.test(message) && /schema cache|does not exist/.test(message);
+const JUDGES_HINT =
+  "Judges' first and last names and the chair need a database update. Run supabase/migrations/008_judge_names_and_chair.sql in the Supabase SQL editor.";
+const judgeError = (message: string) => (missingJudgeColumns(message) ? JUDGES_HINT : message);
+
+/** A judge's first and last name from a form, and the full name built from them. */
+function readJudgeName(formData: FormData, prefix: string, who: string): { first: string; last: string; name: string } | { error: string } {
+  const part = (key: string) => String(formData.get(`${prefix}${key}`) ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME_PART);
+  const first = part("first_name");
+  const last = part("last_name");
+  if (!first || !last) return { error: `Enter ${who}'s first and last name.` };
+  return { first, last, name: fullName(first, last) };
+}
+
+/** Columns for a judge's name. */
+const nameColumns = (n: { first: string; last: string; name: string }) => ({ name: n.name, first_name: n.first, last_name: n.last });
 const PHOTOS_AND_PLACES_HINT =
   "This needs a database update. Run supabase/migrations/007_entry_photos_result_decimals.sql in the Supabase SQL editor.";
 
@@ -264,14 +278,17 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
     return err(`An activity needs 1 to ${MAX_JUDGES} judges.`);
   }
-  const judges: { name: string; photo: File | null; movesEntries: boolean }[] = [];
+  const judges: { name: { first: string; last: string; name: string }; photo: File | null }[] = [];
   for (let i = 0; i < judgeCount; i++) {
-    const judgeName = cleanName(formData.get(`judge-${i}-name`));
-    if (!judgeName) return err(`Judge ${i + 1} needs a name.`);
+    const judgeName = readJudgeName(formData, `judge-${i}-`, `judge ${i + 1}`);
+    if ("error" in judgeName) return err(judgeName.error.replace(/^Enter judge/, "Enter Judge"));
     const photo = photoFile(formData.get(`judge-${i}-photo`));
-    if (photo === "invalid") return err(`The photo for ${judgeName} must be an image under 2 MB.`);
-    judges.push({ name: judgeName, photo, movesEntries: formData.get(`judge-${i}-moves`) === "on" });
+    if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
+    judges.push({ name: judgeName, photo });
   }
+  // The chair of the board of judges, by position in the list; empty for none.
+  const chairText = String(formData.get("chair") ?? "");
+  const chair = /^\d+$/.test(chairText) && Number(chairText) < judgeCount ? Number(chairText) : null;
 
   const entries = entryNames(formData.get("entries"));
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
@@ -302,16 +319,8 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   try {
     const { data, error } = await db()
       .from("judges")
-      // can_move_entries only when someone is ticked, so databases without migration 008 can still create activities. When
-      // it is sent, every row gets it: in a bulk insert a missing key becomes null, not the column's default.
-      .insert(
-        judges.map((j, position) => ({
-          activity_id: activityId,
-          name: j.name,
-          position,
-          ...(judges.some((x) => x.movesEntries) ? { can_move_entries: j.movesEntries } : {}),
-        })),
-      )
+      // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
+      .insert(judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: position === chair })))
       .select("id, position");
     check(error);
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
@@ -338,7 +347,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
-    return err(missingMoveColumn(message) ? MOVE_ENTRIES_HINT : `Could not create the activity: ${message}`);
+    return err(missingJudgeColumns(message) ? JUDGES_HINT : `Could not create the activity: ${message}`);
   }
 
   redirect(`/admin/${activityId}`);
@@ -500,23 +509,18 @@ export async function setLedOptions(activityId: string, options: { fullscreen?: 
 export async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const name = cleanName(formData.get("name"));
-  if (!name) return err("Enter the judge's name.");
+  const judgeName = readJudgeName(formData, "", "the judge");
+  if ("error" in judgeName) return err(judgeName.error);
 
   const { count } = await db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
   if ((count ?? 0) >= MAX_JUDGES) return err(`An activity can have up to ${MAX_JUDGES} judges.`);
 
   const { data, error } = await db()
     .from("judges")
-    .insert({
-      activity_id: activityId,
-      name,
-      position: await nextPosition("judges", activityId),
-      ...(formData.get("moves") === "on" ? { can_move_entries: true } : {}),
-    })
+    .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName) })
     .select("id")
     .single();
-  if (error) return err(missingMoveColumn(error.message) ? MOVE_ENTRIES_HINT : error.message);
+  if (error) return err(judgeError(error.message));
   const judgeId = (data as { id: string }).id;
   try {
     await assignCodes([judgeId]);
@@ -525,31 +529,42 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
     return err(e instanceof Error ? e.message : "Could not add the judge.");
   }
   refresh();
-  return ok(`${name} added.`);
+  return ok(`${judgeName.name} added.`);
 }
 
 /**
- * Board of tabulators: whether this judge can move to the previous or next entry from their own screen.
- * Allowed at any time, even mid-session, so the organizer can hand it over if a judge's device fails.
+ * The chair of the board of judges, who can move to the previous or next entry from their own screen; null
+ * for none. One per activity. Allowed at any time, even mid-session, so the organizer can hand it over if
+ * the chair's device fails.
  */
-export async function setJudgeMovesEntries(judgeId: string, moves: boolean): Promise<ActionResult> {
-  const activityId = await parentActivity("judges", judgeId);
-  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  const { data, error } = await db().from("judges").update({ can_move_entries: moves }).eq("id", judgeId).select("name").single();
-  if (error) return err(missingMoveColumn(error.message) ? MOVE_ENTRIES_HINT : error.message);
+export async function setChair(activityId: string, judgeId: string | null): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  let name: string | null = null;
+  if (judgeId !== null) {
+    if (!isUuid(judgeId)) return err("Judge not found.");
+    const { data } = await db().from("judges").select("name").eq("id", judgeId).eq("activity_id", activityId).maybeSingle();
+    if (!data) return err("That judge isn't part of this activity.");
+    name = (data as { name: string }).name;
+  }
+  // Clear the current chair first: the database allows only one per activity.
+  const cleared = await db().from("judges").update({ is_chair: false }).eq("activity_id", activityId).eq("is_chair", true);
+  if (cleared.error) return err(judgeError(cleared.error.message));
+  if (judgeId !== null) {
+    const { error } = await db().from("judges").update({ is_chair: true }).eq("id", judgeId);
+    if (error) return err(judgeError(error.message));
+  }
   refresh();
-  const name = (data as { name: string }).name;
-  return ok(moves ? `${name} can move entries.` : `${name} can no longer move entries.`);
+  return ok(name ? `${name} is the chair of the board of judges.` : "There's no chair. Only you can move entries.");
 }
 
 export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  const name = cleanName(formData.get("name"));
-  if (!name) return err("Enter the judge's name.");
-  const { error } = await db().from("judges").update({ name }).eq("id", judgeId);
-  if (error) return err(error.message);
+  const judgeName = readJudgeName(formData, "", "the judge");
+  if ("error" in judgeName) return err(judgeName.error);
+  const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
+  if (error) return err(judgeError(error.message));
   refresh();
   return ok("Saved.");
 }

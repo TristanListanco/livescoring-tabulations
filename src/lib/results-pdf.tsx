@@ -126,7 +126,7 @@ function ResultsDocument({ board, info }: { board: Board; info: ReportInfo }) {
               <View key={j.id} style={s.signature}>
                 <Text style={s.signName}>{j.name}</Text>
                 <Text style={s.signed}>(Sgd.)</Text>
-                <Text style={s.signRole}>Judge</Text>
+                <Text style={s.signRole}>{j.isChair ? "Chair, Board of Judges" : "Judge"}</Text>
               </View>
             ))}
           </View>

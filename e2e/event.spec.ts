@@ -130,10 +130,12 @@ test.describe.serial("a full event", () => {
     await page.getByRole("link", { name: "New activity" }).first().click();
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Ana Cruz");
-    await page.getByLabel("Judge 2 name").fill("Ben Torres");
-    // Ben is on the board of tabulators: he can move entries from his own screen.
-    await page.getByRole("checkbox", { name: "Judge 2: Can move entries (board of tabulators)" }).check();
+    await page.getByLabel("Judge 1 first name").fill("Ana");
+    await page.getByLabel("Judge 1 last name").fill("Cruz");
+    await page.getByLabel("Judge 2 first name").fill("Ben");
+    await page.getByLabel("Judge 2 last name").fill("Torres");
+    // Ben chairs the board of judges: he can move entries from his own screen.
+    await page.getByLabel("Chair of the board of judges").selectOption({ label: "Ben Torres" });
     await page.getByLabel("Photo for Ana Cruz").setInputFiles(PHOTO);
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
@@ -187,7 +189,7 @@ test.describe.serial("a full event", () => {
     await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
     await expect(page.getByRole("button", { name: `Approve Ana Cruz's device ${intruderCode}` })).toHaveCount(0);
     await expect(page.getByText("Approved: Android phone · Chrome")).toBeVisible();
-    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).toContainText("Moves entries");
+    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).toContainText("Chair");
     await snap(page, "access tab, judge devices");
 
     await live.goto(livePath);
@@ -200,14 +202,17 @@ test.describe.serial("a full event", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
     await expect(page.getByText("Session: Live")).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
-    // Ben is on the board of tabulators, so instead of waiting he can show the first entry himself.
+    // Ben chairs the board of judges, so instead of waiting he can show the first entry himself.
     await expect(heading(judge2)).toHaveText("Ready for the first entry", REALTIME);
-    await expect(judge2.getByRole("region", { name: "Board of tabulators" }).getByRole("button", { name: "Show first entry: Agila" })).toBeEnabled();
+    await expect(judge2.getByRole("region", { name: "Chair of the board of judges" }).getByRole("button", { name: "Show first entry: Agila" })).toBeEnabled();
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
     await expect(page.getByRole("note")).toContainText("Judges are locked");
-    await expect(page.getByLabel("Name").first()).toBeDisabled();
+    await expect(page.getByLabel("First name").first()).toBeDisabled();
+    // The chair can still change, in case the chair's device fails mid-session.
+    await expect(page.getByRole("radio", { name: "Ben Torres" })).toBeChecked();
+    await expect(page.getByRole("radio", { name: "Ben Torres" })).toBeEnabled();
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);
@@ -257,8 +262,11 @@ test.describe.serial("a full event", () => {
 
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=led`);
-    // Showing judges Agila put it on the LED wall too.
+    // Showing judges Agila put it on the LED wall too. Judges go by their first names there.
     await expect(led.getByText("Agila", { exact: true })).toBeVisible(REALTIME);
+    await expect(led.getByText("Ana", { exact: true })).toBeVisible();
+    await expect(led.getByText("Ben", { exact: true })).toBeVisible();
+    await expect(led.getByText("Ana Cruz", { exact: true })).toHaveCount(0);
     // Only Ana has scored, so her 9.75 is both her score and the running average.
     await expect(led.getByText("9.75", { exact: true })).toHaveCount(2);
     // Agila's photo sits beside the name.
@@ -295,13 +303,13 @@ test.describe.serial("a full event", () => {
     await submitScore(judge2, "Bagwis", "8.75");
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
 
-    // Ben, on the board of tabulators, moves to the next entry from his own screen. Ana can't.
+    // Ben, the chair, moves to the next entry from his own screen. Ana can't.
     await expect(heading(judge2)).toHaveText("Your score is in");
-    const tabulator = judge2.getByRole("region", { name: "Board of tabulators" });
-    await expect(tabulator.getByRole("status")).toHaveText("Every judge has scored Bagwis.", REALTIME);
-    await snap(judge2, "tabulator judge after scoring");
+    const chair = judge2.getByRole("region", { name: "Chair of the board of judges" });
+    await expect(chair.getByRole("status")).toHaveText("Every judge has scored Bagwis.", REALTIME);
+    await snap(judge2, "chair after scoring");
     await expect(judge1.getByRole("button", { name: /^Next/ })).toHaveCount(0);
-    await tabulator.getByRole("button", { name: "Next: Kidlat" }).click();
+    await chair.getByRole("button", { name: "Next: Kidlat" }).click();
     await expect(heading(judge1)).toHaveText("Kidlat", REALTIME);
     await expect(led.getByText("Kidlat", { exact: true })).toBeVisible(REALTIME);
     await expect(page.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
@@ -361,6 +369,12 @@ test.describe.serial("a full event", () => {
     await expect(page.getByText("Session: Ended")).toBeVisible();
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
+
+    // The running order says every entry was judged, with nothing left to judge.
+    const order = page.getByRole("region", { name: "Running order" });
+    await expect(order.getByText("Judged", { exact: true })).toHaveCount(3);
+    await expect(order.getByText("Now judging", { exact: true })).toHaveCount(0);
+    await expect(order.getByRole("button", { name: "Judge now" })).toHaveCount(0);
   });
 
   test("another organizer can't see or export this activity", async ({ page }) => {

@@ -26,7 +26,15 @@ type ActivityRow = {
   created_at: string;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
-type JudgeRow = { id: string; name: string; photo_path: string | null; position: number; can_move_entries?: boolean };
+type JudgeRow = {
+  id: string;
+  name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  photo_path: string | null;
+  position: number;
+  is_chair?: boolean;
+};
 type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string };
 
@@ -79,9 +87,11 @@ function toActivity(row: ActivityRow): Activity {
 const toJudge = (row: JudgeRow): Judge => ({
   id: row.id,
   name: row.name,
+  firstName: row.first_name ?? null,
+  lastName: row.last_name ?? null,
   photoUrl: photoUrl(row.photo_path),
   position: row.position,
-  canMoveEntries: row.can_move_entries ?? false,
+  isChair: row.is_chair ?? false,
 });
 const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value) });

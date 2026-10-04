@@ -42,8 +42,8 @@ export async function requestApproval() {
 }
 
 /**
- * Board of tabulators: a judge the organizer allowed to move entries shows judges the previous or next one,
- * as the organizer can from the Session tab. The LED wall follows.
+ * The chair of the board of judges shows judges the previous or next entry, as the organizer can from the
+ * Session tab. The LED wall follows.
  */
 export async function moveToEntry(entryId: string): Promise<ActionResult> {
   const session = await judgeSession();
@@ -52,7 +52,7 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
   if (!(await approvedDevice(context.judge.id, session.deviceId))) {
     return { ok: false, error: "This device isn't approved. Ask the organizer." };
   }
-  if (!context.judge.canMoveEntries) return { ok: false, error: "Only the organizer and the board of tabulators can move entries." };
+  if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can move entries." };
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
 
   const activity = await getActivity(context.activityId);

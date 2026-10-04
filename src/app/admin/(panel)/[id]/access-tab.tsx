@@ -76,7 +76,7 @@ export async function AccessTab({
                   <div className="min-w-0">
                     <p className="flex min-w-0 items-center gap-2">
                       <span className="truncate font-semibold">{judge.name}</span>
-                      {judge.canMoveEntries && <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">Moves entries</span>}
+                      {judge.isChair && <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">Chair</span>}
                     </p>
                     <p className="hint tabular">
                       {scoredBy.get(judge.id) ?? 0} of {entryCount} scored

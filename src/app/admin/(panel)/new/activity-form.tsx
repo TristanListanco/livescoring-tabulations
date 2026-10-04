@@ -2,21 +2,25 @@
 
 import { useActionState, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
+import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { createActivity, type FormResult } from "../../actions";
 import { ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 
-type DraftJudge = { key: number; name: string; photo: Blob | null; preview: string | null; moves: boolean };
+type DraftJudge = { key: number; first: string; last: string; photo: Blob | null; preview: string | null };
 
 const MAX_JUDGES = 20;
 let nextKey = 0;
-const blankJudge = (): DraftJudge => ({ key: nextKey++, name: "", photo: null, preview: null, moves: false });
+const blankJudge = (): DraftJudge => ({ key: nextKey++, first: "", last: "", photo: null, preview: null });
 
 export function ActivityForm() {
   const [state, dispatch] = useActionState<FormResult, FormData>(createActivity, null);
   const [pending, startTransition] = useTransition();
   const [judges, setJudges] = useState<DraftJudge[]>(() => [blankJudge(), blankJudge(), blankJudge()]);
   const [entriesText, setEntriesText] = useState("");
+  // The chair of the board of judges, by judge row; null for none.
+  const [chairKey, setChairKey] = useState<number | null>(null);
+  const chairIndex = judges.findIndex((j) => j.key === chairKey);
   const entryCount = entriesText.split(/\r?\n/).filter((l) => l.trim()).length;
 
   const setJudgeCount = (count: number) => {
@@ -88,45 +92,70 @@ export function ActivityForm() {
           {judges.map((j, i) => (
             <li key={j.key} className="flex items-center gap-4">
               <PhotoPicker
-                name={j.name}
+                name={fullName(j.first, j.last)}
                 currentUrl={j.preview}
                 size={56}
                 onPick={(photo, preview) => updateJudge(j.key, { photo, preview })}
               />
-              <div className="min-w-0 flex-1">
-                <label htmlFor={`judge-${i}-name`} className="sr-only">
-                  Judge {i + 1} name
+              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                <label htmlFor={`judge-${i}-first_name`} className="sr-only">
+                  Judge {i + 1} first name
                 </label>
                 <input
-                  id={`judge-${i}-name`}
-                  name={`judge-${i}-name`}
+                  id={`judge-${i}-first_name`}
+                  name={`judge-${i}-first_name`}
                   required
-                  maxLength={120}
-                  value={j.name}
-                  onChange={(e) => updateJudge(j.key, { name: e.target.value })}
-                  placeholder={`Judge ${i + 1} name`}
-                  className="field max-w-md"
+                  maxLength={MAX_NAME_PART}
+                  value={j.first}
+                  onChange={(e) => updateJudge(j.key, { first: e.target.value })}
+                  placeholder="First name"
+                  className="field max-w-56 min-w-36 flex-1"
                 />
-                <label className="mt-1.5 flex w-fit cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    name={`judge-${i}-moves`}
-                    checked={j.moves}
-                    onChange={(e) => updateJudge(j.key, { moves: e.target.checked })}
-                    className="size-4 accent-regal"
-                  />
-                  <span>
-                    <span className="sr-only">Judge {i + 1}: </span>Can move entries (board of tabulators)
-                  </span>
+                <label htmlFor={`judge-${i}-last_name`} className="sr-only">
+                  Judge {i + 1} last name
                 </label>
+                <input
+                  id={`judge-${i}-last_name`}
+                  name={`judge-${i}-last_name`}
+                  required
+                  maxLength={MAX_NAME_PART}
+                  value={j.last}
+                  onChange={(e) => updateJudge(j.key, { last: e.target.value })}
+                  placeholder="Last name"
+                  className="field max-w-56 min-w-36 flex-1"
+                />
               </div>
             </li>
           ))}
         </ol>
         <p className="hint mt-3">
-          Photos are optional. Judges without one show their initials. Judges on the board of tabulators can move to the previous or next entry
-          from their own screen, as you can. You can change who can later.
+          Photos are optional; judges without one show their initials. The results PDF uses each judge&apos;s full name and the LED wall their first
+          name.
         </p>
+
+        <div className="mt-6">
+          <label htmlFor="chair" className="label">
+            Chair of the board of judges
+          </label>
+          <select
+            id="chair"
+            name="chair"
+            value={chairIndex >= 0 ? chairIndex : ""}
+            onChange={(e) => setChairKey(e.target.value === "" ? null : judges[Number(e.target.value)].key)}
+            aria-describedby="chair-hint"
+            className="field max-w-sm"
+          >
+            <option value="">No chair</option>
+            {judges.map((j, i) => (
+              <option key={j.key} value={i}>
+                {fullName(j.first, j.last) || `Judge ${i + 1}`}
+              </option>
+            ))}
+          </select>
+          <p id="chair-hint" className="hint mt-1.5 max-w-xl">
+            Besides you, the chair can move to the previous or next entry from their own screen. You can change the chair later.
+          </p>
+        </div>
       </Section>
 
       <Section title="Entries" hint="The contestants, teams or performances being judged. You can add more later.">

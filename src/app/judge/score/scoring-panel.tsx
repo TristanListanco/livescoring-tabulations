@@ -12,7 +12,7 @@ import { leavePortal, moveToEntry, requestApproval, submitScore } from "../actio
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
 export type DeviceGate = { status: "approved" } | { status: "pending"; pairingCode: string; label: string } | { status: "revoked" };
 
-/** For a judge on the board of tabulators: the panel, and whether each judge has scored the entry on screen. */
+/** For the chair of the board of judges: the panel, and whether each judge has scored the entry on screen. */
 export type PanelJudge = { id: string; name: string; photoUrl: string | null; scored: boolean };
 
 type Props = {
@@ -21,7 +21,7 @@ type Props = {
   entries: Entry[];
   myScores: { entryId: string; value: number }[];
   gate: DeviceGate;
-  /** Only for judges who can move entries. */
+  /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
 };
 
@@ -221,7 +221,7 @@ function WaitingCard({
   judge: Judge;
   activity: Activity;
   scoredCount: number;
-  /** On the board of tabulators: they show the next entry themselves, so they aren't told to wait. */
+  /** The chair shows the next entry themselves, so they aren't told to wait. */
   movesEntries: boolean;
 }) {
   const firstName = judge.name.split(" ").find((w) => !/\.$/.test(w)) ?? judge.name;
@@ -262,8 +262,8 @@ function WaitingCard({
 }
 
 /**
- * Board of tabulators: the organizer's Previous and Next entry controls, on a judge's own screen. Shown once
- * they've scored the entry on screen (or before the first entry), with who else has scored it.
+ * The chair of the board of judges gets the organizer's Previous and Next entry controls on their own screen.
+ * Shown once they've scored the entry on screen (or before the first entry), with who else has scored it.
  */
 function EntryControls({ activity, entries, panel }: { activity: Activity; entries: Entry[]; panel: PanelJudge[] }) {
   const { entry, previous, next } = entryNeighbors(entries, activity.currentEntryId);
@@ -282,7 +282,7 @@ function EntryControls({ activity, entries, panel }: { activity: Activity; entri
   return (
     <section aria-labelledby="move-entries" className="mt-8 w-full rounded-2xl border-2 border-oxford p-5 text-left">
       <h2 id="move-entries" className="font-semibold text-powder">
-        Board of tabulators
+        Chair of the board of judges
       </h2>
       {entry && (
         <ul className="mt-3 space-y-1.5" aria-label={`Who has scored ${entry.name}`}>

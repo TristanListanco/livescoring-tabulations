@@ -45,7 +45,8 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Decimal places shown in results").fill("4");
     await page.getByRole("button", { name: "Remove a judge" }).click();
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Ana Cruz");
+    await page.getByLabel("Judge 1 first name").fill("Ana");
+    await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByLabel("Entry names, one per line").fill("Agila");
 
     await expect(page.getByText("Total 90 of 100 points. The criteria must add up to 100.")).toBeVisible();

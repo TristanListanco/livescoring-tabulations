@@ -112,7 +112,7 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
             <div className="flex min-w-0 items-center gap-4">
               <Avatar name={t.judge.name} src={t.judge.photoUrl} size={size.photo} />
               <FitText className="flex-1 font-semibold" style={{ fontSize: size.name }} minScale={0.6}>
-                {t.judge.name}
+                {t.label}
               </FitText>
             </div>
             <div style={{ fontSize: size.score }}>
@@ -197,7 +197,7 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
           >
             <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
             <FitText className="w-full text-[length:min(11cqi,3.6cqh)] font-semibold" align="center" minScale={0.6}>
-              {t.judge.name}
+              {t.label}
             </FitText>
             <div className="w-full text-center text-[length:min(30cqi,14cqh)]">
               <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} align="center" />

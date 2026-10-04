@@ -31,8 +31,10 @@ test.describe.serial("judge devices without realtime", () => {
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByLabel("Judge 1 name").fill("Judge Alpha");
-    await page.getByLabel("Judge 2 name").fill("Judge Bravo");
+    await page.getByLabel("Judge 1 first name").fill("Judge");
+    await page.getByLabel("Judge 1 last name").fill("Alpha");
+    await page.getByLabel("Judge 2 first name").fill("Judge");
+    await page.getByLabel("Judge 2 last name").fill("Bravo");
     await page.getByLabel("Entry names, one per line").fill("Agila");
     await page.getByRole("button", { name: "Create activity" }).click();
     // Creating an activity uploads photos and writes several tables; allow for a slow network.

@@ -29,9 +29,9 @@ export default async function ScorePage() {
       ? board.scores.filter((s) => s.judgeId === context.judge.id).map((s) => ({ entryId: s.entryId, value: s.value }))
       : [];
 
-  // Board of tabulators: who has scored the entry on screen (never the scores themselves), so they know when to move on.
+  // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   const panel =
-    gate.status === "approved" && context.judge.canMoveEntries
+    gate.status === "approved" && context.judge.isChair
       ? board.judges.map((j) => ({
           id: j.id,
           name: j.name,
