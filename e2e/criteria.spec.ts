@@ -43,7 +43,8 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Criterion 2 max points").fill("70");
     await expect(page.getByText("Total 100 of 100 points")).toBeVisible();
     await page.getByRole("button", { name: "Create activity" }).click();
-    await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/);
+    // Creating an activity uploads photos and writes several tables; allow for a slow network.
+    await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
     await expect(page.getByText("Criteria: Innovativeness 30, Design 70. Totals out of 100, shown scaled to 10.")).toBeVisible();
 
     adminPath = new URL(page.url()).pathname;
