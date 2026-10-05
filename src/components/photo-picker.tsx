@@ -44,14 +44,15 @@ export function PhotoPicker({
     <div className="flex flex-col items-center gap-1">
       <label
         htmlFor={id}
-        className={`group relative cursor-pointer ${shape} focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-powder`}
+        className={`group relative cursor-pointer overflow-hidden ${shape} has-[:focus-visible]:shadow-[0_0_0_2px_var(--color-mint)] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-regal`}
         title="Choose photo"
       >
         {currentUrl ? (
           <>
             <Avatar name={name} src={currentUrl} size={size} square={square} />
             <span
-              className={`absolute inset-0 flex items-center justify-center ${shape} bg-prussian/60 text-xs font-semibold text-mint opacity-0 transition-opacity group-hover:opacity-100`}
+              // Hover shows "Change" over the photo; keyboard focus does too, and a touchscreen (no hover) always shows it as a band.
+              className={`absolute inset-0 flex items-center justify-center ${shape} bg-prussian/60 text-xs font-semibold text-mint opacity-0 transition-opacity group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 pointer-coarse:top-auto pointer-coarse:h-2/5 pointer-coarse:rounded-none pointer-coarse:opacity-100`}
             >
               Change
             </span>
@@ -71,7 +72,7 @@ export function PhotoPicker({
               />
               <circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
             </svg>
-            {size >= 56 && <span className="mt-0.5 text-[10px] font-semibold">Photo</span>}
+            {size >= 56 && <span className="mt-0.5 text-xs font-semibold">Photo</span>}
           </span>
         )}
         <input

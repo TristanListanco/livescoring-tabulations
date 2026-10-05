@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition, type FormEvent } from "react";
+import { useActionState, useRef, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
 import { fullName, MAX_NAME_PART } from "@/lib/names";
 import { createActivity, type FormResult } from "../../actions";
@@ -10,20 +10,23 @@ import { Section } from "../section";
 type DraftJudge = { key: number; first: string; last: string; photo: Blob | null; preview: string | null };
 
 const MAX_JUDGES = 20;
-let nextKey = 0;
-const blankJudge = (): DraftJudge => ({ key: nextKey++, first: "", last: "", photo: null, preview: null });
+const blankJudge = (key: number): DraftJudge => ({ key, first: "", last: "", photo: null, preview: null });
 
 export function ActivityForm() {
   const [state, dispatch] = useActionState<FormResult, FormData>(createActivity, null);
   const [pending, startTransition] = useTransition();
-  const [judges, setJudges] = useState<DraftJudge[]>(() => [blankJudge(), blankJudge(), blankJudge()]);
+  // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
+  const nextKey = useRef(3);
+  const [judges, setJudges] = useState<DraftJudge[]>(() => [blankJudge(0), blankJudge(1), blankJudge(2)]);
   const [entriesText, setEntriesText] = useState("");
   const entryCount = entriesText.split(/\r?\n/).filter((l) => l.trim()).length;
 
-  const setJudgeCount = (count: number) => {
-    const n = Math.max(1, Math.min(MAX_JUDGES, count));
-    setJudges((list) => (n > list.length ? [...list, ...Array.from({ length: n - list.length }, blankJudge)] : list.slice(0, n)));
+  const addJudge = () => {
+    const key = nextKey.current++;
+    setJudges((list) => (list.length < MAX_JUDGES ? [...list, blankJudge(key)] : list));
   };
+  // Removes that judge's row, with whatever was typed in it, rather than always the last one.
+  const removeJudge = (key: number) => setJudges((list) => (list.length > 1 ? list.filter((j) => j.key !== key) : list));
   const updateJudge = (key: number, patch: Partial<DraftJudge>) => setJudges((list) => list.map((j) => (j.key === key ? { ...j, ...patch } : j)));
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -44,55 +47,43 @@ export function ActivityForm() {
         <label htmlFor="name" className="label">
           Name
         </label>
-        <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="Mr. and Ms. Intramurals 2026" />
+        <input id="name" name="name" required maxLength={120} className="field max-w-xl" placeholder="e.g. Mr. and Ms. Intramurals 2026" />
       </Section>
 
       <Section title="Scoring" hint="Scoring can't be changed after the activity is created.">
         <ScoringFields />
       </Section>
 
-      <Section title="Judges">
-        <div className="flex items-center gap-3">
-          <span className="label mb-0" id="judge-count-label">
-            Number of judges
-          </span>
-          <div className="inline-flex items-center rounded-lg border border-line bg-white" role="group" aria-labelledby="judge-count-label">
-            <button
-              type="button"
-              className="h-10 w-10 text-xl text-regal disabled:opacity-40"
-              onClick={() => setJudgeCount(judges.length - 1)}
-              disabled={judges.length <= 1}
-              aria-label="Remove a judge"
-            >
-              −
-            </button>
-            <span className="tabular w-10 text-center font-semibold" aria-live="polite">
-              {judges.length}
-            </span>
-            <button
-              type="button"
-              className="h-10 w-10 text-xl text-regal disabled:opacity-40"
-              onClick={() => setJudgeCount(judges.length + 1)}
-              disabled={judges.length >= MAX_JUDGES}
-              aria-label="Add a judge"
-            >
-              +
-            </button>
-          </div>
+      <Section
+        title="Judges"
+        hint="Choose one judge as chair. The chair can move judging to the previous or next entry from their own screen, and can't be changed later."
+      >
+        {/*
+          Column headings from sm up, on the same grid as the rows. Each field keeps its full label ("Judge 1
+          first name") for screen readers and shows a short one on phones, where the fields stack.
+        */}
+        <div aria-hidden className="mb-1.5 hidden grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem_2.75rem] gap-x-3 sm:grid">
+          <span />
+          <span className="label mb-0">First name</span>
+          <span className="label mb-0">Last name</span>
         </div>
-
-        <ol className="mt-5 space-y-3">
+        <ol className="space-y-3">
           {judges.map((j, i) => (
-            <li key={j.key} className="flex items-center gap-4">
-              <PhotoPicker
-                name={fullName(j.first, j.last)}
-                currentUrl={j.preview}
-                size={56}
-                onPick={(photo, preview) => updateJudge(j.key, { photo, preview })}
-              />
-              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
-                <label htmlFor={`judge-${i}-first_name`} className="sr-only">
-                  Judge {i + 1} first name
+            <li
+              key={j.key}
+              className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem_2.75rem]"
+            >
+              <div className="row-span-3 self-start sm:row-span-1 sm:self-center">
+                <PhotoPicker
+                  name={fullName(j.first, j.last)}
+                  currentUrl={j.preview}
+                  size={56}
+                  onPick={(photo, preview) => updateJudge(j.key, { photo, preview })}
+                />
+              </div>
+              <div className="min-w-0">
+                <label htmlFor={`judge-${i}-first_name`} className="mb-1 block text-sm font-semibold sm:sr-only">
+                  <span className="sr-only">Judge {i + 1} </span>First name
                 </label>
                 <input
                   id={`judge-${i}-first_name`}
@@ -101,11 +92,12 @@ export function ActivityForm() {
                   maxLength={MAX_NAME_PART}
                   value={j.first}
                   onChange={(e) => updateJudge(j.key, { first: e.target.value })}
-                  placeholder="First name"
-                  className="field max-w-56 min-w-36 flex-1"
+                  className="field"
                 />
-                <label htmlFor={`judge-${i}-last_name`} className="sr-only">
-                  Judge {i + 1} last name
+              </div>
+              <div className="min-w-0">
+                <label htmlFor={`judge-${i}-last_name`} className="mb-1 block text-sm font-semibold sm:sr-only">
+                  <span className="sr-only">Judge {i + 1} </span>Last name
                 </label>
                 <input
                   id={`judge-${i}-last_name`}
@@ -114,19 +106,39 @@ export function ActivityForm() {
                   maxLength={MAX_NAME_PART}
                   value={j.last}
                   onChange={(e) => updateJudge(j.key, { last: e.target.value })}
-                  placeholder="Last name"
-                  className="field max-w-56 min-w-36 flex-1"
+                  className="field"
                 />
               </div>
-              <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold has-checked:border-regal has-checked:bg-regal has-checked:text-mint">
-                <input type="radio" name="chair" value={i} required className="accent-mint" />
-                <span>
-                  Chair<span className="sr-only"> of the board of judges: judge {i + 1}</span>
-                </span>
-              </label>
+              <div className="flex items-center gap-2 sm:contents">
+                <label className="choice h-11 shrink-0 items-center gap-2 justify-self-start px-3 py-0 text-sm font-semibold">
+                  <input type="radio" name="chair" value={i} required />
+                  <span>
+                    Chair<span className="sr-only"> of the board of judges: judge {i + 1}</span>
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-sm shrink-0 justify-self-start px-2.5 text-prussian/70 hover:bg-danger/10 hover:text-danger pointer-coarse:min-w-11"
+                  onClick={() => removeJudge(j.key)}
+                  disabled={judges.length <= 1}
+                  aria-label={`Remove judge ${i + 1}`}
+                >
+                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
             </li>
           ))}
         </ol>
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <button type="button" className="btn btn-quiet btn-sm" onClick={addJudge} disabled={judges.length >= MAX_JUDGES}>
+            Add a judge
+          </button>
+          <p className="hint tabular" aria-live="polite">
+            {judges.length} {judges.length === 1 ? "judge" : "judges"}
+          </p>
+        </div>
       </Section>
 
       <Section title="Entries">
@@ -140,10 +152,10 @@ export function ActivityForm() {
           value={entriesText}
           onChange={(e) => setEntriesText(e.target.value)}
           className="field h-auto max-w-xl py-2.5 leading-relaxed"
-          placeholder={"Maria Santos\nJuan dela Cruz\nAna Reyes"}
+          aria-describedby="entries-hint"
         />
-        <p className="hint tabular mt-2">
-          {entryCount} {entryCount === 1 ? "entry" : "entries"}
+        <p id="entries-hint" className="hint tabular mt-2">
+          {entryCount} {entryCount === 1 ? "entry" : "entries"}, in running order. You can reorder, rename and add entries later.
         </p>
       </Section>
 

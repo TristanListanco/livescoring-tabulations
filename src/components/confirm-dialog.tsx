@@ -8,6 +8,8 @@ type Props = {
   triggerLabel: ReactNode;
   triggerClassName: string;
   triggerDisabled?: boolean;
+  /** Keys that also press the trigger (aria-keyshortcuts), e.g. "ArrowRight Space". */
+  triggerKeyShortcuts?: string;
   title: string;
   children: ReactNode;
   confirmLabel: string;
@@ -23,6 +25,7 @@ export function ConfirmDialog({
   triggerLabel,
   triggerClassName,
   triggerDisabled,
+  triggerKeyShortcuts,
   title,
   children,
   confirmLabel,
@@ -32,6 +35,7 @@ export function ConfirmDialog({
   onConfirm,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -57,15 +61,29 @@ export function ConfirmDialog({
 
   return (
     <>
-      <button type="button" onClick={open} className={triggerClassName} disabled={triggerDisabled}>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={open}
+        className={triggerClassName}
+        disabled={triggerDisabled}
+        aria-keyshortcuts={triggerKeyShortcuts}
+      >
         {triggerLabel}
       </button>
-      <dialog ref={ref} aria-labelledby={titleId} className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl">
+      <dialog
+        ref={ref}
+        // Opened from a keyboard shortcut, nothing had focus to return to, so the browser would leave it on the
+        // hidden Cancel button. Hand it back to the button that opened the dialog.
+        onClose={() => {
+          if (ref.current?.contains(document.activeElement)) triggerRef.current?.focus();
+        }}
+        aria-labelledby={titleId} className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl">
         <div className="p-6">
-          <h2 id={titleId} className="text-xl font-bold">
+          <h2 id={titleId} className="text-xl font-bold wrap-anywhere">
             {title}
           </h2>
-          <div className="mt-2 text-[15px] leading-relaxed text-prussian/80">{children}</div>
+          <div className="mt-2 text-[15px] leading-relaxed text-prussian/80 wrap-anywhere">{children}</div>
           {requireText !== undefined && (
             <label className="mt-4 block">
               <span className="label">

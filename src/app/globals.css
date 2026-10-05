@@ -15,17 +15,26 @@
   --color-wash: #e2ebe9;
   --color-danger: #b3261e;
   --color-danger-ink: #8c1d17;
+  /* On air: the tally-light red of a live session. Only ever a dot, never text, so 3:1 is enough. */
+  --color-tally: #e5484d;
+  /*
+   * Errors and warnings on the navy surfaces (the session desk, the judges' screens), where --color-danger is
+   * too dark to read. Those surfaces keep their colours in dark mode, so this has no dark variant.
+   */
+  --color-danger-soft: #f4b4ae;
 
   /* Avenir ships with Apple devices; Nunito Sans is the closest open fallback elsewhere. */
   --font-sans: "Avenir Next", Avenir, var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
 }
 
 /*
- * Admin dark mode (the panel's data-theme="dark"). The palette swaps light and dark: page and cards go dark,
+ * Admin dark mode (the panel's data-theme="dark"). A dialog opened from a surface that keeps its light colours
+ * (the session desk) is still part of the page, so it takes the dark theme back. The palette swaps light and dark: page and cards go dark,
  * text goes light, and the accent becomes a light blue that keeps its contrast with dark text on buttons.
  * Everything built from the palette follows without its own dark styles.
  */
-[data-theme="dark"] {
+[data-theme="dark"],
+[data-theme="dark"] .keep-light dialog {
   color-scheme: dark;
   --color-prussian: #e3ebf3;
   --color-oxford: #c3d2e3;
@@ -39,6 +48,7 @@
   --color-wash: #19304d;
   --color-danger: #ff8a80;
   --color-danger-ink: #ffb1a9;
+  --color-tally: #ff7a75;
 }
 /* Parts that keep their own colours in dark mode: the navy header, and previews of the LED wall and judges' screens. */
 [data-theme="dark"] .keep-light {
@@ -55,6 +65,14 @@
   --color-wash: #e2ebe9;
   --color-danger: #b3261e;
   --color-danger-ink: #8c1d17;
+  --color-tally: #e5484d;
+}
+/* The navy header and session desk sit on a nearly-as-dark page in dark mode: a hairline keeps them apart. */
+[data-theme="dark"] .admin-header {
+  box-shadow: 0 1px 0 rgb(159 194 234 / 0.2);
+}
+[data-theme="dark"] .admin-desk {
+  box-shadow: 0 0 0 1px rgb(159 194 234 / 0.22);
 }
 /* No light flash past the edges of the page when scrolling beyond them. */
 body:has([data-theme="dark"]) {
@@ -71,9 +89,64 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Two rings: a page-coloured one against the element, then the accent. Whatever the surface (the light page,
+ * the navy header and control desk, dark mode), one of the two stands out from it by at least 3:1.
+ */
 :focus-visible {
-  outline: 3px solid var(--color-powder);
+  outline: 3px solid var(--color-regal);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-mint);
+}
+
+/*
+ * A choice card takes the focus ring itself, so it's visible on a chosen (accent-filled) card too, where a
+ * ring around the small radio alone would vanish into the fill.
+ */
+.choice:has(:focus-visible) {
+  outline: 3px solid var(--color-regal);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-mint);
+}
+.choice :focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+[data-admin-theme] ::selection {
+  background: rgb(141 169 196 / 0.45);
+}
+
+/*
+ * Admin radio buttons, drawn so they read in both themes (the browser's own go faint grey in dark mode).
+ * They take the text colour, so a chosen card's radio turns light along with its label.
+ */
+[data-admin-theme] input[type="radio"] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid var(--color-field);
+  border-radius: 9999px;
+  background: var(--color-white);
+}
+[data-admin-theme] input[type="radio"]::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: currentColor;
+  transform: scale(0);
+  transition: transform 0.12s ease-out;
+}
+[data-admin-theme] input[type="radio"]:checked {
+  border-color: currentColor;
+  background: transparent;
+}
+[data-admin-theme] input[type="radio"]:checked::before {
+  transform: scale(1);
 }
 
 @layer components {
@@ -89,8 +162,38 @@ body {
   .btn-danger {
     @apply bg-danger text-white hover:bg-danger-ink;
   }
+  /* Opens a destructive confirmation; the filled red is saved for the confirm button itself. */
+  .btn-danger-quiet {
+    @apply border border-danger/40 bg-white/60 text-danger hover:bg-danger/10;
+  }
   .btn-sm {
     @apply h-9 rounded-md px-3 text-sm;
+  }
+  /* On touchscreens the small buttons grow to a full 44px target; on a mouse they keep their compact size. */
+  @media (pointer: coarse) {
+    .btn-sm {
+      @apply h-11 px-4;
+    }
+  }
+  /*
+   * A text link or text button that keeps its size in the layout but gets a 44×44 tap area on touchscreens
+   * (breadcrumbs, "Remove photo", "Show QR code"): the area is an invisible box centred on the text.
+   */
+  @media (pointer: coarse) {
+    .tap-target,
+    .text-action {
+      position: relative;
+    }
+    .tap-target::after,
+    .text-action::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
   .field {
     @apply block h-11 w-full rounded-lg border border-field bg-white px-3 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
@@ -100,6 +203,21 @@ body {
   }
   .hint {
     @apply text-sm text-prussian/70;
+  }
+  /* A small text link or text button in the accent colour: breadcrumbs, "Remove photo". */
+  .text-action {
+    @apply text-sm font-semibold text-regal hover:underline;
+  }
+  /* A quiet explanation of the current state, like why a list is locked. Give it role="note". */
+  .note {
+    @apply rounded-lg bg-wash px-4 py-3 text-[15px];
+  }
+  /*
+   * A radio option drawn as a card: the whole card is the target, and the chosen one fills with the accent.
+   * Add items-center or a width per use; the focus ring is drawn around the card (see :focus-visible above).
+   */
+  .choice {
+    @apply flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed has-disabled:opacity-60;
   }
 }
 

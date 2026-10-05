@@ -129,7 +129,7 @@ test.describe.serial("a full event", () => {
 
     await page.getByRole("link", { name: "New activity" }).first().click();
     await page.getByLabel("Name", { exact: true }).fill(NAME);
-    await page.getByRole("button", { name: "Remove a judge" }).click();
+    await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByLabel("Judge 2 first name").fill("Ben");
@@ -147,8 +147,8 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     adminPath = new URL(page.url()).pathname;
 
-    const codeTexts = await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).allTextContents();
-    codes = codeTexts.map((t) => t.replace("Code ", ""));
+    const codeTexts = await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents();
+    codes = codeTexts.map((t) => t.replace("Judge code ", ""));
     expect(codes).toHaveLength(2);
     // Judges' codes show without copy buttons or links; the header has no live results button or rules line.
     await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
@@ -208,7 +208,8 @@ test.describe.serial("a full event", () => {
     await openSession(page);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
-    await expect(page.getByText("Session: Live")).toBeVisible();
+    // Live, the desk takes over the tab; the header's status pill says the session is live.
+    await expect(page.getByRole("link", { name: "Live", exact: true })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
     // Ben chairs the board of judges, so instead of waiting he can show the first entry himself.
     await expect(heading(judge2)).toHaveText("Ready for the first entry", REALTIME);
@@ -216,7 +217,7 @@ test.describe.serial("a full event", () => {
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
-    await expect(page.getByRole("note")).toHaveText("Judges can't change once the session has started.");
+    await expect(page.getByRole("note")).toHaveText("The session has started, so the panel of judges is locked.");
     await expect(page.getByLabel("First name")).toHaveCount(0);
     // The chair is shown in the panel, fixed since the activity was created.
     await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(1);
@@ -260,7 +261,15 @@ test.describe.serial("a full event", () => {
     // The live results call judges by their first names.
     await expect(live.getByText("Ana", { exact: true }).first()).toBeVisible();
     await expect(live.getByText("Ana Cruz")).toHaveCount(0);
-    await expect(page.getByText("1 of 2 judges have scored.")).toBeVisible(REALTIME);
+    await expect(page.getByText("1 of 2 judges have scored. Waiting on Ben Torres.")).toBeVisible(REALTIME);
+
+    // Moving on before Ben has scored asks first, and Cancel leaves Agila on every screen.
+    await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
+    const moveOn = page.getByRole("dialog");
+    await expect(moveOn.getByRole("heading")).toHaveText("Move on to Bagwis?");
+    await expect(moveOn).toContainText("Ben Torres hasn't scored Agila yet.");
+    await moveOn.getByRole("button", { name: "Cancel" }).click();
+    await expect(heading(judge2)).toHaveText("Agila");
     await snap(judge1, "judge waiting for the next entry");
     await snap(page, "session tab, one judge in");
     await expectAccessible(judge1);
@@ -313,6 +322,8 @@ test.describe.serial("a full event", () => {
     // The LED wall moves with the judges.
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
     await expect(heading(judge1)).toHaveText("Bagwis", REALTIME);
+    // Agila is fully scored, so the running order offers to show it again rather than to judge it.
+    await expect(page.getByRole("region", { name: "Running order" }).getByRole("button", { name: "Show again Agila" })).toBeVisible();
     await expect(led.getByText("Bagwis", { exact: true })).toBeVisible(REALTIME);
     await submitScore(judge1, "Bagwis", "8.5", "8.50");
     await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
@@ -334,7 +345,10 @@ test.describe.serial("a full event", () => {
     await expect(heading(judge2)).toHaveText("Kidlat", REALTIME);
     await submitScore(judge2, "Kidlat", "9.5", "9.50");
     await expect(page.getByText(/That was the last entry/)).toBeVisible(REALTIME);
-    await expect(page.getByRole("button", { name: "No more entries" })).toBeDisabled();
+    // With the last entry fully scored, the desk's main button is End session, not a dead "No more entries".
+    const controls = page.getByRole("group", { name: "Show controls" });
+    await expect(controls.getByRole("button", { name: "End session" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "No more entries" })).toHaveCount(0);
 
     // Averages: Agila 9.50, Kidlat 9.25, Bagwis 8.625 shown as 8.63.
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
@@ -345,13 +359,15 @@ test.describe.serial("a full event", () => {
 
   test("hiding ranks switches the public board to running order", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-    await page.goto(`${adminPath}?tab=settings`);
+    // Ranks are a show-time control, on the Session tab next to the live results link.
+    await page.goto(`${adminPath}?tab=session`);
     const toggle = page.getByRole("switch", { name: "Show ranks on the live results page" });
+    const message = page.getByRole("status").filter({ hasText: "Rankings are" });
     await toggle.click();
-    await expect(page.getByRole("status")).toHaveText("Rankings are hidden on the live results page.");
+    await expect(message).toHaveText("Rankings are hidden on the live results page.");
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
     await toggle.click();
-    await expect(page.getByRole("status")).toHaveText("Rankings are showing on the live results page.");
+    await expect(message).toHaveText("Rankings are showing on the live results page.");
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
@@ -386,7 +402,7 @@ test.describe.serial("a full event", () => {
 
   test("the results PDF downloads with a report ID", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-    await page.goto(`${adminPath}?tab=settings`);
+    await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByText(/^Report ID LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/)).toBeVisible();
     const [download] = await Promise.all([
       page.waitForEvent("download"),
@@ -398,8 +414,8 @@ test.describe.serial("a full event", () => {
 
   test("ending the session closes the judges' screens", async ({ page }) => {
     await openSession(page);
-    // Ending takes the organizer's password.
-    await page.getByRole("button", { name: "End session" }).click();
+    // Ending takes the organizer's password. It's ended from the desk, where the fully scored last entry offers it.
+    await page.getByRole("group", { name: "Show controls" }).getByRole("button", { name: "End session" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("button", { name: "End session" })).toBeDisabled();
     await dialog.getByLabel("Your password").fill("not the password");
@@ -407,7 +423,17 @@ test.describe.serial("a full event", () => {
     await expect(dialog.getByRole("alert")).toHaveText("That password isn't right.");
     await dialog.getByLabel("Your password").fill(ORGANIZER.password);
     await dialog.getByRole("button", { name: "End session" }).click();
-    await expect(page.getByText("Session: Ended")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
+    // Reopening asks first and warns that new scores change the report ID.
+    await page.getByRole("button", { name: "Reopen session" }).click();
+    await expect(page.getByRole("dialog")).toContainText("the report ID changes");
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
+    // The desk turns into the results: the report ID and the PDF, right where the show ended.
+    const desk = page.getByRole("region", { name: "Judging has ended" });
+    await expect(desk).toContainText("Every score is in");
+    await expect(desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/)).toBeVisible();
+    await expect(desk.getByRole("link", { name: "Download results PDF" })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
 
@@ -420,7 +446,8 @@ test.describe.serial("a full event", () => {
     // Entries can't change once judging has ended.
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("note")).toHaveText("Judging has ended, so entries can't be changed.");
-    await expect(page.getByLabel("Entry 1 name")).toBeDisabled();
+    await expect(page.getByLabel("Entry 1 name")).toHaveCount(0);
+    await expect(page.getByRole("listitem").filter({ hasText: "Agila" })).toContainText("2 scores");
     await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
   });
 
@@ -432,12 +459,17 @@ test.describe.serial("a full event", () => {
     expect((await page.request.get(`${adminPath}/export`)).status()).toBe(404);
   });
 
-  test("the super admin sees only the name of an organizer's activity", async ({ page }) => {
+  test("the super admin follows an organizer's activity but can't open it", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    const theirs = page.getByRole("region", { name: "Organizers' activities" });
-    await expect(theirs.getByRole("row").filter({ hasText: NAME })).toContainText(ORGANIZER.name);
+    // The super admin's list is for watching shows: who runs it, whether it's live, how many scores are in.
+    await expect(page.getByText("No activities yet")).toHaveCount(0);
+    const theirs = page.getByRole("region", { name: "Organizers' activities", exact: true });
+    const row = theirs.getByRole("row").filter({ hasText: NAME });
+    await expect(row).toContainText(ORGANIZER.name);
+    await expect(row).toContainText("Ended");
+    await expect(row).toContainText("6 of 6");
+    await expect(theirs).toContainText("Only the organizer who runs an activity can open it.");
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
-    await expect(theirs).not.toContainText("Scores in");
 
     // Not openable or exportable by address either.
     await page.goto(`${adminPath}?tab=settings`);

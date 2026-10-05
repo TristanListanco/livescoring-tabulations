@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import type { ScoreRules } from "@/lib/scoring";
 import {
   checkSuperAdminPassword,
+  currentAdmin,
   endAdminSession,
   requireAdmin,
   requireSuperAdmin,
@@ -32,6 +33,21 @@ const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
+/**
+ * A database that's missing a migration. The super admin is the developer, so they get the exact file to run;
+ * an organizer can't run it, so they're told who can, and the file goes to the server log.
+ */
+async function needsMigration(hint: string): Promise<ActionResult> {
+  if ((await currentAdmin())?.kind === "super") return err(hint);
+  console.error(hint);
+  return err("This needs a database update. Ask your LiveScoring administrator to apply it, then try again.");
+}
+
+/** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
+const dbErr = (error: { message: string }): ActionResult => {
+  console.error(error);
+  return err("That didn't save. Check the connection and try again.");
+};
 const NOT_FOUND = err("Activity not found.");
 
 function check(error: { message: string } | null) {
@@ -145,8 +161,6 @@ const SCORING_HINT =
 const missingJudgeColumns = (message: string) => /first_name|last_name|is_chair/.test(message) && /schema cache|does not exist/.test(message);
 const JUDGES_HINT =
   "Judges' first and last names and the chair need a database update. Run supabase/migrations/008_judge_names_and_chair.sql in the Supabase SQL editor.";
-const judgeError = (message: string) => (missingJudgeColumns(message) ? JUDGES_HINT : message);
-
 /** A judge's first and last name from a form, and the full name built from them. */
 function readJudgeName(formData: FormData, prefix: string, who: string): { first: string; last: string; name: string } | { error: string } {
   const part = (key: string) => String(formData.get(`${prefix}${key}`) ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME_PART);
@@ -197,7 +211,7 @@ async function parentActivity(table: "judges" | "entries", id: string): Promise<
 }
 
 const SESSION_HINT = "Judging sessions need a database update. Run supabase/migrations/005_judging_session.sql in the Supabase SQL editor.";
-const JUDGES_LOCKED = err("Judges can't change once the session has started.");
+const JUDGES_LOCKED = err("The session has started, so the panel of judges is locked.");
 const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
 /** The activity's judging session. Databases without migration 005 behave as "not started". */
@@ -319,9 +333,9 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
       })
       .select("id")
       .single();
-    if (error && /scoring_mode|criteria/.test(error.message)) return err(SCORING_HINT);
-    if (error && /result_decimals/.test(error.message)) return err(PHOTOS_AND_PLACES_HINT);
-    if (error && error.code !== "23505") return err(`Could not create the activity: ${error.message}`);
+    if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
+    if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
+    if (error && error.code !== "23505") return dbErr(error);
     activityId = (data as { id: string } | null)?.id ?? null;
   }
   if (!activityId) return err("Could not create the activity. Try again.");
@@ -358,7 +372,9 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
-    return err(missingJudgeColumns(message) ? JUDGES_HINT : `Could not create the activity: ${message}`);
+    if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
+    console.error(e);
+    return err("The activity couldn't be created, and nothing was saved. Check the connection and try again.");
   }
 
   redirect(`/admin/${activityId}`);
@@ -373,7 +389,7 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
   const { error } = await db().from("activities").update({ name }).eq("id", activityId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   refresh();
   return ok("Name saved.");
 }
@@ -381,7 +397,7 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   refresh();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
 }
@@ -397,7 +413,7 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
   const { data: organizer } = await db().from("admins").select("id").eq("id", ownerId).maybeSingle();
   if (!organizer) return err("That organizer account no longer exists.");
   const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId).is("owner_id", null);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   redirect("/admin");
 }
 
@@ -426,7 +442,7 @@ export async function setSessionState(activityId: string, state: "live" | "ended
   const update: Record<string, string | null> = { session_state: state };
   if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
-  if (error) return err(/session_/.test(error.message) ? SESSION_HINT : error.message);
+  if (error) return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   refresh();
   if (state === "ended") return ok("The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
@@ -442,7 +458,7 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
     if (!data) return err("That entry isn't part of this activity.");
   }
   const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activityId);
-  if (error) return err(/current_entry_id/.test(error.message) ? SESSION_HINT : error.message);
+  if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   refresh();
   return ok();
 }
@@ -469,9 +485,9 @@ export async function approveDevice(deviceId: string): Promise<ActionResult> {
     .eq("judge_id", device.judgeId)
     .neq("id", deviceId)
     .neq("status", "revoked");
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }).eq("id", deviceId);
-  if (approved.error) return err(approved.error.message);
+  if (approved.error) return dbErr(approved.error);
   await touchJudge(device.judgeId);
   refresh();
   return ok("Device approved.");
@@ -482,7 +498,7 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
   const device = await managedDevice(deviceId);
   if (!device) return err("That device request is gone.");
   const { error } = await db().from("judge_devices").update({ status: "revoked", decided_at: new Date().toISOString() }).eq("id", deviceId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   await touchJudge(device.judgeId);
   refresh();
   return ok();
@@ -504,9 +520,9 @@ export async function setLedOptions(
   if (options.transition === "fade" || options.transition === "wipe") update.led_transition = options.transition;
   const { error } = await db().from("activities").update(update).eq("id", activityId);
   if (error && /led_transition/.test(error.message)) {
-    return err("LED wall animations need a database update. Run supabase/migrations/009_led_transition.sql in the Supabase SQL editor.");
+    return needsMigration("LED wall animations need a database update. Run supabase/migrations/009_led_transition.sql in the Supabase SQL editor.");
   }
-  if (error) return err(/led_(fullscreen|hold_scores)/.test(error.message) ? MIGRATION_HINT : error.message);
+  if (error) return /led_(fullscreen|hold_scores)/.test(error.message) ? needsMigration(MIGRATION_HINT) : dbErr(error);
   refresh();
   return ok();
 }
@@ -527,7 +543,7 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
     .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName) })
     .select("id")
     .single();
-  if (error) return err(judgeError(error.message));
+  if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   const judgeId = (data as { id: string }).id;
   try {
     await assignCodes([judgeId]);
@@ -546,7 +562,7 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
   const judgeName = readJudgeName(formData, "", "the judge");
   if ("error" in judgeName) return err(judgeName.error);
   const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
-  if (error) return err(judgeError(error.message));
+  if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   refresh();
   return ok("Saved.");
 }
@@ -565,7 +581,7 @@ export async function setJudgePhoto(judgeId: string, formData: FormData): Promis
   const { error } = await db().from("judges").update({ photo_path: path }).eq("id", judgeId);
   if (error) {
     await removeFiles([path]);
-    return err(error.message);
+    return dbErr(error);
   }
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   refresh();
@@ -582,7 +598,7 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
     return err("The chair of the board of judges is set when the activity is created, so they can't be removed.");
   }
   const { error } = await db().from("judges").delete().eq("id", judgeId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   refresh();
   return ok();
@@ -603,7 +619,7 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
   const { error } = await db()
     .from("entries")
     .insert(names.map((name, i) => ({ activity_id: activityId, name, position: start + i })));
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   refresh();
   return ok(names.length === 1 ? `${names[0]} added.` : `${names.length} entries added.`);
 }
@@ -615,7 +631,7 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
   const { error } = await db().from("entries").update({ name }).eq("id", entryId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   refresh();
   return ok("Saved.");
 }
@@ -635,7 +651,7 @@ export async function setEntryPhoto(entryId: string, formData: FormData): Promis
   const { error } = await db().from("entries").update({ photo_path: path }).eq("id", entryId);
   if (error) {
     await removeFiles([path]);
-    return err(/photo_path/.test(error.message) ? PHOTOS_AND_PLACES_HINT : error.message);
+    return /photo_path/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
   }
   await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   refresh();
@@ -653,7 +669,7 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
   }
   const { data: entry } = await db().from("entries").select("*").eq("id", entryId).maybeSingle();
   const { error } = await db().from("entries").delete().eq("id", entryId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   refresh();
   return ok();
@@ -696,7 +712,7 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if (isProductionSite()) return err("Resetting scores isn't available on the live site.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
   refresh();
@@ -705,10 +721,13 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
 
 export async function deleteActivity(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
+  // Not mid-show: the Settings tab hides the button while live, and this holds even if a stale page still shows it.
+  const { data: live } = await db().from("activities").select("id").eq("id", activityId).eq("session_state", "live").maybeSingle();
+  if (live) return err("The session is live. End it on the Session tab before deleting the activity.");
 
   const { data: files } = await db().storage.from(PHOTO_BUCKET).list(activityId, { limit: 1000 });
   const { error } = await db().from("activities").delete().eq("id", activityId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   await removeFiles((files ?? []).map((f) => `${activityId}/${f.name}`));
   redirect("/admin");
 }

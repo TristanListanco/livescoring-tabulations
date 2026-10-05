@@ -29,7 +29,7 @@ export function CodeForm({ initialCode, initialError }: { initialCode: string; i
         className="tabular h-20 w-full rounded-2xl border-2 border-oxford bg-oxford px-5 text-center text-4xl font-bold tracking-[0.3em] text-mint uppercase placeholder:text-powder/35 focus:border-powder focus:outline-none"
       />
       {state.error && (
-        <p id="code-error" role="alert" className="mt-3 font-semibold text-[#f4b4ae]">
+        <p id="code-error" role="alert" className="mt-3 font-semibold text-danger-soft">
           {state.error}
         </p>
       )}

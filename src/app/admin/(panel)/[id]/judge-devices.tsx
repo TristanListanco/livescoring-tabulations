@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { reach } from "@/lib/reach";
 import type { ActionResult, Judge, JudgeDevice } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { approveDevice, revokeDevice } from "../../actions";
@@ -21,7 +23,7 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
   const [result, setResult] = useState<ActionResult | null>(null);
   const act = (fn: () => Promise<ActionResult>) =>
     startTransition(async () => {
-      const r = await fn();
+      const r = await reach(fn);
       setResult(r.ok ? null : r);
     });
 
@@ -41,15 +43,22 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
               </svg>
               <span className="truncate">Approved: {approved.label}</span>
             </p>
-            <button
-              type="button"
-              className="btn btn-sm text-danger hover:bg-danger/10"
-              onClick={() => act(() => revokeDevice(approved.id))}
-              disabled={pending}
-              aria-label={`Sign out ${judge.name}'s device`}
+            <ConfirmDialog
+              triggerLabel={
+                <>
+                  Sign out<span className="sr-only"> {judge.name}&apos;s device</span>
+                </>
+              }
+              triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+              triggerDisabled={pending}
+              title={`Sign out ${judge.name}'s device?`}
+              tone="danger"
+              confirmLabel="Sign out device"
+              onConfirm={() => reach(() => revokeDevice(approved.id))}
             >
-              Sign out
-            </button>
+              {approved.label} can&apos;t score from now on. {judge.name} signs in again with their code, and you approve the new device here. Scores
+              they&apos;ve already submitted stay.
+            </ConfirmDialog>
           </>
         ) : (
           <p className="hint text-sm">
@@ -67,9 +76,10 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
         <ul className="space-y-2">
           {requests.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-field bg-white px-3 py-2.5">
-              <span className="tabular rounded-md bg-prussian px-2.5 py-1 text-lg font-bold tracking-[0.2em] text-mint">
-                <span className="sr-only">Pairing code </span>
-                {d.pairingCode}
+              {/* The same words as on the judge's screen, so the two can be matched at a glance. */}
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-prussian/70">Pairing code</span>
+                <span className="tabular rounded-md bg-prussian px-2.5 py-1 text-lg font-bold tracking-[0.2em] text-mint">{d.pairingCode}</span>
               </span>
               <span className="min-w-0 flex-1 truncate text-sm">{d.label}</span>
               <button
@@ -96,5 +106,32 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Approve a judge's waiting device without leaving the session desk: the judge reads out the pairing code
+ * on their screen, and the organizer approves the button showing the same code.
+ */
+export function ApproveDeviceButton({ judge, device, className }: { judge: Judge; device: JudgeDevice; className: string }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const approve = () =>
+    startTransition(async () => {
+      const r = await reach(() => approveDevice(device.id));
+      setError(r.ok ? null : r.error);
+    });
+
+  return (
+    <>
+      <button type="button" className={className} onClick={approve} disabled={pending} aria-label={`Approve ${judge.name}'s device ${device.pairingCode}`}>
+        Approve <span className="tabular tracking-[0.15em]">{device.pairingCode}</span>
+      </button>
+      {error && (
+        <span role="alert" className="basis-full text-sm font-semibold text-danger-soft">
+          {error}
+        </span>
+      )}
+    </>
   );
 }
