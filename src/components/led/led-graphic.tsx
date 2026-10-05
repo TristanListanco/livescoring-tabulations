@@ -20,6 +20,21 @@ function WaitingDots({ label }: { label: string }) {
   );
 }
 
+/**
+ * A judge kept anonymous: a "?" in the same circle a photo or initials would fill, drawn (not typed) so it
+ * matches the wall's other marks and scales with any tile.
+ */
+function AnonymousJudge({ size }: { size: number | string }) {
+  return (
+    <span aria-hidden style={{ width: size, height: size }} className="inline-flex shrink-0 items-center justify-center rounded-full bg-regal text-mint">
+      <svg viewBox="0 0 24 24" className="size-[58%]">
+        <path d="M8.6 9a3.4 3.4 0 1 1 5.3 2.8c-1.1.75-1.9 1.4-1.9 2.9v.4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
 /** The entry's photo beside its name. Square-cornered so the green screen keys cleanly around it. */
 function EntryPhoto({ src, style, className = "" }: { src: string; style?: React.CSSProperties; className?: string }) {
   // Photos are already resized to small squares on upload, so the optimizer adds nothing here.
@@ -110,10 +125,16 @@ function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
         {scene.tiles.map((t) => (
           <div key={t.judge.id} className="flex min-w-0 flex-1 flex-col justify-between bg-oxford px-7 py-6">
             <div className="flex min-w-0 items-center gap-4">
-              <Avatar name={t.judge.name} src={t.judge.photoUrl} size={size.photo} />
-              <FitText className="flex-1 font-semibold" style={{ fontSize: size.name }} minScale={0.6}>
-                {t.label}
-              </FitText>
+              {t.label === null ? (
+                <AnonymousJudge size={size.photo} />
+              ) : (
+                <>
+                  <Avatar name={t.judge.name} src={t.judge.photoUrl} size={size.photo} />
+                  <FitText className="flex-1 font-semibold" style={{ fontSize: size.name }} minScale={0.6}>
+                    {t.label}
+                  </FitText>
+                </>
+              )}
             </div>
             <div style={{ fontSize: size.score }}>
               <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
@@ -195,10 +216,16 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
             className="flex min-w-0 flex-col items-center justify-center gap-[2cqh] bg-oxford px-[1.2cqw]"
             style={{ containerType: "inline-size" }}
           >
-            <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
-            <FitText className="w-full text-[length:min(11cqi,3.6cqh)] font-semibold" align="center" minScale={0.6}>
-              {t.label}
-            </FitText>
+            {t.label === null ? (
+              <AnonymousJudge size="min(40cqi, 24cqh)" />
+            ) : (
+              <>
+                <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
+                <FitText className="w-full text-[length:min(11cqi,3.6cqh)] font-semibold" align="center" minScale={0.6}>
+                  {t.label}
+                </FitText>
+              </>
+            )}
             <div className="w-full text-center text-[length:min(30cqi,14cqh)]">
               <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} align="center" />
             </div>

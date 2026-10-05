@@ -3,9 +3,9 @@ import { ledScene } from "./led";
 import { activityFixture } from "./test-fixtures";
 import type { Board } from "./types";
 
-function board(options: { hold: boolean; onAir: string | null; scores: [string, string, number][] }): Board {
+function board(options: { hold: boolean; onAir: string | null; scores: [string, string, number][]; anonymous?: boolean }): Board {
   return {
-    activity: activityFixture({ ledEntryId: options.onAir, ledHoldScores: options.hold }),
+    activity: activityFixture({ ledEntryId: options.onAir, ledHoldScores: options.hold, ledAnonymous: options.anonymous ?? false }),
     judges: [
       { id: "j1", name: "Ana", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false },
       { id: "j2", name: "Ben", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false },
@@ -19,6 +19,19 @@ function board(options: { hold: boolean; onAir: string | null; scores: [string, 
 }
 
 describe("ledScene", () => {
+  it("names judges by first name, or not at all when they're kept anonymous", () => {
+    const named = ledScene(board({ hold: false, onAir: "e1", scores: [["e1", "j1", 9]] }));
+    const anonymous = ledScene(board({ hold: false, onAir: "e1", scores: [["e1", "j1", 9]], anonymous: true }));
+    if (named.kind !== "entry" || anonymous.kind !== "entry") throw new Error("expected an entry");
+    expect(named.tiles.map((t) => t.label)).toEqual(["Ana", "Ben"]);
+    expect(anonymous.tiles.map((t) => t.label)).toEqual([null, null]);
+    // Scores and the average are unaffected.
+    expect(anonymous.tiles.map((t) => [t.state, t.value])).toEqual([
+      ["shown", 9],
+      ["waiting", null],
+    ]);
+  });
+
   it("is empty when nothing is on air", () => {
     expect(ledScene(board({ hold: false, onAir: null, scores: [] }))).toEqual({ kind: "empty" });
   });

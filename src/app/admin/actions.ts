@@ -511,14 +511,18 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
 /** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
 export async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition },
+  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition; anonymous?: boolean },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
   if (typeof options.fullscreen === "boolean") update.led_fullscreen = options.fullscreen;
   if (typeof options.holdScores === "boolean") update.led_hold_scores = options.holdScores;
   if (options.transition === "fade" || options.transition === "wipe") update.led_transition = options.transition;
+  if (typeof options.anonymous === "boolean") update.led_anonymous = options.anonymous;
   const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error && /led_anonymous/.test(error.message)) {
+    return needsMigration("Anonymous judges on the LED wall need a database update. Run supabase/migrations/010_led_anonymous_judges.sql in the Supabase SQL editor.");
+  }
   if (error && /led_transition/.test(error.message)) {
     return needsMigration("LED wall animations need a database update. Run supabase/migrations/009_led_transition.sql in the Supabase SQL editor.");
   }

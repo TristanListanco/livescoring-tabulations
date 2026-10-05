@@ -101,6 +101,8 @@ alter table public.activities add column if not exists led_fullscreen boolean no
 alter table public.activities add column if not exists led_hold_scores boolean not null default false;
 -- LED wall animation: fade (default) or wipe.
 alter table public.activities add column if not exists led_transition text not null default 'fade';
+-- LED wall: keep judges anonymous (a "?" in place of each judge's name and photo).
+alter table public.activities add column if not exists led_anonymous boolean not null default false;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then

@@ -15,6 +15,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     ledFullscreen: false,
     ledHoldScores: false,
     ledTransition: "fade",
+    ledAnonymous: false,
     ownerId: null,
     scoringMode: "simple",
     criteria: [],

@@ -11,9 +11,9 @@ import { FormMessage } from "../form-message";
 import { LinkField } from "../link-field";
 import { Switch } from "../switch";
 
-type LedOptions = { fullscreen: boolean; holdScores: boolean; transition: LedTransition };
+type LedOptions = { fullscreen: boolean; holdScores: boolean; transition: LedTransition; anonymous: boolean };
 
-/** Display mode, animation, and whether scores wait for every judge. Saves on change; the wall follows within seconds. */
+/** Display mode, animation, whether scores wait for every judge, and whether judges stay anonymous. Saves on change; the wall follows within seconds. */
 function DisplaySettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
   return (
     <div className="space-y-5">
@@ -65,6 +65,15 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
           Show scores only when every judge has scored
         </p>
       </div>
+      <div className="flex items-start gap-4">
+        <Switch checked={options.anonymous} onChange={(anonymous) => onChange({ anonymous })} labelledBy="anonymous-label" disabled={disabled} />
+        <div>
+          <p id="anonymous-label" className="font-semibold">
+            Keep judges anonymous
+          </p>
+          <p className="hint">Each judge&apos;s name and photo on the wall becomes a ?.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -73,7 +82,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
   useLiveRefresh(board.activity.id);
   const { activity, entries } = board;
   const [options, setOptions] = useOptimistic<LedOptions, Partial<LedOptions>>(
-    { fullscreen: activity.ledFullscreen, holdScores: activity.ledHoldScores, transition: activity.ledTransition },
+    { fullscreen: activity.ledFullscreen, holdScores: activity.ledHoldScores, transition: activity.ledTransition, anonymous: activity.ledAnonymous },
     (current, change) => ({ ...current, ...change }),
   );
   const [pending, startTransition] = useTransition();
@@ -89,7 +98,13 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
   const { index, entry: current } = entryNeighbors(entries, activity.ledEntryId);
   const preview: Board = {
     ...board,
-    activity: { ...activity, ledFullscreen: options.fullscreen, ledHoldScores: options.holdScores, ledTransition: options.transition },
+    activity: {
+      ...activity,
+      ledFullscreen: options.fullscreen,
+      ledHoldScores: options.holdScores,
+      ledTransition: options.transition,
+      ledAnonymous: options.anonymous,
+    },
   };
 
   return (

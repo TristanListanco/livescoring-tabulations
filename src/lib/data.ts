@@ -17,6 +17,7 @@ type ActivityRow = {
   led_fullscreen?: boolean;
   led_hold_scores?: boolean;
   led_transition?: string;
+  led_anonymous?: boolean;
   owner_id?: string | null;
   session_state?: string;
   current_entry_id?: string | null;
@@ -76,6 +77,7 @@ function toActivity(row: ActivityRow): Activity {
     ledFullscreen: row.led_fullscreen ?? false,
     ledHoldScores: row.led_hold_scores ?? false,
     ledTransition: row.led_transition === "wipe" ? "wipe" : "fade",
+    ledAnonymous: row.led_anonymous ?? false,
     ownerId: row.owner_id ?? null,
     sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
     currentEntryId: row.current_entry_id ?? null,
