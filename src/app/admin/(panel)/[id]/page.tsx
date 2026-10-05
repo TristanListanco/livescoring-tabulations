@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAccessCodes, getBoard, listAdmins, listDevices } from "@/lib/data";
+import { getAccessCodes, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
 import { isProductionSite } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -9,6 +9,7 @@ import { reportId } from "@/lib/report";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
+import { SessionStatus } from "../session-status";
 import { AccessTab } from "./access-tab";
 import { DeveloperTab } from "./developer-tab";
 import { EntriesTab } from "./entries-tab";
@@ -17,14 +18,18 @@ import { LedTab } from "./led-tab";
 import { SessionTab } from "./session-tab";
 import { SettingsTab } from "./settings-tab";
 
+/**
+ * In the order of an event day: what runs the show (the session desk, judges' devices, the LED wall), then
+ * what's set up beforehand, then the rehearsal tools off to the side.
+ */
 const TABS = [
-  { id: "session", label: "Session" },
-  { id: "access", label: "Access" },
-  { id: "judges", label: "Judges" },
-  { id: "entries", label: "Entries" },
-  { id: "led", label: "LED wall" },
-  { id: "settings", label: "Settings" },
-  { id: "developer", label: "Developer" },
+  { id: "session", label: "Session", group: "show" },
+  { id: "access", label: "Judge devices", group: "show" },
+  { id: "led", label: "LED wall", group: "show" },
+  { id: "judges", label: "Judges", group: "setup" },
+  { id: "entries", label: "Entries", group: "setup" },
+  { id: "settings", label: "Settings", group: "setup" },
+  { id: "developer", label: "Developer", group: "tools" },
 ] as const;
 
 /**
@@ -55,6 +60,10 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const devices = await listDevices(judges.map((j) => j.id));
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
   const progress = scoreProgress(board);
+  // When this board was read, so the session desk can say how fresh it is if realtime drops. A Server Component
+  // renders once per request, so the clock here is simply the request time.
+  // eslint-disable-next-line react-hooks/purity
+  const renderedAt = Date.now();
   const origin = await siteOrigin();
   const liveUrl = `${origin}/live/${activity.publicId}`;
   const ledUrl = `${origin}/led/${activity.publicId}`;
@@ -68,25 +77,19 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
   return (
     <>
-      <Link href="/admin" className="text-sm font-semibold text-regal hover:underline">
+      <Link href="/admin" className="text-action">
         Activities
       </Link>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-3xl font-bold tracking-tight text-balance">{activity.name}</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-balance wrap-anywhere">{activity.name}</h1>
             <Link
               href={`/admin/${activity.id}?tab=session`}
               scroll={false}
-              className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                activity.sessionState === "live"
-                  ? "bg-regal text-mint"
-                  : activity.sessionState === "ended"
-                    ? "bg-wash text-prussian/80"
-                    : "border border-field text-prussian/80"
-              }`}
+              className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
             >
-              {activity.sessionState === "live" ? "Live" : activity.sessionState === "ended" ? "Ended" : "Not started"}
+              <SessionStatus state={activity.sessionState} pulse />
             </Link>
             {waitingDevices > 0 && (
               <Link
@@ -126,17 +129,27 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         className="mt-6 -mr-4 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:mr-0 sm:[mask-image:none]"
       >
         <ul className="flex min-w-max gap-1">
-          {tabs.map((t) => {
+          {tabs.map((t, i) => {
             const active = t.id === tab;
+            const startsGroup = i > 0 && tabs[i - 1].group !== t.group && t.group === "setup";
             return (
-              <li key={t.id} className={t.id === "developer" ? "pr-8 sm:ml-auto sm:pr-0 sm:pl-6" : undefined}>
+              <li
+                key={t.id}
+                className={
+                  t.group === "tools"
+                    ? "pr-8 sm:ml-auto sm:pr-0 sm:pl-6"
+                    : startsGroup
+                      ? "relative ml-2 pl-2 before:absolute before:top-1/2 before:left-0 before:h-5 before:w-px before:-translate-y-1/2 before:bg-line"
+                      : undefined
+                }
+              >
                 <Link
                   href={`/admin/${activity.id}?tab=${t.id}`}
                   scroll={false}
                   aria-current={active ? "page" : undefined}
-                  className={`-mb-px block border-b-2 px-2.5 py-3 text-[15px] font-semibold transition-colors sm:px-3 ${
-                    active ? "border-regal text-regal" : "border-transparent text-prussian/70 hover:text-prussian"
-                  }`}
+                  className={`-mb-px block border-b-2 px-2.5 py-3 transition-colors sm:px-3 ${
+                    t.group === "tools" ? "text-sm font-semibold" : "text-[15px] font-semibold"
+                  } ${active ? "border-regal text-regal" : "border-transparent text-prussian/70 hover:text-prussian"}`}
                 >
                   {t.label}
                 </Link>
@@ -146,7 +159,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         </ul>
       </nav>
 
-      <div className="pt-8">
+      <div className="pt-6">
         {tab === "access" && (
           <AccessTab
             activityId={activity.id}
@@ -158,7 +171,19 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             entryCount={entries.length}
           />
         )}
-        {tab === "session" && <SessionTab board={board} liveUrl={liveUrl} liveQr={await qrSvg(liveUrl)} />}
+        {tab === "session" && (
+          <SessionTab
+            board={board}
+            renderedAt={renderedAt}
+            devices={devices}
+            progress={progress}
+            reportId={reportId(board)}
+            signatories={activity.ownerId ? await getSignatories(activity.ownerId) : null}
+            liveUrl={liveUrl}
+            liveQr={await qrSvg(liveUrl)}
+            ledUrl={ledUrl}
+          />
+        )}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
         {tab === "entries" && (
           <EntriesTab
@@ -173,8 +198,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
-            progress={progress}
-            reportId={reportId(board)}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}
           />
         )}

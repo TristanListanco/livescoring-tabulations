@@ -8,17 +8,9 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
 import type { AdminAccount, Signatory } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
+import { FormMessage } from "../../form-message";
 import { Section } from "../../section";
 import { SignatoriesEditor } from "../../signatories-editor";
-
-function Message({ state }: { state: FormResult }) {
-  if (!state) return null;
-  return (
-    <p role={state.ok ? "status" : "alert"} className={state.ok ? "text-regal" : "font-semibold text-danger"}>
-      {state.ok ? state.message : state.error}
-    </p>
-  );
-}
 
 export function EditOrganizer({
   organizer,
@@ -59,11 +51,11 @@ export function EditOrganizer({
                 />
               </div>
               {organizer.photoUrl && !photoPending && (
-                <button type="button" className="text-sm font-semibold text-regal hover:underline" onClick={() => changePhoto(null, null)}>
+                <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
                   Remove photo
                 </button>
               )}
-              <Message state={photoState} />
+              <FormMessage state={photoState} />
             </div>
             <div className="min-w-64 flex-1 space-y-4">
               <div>
@@ -96,9 +88,10 @@ export function EditOrganizer({
           />
         </Section>
 
-        <div className="flex flex-wrap items-center gap-4 pb-8 md:pl-[calc(14rem+2.5rem)]">
-          <SubmitButton>Save changes</SubmitButton>
-          <Message state={state} />
+        {/* Full width with its own rule, so it reads as saving the whole account (name, email and password), not just the password. */}
+        <div className="flex flex-wrap items-center gap-4 border-t border-line py-6">
+          <SubmitButton>Save account details</SubmitButton>
+          <FormMessage state={state} />
         </div>
       </form>
 
@@ -123,7 +116,7 @@ export function EditOrganizer({
       <Section title="Delete account">
         <ConfirmDialog
           triggerLabel="Delete organizer"
-          triggerClassName="btn btn-danger"
+          triggerClassName="btn btn-danger-quiet"
           title={`Delete ${organizer.name}?`}
           tone="danger"
           confirmLabel="Delete organizer"

@@ -1,17 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import type { ActionResult, Signatory } from "@/lib/types";
 import { saveSignatories } from "../account-actions";
+import { FormMessage } from "./form-message";
 
 type Row = { key: number; name: string; designation: string };
-let nextKey = 0;
-const blankRow = (): Row => ({ key: nextKey++, name: "", designation: "" });
 const isBlank = (r: Row) => !r.name.trim() && !r.designation.trim();
 
 /** Names and designations (Board of Tabulators, representatives) printed as signature lines on the results PDF. */
 export function SignatoriesEditor({ adminId, initial }: { adminId: string | null; initial: Signatory[] }) {
-  const [rows, setRows] = useState<Row[]>(() => initial.map((s) => ({ key: nextKey++, ...s })));
+  // Keys count up within this editor, and ids build on useId, so the server and the browser render the same ids.
+  const fieldId = useId();
+  const nextKey = useRef(initial.length);
+  const blankRow = (): Row => ({ key: nextKey.current++, name: "", designation: "" });
+  const [rows, setRows] = useState<Row[]>(() => initial.map((s, i) => ({ key: i, ...s })));
   const [result, setResult] = useState<ActionResult | null>(null);
   // Rows with a designation but no name, flagged when saving.
   const [missingName, setMissingName] = useState<Set<number>>(() => new Set());
@@ -51,37 +54,47 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
   return (
     <div className="space-y-3">
       {rows.length === 0 && <p className="hint">No signatories yet.</p>}
-      <ol className="space-y-2">
+      {rows.length > 0 && (
+        // Column headings from sm up; on phones, where the two fields stack, each shows its own label.
+        <div aria-hidden className="hidden max-w-3xl grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem] gap-x-2 sm:grid">
+          <span className="label mb-0">Full name</span>
+          <span className="label mb-0">Designation</span>
+        </div>
+      )}
+      <ol className="space-y-5 sm:space-y-2">
         {rows.map((r, i) => {
           const invalid = missingName.has(r.key);
           return (
-            <li key={r.key} className="flex flex-wrap items-center gap-2">
-              <label htmlFor={`signatory-${r.key}`} className="sr-only">
-                Signatory {i + 1} full name
-              </label>
-              <input
-                id={`signatory-${r.key}`}
-                value={r.name}
-                onChange={(e) => update(r.key, { name: e.target.value })}
-                maxLength={120}
-                placeholder="Full name"
-                aria-invalid={invalid || undefined}
-                className={`field max-w-xs flex-1 ${invalid ? "border-danger ring-2 ring-danger/30" : ""}`}
-              />
-              <label htmlFor={`signatory-${r.key}-designation`} className="sr-only">
-                Signatory {i + 1} designation
-              </label>
-              <input
-                id={`signatory-${r.key}-designation`}
-                value={r.designation}
-                onChange={(e) => update(r.key, { designation: e.target.value })}
-                maxLength={120}
-                placeholder={["Chair, Board of Tabulators", "Member, Board of Tabulators", "Student representative"][i] ?? "Designation"}
-                className="field max-w-xs flex-1"
-              />
+            <li key={r.key} className="grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem] sm:items-center">
+              <div className="col-start-1 row-start-1 min-w-0">
+                <label htmlFor={`${fieldId}-${r.key}`} className="mb-1 block text-sm font-semibold sm:sr-only">
+                  <span className="sr-only">Signatory {i + 1} </span>Full name
+                </label>
+                <input
+                  id={`${fieldId}-${r.key}`}
+                  value={r.name}
+                  onChange={(e) => update(r.key, { name: e.target.value })}
+                  maxLength={120}
+                  aria-invalid={invalid || undefined}
+                  className={`field ${invalid ? "border-danger ring-2 ring-danger/30" : ""}`}
+                />
+              </div>
+              <div className="col-start-1 row-start-2 min-w-0 sm:col-start-2 sm:row-start-1">
+                <label htmlFor={`${fieldId}-${r.key}-designation`} className="mb-1 block text-sm font-semibold sm:sr-only">
+                  <span className="sr-only">Signatory {i + 1} </span>Designation
+                </label>
+                <input
+                  id={`${fieldId}-${r.key}-designation`}
+                  value={r.designation}
+                  onChange={(e) => update(r.key, { designation: e.target.value })}
+                  maxLength={120}
+                  placeholder={["e.g. Chair, Board of Tabulators", "e.g. Member, Board of Tabulators", "e.g. Client representative"][i] ?? "e.g. Board member"}
+                  className="field"
+                />
+              </div>
               <button
                 type="button"
-                className="btn btn-sm text-danger hover:bg-danger/10"
+                className="btn btn-sm col-start-2 row-span-2 row-start-1 self-center justify-self-start text-danger hover:bg-danger/10 sm:col-start-3 sm:row-span-1"
                 onClick={() => setRows((list) => list.filter((x) => x.key !== r.key))}
                 aria-label={`Remove signatory ${i + 1}`}
               >
@@ -98,11 +111,7 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
         <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>
           {pending ? "Saving…" : "Save signatories"}
         </button>
-        {result && (
-          <p role={result.ok ? "status" : "alert"} className={result.ok ? "text-regal" : "font-semibold text-danger"}>
-            {result.ok ? result.message : result.error}
-          </p>
-        )}
+        <FormMessage state={result} />
       </div>
     </div>
   );

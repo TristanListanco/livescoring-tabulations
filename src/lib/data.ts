@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Score, Signatory } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Score, SessionState, Signatory } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -129,10 +129,7 @@ export async function listActivities(ownerId: string | null): Promise<ActivitySu
   }));
 }
 
-/**
- * Organizers' activities as the super admin sees them: the name and who runs it, nothing more. Only these
- * columns are read, so nothing else about them reaches the super admin's pages.
- */
+/** An organizer's activities by name, for their account page. Only these columns are read. */
 export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string }[]> {
   await connection();
   let query = db()
@@ -145,6 +142,48 @@ export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id
   fail(error);
   type Row = { id: string; name: string; owner: { name: string } | null };
   return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "" }));
+}
+
+/** An organizer's activity on the super admin's activity list: how the show is going, never what was scored. */
+export type OrganizerActivityStatus = {
+  id: string;
+  name: string;
+  organizer: string;
+  sessionState: SessionState;
+  judgeCount: number;
+  entryCount: number;
+  scoreCount: number;
+  createdAt: string;
+};
+
+/**
+ * Every organizer's activity for the super admin's list: its name, who runs it, whether judging has started
+ * and how many scores are in. Only these columns and counts are read; judges, entries and scores stay private.
+ */
+export async function listOrganizerActivities(): Promise<OrganizerActivityStatus[]> {
+  await connection();
+  const { data, error } = await db()
+    .from("activities")
+    .select(
+      "id, name, session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)",
+    )
+    .not("owner_id", "is", null)
+    .order("created_at", { ascending: false });
+  fail(error);
+  type Row = { id: string; name: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
+    "judges" | "entries" | "scores",
+    { count: number }[]
+  >;
+  return (data as unknown as Row[]).map((row) => ({
+    id: row.id,
+    name: row.name,
+    organizer: row.owner?.name ?? "",
+    sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
+    judgeCount: row.judges[0]?.count ?? 0,
+    entryCount: row.entries[0]?.count ?? 0,
+    scoreCount: row.scores[0]?.count ?? 0,
+    createdAt: row.created_at,
+  }));
 }
 
 // Organizer accounts -------------------------------------------------------------

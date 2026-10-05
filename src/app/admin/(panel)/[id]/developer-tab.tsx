@@ -25,7 +25,7 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
       <h2 className="text-xl font-bold">Developer tools</h2>
       <p className="hint mt-1">For testing and rehearsals. Not available on the live site.</p>
       {notice && (
-        <p role="status" className="mt-4 rounded-lg bg-wash px-4 py-3 font-semibold text-regal">
+        <p role="status" className="note mt-4 font-semibold text-regal">
           {notice}
         </p>
       )}
@@ -36,7 +36,7 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
           action={
             <ConfirmDialog
               triggerLabel="Reset scores"
-              triggerClassName="btn btn-danger"
+              triggerClassName="btn btn-danger-quiet"
               triggerDisabled={scoreCount === 0 && activity.sessionState === "draft"}
               title="Reset all scores?"
               tone="danger"

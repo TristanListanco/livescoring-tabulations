@@ -30,7 +30,7 @@ test.describe.serial("judge devices without realtime", () => {
     await signInAsSuperAdmin(page);
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
-    await page.getByRole("button", { name: "Remove a judge" }).click();
+    await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 1 first name").fill("Judge");
     await page.getByLabel("Judge 1 last name").fill("Alpha");
     await page.getByLabel("Judge 2 first name").fill("Judge");
@@ -41,7 +41,7 @@ test.describe.serial("judge devices without realtime", () => {
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
     adminPath = new URL(page.url()).pathname;
-    codes = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Code ", ""));
+    codes = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Judge code ", ""));
   });
 
   test("approval reaches a phone with no realtime connection within seconds", async ({ page }) => {

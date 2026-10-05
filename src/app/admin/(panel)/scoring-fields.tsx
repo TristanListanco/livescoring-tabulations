@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { CriteriaDisplay, Decimals, ResultDecimals, ScoringMode } from "@/lib/types";
 
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
@@ -9,49 +9,29 @@ const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 2, label: "2 decimal places", example: "9.75" },
 ];
 
-const choice =
-  "flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint";
-
 const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
+const RESULT_DECIMAL_OPTIONS: ResultDecimals[] = [0, 1, 2, 3, 4];
 
-/** How many decimal places averages and totals show. */
+/** How many decimal places averages and totals show. The same cards as the judges' decimals, with a rounded example. */
 function ResultDecimalsField() {
-  const [value, setValue] = useState(String(DEFAULT_RESULT_DECIMALS));
-  const valid = /^[0-4]$/.test(value);
+  const [value, setValue] = useState<ResultDecimals>(DEFAULT_RESULT_DECIMALS);
   return (
-    <div>
-      <label htmlFor="result_decimals" className="label">
-        Decimal places shown in results
-      </label>
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          id="result_decimals"
-          name="result_decimals"
-          type="number"
-          inputMode="numeric"
-          required
-          min={0}
-          max={4}
-          step={1}
-          defaultValue={DEFAULT_RESULT_DECIMALS}
-          onChange={(e) => setValue(e.target.value)}
-          aria-invalid={!valid}
-          aria-describedby={valid ? undefined : "result_decimals-hint"}
-          className={`field tabular w-20 ${valid ? "" : "border-danger ring-2 ring-danger/30"}`}
-        />
+    <fieldset>
+      <legend className="label">Decimal places shown in results</legend>
+      <div className="flex flex-wrap gap-2">
+        {RESULT_DECIMAL_OPTIONS.map((n) => (
+          <label key={n} className="choice items-center">
+            <input type="radio" name="result_decimals" value={n} checked={value === n} onChange={() => setValue(n)} />
+            <span className="font-semibold">{n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`}</span>
+            <span className="tabular text-sm opacity-75">e.g. {(87.4567).toFixed(n)}</span>
+          </label>
+        ))}
       </div>
-      {!valid && (
-        <p id="result_decimals-hint" className="mt-1.5 text-sm font-semibold text-danger" role="alert">
-          Enter a whole number from 0 to 4.
-        </p>
-      )}
-    </div>
+    </fieldset>
   );
 }
 
 type Row = { key: number; id: string; name: string; max: string };
-let nextKey = 0;
-const blankRows = (): Row[] => [0, 1, 2].map(() => ({ key: nextKey++, id: "", name: "", max: "" }));
 
 /**
  * How judges score, for the create form: simple (one score from min to max) or criteria (points per
@@ -61,11 +41,16 @@ const blankRows = (): Row[] => [0, 1, 2].map(() => ({ key: nextKey++, id: "", na
 export function ScoringFields() {
   const [mode, setMode] = useState<ScoringMode>("simple");
   const [places, setPlaces] = useState<Decimals>(2);
-  const [rows, setRows] = useState<Row[]>(blankRows);
+  // Keys count up within this form, and ids build on useId, so the server and the browser render the same ids.
+  const fieldId = useId();
+  const nextKey = useRef(3);
+  const [rows, setRows] = useState<Row[]>(() => [0, 1, 2].map((key) => ({ key, id: "", name: "", max: "" })));
   const [display, setDisplay] = useState<CriteriaDisplay>("percent");
   const step = places === 0 ? 1 : places === 1 ? 0.1 : 0.01;
 
   const total = rows.reduce((sum, r) => sum + (Number(r.max) || 0), 0);
+  // No verdict on the total until some points have been typed.
+  const started = rows.some((r) => r.max !== "");
   const criteriaJson = JSON.stringify(rows.filter((r) => r.name.trim() || r.max).map((r) => ({ id: r.id, name: r.name.trim(), max: Number(r.max) })));
   const update = (key: number, patch: Partial<Row>) => setRows((list) => list.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
@@ -85,11 +70,11 @@ export function ScoringFields() {
                 { value: "criteria", label: "Criteria", hint: "Judges score each criterion. The criteria add up to 100 points." },
               ] as const
             ).map((o) => (
-              <label key={o.value} className={choice}>
+              <label key={o.value} className="choice">
                 <input
                   type="radio"
                   name="scoring-mode-choice"
-                  className="mt-1 accent-mint"
+                  className="mt-1"
                   checked={mode === o.value}
                   onChange={() => setMode(o.value)}
                 />
@@ -141,37 +126,41 @@ export function ScoringFields() {
           </div>
         ) : (
           <fieldset>
-            <legend className="label">Criteria and their max points</legend>
+            {/* On phones the legend names the list and each number has its "points" unit; from sm up, column headings do. */}
+            <legend className="label sm:sr-only">Criteria and their max points</legend>
+            <div aria-hidden className="mb-1.5 hidden grid-cols-[minmax(0,20rem)_5rem_auto] gap-x-2 sm:grid">
+              <span className="label mb-0">Criterion</span>
+              <span className="label mb-0">Max points</span>
+            </div>
             <ol className="space-y-2">
               {rows.map((r, i) => (
-                <li key={r.key} className="flex flex-wrap items-center gap-2">
-                  <label htmlFor={`criterion-${r.key}`} className="sr-only">
+                <li key={r.key} className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[minmax(0,20rem)_5rem_auto]">
+                  <label htmlFor={`${fieldId}-${r.key}`} className="sr-only">
                     Criterion {i + 1} name
                   </label>
                   <input
-                    id={`criterion-${r.key}`}
+                    id={`${fieldId}-${r.key}`}
                     value={r.name}
                     onChange={(e) => update(r.key, { name: e.target.value })}
                     maxLength={60}
-                    placeholder={["Innovativeness", "Design", "Impact"][i] ?? `Criterion ${i + 1}`}
-                    className="field max-w-xs flex-1"
+                    placeholder={["e.g. Innovativeness", "e.g. Design", "e.g. Impact"][i] ?? `Criterion ${i + 1}`}
+                    className="field max-w-xs flex-1 sm:max-w-none"
                   />
-                  <label htmlFor={`criterion-${r.key}-max`} className="sr-only">
+                  <label htmlFor={`${fieldId}-${r.key}-max`} className="sr-only">
                     Criterion {i + 1} max points
                   </label>
                   <input
-                    id={`criterion-${r.key}-max`}
+                    id={`${fieldId}-${r.key}-max`}
                     value={r.max}
                     onChange={(e) => update(r.key, { max: e.target.value.replace(/[^0-9]/g, "").slice(0, 3) })}
                     inputMode="numeric"
-                    placeholder="30"
                     className="field tabular w-20"
                   />
-                  <span className="hint">points</span>
+                  <span className="hint sm:hidden">points</span>
                   {rows.length > 1 && (
                     <button
                       type="button"
-                      className="btn btn-sm text-danger hover:bg-danger/10"
+                      className="btn btn-sm justify-self-start text-danger hover:bg-danger/10"
                       onClick={() => setRows((list) => list.filter((x) => x.key !== r.key))}
                       aria-label={`Remove criterion ${i + 1}`}
                     >
@@ -185,13 +174,19 @@ export function ScoringFields() {
               <button
                 type="button"
                 className="btn btn-quiet btn-sm"
-                onClick={() => setRows((list) => [...list, { key: nextKey++, id: "", name: "", max: "" }])}
+                onClick={() => {
+                  const key = nextKey.current++;
+                  setRows((list) => [...list, { key, id: "", name: "", max: "" }]);
+                }}
                 disabled={rows.length >= 20}
               >
                 Add criterion
               </button>
-              <p role="status" className={`tabular text-sm font-semibold ${total === 100 ? "text-regal" : "text-danger"}`}>
-                Total {total} of 100 points{total === 100 ? "" : ". The criteria must add up to 100."}
+              <p
+                role="status"
+                className={`tabular text-sm font-semibold ${total === 100 ? "text-regal" : started ? "text-danger" : "text-prussian/70"}`}
+              >
+                Total {total} of 100 points{total === 100 || !started ? "" : ". The criteria must add up to 100."}
               </p>
             </div>
           </fieldset>
@@ -201,14 +196,13 @@ export function ScoringFields() {
           <legend className="label">{mode === "criteria" ? "Judges give points in" : "Judges score with"}</legend>
           <div className="flex flex-wrap gap-2">
             {DECIMAL_OPTIONS.map((o) => (
-              <label key={o.value} className={`${choice} items-center`}>
+              <label key={o.value} className="choice items-center">
                 <input
                   type="radio"
                   name="decimals"
                   value={o.value}
                   checked={places === o.value}
                   onChange={() => setPlaces(o.value)}
-                  className="accent-mint"
                 />
                 <span className="font-semibold">{o.label}</span>
                 <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
@@ -227,13 +221,12 @@ export function ScoringFields() {
                   { value: "ten", label: "Scaled to 10", example: "8.75" },
                 ] as const
               ).map((o) => (
-                <label key={o.value} className={`${choice} items-center`}>
+                <label key={o.value} className="choice items-center">
                   <input
                     type="radio"
                     name="criteria-display-choice"
                     checked={display === o.value}
                     onChange={() => setDisplay(o.value)}
-                    className="accent-mint"
                   />
                   <span className="font-semibold">{o.label}</span>
                   <span className="tabular text-sm opacity-75">e.g. {o.example}</span>

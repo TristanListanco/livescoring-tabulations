@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+export function CopyButton({ value, label = "Copy", className = "btn btn-quiet btn-sm min-w-20" }: { value: string; label?: string; className?: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -16,7 +16,7 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
   };
 
   return (
-    <button type="button" onClick={copy} className="btn btn-quiet btn-sm min-w-20" aria-live="polite">
+    <button type="button" onClick={copy} className={className} aria-live="polite">
       {copied ? "Copied" : label}
     </button>
   );

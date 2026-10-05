@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { getSignatories } from "@/lib/data";
@@ -17,9 +18,12 @@ export default async function ProfilePage() {
 
   return (
     <>
-      <h1 className="text-3xl font-bold tracking-tight">Profile</h1>
+      <Link href="/admin" className="text-action">
+        Back to activities
+      </Link>
+      <h1 className="mt-1 text-3xl font-bold tracking-tight">Profile</h1>
       <div className="mt-6 max-w-4xl">
-        <Section title="Organizer" flush>
+        <Section title="Organizer" hint="To change your name, email, photo or password, ask the administrator who set up your account." flush>
           <div className="flex items-center gap-4">
             <Avatar name={admin.name} src={admin.photoUrl} size={72} />
             <div className="min-w-0">

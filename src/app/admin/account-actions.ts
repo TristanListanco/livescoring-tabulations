@@ -14,6 +14,11 @@ import type { FormResult } from "./actions";
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
+/** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
+const dbErr = (error: { message: string }): ActionResult => {
+  console.error(error);
+  return err("That didn't save. Check the connection and try again.");
+};
 
 function readProfile(formData: FormData): { name: string; email: string } | { error: string } {
   const name = String(formData.get("name") ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
@@ -67,7 +72,7 @@ export async function createOrganizer(_prev: FormResult, formData: FormData): Pr
     .select("id")
     .single();
   if (duplicateEmail(error)) return err("An organizer with that email already exists.");
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   const adminId = (data as { id: string }).id;
 
   if (photo) {
@@ -93,7 +98,7 @@ export async function updateOrganizer(adminId: string, _prev: FormResult, formDa
   if (password) update.password_hash = await hashPassword(password);
   const { error, count } = await db().from("admins").update(update, { count: "exact" }).eq("id", adminId);
   if (duplicateEmail(error)) return err("Another organizer already uses that email.");
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   if (!count) return err("Organizer not found.");
   refresh();
   return ok(password ? "Saved. The new password signs them out on their other devices." : "Saved.");
@@ -111,7 +116,7 @@ export async function setOrganizerPhoto(adminId: string, formData: FormData): Pr
   const { error } = await db().from("admins").update({ photo_path: path, updated_at: new Date().toISOString() }).eq("id", adminId);
   if (error) {
     await removeOrganizerPhoto(path);
-    return err(error.message);
+    return dbErr(error);
   }
   await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
   refresh();
@@ -145,7 +150,7 @@ export async function deleteOrganizer(adminId: string): Promise<ActionResult> {
   }
 
   const { error } = await db().from("admins").delete().eq("id", adminId);
-  if (error) return err(error.message);
+  if (error) return dbErr(error);
   await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
   redirect("/admin/organizers");
 }
@@ -175,7 +180,12 @@ export async function saveSignatories(adminId: string | null, signatories: Signa
 
   const { error } = await db().from("admins").update({ signatories: clean, updated_at: new Date().toISOString() }).eq("id", target);
   if (error) {
-    return err(error.message.includes("signatories") ? "Signatories need a database update. Run supabase/migrations/006_devices_criteria_signatories.sql." : error.message);
+    if (!error.message.includes("signatories")) return dbErr(error);
+    // The super admin can run the migration; an organizer is told who can.
+    const hint = "Signatories need a database update. Run supabase/migrations/006_devices_criteria_signatories.sql.";
+    if (session.kind === "super") return err(hint);
+    console.error(hint);
+    return err("This needs a database update. Ask your LiveScoring administrator to apply it, then try again.");
   }
   refresh();
   return ok(clean.length ? `Saved. ${clean.length} ${clean.length === 1 ? "signatory prints" : "signatories print"} on the results PDF.` : "Saved. No signatories will print.");

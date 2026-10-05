@@ -39,12 +39,12 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Criterion 1 max points").fill("30");
     await page.getByLabel("Criterion 2 name").fill("Design");
     await page.getByLabel("Criterion 2 max points").fill("60");
-    await page.getByRole("radio", { name: /1 decimal place/ }).check();
+    await page.getByRole("group", { name: "Judges give points in" }).getByRole("radio", { name: /1 decimal place/ }).check();
     // Totals as a percentage with four decimal places: the widest numbers the LED wall has to fit.
     await page.getByRole("radio", { name: /As a percentage/ }).check();
-    await page.getByLabel("Decimal places shown in results").fill("4");
-    await page.getByRole("button", { name: "Remove a judge" }).click();
-    await page.getByRole("button", { name: "Remove a judge" }).click();
+    await page.getByRole("group", { name: "Decimal places shown in results" }).getByRole("radio", { name: /^4 decimal places/ }).check();
+    await page.getByRole("button", { name: "Remove judge 3" }).click();
+    await page.getByRole("button", { name: "Remove judge 2" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
@@ -61,7 +61,7 @@ test.describe.serial("criteria scoring", () => {
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
 
     adminPath = new URL(page.url()).pathname;
-    code = (await page.locator("p").filter({ hasText: /^Code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Code ", "");
+    code = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Judge code ", "");
     await page.goto(`${adminPath}?tab=session`);
     livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
     await page.goto(`${adminPath}?tab=led`);

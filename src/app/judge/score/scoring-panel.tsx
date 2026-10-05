@@ -28,8 +28,8 @@ type Props = {
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const NETWORK_ERROR = "The score didn't save. Check your connection and try again.";
 /** Error red that stays readable on the navy panels. */
-const ERROR_TEXT = "text-[#f4b4ae]";
-const ERROR_RING = "ring-3 ring-[#f4b4ae]";
+const ERROR_TEXT = "text-danger-soft";
+const ERROR_RING = "ring-3 ring-danger-soft";
 
 function WarningIcon() {
   return (

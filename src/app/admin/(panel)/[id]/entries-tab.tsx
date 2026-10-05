@@ -1,11 +1,13 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Entry } from "@/lib/types";
 import { addEntries, moveEntry, removeEntry, renameEntry, setEntryPhoto, type FormResult } from "../../actions";
+import { FormMessage } from "../form-message";
 
 function Arrow({ up }: { up?: boolean }) {
   return (
@@ -31,6 +33,9 @@ function EntryRow({
   started: boolean;
 }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
+  // Save shows only once the name has been edited, so an untouched list isn't a column of buttons.
+  const [name, setName] = useState(entry.name);
+  const dirty = name.trim() !== entry.name;
   const [moving, startMove] = useTransition();
   const move = (direction: -1 | 1) => startMove(async () => void (await moveEntry(entry.id, direction)));
   const [photoPending, startPhoto] = useTransition();
@@ -66,23 +71,23 @@ function EntryRow({
           <label htmlFor={`entry-${entry.id}`} className="sr-only">
             Entry {number} name
           </label>
-          <input id={`entry-${entry.id}`} name="name" required maxLength={120} defaultValue={entry.name} className="field max-w-md" />
-          <SubmitButton className="btn btn-quiet btn-sm" pendingLabel="Saving…">
-            Save
+          <input
+            id={`entry-${entry.id}`}
+            name="name"
+            required
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="field max-w-md"
+          />
+          <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible"}`} pendingLabel="Saving…">
+            Save<span className="sr-only"> {entry.name}</span>
           </SubmitButton>
-          {state && !state.ok && (
-            <span role="alert" className="text-sm font-semibold text-danger">
-              {state.error}
-            </span>
-          )}
+          <FormMessage state={state?.ok ? null : state} small />
         </form>
-        {photoError && (
-          <p role="alert" className="text-sm font-semibold text-danger">
-            {photoError}
-          </p>
-        )}
+        <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {entry.photoUrl && !photoPending && (
-          <button type="button" className="text-sm font-semibold text-regal hover:underline" onClick={() => changePhoto(null, null)}>
+          <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
             Remove photo
           </button>
         )}
@@ -90,7 +95,7 @@ function EntryRow({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          className="btn btn-quiet btn-sm px-2.5"
+          className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
           onClick={() => move(-1)}
           disabled={started || isFirst || moving}
           aria-label={`Move ${entry.name} up`}
@@ -99,7 +104,7 @@ function EntryRow({
         </button>
         <button
           type="button"
-          className="btn btn-quiet btn-sm px-2.5"
+          className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
           onClick={() => move(1)}
           disabled={started || isLast || moving}
           aria-label={`Move ${entry.name} down`}
@@ -107,7 +112,11 @@ function EntryRow({
           <Arrow />
         </button>
         <ConfirmDialog
-          triggerLabel="Remove"
+          triggerLabel={
+            <>
+              Remove<span className="sr-only"> {entry.name}</span>
+            </>
+          }
           triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
           triggerDisabled={started && scored > 0}
           title={`Remove ${entry.name}?`}
@@ -135,15 +144,14 @@ function AddEntriesForm({ activityId }: { activityId: string }) {
         rows={4}
         required
         className="field h-auto py-2.5 leading-relaxed"
-        placeholder={"Maria Santos\nJuan dela Cruz"}
+        aria-describedby="new-entries-hint"
       />
+      <p id="new-entries-hint" className="hint">
+        For example, a contestant&apos;s name or number on each line. They join the end of the running order.
+      </p>
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>
-        {state && (
-          <p role={state.ok ? "status" : "alert"} className={`text-sm ${state.ok ? "text-regal" : "font-semibold text-danger"}`}>
-            {state.ok ? state.message : state.error}
-          </p>
-        )}
+        <FormMessage state={state} small />
       </div>
     </form>
   );
@@ -168,35 +176,54 @@ export function EntriesTab({
     <div className="max-w-3xl">
       <h2 className="text-xl font-bold">Entries</h2>
       {ended ? (
-        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
-          Judging has ended, so entries can&apos;t be changed.
-        </p>
+        <>
+          <p role="note" className="note mt-3">
+            Judging has ended, so entries can&apos;t be changed.
+          </p>
+          {/* Like the locked judges: a list to read, not a page of disabled forms. */}
+          <ol className="mt-4 divide-y divide-line border-y border-line">
+            {entries.map((e, i) => {
+              const scored = scoredFor[e.id] ?? 0;
+              return (
+                <li key={e.id} className="flex items-center gap-4 py-3">
+                  <span className="tabular w-8 text-right font-semibold text-prussian/70">{i + 1}</span>
+                  {e.photoUrl && <Avatar name={e.name} src={e.photoUrl} size={48} square />}
+                  <span className="min-w-0 flex-1 truncate font-semibold">{e.name}</span>
+                  <span className="tabular hint shrink-0">
+                    {scored} {scored === 1 ? "score" : "scores"}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       ) : started ? (
-        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
-          The session has started, so the running order is locked and entries with scores can&apos;t be removed. You can still add and rename entries
-          and change their photos.
+        <p role="note" className="note mt-3">
+          The session has started, so the running order is locked and entries with scores can&apos;t be removed.
         </p>
       ) : null}
-      <fieldset disabled={ended} className="min-w-0">
-        {entries.length === 0 ? (
-          <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
-        ) : (
-          <ol className="mt-4 divide-y divide-line border-y border-line">
-            {entries.map((e, i) => (
-              <EntryRow
-                key={e.id}
-                entry={e}
-                number={i + 1}
-                isFirst={i === 0}
-                isLast={i === entries.length - 1}
-                scored={scoredFor[e.id] ?? 0}
-                started={started}
-              />
-            ))}
-          </ol>
-        )}
-      </fieldset>
-      {!ended && <AddEntriesForm activityId={activityId} />}
+      {!ended && (
+        <div className="min-w-0">
+          {entries.length === 0 ? (
+            <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
+          ) : (
+            <ol className="mt-4 divide-y divide-line border-y border-line">
+              {entries.map((e, i) => (
+                <EntryRow
+                  key={e.id}
+                  entry={e}
+                  number={i + 1}
+                  isFirst={i === 0}
+                  isLast={i === entries.length - 1}
+                  scored={scoredFor[e.id] ?? 0}
+                  started={started}
+                />
+              ))}
+            </ol>
+          )}
+          <AddEntriesForm activityId={activityId} />
+        </div>
+      )}
     </div>
   );
 }

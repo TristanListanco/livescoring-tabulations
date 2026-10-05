@@ -14,7 +14,7 @@ export function ThemeToggle({ initial }: { initial: AdminTheme }) {
   };
 
   return (
-    <button type="button" onClick={toggle} aria-pressed={theme === "dark"} className="btn btn-sm text-powder hover:bg-oxford hover:text-mint">
+    <button type="button" onClick={toggle} aria-pressed={theme === "dark"} className="btn btn-sm text-powder hover:bg-oxford hover:text-mint aria-pressed:bg-oxford aria-pressed:text-mint">
       {theme === "dark" ? (
         <svg viewBox="0 0 20 20" className="size-4" aria-hidden>
           <path d="M16.5 12.2A7 7 0 017.8 3.5a7 7 0 108.7 8.7z" fill="currentColor" />

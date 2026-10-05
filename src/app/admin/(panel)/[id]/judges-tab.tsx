@@ -8,22 +8,14 @@ import { SubmitButton } from "@/components/submit-button";
 import type { Judge } from "@/lib/types";
 import { MAX_NAME_PART, nameParts } from "@/lib/names";
 import { addJudge, removeJudge, renameJudge, setJudgePhoto, type FormResult } from "../../actions";
-
-function FormMessage({ state }: { state: FormResult }) {
-  if (!state) return null;
-  return state.ok ? (
-    <p role="status" className="text-sm text-regal">
-      {state.message}
-    </p>
-  ) : (
-    <p role="alert" className="text-sm font-semibold text-danger">
-      {state.error}
-    </p>
-  );
-}
+import { FormMessage } from "../form-message";
 
 function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameJudge.bind(null, judge.id), null);
+  // Save shows only once a name has been edited.
+  const initial = nameParts(judge);
+  const [edited, setEdited] = useState(initial);
+  const dirty = edited.first.trim() !== initial.first || edited.last.trim() !== initial.last;
   const [photoPending, startPhoto] = useTransition();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -51,20 +43,19 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
 
       <div className="min-w-0 flex-1 space-y-2">
         <form action={rename} className="flex max-w-xl flex-wrap items-end gap-2">
-          <NameFields idPrefix={judge.id} initial={nameParts(judge)} />
-          <SubmitButton className="btn btn-quiet" pendingLabel="Saving…">
-            Save
+          <NameFields idPrefix={judge.id} value={edited} onChange={setEdited} />
+          <SubmitButton className={`btn btn-quiet ${dirty ? "" : "invisible max-sm:hidden"}`} pendingLabel="Saving…">
+            Save<span className="sr-only"> {judge.name}</span>
           </SubmitButton>
         </form>
-        <FormMessage state={state} />
-        {photoError && (
-          <p role="alert" className="text-sm font-semibold text-danger">
-            {photoError}
-          </p>
-        )}
+        <FormMessage state={state} small />
+        <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {judge.isChair && (
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <span className="rounded-full bg-regal px-2.5 py-0.5 font-semibold text-mint">Chair of the board of judges</span>
+          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
+            <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">
+              Chair<span className="sr-only"> of the board of judges</span>
+            </span>
+            <span className="hint">Can move judging to the previous or next entry from their own screen.</span>
           </p>
         )}
         <p className="hint tabular">
@@ -72,7 +63,7 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
           {judge.photoUrl && !photoPending && (
             <>
               {" "}
-              <button type="button" className="ml-2 font-semibold text-regal hover:underline" onClick={() => changePhoto(null, null)}>
+              <button type="button" className="text-action ml-2" onClick={() => changePhoto(null, null)}>
                 Remove photo
               </button>
             </>
@@ -81,7 +72,11 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
       </div>
 
       <ConfirmDialog
-        triggerLabel="Remove"
+        triggerLabel={
+          <>
+            Remove<span className="sr-only"> {judge.name}</span>
+          </>
+        }
         triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
         // The chair is decided when the activity is created.
         triggerDisabled={judge.isChair}
@@ -99,21 +94,26 @@ function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
   );
 }
 
+type Name = { first: string; last: string };
+
 /** First and last name. The full name goes on the results PDF; the LED wall shows the first name. */
-function NameFields({ idPrefix, initial }: { idPrefix: string; initial?: { first: string; last: string } }) {
+function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: Name; onChange?: (name: Name) => void }) {
+  // Controlled when editing a judge (so Save can appear on change), uncontrolled when adding one.
+  const bind = (key: keyof Name) =>
+    value && onChange ? { value: value[key], onChange: (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...value, [key]: e.target.value }) } : {};
   return (
     <>
       <div className="min-w-36 flex-1">
         <label htmlFor={`${idPrefix}-first`} className="mb-1 block text-sm font-semibold">
           First name
         </label>
-        <input id={`${idPrefix}-first`} name="first_name" required maxLength={MAX_NAME_PART} defaultValue={initial?.first} className="field" />
+        <input id={`${idPrefix}-first`} name="first_name" required maxLength={MAX_NAME_PART} {...bind("first")} className="field" />
       </div>
       <div className="min-w-36 flex-1">
         <label htmlFor={`${idPrefix}-last`} className="mb-1 block text-sm font-semibold">
           Last name
         </label>
-        <input id={`${idPrefix}-last`} name="last_name" required maxLength={MAX_NAME_PART} defaultValue={initial?.last} className="field" />
+        <input id={`${idPrefix}-last`} name="last_name" required maxLength={MAX_NAME_PART} {...bind("last")} className="field" />
       </div>
     </>
   );
@@ -130,7 +130,7 @@ function AddJudgeForm({ activityId }: { activityId: string }) {
           <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
         </div>
       </fieldset>
-      <FormMessage state={state} />
+      <FormMessage state={state} small />
     </form>
   );
 }
@@ -152,8 +152,8 @@ export function JudgesTab({
     return (
       <div className="max-w-3xl">
         <h2 className="text-xl font-bold">Judges</h2>
-        <p role="note" className="mt-3 rounded-lg bg-wash px-4 py-3 text-[15px]">
-          Judges can&apos;t change once the session has started.
+        <p role="note" className="note mt-3">
+          The session has started, so the panel of judges is locked.
         </p>
         <ul className="mt-4 divide-y divide-line border-y border-line">
           {judges.map((j) => {
@@ -165,7 +165,9 @@ export function JudgesTab({
                   <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                     <span className="truncate text-lg font-semibold">{j.name}</span>
                     {j.isChair && (
-                      <span className="rounded-full bg-regal px-2.5 py-0.5 text-sm font-semibold text-mint">Chair of the board of judges</span>
+                      <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">
+                        Chair<span className="sr-only"> of the board of judges</span>
+                      </span>
                     )}
                   </p>
                   <p className="hint tabular">
