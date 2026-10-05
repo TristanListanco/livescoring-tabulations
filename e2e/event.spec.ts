@@ -305,6 +305,16 @@ test.describe.serial("a full event", () => {
     await expect(led.locator('[data-transition="fade"]')).toHaveCount(1);
     await page.getByLabel("Wipe").check();
     await expect(led.locator('[data-transition="wipe"]')).toHaveCount(1, REALTIME);
+
+    // Judges can be kept anonymous on the wall: no names or photos, a "?" each instead. Scores still show.
+    const anonymous = page.getByRole("switch", { name: "Keep judges anonymous" });
+    await anonymous.click();
+    await expect(led.getByText("Ana", { exact: true })).toHaveCount(0, REALTIME);
+    await expect(led.getByText("Ben", { exact: true })).toHaveCount(0);
+    await expect(led.locator("img:not([data-entry-photo])")).toHaveCount(0);
+    await expect(led.getByText("Scored", { exact: true })).toBeVisible();
+    await anonymous.click();
+    await expect(led.getByText("Ana", { exact: true })).toBeVisible(REALTIME);
     await led.context().close();
   });
 

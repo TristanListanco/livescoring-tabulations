@@ -20,8 +20,11 @@ export type LedScene =
       kind: "entry";
       entry: Entry;
       number: number;
-      /** label: what the wall calls the judge, their first name (see firstNames). */
-      tiles: { judge: Judge; label: string; state: TileState; value: number | null }[];
+      /**
+       * label: what the wall calls the judge, their first name (see firstNames); null when the activity keeps
+       * judges anonymous, and the wall shows a "?" instead of their name and photo.
+       */
+      tiles: { judge: Judge; label: string | null; state: TileState; value: number | null }[];
       /** hidden while held back; running while judges are still scoring; final once all have. value: as shown (see rankEntries). */
       average: { state: "none" | "hidden" | "running" | "final"; value: number | null; count: number; total: number };
     };
@@ -36,7 +39,7 @@ export function ledScene(board: Board): LedScene {
   const hold = activity.ledHoldScores && !complete;
   const labels = firstNames(judges);
   const tiles = judges.map((judge) => {
-    const label = labels.get(judge.id) ?? judge.name;
+    const label = activity.ledAnonymous ? null : (labels.get(judge.id) ?? judge.name);
     const value = row.scores.get(judge.id);
     if (value === undefined) return { judge, label, state: "waiting" as const, value: null };
     return hold ? { judge, label, state: "submitted" as const, value: null } : { judge, label, state: "shown" as const, value };

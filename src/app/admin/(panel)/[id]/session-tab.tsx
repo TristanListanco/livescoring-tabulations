@@ -588,6 +588,7 @@ export function SessionTab({
                   <span className="font-semibold">LED wall</span>{" "}
                   <span className="text-prussian/70">
                     {activity.ledFullscreen ? "full screen" : "lower third"}, {activity.ledTransition === "wipe" ? "wipe" : "fade"}
+                    {activity.ledAnonymous && ", anonymous judges"}
                   </span>
                 </Link>
                 <CopyButton value={ledUrl} className={textAction} />
@@ -763,7 +764,7 @@ export function SessionTab({
         <LinkField url={ledUrl} openLabel="LED wall" className="mt-3" />
         <p className="hint mt-2">
           Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"} with a{" "}
-          {activity.ledTransition === "wipe" ? "wipe" : "fade"}.{" "}
+          {activity.ledTransition === "wipe" ? "wipe" : "fade"}.{activity.ledAnonymous && " Judges stay anonymous."}{" "}
           <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
             Change the display
           </Link>

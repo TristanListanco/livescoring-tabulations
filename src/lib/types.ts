@@ -37,6 +37,8 @@ export type Activity = {
   ledHoldScores: boolean;
   /** How entries and scores appear on the LED wall: a fade, or a wipe from the left. */
   ledTransition: LedTransition;
+  /** LED wall keeps judges anonymous: a "?" in place of each judge's name and photo. */
+  ledAnonymous: boolean;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;
