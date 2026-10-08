@@ -1,4 +1,5 @@
-import type { Activity, Entry } from "./types";
+import { roundPool } from "./pageant";
+import type { Activity, Board, Entry } from "./types";
 
 /**
  * What a judge's screen shows. The organizer drives judging: judges never pick entries themselves.
@@ -19,7 +20,8 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
   if (index < 0) return { kind: "waiting" };
   const entry = entries[index];
   const value = myScores.get(entry.id);
-  return value === undefined ? { kind: "scoring", entry, number: index + 1 } : { kind: "scored", entry, number: index + 1, value };
+  const number = entry.number ?? index + 1;
+  return value === undefined ? { kind: "scoring", entry, number } : { kind: "scored", entry, number, value };
 }
 
 /** Where the running order stands: the entry on judges' screens, and the ones before and after it. */
@@ -40,4 +42,19 @@ export function entryNeighbors(entries: Entry[], currentEntryId: string | null) 
  */
 export function showEntryColumns(entryId: string | null): Record<string, string | null> {
   return entryId ? { current_entry_id: entryId, led_entry_id: entryId } : { current_entry_id: null };
+}
+
+/**
+ * Database columns for showing judges an entry (null: have them wait), or why it can't be shown. In a pageant only
+ * a candidate in the sub-activity being judged can be shown, and showing one starts that sub-activity's timer.
+ */
+export function showColumns(board: Board, entryId: string | null, now: number): { columns: Record<string, string | null> } | { error: string } {
+  if (board.activity.kind !== "pageant") return { columns: showEntryColumns(entryId) };
+  const round = board.rounds.find((r) => r.id === board.activity.currentRoundId);
+  if (!round) return { error: "Choose the sub-activity to judge first." };
+  if (entryId && !roundPool(board, round.id).entries.some((e) => e.id === entryId)) {
+    return { error: `That candidate isn't in ${round.name}.` };
+  }
+  const closesAt = entryId && round.timerSeconds ? new Date(now + round.timerSeconds * 1000).toISOString() : null;
+  return { columns: { ...showEntryColumns(entryId), scoring_closes_at: closesAt } };
 }

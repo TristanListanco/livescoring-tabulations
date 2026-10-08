@@ -6,6 +6,7 @@ import { isProductionSite } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
 import { reportId } from "@/lib/report";
+import { programProgress } from "@/lib/pageant";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
@@ -16,13 +17,20 @@ import { EntriesTab } from "./entries-tab";
 import { JudgesTab } from "./judges-tab";
 import { LedTab } from "./led-tab";
 import { SessionTab } from "./session-tab";
+import { SegmentsTab } from "./segments-tab";
 import { SettingsTab } from "./settings-tab";
 
 /**
  * In the order of an event day: what runs the show (the session desk, judges' devices, the LED wall), then
  * what's set up beforehand, then the rehearsal tools off to the side.
  */
-const TABS = [
+type Tab = {
+  id: "session" | "access" | "led" | "judges" | "entries" | "segments" | "settings" | "developer";
+  label: string;
+  group: "show" | "setup" | "tools";
+};
+
+const TABS: Tab[] = [
   { id: "session", label: "Session", group: "show" },
   { id: "access", label: "Judge devices", group: "show" },
   { id: "led", label: "LED wall", group: "show" },
@@ -30,7 +38,17 @@ const TABS = [
   { id: "entries", label: "Entries", group: "setup" },
   { id: "settings", label: "Settings", group: "setup" },
   { id: "developer", label: "Developer", group: "tools" },
-] as const;
+];
+
+/** A pageant's entries are its candidates, and its program (segments and sub-activities) has a tab of its own. */
+const PAGEANT_TABS: Tab[] = TABS.flatMap((t): Tab[] =>
+  t.id === "entries"
+    ? [
+        { ...t, label: "Candidates" },
+        { id: "segments", label: "Segments", group: "setup" },
+      ]
+    : [t],
+);
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -54,12 +72,15 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const { activity, judges, entries, scores } = board;
   // Before judging starts the organizer needs the codes; once it's live, the session controls.
   // Developer tools are for rehearsals; the live site only offers deleting the activity, from Settings.
-  const tabs = isProductionSite() ? TABS.filter((t) => t.id !== "developer") : TABS;
+  const pageant = activity.kind === "pageant";
+  const allTabs = pageant ? PAGEANT_TABS : TABS;
+  const tabs = isProductionSite() ? allTabs.filter((t) => t.id !== "developer") : allTabs;
   const tab = tabs.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
   const started = activity.sessionState !== "draft";
   const devices = await listDevices(judges.map((j) => j.id));
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
-  const progress = scoreProgress(board);
+  // A pageant's progress counts every sub-activity: each judge scoring each candidate still in it.
+  const progress = pageant ? programProgress(board) : scoreProgress(board);
   // When this board was read, so the session desk can say how fresh it is if realtime drops. A Server Component
   // renders once per request, so the clock here is simply the request time.
   // eslint-disable-next-line react-hooks/purity
@@ -168,7 +189,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             judges={judges}
             codes={await getAccessCodes(judges.map((j) => j.id))}
             scoredBy={scoredBy}
-            entryCount={entries.length}
+            // A pageant judge scores each candidate once per sub-activity they're judged in.
+            entryCount={pageant && judges.length ? progress.possible / judges.length : entries.length}
           />
         )}
         {tab === "session" && (
@@ -192,8 +214,10 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             scoredFor={Object.fromEntries(scoredFor)}
             started={started}
             ended={activity.sessionState === "ended"}
+            pageant={pageant}
           />
         )}
+        {tab === "segments" && pageant && <SegmentsTab board={board} />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
         {tab === "settings" && (
           <SettingsTab

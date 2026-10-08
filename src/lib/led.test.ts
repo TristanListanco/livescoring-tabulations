@@ -15,6 +15,7 @@ function board(options: { hold: boolean; onAir: string | null; scores: [string, 
       { id: "e2", name: "Bagwis", photoUrl: null, position: 1 },
     ],
     scores: options.scores.map(([entryId, judgeId, value]) => ({ entryId, judgeId, value })),
+    rounds: [],
   };
 }
 

@@ -8,6 +8,7 @@ import { LiveStatusBadge } from "@/components/live-status";
 import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { entryNeighbors } from "@/lib/judging";
+import { showingBoard } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, Signatory } from "@/lib/types";
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
@@ -15,6 +16,7 @@ import { setCurrentEntry, setSessionState } from "../../actions";
 import { FormMessage } from "../form-message";
 import { LinkField } from "../link-field";
 import { ApproveDeviceButton } from "./judge-devices";
+import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
@@ -190,8 +192,16 @@ export function SessionTab({
   liveQr: string;
   ledUrl: string;
 }) {
-  const connection = useLiveRefresh(board.activity.id);
-  const { activity, judges, entries, scores } = board;
+  const pageant = board.activity.kind === "pageant";
+  const connection = useLiveRefresh(board.activity.id, undefined, pageant);
+  // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
+  // lists every candidate, and the program says what to judge next.
+  const { board: shown, round } = showingBoard(board);
+  const between = pageant && !round;
+  const { activity, judges, entries, scores } = between ? { ...board, scores: [] } : shown;
+  const noun = pageant ? "candidate" : "entry";
+  const [cutOpen, setCutOpen] = useState<string | null>(null);
+  const cutDialog = pageant && <CutDialog key={cutOpen ?? "none"} board={board} roundId={cutOpen} onClose={() => setCutOpen(null)} />;
   const [current, setCurrent] = useOptimistic(activity.currentEntryId);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -243,6 +253,17 @@ export function SessionTab({
   const missing = progress.possible - progress.submitted;
   // The last entry fully scored: ending the session is the next thing to do, so the desk offers it right there.
   const lastOneIn = allIn && !next;
+  // In a pageant, the last candidate of a sub-activity leads to its cut, or the next sub-activity, instead.
+  const upNext = pageant ? nextUp(board, round) : null;
+  const nextClass = "btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full";
+  const pageantNext =
+    upNext?.kind === "cut" ? (
+      <button type="button" className={nextClass} onClick={() => setCutOpen(upNext.round.id)}>
+        {upNext.round.id === round?.id ? `Review the Top ${upNext.round.cutSize}` : `Review the ${upNext.round.name} cut`}
+      </button>
+    ) : upNext?.kind === "round" ? (
+      <JudgeRoundButton board={board} round={upNext.round} className={nextClass} label={`Next: ${upNext.round.name}`} onDone={setResult} />
+    ) : null;
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
 
   /**
@@ -392,7 +413,7 @@ export function SessionTab({
     entries.length > 0 && (
       <section aria-labelledby="running-order" className={compact ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <h2 id="running-order" className="font-bold">
-          Running order
+          {round ? `Running order: ${round.name}` : "Running order"}
         </h2>
         <ol
           ref={compact ? orderRef : undefined}
@@ -409,7 +430,7 @@ export function SessionTab({
                 data-on-air={onAir && live ? "true" : undefined}
                 className={`flex items-center ${compact ? "gap-3 px-2 py-2" : "gap-4 px-3 py-3"} ${onAir && live ? "bg-white" : ""}`}
               >
-                <span className={`tabular text-right font-semibold text-prussian/70 ${compact ? "w-6" : "w-8"}`}>{i + 1}</span>
+                <span className={`tabular text-right font-semibold text-prussian/70 ${compact ? "w-6" : "w-8"}`}>{e.number ?? i + 1}</span>
                 <span className="min-w-0 flex-1 truncate font-semibold" title={e.name}>
                   {e.name}
                 </span>
@@ -426,7 +447,7 @@ export function SessionTab({
                     </>
                   )}
                 </span>
-                {state === "draft" ? null : state === "ended" ? (
+                {state === "draft" || between ? null : state === "ended" ? (
                   // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                   <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
                     {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
@@ -470,91 +491,123 @@ export function SessionTab({
           <div className="flex items-start justify-between gap-4 px-6 pt-4">
             <div className="min-w-0 flex-1">
               <h2 id="desk-heading" className="text-sm text-powder">
-                {entry ? `Now judging: No. ${index + 1} of ${entries.length}` : "On judges' screens"}
+                {round && <span className="font-semibold text-mint">{round.name} · </span>}
+                {entry
+                  ? entry.number
+                    ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
+                    : `Now judging: No. ${index + 1} of ${entries.length}`
+                  : between
+                    ? "Between sub-activities"
+                    : "On judges' screens"}
               </h2>
               <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-bold text-balance wrap-anywhere">
-                {entry ? entry.name : "Judges are waiting for an entry"}
+                {entry ? entry.name : between ? "Choose what to judge next" : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
-              {!lastOneIn && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+              {(!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
             </div>
           </div>
+          {round && <DeskTimer activity={activity} round={round} renderedAt={renderedAt} />}
           {/* A success ("The session has ended…") is what the desk now shows anyway, so it's announced, not repeated on screen. */}
           <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
 
-          <div tabIndex={0} role="region" aria-label="Judges" className="@container mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-3">
-            <ul className="grid gap-2 @sm:grid-cols-2 @2xl:grid-cols-4">
-              {judges.map((j) => (
-                <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={entry ? scoredBy.has(j.id) : null} stacked />
-              ))}
-            </ul>
-          </div>
-
-          {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
-          <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
-            {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
-            <p role="status" className="line-clamp-2 min-w-48 flex-1 leading-snug font-semibold">
-              {entry &&
-                (allIn
-                  ? next
-                    ? `Every judge has scored ${entry.name}.`
-                    : `Every judge has scored ${entry.name}. That was the last entry.`
-                  : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${names(stillScoring)}.`)}
-            </p>
-            {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
-            {previous ? (
-              moveControl({
-                target: previous,
-                kind: "previous",
-                label: (
-                  <>
-                    {kbd("←")}
-                    Previous entry
-                  </>
-                ),
-                className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
-                title: `Go back to ${previous.name}?`,
-                confirmLabel: "Go back anyway",
-                keyShortcuts: "ArrowLeft",
-              })
-            ) : (
-              <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
-                Previous entry
-              </button>
-            )}
-            {lastOneIn ? (
-              endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")
-            ) : next ? (
-              moveControl({
-                target: next,
-                kind: "next",
-                label: (
-                  <>
-                    <span className="truncate">{entry ? `Show next entry: ${next.name}` : "Show first entry"}</span>
-                    {kbd("→")}
-                  </>
-                ),
-                className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
-                title: `Move on to ${next.name}?`,
-                confirmLabel: "Move on anyway",
-                keyShortcuts: "ArrowRight Space",
-              })
-            ) : (
-              <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
-                {entry ? "No more entries" : "No entries yet"}
-              </button>
-            )}
-            {moveError && (
-              <p role="alert" className="basis-full text-sm font-semibold text-danger-soft max-sm:order-3">
-                {moveError}
+          {between ? (
+            <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
+              <p className="max-w-xl text-[15px] leading-relaxed text-powder">
+                Judges are waiting. Pick a sub-activity from the program to put its candidates on their screens.
               </p>
-            )}
-          </div>
+              {upNext?.kind === "round" && (
+                <JudgeRoundButton board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" label={`Judge ${upNext.round.name}`} onDone={setResult} />
+              )}
+              {upNext?.kind === "cut" && (
+                <button type="button" className="btn bg-mint text-prussian hover:bg-white" onClick={() => setCutOpen(upNext.round.id)}>
+                  Review the {upNext.round.cutSize === null ? "" : `Top ${upNext.round.cutSize} `}cut after {upNext.round.name}
+                </button>
+              )}
+              {!upNext && <p className="font-semibold">Every sub-activity is judged and every cut confirmed. End the session when you&apos;re ready.</p>}
+            </div>
+          ) : (
+            <>
+              <div tabIndex={0} role="region" aria-label="Judges" className="@container mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-3">
+                <ul className="grid gap-2 @sm:grid-cols-2 @2xl:grid-cols-4">
+                  {judges.map((j) => (
+                    <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={entry ? scoredBy.has(j.id) : null} stacked />
+                  ))}
+                </ul>
+              </div>
+
+              {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
+              <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
+                {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
+                <p role="status" className="line-clamp-2 min-w-48 flex-1 leading-snug font-semibold">
+                  {entry &&
+                    (allIn
+                      ? next
+                        ? `Every judge has scored ${entry.name}.`
+                        : `Every judge has scored ${entry.name}. That was the last entry.`
+                      : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${names(stillScoring)}.`)}
+                </p>
+                {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
+                {previous ? (
+                  moveControl({
+                    target: previous,
+                    kind: "previous",
+                    label: (
+                      <>
+                        {kbd("←")}
+                        {pageant ? "Previous candidate" : "Previous entry"}
+                      </>
+                    ),
+                    className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
+                    title: `Go back to ${previous.name}?`,
+                    confirmLabel: "Go back anyway",
+                    keyShortcuts: "ArrowLeft",
+                  })
+                ) : (
+                  <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
+                    {pageant ? "Previous candidate" : "Previous entry"}
+                  </button>
+                )}
+                {lastOneIn ? (
+                  (pageantNext ?? endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full"))
+                ) : next ? (
+                  moveControl({
+                    target: next,
+                    kind: "next",
+                    label: (
+                      <>
+                        <span className="truncate">{entry ? `Show next ${noun}: ${next.name}` : `Show first ${noun}`}</span>
+                        {kbd("→")}
+                      </>
+                    ),
+                    className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
+                    title: `Move on to ${next.name}?`,
+                    confirmLabel: "Move on anyway",
+                    keyShortcuts: "ArrowRight Space",
+                  })
+                ) : (
+                  <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
+                    {entry ? (pageant ? "No more candidates" : "No more entries") : pageant ? "No candidates" : "No entries yet"}
+                  </button>
+                )}
+                {moveError && (
+                  <p role="alert" className="basis-full text-sm font-semibold text-danger-soft max-sm:order-3">
+                    {moveError}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </section>
 
         <aside aria-label="Running order and screens" className="flex min-h-0 flex-col gap-4">
+          {pageant && (
+            <div className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto">
+              <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />
+            </div>
+          )}
           {runningOrder(true)}
 
           <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
@@ -596,7 +649,7 @@ export function SessionTab({
                   Open<span className="sr-only"> LED wall</span>
                 </a>
               </div>
-              {progress.complete && (
+              {progress.complete && !pageant && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
                   <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
                   <p className="text-[13px]">
@@ -607,6 +660,7 @@ export function SessionTab({
             </div>
           </section>
         </aside>
+        {cutDialog}
       </div>
     );
   }
@@ -648,7 +702,8 @@ export function SessionTab({
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
               <p className="min-w-56 flex-1 text-[15px] text-powder">
-                {entries.length} {entries.length === 1 ? "entry" : "entries"} in the running order.{" "}
+                {entries.length} {pageant ? (entries.length === 1 ? "candidate" : "candidates") : entries.length === 1 ? "entry" : "entries"} in the running
+                order.{" "}
                 {judges.length === 0 ? (
                   <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
                     Add judges
@@ -670,8 +725,9 @@ export function SessionTab({
                 confirmLabel="Start session"
                 onConfirm={() => changeState("live")}
               >
-                Judges&apos; screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when
-                you&apos;re ready.
+                {pageant
+                  ? "Judges' screens open, and the judges, running order and program lock. Choose the first sub-activity to judge when you're ready."
+                  : "Judges' screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when you're ready."}
                 {judges.length > 0 && unpaired.length > 0 && (
                   <span className="mt-3 block font-semibold text-prussian">
                     {names(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
@@ -702,7 +758,14 @@ export function SessionTab({
                 </ConfirmDialog>
               </div>
               <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-              {progress.complete ? (
+              {progress.complete && pageant ? (
+                <>
+                  <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
+                  <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
+                    Download each sub-activity&apos;s results, the cuts and the final results from the program below. Each sheet has its own report ID.
+                  </p>
+                </>
+              ) : progress.complete ? (
                 <>
                   <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
                   <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
@@ -717,12 +780,14 @@ export function SessionTab({
                     {missing} {missing === 1 ? "score is" : "scores are"} missing
                   </p>
                   <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                    The results PDF needs every judge&apos;s score for every entry. Reopen the session so the remaining judges can score.
+                    {pageant
+                      ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
+                      : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
                   </p>
                 </>
               )}
             </div>
-            {progress.complete && (
+            {progress.complete && !pageant && (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
                 <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white" />
                 {signatories && (
@@ -741,7 +806,9 @@ export function SessionTab({
         )}
       </div>
 
+      {pageant && <ProgramPanel board={board} live={false} onReviewCut={setCutOpen} />}
       {runningOrder(false)}
+      {cutDialog}
 
       <section aria-labelledby="live-results">
         <h2 id="live-results" className="font-bold">

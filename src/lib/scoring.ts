@@ -124,7 +124,7 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
     const count = mine.size;
     return {
       entry,
-      number: index + 1,
+      number: entry.number ?? index + 1,
       scores: mine,
       count,
       average: count ? roundShown(sum, 100 * count * divisor, rules.resultDecimals) : null,

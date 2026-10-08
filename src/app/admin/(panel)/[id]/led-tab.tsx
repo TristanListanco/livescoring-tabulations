@@ -79,7 +79,7 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
 }
 
 export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
-  useLiveRefresh(board.activity.id);
+  useLiveRefresh(board.activity.id, undefined, board.activity.kind === "pageant");
   const { activity, entries } = board;
   const [options, setOptions] = useOptimistic<LedOptions, Partial<LedOptions>>(
     { fullscreen: activity.ledFullscreen, holdScores: activity.ledHoldScores, transition: activity.ledTransition, anonymous: activity.ledAnonymous },

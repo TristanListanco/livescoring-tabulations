@@ -14,6 +14,7 @@ const board: Board = {
     { entryId: "e1", judgeId: "j1", value: 9.5 },
     { entryId: "e1", judgeId: "j2", value: 8.75 },
   ],
+  rounds: [],
 };
 
 describe("reportId", () => {

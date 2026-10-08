@@ -3,9 +3,10 @@
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
-import { getAdminCredentials } from "@/lib/data";
+import { randomUUID } from "node:crypto";
+import { getActivity, getAdminCredentials, getBoard } from "@/lib/data";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import type { ScoreRules } from "@/lib/scoring";
+import { checkScoring, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
   checkSuperAdminPassword,
   currentAdmin,
@@ -18,11 +19,13 @@ import {
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
 import { isProductionSite } from "@/lib/environment";
-import { showEntryColumns } from "@/lib/judging";
-import { fullName, MAX_NAME_PART } from "@/lib/names";
+import { showColumns, showEntryColumns } from "@/lib/judging";
+import { cutPlan, cutResult, programOrder, roundPool } from "@/lib/pageant";
+import { checkPageant, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
-import type { ActionResult, CriteriaDisplay, Criterion, Decimals, LedTransition, ResultDecimals, ScoringMode, SessionState } from "@/lib/types";
+import { PRELIMINARY, type ActionResult, type Board, type CriteriaDisplay, type LedTransition, type ResultDecimals, type SessionState } from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -74,74 +77,34 @@ function photoFile(value: FormDataEntryValue | null): File | null | "invalid" {
   return value;
 }
 
-function readRules(formData: FormData): { rules: ScoreRules } | { error: string } {
-  const decimals = Number(formData.get("decimals"));
-  if (decimals !== 0 && decimals !== 1 && decimals !== 2) return { error: "Choose how many decimal places judges can use." };
-
-  const minText = String(formData.get("min") ?? "").trim();
-  const maxText = String(formData.get("max") ?? "").trim();
-  const number = /^\d{1,4}(\.\d{1,2})?$/;
-  if (!number.test(minText) || !number.test(maxText)) {
-    return { error: "Min and max must be numbers from 0 to 9999." };
-  }
-  const places = (t: string) => t.split(".")[1]?.length ?? 0;
-  if (places(minText) > decimals || places(maxText) > decimals) {
-    return {
-      error:
-        decimals === 0
-          ? "Whole-number scoring needs a whole-number min and max."
-          : `Min and max can have at most ${decimals} decimal place${decimals > 1 ? "s" : ""}.`,
-    };
-  }
-  const min = Number(minText);
-  const max = Number(maxText);
-  if (max <= min) return { error: "Max score must be higher than min score." };
-  return { rules: { min, max, decimals: decimals as Decimals } };
-}
-
-type Scoring = { mode: ScoringMode; rules: ScoreRules; criteria: Criterion[]; display: CriteriaDisplay | null };
-
 /**
  * Simple scoring (min to max) or criteria (max points per criterion, adding up to 100; judges' totals
- * are then out of 100). Criteria keep their ids across edits so stored breakdowns still line up.
+ * are then out of 100), from the create form. The rules themselves live in checkScoring.
  */
 function readScoring(formData: FormData): { scoring: Scoring } | { error: string } {
   const displayValue = formData.get("criteria_display");
   const display: CriteriaDisplay | null = displayValue === "ten" ? "ten" : displayValue === "percent" ? "percent" : null;
-  if (formData.get("scoring_mode") !== "criteria") {
-    const parsed = readRules(formData);
-    return "error" in parsed ? parsed : { scoring: { mode: "simple", rules: parsed.rules, criteria: [], display } };
+  const mode = formData.get("scoring_mode") === "criteria" ? "criteria" : "simple";
+  let criteria: unknown = [];
+  if (mode === "criteria") {
+    try {
+      criteria = JSON.parse(String(formData.get("criteria") ?? "[]"));
+    } catch {
+      return { error: "The criteria couldn't be read. Try again." };
+    }
+    if (!Array.isArray(criteria)) return { error: "Add at least one criterion." };
   }
-
-  const decimals = Number(formData.get("decimals"));
-  if (decimals !== 0 && decimals !== 1 && decimals !== 2) return { error: "Choose how many decimal places judges can use." };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(String(formData.get("criteria") ?? "[]"));
-  } catch {
-    return { error: "The criteria couldn't be read. Try again." };
-  }
-  if (!Array.isArray(raw) || raw.length === 0) return { error: "Add at least one criterion." };
-  if (raw.length > 20) return { error: "An activity can have up to 20 criteria." };
-
-  const criteria: Criterion[] = [];
-  const names = new Set<string>();
-  for (const item of raw as { id?: unknown; name?: unknown; max?: unknown }[]) {
-    const name = String(item?.name ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 60);
-    const max = Number(item?.max);
-    if (!name) return { error: "Every criterion needs a name." };
-    if (names.has(name.toLowerCase())) return { error: `"${name}" is listed twice. Give each criterion its own name.` };
-    if (!Number.isInteger(max) || max < 1 || max > 100) return { error: `Give ${name} a max of 1 to 100 points.` };
-    names.add(name.toLowerCase());
-    const id = typeof item?.id === "string" && /^[a-z0-9]{1,40}$/.test(item.id) ? item.id : newCriterionId();
-    criteria.push({ id, name, max });
-  }
-  const total = criteria.reduce((sum, c) => sum + c.max, 0);
-  if (total !== 100) return { error: `The criteria add up to ${total} points. They must add up to 100.` };
-  return { scoring: { mode: "criteria", rules: { min: 0, max: 100, decimals: decimals as Decimals }, criteria, display } };
+  return checkScoring(
+    {
+      mode,
+      min: String(formData.get("min") ?? ""),
+      max: String(formData.get("max") ?? ""),
+      decimals: Number(formData.get("decimals")),
+      criteria: criteria as ScoringInput["criteria"],
+      display,
+    },
+    newCriterionId,
+  );
 }
 
 /** Columns for the scoring rules. The criteria columns are only written when they matter, so simple activities work on databases without migration 006. */
@@ -167,6 +130,9 @@ function readJudgeName(formData: FormData, prefix: string, who: string): { first
   const first = part("first_name");
   const last = part("last_name");
   if (!first || !last) return { error: `Enter ${who}'s first and last name.` };
+  // Names are letters (with the spaces, hyphens, apostrophes and periods names carry), never digits or symbols.
+  if (!isPersonName(first)) return { error: `Use letters only for ${who}'s first name.` };
+  if (!isPersonName(last)) return { error: `Use letters only for ${who}'s last name.` };
   return { first, last, name: fullName(first, last) };
 }
 
@@ -286,17 +252,216 @@ export async function logout() {
   redirect("/admin/login");
 }
 
+// Pageant programs ------------------------------------------------------------------
+
+const PAGEANT_HINT = "Pageant mode needs a database update. Run supabase/migrations/011_pageant_mode.sql in the Supabase SQL editor.";
+
+/**
+ * Write a pageant's sub-activities. `ids` maps the form's keys to saved sub-activities' ids; new ones get fresh
+ * ids, so cut bases (which name sub-activities by key) can be written in the same go. Upserts, so a saved program
+ * is updated in place.
+ */
+async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>) {
+  for (const r of rounds) if (!ids.has(r.key)) ids.set(r.key, randomUUID());
+  const rows = rounds.map((r) => ({
+    id: ids.get(r.key)!,
+    activity_id: activityId,
+    segment: r.segment,
+    name: r.name,
+    position: r.position,
+    weight: r.weight,
+    scoring_mode: r.scoring.mode,
+    min_score: r.scoring.rules.min,
+    max_score: r.scoring.rules.max,
+    decimals: r.scoring.rules.decimals,
+    criteria: r.scoring.criteria,
+    criteria_display: r.scoring.display ?? "percent",
+    timer_seconds: r.timerSeconds,
+    cut_size: r.cutSize,
+    cut_basis: r.cutBasis.map((k) => (k === PRELIMINARY ? k : ids.get(k))).filter(Boolean),
+  }));
+  check((await db().from("rounds").upsert(rows)).error);
+}
+
+/** The pageant an action addresses, as a board, when the signed-in admin manages it. */
+async function managedPageant(activityId: string): Promise<{ session: AdminSession; board: Board } | null> {
+  const session = await manage(activityId);
+  if (!session) return null;
+  const board = await getBoard(activityId);
+  return board && board.activity.kind === "pageant" ? { session, board } : null;
+}
+
+const PAGEANT_NOT_FOUND = err("Pageant not found.");
+
+/**
+ * Save a pageant's program from the Segments tab: segment shares, sub-activities, their scoring, timers and cuts.
+ * Only before the session starts, so the rules can't change once anyone has scored.
+ */
+export async function savePageant(activityId: string, json: string): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  if (board.activity.sessionState !== "draft") return err("The session has started, so the program is locked. Timers can still change.");
+  const draft = parsePageantDraft(json);
+  if (!draft) return err("The program couldn't be read. Try again.");
+  const checked = checkPageant(draft, board.entries.length, newCriterionId);
+  if (!checked.ok) return err(checked.error);
+
+  // Saved sub-activities come back keyed by their ids, so they're updated in place; insertProgram names the new ones.
+  const saved = new Set(board.rounds.map((r) => r.id));
+  const ids = new Map(draft.rounds.filter((r) => saved.has(r.key)).map((r) => [r.key, r.key]));
+  try {
+    await insertProgram(activityId, checked.rounds, ids);
+  } catch (e) {
+    return dbErr(e instanceof Error ? e : { message: String(e) });
+  }
+  const kept = new Set(ids.values());
+  const removed = board.rounds.filter((r) => !kept.has(r.id)).map((r) => r.id);
+  if (removed.length) {
+    const { error } = await db().from("rounds").delete().in("id", removed);
+    if (error) return dbErr(error);
+  }
+  const { error } = await db().from("activities").update({ preliminary_weight: checked.preliminaryWeight }).eq("id", activityId);
+  if (error) return dbErr(error);
+  refresh();
+  return ok("Program saved.");
+}
+
+/** A sub-activity's scoring timer, in seconds, or null to turn it off. It can change at any time, even mid-show. */
+export async function setRoundTimer(roundId: string, seconds: number | null): Promise<ActionResult> {
+  if (!isUuid(roundId)) return err("Sub-activity not found.");
+  const { data } = await db().from("rounds").select("activity_id").eq("id", roundId).maybeSingle();
+  const activityId = (data as { activity_id: string } | null)?.activity_id;
+  if (!activityId || !(await manage(activityId))) return err("Sub-activity not found.");
+  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 5 && seconds <= 3600)) return err("Set the timer from 5 to 3600 seconds, or turn it off.");
+  const { error } = await db().from("rounds").update({ timer_seconds: seconds }).eq("id", roundId);
+  if (error) return dbErr(error);
+  refresh();
+  return ok(seconds === null ? "Timer off." : `Judges get ${seconds} seconds to score each candidate.`);
+}
+
+/**
+ * Judge another sub-activity (or none, to have judges wait). Judges' screens wait for the first candidate.
+ * Refused while an earlier cut is waiting to be confirmed, because it decides who is judged.
+ */
+export async function setCurrentRound(activityId: string, roundId: string | null): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  if (board.activity.sessionState !== "live") return err("Start the session first.");
+  if (roundId !== null) {
+    const round = board.rounds.find((r) => r.id === roundId);
+    if (!round) return err("Sub-activity not found.");
+    const { blockedBy } = roundPool(board, round.id);
+    if (blockedBy) return err(`Confirm the ${blockedBy.name} cut first. It decides who is judged in ${round.name}.`);
+  }
+  const { error } = await db()
+    .from("activities")
+    .update({ current_round_id: roundId, current_entry_id: null, led_entry_id: null, scoring_closes_at: null })
+    .eq("id", activityId);
+  if (error) return dbErr(error);
+  refresh();
+  return ok();
+}
+
+/** Restart the timer for the candidate on screen, or give judges 15 more seconds. Reopens scoring once it has closed. */
+export async function extendScoring(activityId: string, how: "restart" | "more"): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { activity, rounds } = found.board;
+  const round = rounds.find((r) => r.id === activity.currentRoundId);
+  if (activity.sessionState !== "live" || !round || !activity.currentEntryId) return err("Show a candidate first.");
+  if (!round.timerSeconds) return err(`${round.name} has no timer.`);
+  const now = Date.now();
+  const from = Math.max(now, activity.scoringClosesAt ? Date.parse(activity.scoringClosesAt) : now);
+  const closesAt = how === "restart" ? now + round.timerSeconds * 1000 : from + 15_000;
+  const { error } = await db().from("activities").update({ scoring_closes_at: new Date(closesAt).toISOString() }).eq("id", activityId);
+  if (error) return dbErr(error);
+  refresh();
+  return ok();
+}
+
+/**
+ * Confirm a cut once every score in its basis is in. `picks` breaks the ties the plan lists, in order (see
+ * cutResult). The candidates who go through are the only ones judged from the next sub-activity on, and the
+ * final cut's order is the final placement.
+ */
+export async function confirmCut(activityId: string, roundId: string, picks: string[][]): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  if (board.activity.sessionState === "draft") return err("Start the session first.");
+  const round = board.rounds.find((r) => r.id === roundId);
+  if (!round || round.cutSize === null) return err("That cut isn't part of this pageant.");
+  if (round.cutEntryIds !== null) return err("That cut is already confirmed.");
+  const plan = cutPlan(board, round);
+  const cleanPicks = Array.isArray(picks) ? picks.map((p) => (Array.isArray(p) ? p.map(String) : [])) : [];
+  const result = cutResult(plan, cleanPicks);
+  if (!result.ok) return err(result.error);
+  const { error } = await db().from("rounds").update({ cut_entry_ids: result.entryIds }).eq("id", roundId).is("cut_entry_ids", null);
+  if (error) return dbErr(error);
+  refresh();
+  if (plan.final) return ok("Final results confirmed.");
+  const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
+  return ok(`Top ${result.entryIds.length} confirmed.${next ? ` ${next.name} judges these ${result.entryIds.length} candidates.` : ""}`);
+}
+
+/** Take back a confirmed cut, as long as nobody has scored the sub-activities after it yet. */
+export async function undoCut(activityId: string, roundId: string): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  const order = programOrder(board.rounds);
+  const index = order.findIndex((r) => r.id === roundId);
+  if (index < 0 || order[index].cutEntryIds === null) return err("That cut isn't confirmed.");
+  const later = new Set(order.slice(index + 1).map((r) => r.id));
+  if (board.scores.some((s) => s.roundId && later.has(s.roundId))) {
+    return err("Judges have already scored after this cut, so it can't be taken back.");
+  }
+  const { error } = await db().from("rounds").update({ cut_entry_ids: null }).eq("id", roundId);
+  if (error) return dbErr(error);
+  // Nobody can be judged after an unconfirmed cut, so a later sub-activity on screen goes back to waiting.
+  if (board.activity.currentRoundId && later.has(board.activity.currentRoundId)) {
+    await db().from("activities").update({ current_round_id: null, current_entry_id: null, scoring_closes_at: null }).eq("id", activityId);
+  }
+  refresh();
+  return ok("The cut is open again.");
+}
+
 // Activities ------------------------------------------------------------------
 
+/**
+ * Create an event, or (kind=pageant) a pageant: candidates, judges and a program of sub-activities from the
+ * pageant setup, sent as JSON in `pageant`.
+ */
 export async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const session = await requireAdmin();
+  const pageant = formData.get("kind") === "pageant";
 
   const name = cleanName(formData.get("name"));
-  if (!name) return err("Give the activity a name.");
-  const parsed = readScoring(formData);
-  if ("error" in parsed) return err(parsed.error);
+  if (!name) return err(pageant ? "Give the pageant a name." : "Give the activity a name.");
   const resultDecimals = readResultDecimals(formData);
   if (typeof resultDecimals !== "number") return err(resultDecimals.error);
+
+  const entries = entryNames(formData.get("entries"));
+  if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
+
+  // An event's scoring, or a pageant's program; a pageant scores in its sub-activities, so its own range is a placeholder.
+  let columns: Record<string, unknown>;
+  let program: CheckedRound[] = [];
+  if (pageant) {
+    if (entries.length < 2) return err("A pageant needs at least two candidates.");
+    const draft = parsePageantDraft(String(formData.get("pageant") ?? ""));
+    if (!draft) return err("The pageant's program couldn't be read. Try again.");
+    const checked = checkPageant(draft, entries.length, newCriterionId);
+    if (!checked.ok) return err(checked.error);
+    program = checked.rounds;
+    columns = { kind: "pageant", preliminary_weight: checked.preliminaryWeight, min_score: 0, max_score: 100, decimals: 2 };
+  } else {
+    const parsed = readScoring(formData);
+    if ("error" in parsed) return err(parsed.error);
+    columns = scoringColumns(parsed.scoring);
+  }
 
   const judgeCount = Number(formData.get("judgeCount"));
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
@@ -305,7 +470,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   const judges: { name: { first: string; last: string; name: string }; photo: File | null }[] = [];
   for (let i = 0; i < judgeCount; i++) {
     const judgeName = readJudgeName(formData, `judge-${i}-`, `judge ${i + 1}`);
-    if ("error" in judgeName) return err(judgeName.error.replace(/^Enter judge/, "Enter Judge"));
+    if ("error" in judgeName) return err(judgeName.error.replace(/\bjudge (\d+)/, "Judge $1"));
     const photo = photoFile(formData.get(`judge-${i}-photo`));
     if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
     judges.push({ name: judgeName, photo });
@@ -314,9 +479,6 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   const chairText = String(formData.get("chair") ?? "");
   const chair = /^\d+$/.test(chairText) && Number(chairText) < judgeCount ? Number(chairText) : null;
   if (chair === null) return err("Choose the chair of the board of judges.");
-
-  const entries = entryNames(formData.get("entries"));
-  if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
 
   const owner_id = session.kind === "organizer" ? session.admin.id : null;
   let activityId: string | null = null;
@@ -327,12 +489,13 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
         name,
         owner_id,
         public_id: newPublicId(),
-        ...scoringColumns(parsed.scoring),
+        ...columns,
         // Only written when changed, so databases without migration 007 can still create activities.
         ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
       })
       .select("id")
       .single();
+    if (error && /kind|preliminary_weight/.test(error.message)) return needsMigration(PAGEANT_HINT);
     if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
     if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
     if (error && error.code !== "23505") return dbErr(error);
@@ -342,6 +505,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
 
   const uploaded: string[] = [];
   try {
+    if (program.length) await insertProgram(activityId, program, new Map());
     const { data, error } = await db()
       .from("judges")
       // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
@@ -373,8 +537,9 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
     if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
+    if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
     console.error(e);
-    return err("The activity couldn't be created, and nothing was saved. Check the connection and try again.");
+    return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
   }
 
   redirect(`/admin/${activityId}`);
@@ -457,7 +622,12 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
     const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
     if (!data) return err("That entry isn't part of this activity.");
   }
-  const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activityId);
+  // A pageant shows only candidates in the sub-activity being judged, and starts its timer.
+  const activity = await getActivity(activityId);
+  const board = activity?.kind === "pageant" ? await getBoard(activityId) : null;
+  const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };
+  if ("error" in show) return err(show.error);
+  const { error } = await db().from("activities").update(show.columns).eq("id", activityId);
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   refresh();
   return ok();
@@ -719,6 +889,11 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (error) return dbErr(error);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
+  // A pageant also reopens its cuts and goes back to no sub-activity on screen.
+  if ((await getActivity(activityId))?.kind === "pageant") {
+    await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
+    await db().from("activities").update({ current_round_id: null, scoring_closes_at: null }).eq("id", activityId);
+  }
   refresh();
   return ok("All scores were deleted and the session is back to not started.");
 }

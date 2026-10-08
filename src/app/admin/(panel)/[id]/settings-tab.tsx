@@ -13,7 +13,14 @@ import { Section } from "../section";
 function ScoringSummary({ activity }: { activity: Activity }) {
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   const criteria = activity.scoringMode === "criteria";
-  const rows: [string, React.ReactNode][] = criteria
+  const rows: [string, React.ReactNode][] = activity.kind === "pageant"
+    ? [
+        ["Method", "Pageant: each sub-activity has its own scoring, on the Segments tab"],
+        ["Preliminary", `${formatBound(activity.preliminaryWeight)}% of the overall score`],
+        ["Pageant proper", `${formatBound(100 - activity.preliminaryWeight)}% of the overall score`],
+        ["Results show", places(activity.resultDecimals)],
+      ]
+    : criteria
     ? [
         ["Method", "Criteria"],
         [

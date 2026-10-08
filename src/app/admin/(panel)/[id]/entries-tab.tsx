@@ -131,12 +131,12 @@ function EntryRow({
   );
 }
 
-function AddEntriesForm({ activityId }: { activityId: string }) {
+function AddEntriesForm({ activityId, pageant }: { activityId: string; pageant: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(addEntries.bind(null, activityId), null);
   return (
     <form action={action} className="mt-8 max-w-xl space-y-2">
       <label htmlFor="new-entries" className="label">
-        Add entries, one per line
+        {pageant ? "Add candidates, one per line" : "Add entries, one per line"}
       </label>
       <textarea
         id="new-entries"
@@ -147,10 +147,12 @@ function AddEntriesForm({ activityId }: { activityId: string }) {
         aria-describedby="new-entries-hint"
       />
       <p id="new-entries-hint" className="hint">
-        For example, a contestant&apos;s name or number on each line. They join the end of the running order.
+        {pageant
+          ? "A candidate's name on each line. They join the end of the running order, and every sub-activity before the first cut judges them."
+          : "For example, a contestant's name or number on each line. They join the end of the running order."}
       </p>
       <div className="flex items-center gap-3">
-        <SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>
+        <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>
         <FormMessage state={state} small />
       </div>
     </form>
@@ -163,9 +165,12 @@ export function EntriesTab({
   scoredFor,
   started,
   ended,
+  pageant = false,
 }: {
   activityId: string;
   entries: Entry[];
+  /** A pageant calls its entries candidates. */
+  pageant?: boolean;
   scoredFor: Record<string, number>;
   /** Once the session has started the running order is fixed and scored entries stay. */
   started: boolean;
@@ -174,11 +179,11 @@ export function EntriesTab({
 }) {
   return (
     <div className="max-w-3xl">
-      <h2 className="text-xl font-bold">Entries</h2>
+      <h2 className="text-xl font-bold">{pageant ? "Candidates" : "Entries"}</h2>
       {ended ? (
         <>
           <p role="note" className="note mt-3">
-            Judging has ended, so entries can&apos;t be changed.
+            Judging has ended, so {pageant ? "candidates" : "entries"} can&apos;t be changed.
           </p>
           {/* Like the locked judges: a list to read, not a page of disabled forms. */}
           <ol className="mt-4 divide-y divide-line border-y border-line">
@@ -199,13 +204,15 @@ export function EntriesTab({
         </>
       ) : started ? (
         <p role="note" className="note mt-3">
-          The session has started, so the running order is locked and entries with scores can&apos;t be removed.
+          The session has started, so the running order is locked and {pageant ? "candidates" : "entries"} with scores can&apos;t be removed.
         </p>
       ) : null}
       {!ended && (
         <div className="min-w-0">
           {entries.length === 0 ? (
-            <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No entries yet. Add them below.</p>
+            <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">
+              {pageant ? "No candidates yet. Add them below." : "No entries yet. Add them below."}
+            </p>
           ) : (
             <ol className="mt-4 divide-y divide-line border-y border-line">
               {entries.map((e, i) => (
@@ -221,7 +228,7 @@ export function EntriesTab({
               ))}
             </ol>
           )}
-          <AddEntriesForm activityId={activityId} />
+          <AddEntriesForm activityId={activityId} pageant={pageant} />
         </div>
       )}
     </div>

@@ -6,9 +6,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import type { Judge } from "@/lib/types";
-import { MAX_NAME_PART, nameParts } from "@/lib/names";
+import { nameParts } from "@/lib/names";
 import { addJudge, removeJudge, renameJudge, setJudgePhoto, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
+import { PersonNameInput } from "../person-name-input";
 
 function JudgeRow({ judge, scored }: { judge: Judge; scored: number }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameJudge.bind(null, judge.id), null);
@@ -100,20 +101,20 @@ type Name = { first: string; last: string };
 function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: Name; onChange?: (name: Name) => void }) {
   // Controlled when editing a judge (so Save can appear on change), uncontrolled when adding one.
   const bind = (key: keyof Name) =>
-    value && onChange ? { value: value[key], onChange: (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...value, [key]: e.target.value }) } : {};
+    value && onChange ? { value: value[key], onValueChange: (typed: string) => onChange({ ...value, [key]: typed }) } : {};
   return (
     <>
-      <div className="min-w-36 flex-1">
+      <div className="min-w-36 flex-1 self-start">
         <label htmlFor={`${idPrefix}-first`} className="mb-1 block text-sm font-semibold">
           First name
         </label>
-        <input id={`${idPrefix}-first`} name="first_name" required maxLength={MAX_NAME_PART} {...bind("first")} className="field" />
+        <PersonNameInput id={`${idPrefix}-first`} name="first_name" part="first" required {...bind("first")} />
       </div>
-      <div className="min-w-36 flex-1">
+      <div className="min-w-36 flex-1 self-start">
         <label htmlFor={`${idPrefix}-last`} className="mb-1 block text-sm font-semibold">
           Last name
         </label>
-        <input id={`${idPrefix}-last`} name="last_name" required maxLength={MAX_NAME_PART} {...bind("last")} className="field" />
+        <PersonNameInput id={`${idPrefix}-last`} name="last_name" part="last" required {...bind("last")} />
       </div>
     </>
   );

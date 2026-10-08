@@ -4,11 +4,11 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
-import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
 import type { AdminAccount, Signatory } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
 import { FormMessage } from "../../form-message";
+import { PasswordField } from "../../password-field";
 import { Section } from "../../section";
 import { SignatoriesEditor } from "../../signatories-editor";
 
@@ -75,17 +75,7 @@ export function EditOrganizer({
         </Section>
 
         <Section title="Password" hint="Leave blank to keep their current password. A new one signs them out on their other devices.">
-          <label htmlFor="password" className="label">
-            New password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            minLength={MIN_PASSWORD_LENGTH}
-            autoComplete="new-password"
-            className="field max-w-md"
-          />
+          <PasswordField label="New password" optional />
         </Section>
 
         {/* Full width with its own rule, so it reads as saving the whole account (name, email and password), not just the password. */}

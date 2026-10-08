@@ -22,6 +22,14 @@
    * too dark to read. Those surfaces keep their colours in dark mode, so this has no dark variant.
    */
   --color-danger-soft: #f4b4ae;
+  /*
+   * A pageant's scoring timer, on the judges' screens and the session desk: green while judges can score, yellow
+   * as it's about to close, red once it has. Always under navy text (at least 5:1), and always with words and the
+   * time left, so the colour is never the only cue. Those surfaces keep their colours in dark mode.
+   */
+  --color-go: #4ade80;
+  --color-caution: #fbbf24;
+  --color-stop: #f87171;
 
   /* Avenir ships with Apple devices; Nunito Sans is the closest open fallback elsewhere. */
   --font-sans: "Avenir Next", Avenir, var(--font-nunito), ui-sans-serif, system-ui, sans-serif;

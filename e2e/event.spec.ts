@@ -17,8 +17,8 @@ import {
 // The organizer drives judging: judges wait for the session to start and score the entry they're shown.
 const RUN = Date.now().toString(36);
 const NAME = `E2E ${RUN}`;
-const ORGANIZER = { name: `E2E Organizer ${RUN}`, email: `e2e-${RUN}@example.com`, password: `e2e-pass-${RUN}` };
-const OTHER = { name: `E2E Other ${RUN}`, email: `e2e-other-${RUN}@example.com`, password: `e2e-pass-other-${RUN}` };
+const ORGANIZER = { name: `E2E Organizer ${RUN}`, email: `e2e-${RUN}@example.com`, password: `e2e-pass-${RUN}-1` };
+const OTHER = { name: `E2E Other ${RUN}`, email: `e2e-other-${RUN}@example.com`, password: `e2e-pass-other-${RUN}-2` };
 const REALTIME = { timeout: 20_000 };
 
 let adminPath = "";
