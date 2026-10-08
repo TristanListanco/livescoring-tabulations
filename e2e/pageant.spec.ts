@@ -182,7 +182,7 @@ test.describe.serial("a pageant", () => {
     await judgeCandidate(page, "Show next candidate: Bea", "Bea", "7", "7.00");
     await judgeCandidate(page, "Show next candidate: Cora", "Cora", "7", "7.00");
 
-    await page.getByRole("button", { name: "Review the Top 2" }).click();
+    await page.getByRole("button", { name: "Review the Top 2", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Cut: Top 2" });
     await expect(dialog).toContainText("Ranked by Interview 40%, Evening wear 60%.");
     // Ayla 90%, then Bea and Cora both at 74%: one place left, two candidates.
@@ -260,7 +260,7 @@ test.describe.serial("a pageant", () => {
     for (const judge of [ana, ben]) await submitScore(judge, "Cora", "10", "10.00");
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Cora." })).toBeVisible(REALTIME);
 
-    await page.getByRole("button", { name: "Review the Top 2" }).click();
+    await page.getByRole("button", { name: "Review the Top 2", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Final cut: Top 2" });
     await dialog.getByRole("button", { name: "Confirm the final results" }).click();
     await expect(dialog.getByRole("status").filter({ hasText: "Final results confirmed." })).toBeVisible();
