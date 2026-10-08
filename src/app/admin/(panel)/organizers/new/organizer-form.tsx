@@ -2,9 +2,9 @@
 
 import { useActionState, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
-import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
 import { createOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
+import { PasswordField } from "../../password-field";
 import { Section } from "../../section";
 
 export function OrganizerForm() {
@@ -52,22 +52,7 @@ export function OrganizerForm() {
       </Section>
 
       <Section title="Password">
-        <label htmlFor="password" className="label">
-          Password
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          autoComplete="new-password"
-          className="field max-w-md"
-          aria-describedby="password-hint"
-        />
-        <p id="password-hint" className="hint mt-1.5">
-          At least {MIN_PASSWORD_LENGTH} characters.
-        </p>
+        <PasswordField label="Password" />
       </Section>
 
       <div className="flex flex-wrap items-center gap-4 border-t border-line pt-6">

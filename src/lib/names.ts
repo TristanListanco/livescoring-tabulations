@@ -3,6 +3,21 @@ import type { Judge } from "./types";
 /** Longest first or last name. Together they fit the 120-character full name. */
 export const MAX_NAME_PART = 59;
 
+/**
+ * Whether a first or last name is made of letters: any alphabet, with accents (José, Ñora), plus the spaces,
+ * hyphens, apostrophes and periods real names carry ("Ma. Cristina", "Dela Cruz", "O'Neil", "Jean-Luc").
+ * Digits and other symbols are refused. It has to start with a letter.
+ */
+export function isPersonName(value: string): boolean {
+  return /^\p{L}[\p{L}\p{M} .'’-]*$/u.test(value.trim());
+}
+
+/** What's wrong with a name part, for the form, or null when it's fine (blank is left to `required`). */
+export function personNameProblem(value: string, part: "first" | "last"): string | null {
+  if (value.trim() === "" || isPersonName(value)) return null;
+  return `Use letters only for the ${part} name. Spaces, hyphens, apostrophes and periods are fine.`;
+}
+
 /** "Maria" and "Santos" → "Maria Santos": the full name on the results PDF and in the admin panel. */
 export function fullName(first: string, last: string): string {
   return `${first} ${last}`.replace(/\s+/g, " ").trim();

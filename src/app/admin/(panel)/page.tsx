@@ -3,11 +3,28 @@ import Link from "next/link";
 import { listActivities, listOrganizerActivities } from "@/lib/data";
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
+import type { Activity } from "@/lib/types";
 import { SessionStatus } from "./session-status";
 
 export const metadata: Metadata = { title: "Activities" };
 
 const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
+
+/** How an activity is scored, for the list: a pageant, criteria, or a range. */
+function scoringOf(a: Pick<Activity, "kind" | "scoringMode" | "criteria" | "min" | "max">, long: boolean): string {
+  if (a.kind === "pageant") return "Pageant";
+  if (a.scoringMode === "criteria") return long ? `${a.criteria.length} criteria, 100 points` : `${a.criteria.length} criteria`;
+  return `${formatBound(a.min)} to ${formatBound(a.max)}`;
+}
+
+/**
+ * Scores in so far. An event expects every judge's score for every entry; a pageant's total depends on its
+ * sub-activities and cuts, so the list just counts what's in.
+ */
+function scoresIn(a: { kind?: Activity["kind"]; scoreCount: number; judgeCount: number; entryCount: number }, unit = true): string {
+  if (a.kind === "pageant") return `${a.scoreCount} ${a.scoreCount === 1 ? "score" : "scores"}`;
+  return `${a.scoreCount} of ${a.judgeCount * a.entryCount}${unit ? " scores" : ""}`;
+}
 
 export default async function ActivitiesPage() {
   const session = await requireAdmin();
@@ -58,7 +75,7 @@ export default async function ActivitiesPage() {
                   <SessionStatus state={a.sessionState} pulse className="shrink-0 text-sm" />
                 </div>
                 <p className="hint tabular mt-0.5">
-                  {a.organizer} · {a.scoreCount} of {a.judgeCount * a.entryCount} scores · {dateFormat.format(new Date(a.createdAt))}
+                  {a.organizer} · {scoresIn(a)} · {dateFormat.format(new Date(a.createdAt))}
                 </p>
               </li>
             ))}
@@ -85,9 +102,7 @@ export default async function ActivitiesPage() {
                     <td className="px-4 py-3.5 whitespace-nowrap">
                       <SessionStatus state={a.sessionState} pulse />
                     </td>
-                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                      {a.scoreCount} of {a.judgeCount * a.entryCount}
-                    </td>
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">{scoresIn(a, false)}</td>
                     <td className="py-3.5 pl-4 text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
                   </tr>
                 ))}
@@ -119,11 +134,11 @@ export default async function ActivitiesPage() {
                   <SessionStatus state={a.sessionState} pulse className="shrink-0 text-sm" />
                 </div>
                 <p className="hint tabular mt-0.5">
-                  {a.scoringMode === "criteria" ? `${a.criteria.length} criteria` : `${formatBound(a.min)} to ${formatBound(a.max)}`} · {a.judgeCount}{" "}
-                  {a.judgeCount === 1 ? "judge" : "judges"} · {a.entryCount} {a.entryCount === 1 ? "entry" : "entries"}
+                  {scoringOf(a, false)} · {a.judgeCount} {a.judgeCount === 1 ? "judge" : "judges"} · {a.entryCount}{" "}
+                  {a.kind === "pageant" ? (a.entryCount === 1 ? "candidate" : "candidates") : a.entryCount === 1 ? "entry" : "entries"}
                 </p>
                 <p className="hint tabular">
-                  {a.scoreCount} of {a.judgeCount * a.entryCount} scores in · {dateFormat.format(new Date(a.createdAt))}
+                  {scoresIn(a)} in · {dateFormat.format(new Date(a.createdAt))}
                 </p>
               </li>
             ))}
@@ -158,14 +173,10 @@ export default async function ActivitiesPage() {
                     <td className="px-3 py-4">
                       <SessionStatus state={a.sessionState} pulse />
                     </td>
-                    <td className="px-3 py-4">
-                      {a.scoringMode === "criteria" ? `${a.criteria.length} criteria, 100 points` : `${formatBound(a.min)} to ${formatBound(a.max)}`}
-                    </td>
+                    <td className="px-3 py-4">{scoringOf(a, true)}</td>
                     <td className="px-3 py-4 text-right">{a.judgeCount}</td>
                     <td className="px-3 py-4 text-right">{a.entryCount}</td>
-                    <td className="px-3 py-4 text-right">
-                      {a.scoreCount} of {a.judgeCount * a.entryCount}
-                    </td>
+                    <td className="px-3 py-4 text-right">{scoresIn(a, false)}</td>
                     <td className="py-4 pl-3 text-right text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
                   </tr>
                 ))}

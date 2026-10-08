@@ -49,7 +49,7 @@ export function DeveloperTab({ activity, scoreCount }: { activity: Activity; sco
               }}
             >
               This deletes all {scoreCount} submitted scores for {activity.name} and puts the session back to not started. Judges can score every
-              entry again, and the judges and running order can be changed.
+              entry again, and the judges and running order can be changed.{activity.kind === "pageant" && " Every cut opens again."}
             </ConfirmDialog>
           }
         >

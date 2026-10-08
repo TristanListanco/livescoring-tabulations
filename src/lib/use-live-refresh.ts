@@ -17,9 +17,10 @@ const CONNECT_GRACE_MS = 8_000;
  * Realtime does the fast path. Polling, and refreshing whenever the page comes back into view, cover
  * connections that drop on venue Wi-Fi or while a phone's browser sits in the background (for example
  * while the camera scans a QR code). Screens that must react quickly, like a judge waiting for
- * approval, pass a shorter `pollMs`.
+ * approval, pass a shorter `pollMs`. Pageants pass `withRounds`, so a confirmed cut or a changed timer lands
+ * right away (only pageants: databases without migration 011 have no rounds table to follow).
  */
-export function useLiveRefresh(activityId: string, pollMs = 15_000): LiveStatus {
+export function useLiveRefresh(activityId: string, pollMs = 15_000, withRounds = false): LiveStatus {
   const router = useRouter();
   const [status, setStatus] = useState<LiveStatus>("connecting");
 
@@ -34,7 +35,7 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000): LiveStatus 
 
     const supabase = browserClient();
     const filter = `activity_id=eq.${activityId}`;
-    const channel = supabase
+    let channel = supabase
       .channel(`activity:${activityId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "scores", filter }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter }, refresh)
@@ -44,17 +45,18 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000): LiveStatus 
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "scores" }, refresh)
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "entries" }, refresh)
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "judges" }, refresh)
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "activities" }, refresh)
-      .subscribe((state) => {
-        if (state === "SUBSCRIBED") {
-          subscribed = true;
-          setStatus("live");
-          refresh(); // catch anything that changed while connecting
-        } else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT" || state === "CLOSED") {
-          subscribed = false;
-          fallback();
-        }
-      });
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "activities" }, refresh);
+    if (withRounds) channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "rounds", filter }, refresh);
+    channel.subscribe((state) => {
+      if (state === "SUBSCRIBED") {
+        subscribed = true;
+        setStatus("live");
+        refresh(); // catch anything that changed while connecting
+      } else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT" || state === "CLOSED") {
+        subscribed = false;
+        fallback();
+      }
+    });
 
     const grace = setTimeout(() => {
       if (!subscribed) fallback();
@@ -89,7 +91,7 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000): LiveStatus 
       window.removeEventListener("offline", onNetwork);
       void supabase.removeChannel(channel);
     };
-  }, [activityId, router, pollMs]);
+  }, [activityId, router, pollMs, withRounds]);
 
   return status;
 }

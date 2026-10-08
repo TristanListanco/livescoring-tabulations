@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { LiveStatusBadge } from "@/components/live-status";
+import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { applyKey, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
 import type { Activity, Entry, Judge } from "@/lib/types";
@@ -23,6 +24,10 @@ type Props = {
   gate: DeviceGate;
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
+  /** A pageant's sub-activity being judged now (its rules are already in `activity`). */
+  round: { name: string; timerSeconds: number | null } | null;
+  /** When the server rendered this page, so the scoring timer counts down on the server's clock. */
+  serverNow: number;
 };
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -55,8 +60,9 @@ function myScoreText(value: number, activity: Activity): string {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }: Props) {
-  const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS);
+export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow }: Props) {
+  const pageant = activity.kind === "pageant";
+  const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, pageant);
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
   const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);
@@ -73,6 +79,13 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }
   };
 
   const currentId = approved && (view.kind === "scoring" || view.kind === "scored") ? view.entry.id : null;
+  // A pageant sub-activity's timer: green while judges can score, yellow as it's about to close, red once it has.
+  const timer = useScoringTimer(view.kind === "scoring" ? activity.scoringClosesAt : null, round?.timerSeconds ?? null, serverNow);
+  const timerBar = timer && round?.timerSeconds && (
+    <div className="mb-4 w-full">
+      <TimerBar state={timer} timerSeconds={round.timerSeconds} closedHint="Ask the organizer to reopen scoring." />
+    </div>
+  );
 
   return (
     <div className="flex h-dvh flex-col bg-prussian text-mint">
@@ -80,7 +93,10 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }
         <Avatar name={judge.name} src={judge.photoUrl} size={44} />
         <div className="min-w-0">
           <p className="truncate font-semibold">{judge.name}</p>
-          <p className="truncate text-sm text-powder">{activity.name}</p>
+          <p className="truncate text-sm text-powder">
+            {activity.name}
+            {round && ` · ${round.name}`}
+          </p>
         </div>
         <div className="ml-auto flex items-center gap-4 sm:gap-6">
           {approved && (
@@ -100,7 +116,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {approved && (
           <aside aria-label="Your scores" className="hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
-            <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores</h2>
+            <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
             <ol className="space-y-1 px-3 pb-4">
               {entries.map((entry, i) => {
                 const value = scores.get(entry.id);
@@ -111,7 +127,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }
                     aria-current={current ? "true" : undefined}
                     className={`flex items-center gap-3 rounded-xl px-3 py-3 ${current ? "bg-regal" : ""}`}
                   >
-                    <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{i + 1}</span>
+                    <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{entry.number ?? i + 1}</span>
                     <span className="min-w-0 flex-1 truncate font-semibold">
                       {entry.name}
                       {current && <span className="sr-only"> (now judging)</span>}
@@ -152,14 +168,32 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel }
             <DeviceGateCard gate={gate} />
           ) : view.kind === "scoring" ? (
             activity.scoringMode === "criteria" ? (
-              <CriteriaKeypad key={view.entry.id} activity={activity} entry={view.entry} number={view.number} onSaved={onSaved} />
+              <CriteriaKeypad
+                key={view.entry.id}
+                activity={activity}
+                entry={view.entry}
+                number={view.number}
+                onSaved={onSaved}
+                timer={timerBar}
+                closed={timer?.phase === "closed"}
+              />
             ) : (
-              <Keypad key={view.entry.id} activity={activity} entry={view.entry} number={view.number} onSaved={onSaved} />
+              <Keypad
+                key={view.entry.id}
+                activity={activity}
+                entry={view.entry}
+                number={view.number}
+                onSaved={onSaved}
+                timer={timerBar}
+                closed={timer?.phase === "closed"}
+              />
             )
           ) : (
             <div className="my-auto flex w-full max-w-md flex-col items-center lg:max-w-lg">
-              <WaitingCard view={view} judge={judge} activity={activity} scoredCount={scores.size} movesEntries={!!panel} />
-              {panel && (view.kind === "waiting" || view.kind === "scored") && <EntryControls activity={activity} entries={entries} panel={panel} />}
+              <WaitingCard view={view} judge={judge} activity={activity} round={round} scoredCount={scores.size} movesEntries={!!panel} />
+              {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
+                <EntryControls activity={activity} entries={entries} panel={panel} />
+              )}
             </div>
           )}
         </main>
@@ -214,12 +248,14 @@ function WaitingCard({
   view,
   judge,
   activity,
+  round,
   scoredCount,
   movesEntries,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
   judge: Judge;
   activity: Activity;
+  round: Props["round"];
   scoredCount: number;
   /** The chair shows the next entry themselves, so they aren't told to wait. */
   movesEntries: boolean;
@@ -241,7 +277,11 @@ function WaitingCard({
     },
     scored: { title: "Your score is in", body: "Show the next entry below once every judge has scored. The organizer can move entries too." },
   };
-  const { title, body } = (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind];
+  // A pageant between sub-activities: nothing to score until the organizer starts the next one.
+  const betweenRounds = activity.kind === "pageant" && !round && view.kind === "waiting";
+  const { title, body } = betweenRounds
+    ? { title: "Waiting for the next part of the pageant", body: "The organizer will start it. It appears here by itself." }
+    : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   return (
     <div role="status" className="flex w-full flex-col items-center text-center">
@@ -254,7 +294,7 @@ function WaitingCard({
           <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>
         </div>
       )}
-      {view.kind !== "ended" && !movesEntries && <WaitingDots />}
+      {view.kind !== "ended" && (!movesEntries || betweenRounds) && <WaitingDots />}
       <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">{title}</h1>
       <p className="mt-3 text-lg text-powder text-balance">{body}</p>
     </div>
@@ -450,10 +490,21 @@ function ConfirmScore({
   );
 }
 
-type KeypadProps = { activity: Activity; entry: Entry; number: number; onSaved: (entry: Entry, value: number) => void };
+type KeypadProps = {
+  activity: Activity;
+  entry: Entry;
+  number: number;
+  onSaved: (entry: Entry, value: number) => void;
+  /** A pageant sub-activity's timer bar, above the entry. */
+  timer?: React.ReactNode;
+  /** The timer has run out: no submitting until the organizer reopens scoring. */
+  closed?: boolean;
+};
+
+const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 
 /** Simple scoring: one score between min and max. */
-function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
+function Keypad({ activity, entry, number, onSaved, timer, closed = false }: KeypadProps) {
   const [buffer, setBuffer] = useState("");
   const [error, setError] = useState<string | null>(null);
   // True only while the score is on its way to the server, so taps right after "Saved" aren't dropped.
@@ -467,6 +518,10 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
   };
   const review = () => {
     if (submitting) return;
+    if (closed) {
+      setError(TIME_UP);
+      return;
+    }
     const parsed = parseScore(buffer, activity);
     if (!parsed.ok) setError(parsed.error);
     else dialogRef.current?.showModal();
@@ -491,6 +546,7 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
+      {timer}
       <p className="text-powder">Now judging: No. {number}</p>
       <h1 className="text-[clamp(1.6rem,4vw,2.5rem)] leading-tight font-bold text-balance">{entry.name}</h1>
 
@@ -530,7 +586,7 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
       <button
         type="button"
         onClick={review}
-        disabled={!typed.ok || submitting}
+        disabled={!typed.ok || submitting || closed}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
         Submit score
@@ -544,7 +600,7 @@ function Keypad({ activity, entry, number, onSaved }: KeypadProps) {
 }
 
 /** Criteria scoring: points for each criterion on the same keypad, totalling up to 100. */
-function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
+function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = false }: KeypadProps) {
   const { criteria, decimals } = activity;
   const [values, setValues] = useState<Record<string, string>>({});
   const [activeId, setActiveId] = useState(criteria[0]?.id ?? "");
@@ -569,6 +625,10 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
   };
   const primary = () => {
     if (submitting) return;
+    if (all.ok && closed) {
+      setError(TIME_UP);
+      return;
+    }
     if (all.ok) {
       dialogRef.current?.showModal();
       return;
@@ -600,6 +660,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
+      {timer}
       <p className="text-powder">Now judging: No. {number}</p>
       <h1 className="text-[clamp(1.5rem,3.6vw,2.25rem)] leading-tight font-bold text-balance">{entry.name}</h1>
 
@@ -677,7 +738,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved }: KeypadProps) {
       <button
         type="button"
         onClick={primary}
-        disabled={submitting || (!all.ok && !isValid(active?.id ?? ""))}
+        disabled={submitting || (all.ok && closed) || (!all.ok && !isValid(active?.id ?? ""))}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
         {all.ok ? "Submit score" : nextMissing ? `Next: ${nextMissing.name}` : "Submit score"}

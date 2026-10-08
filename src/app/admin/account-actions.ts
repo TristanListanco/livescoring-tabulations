@@ -3,7 +3,8 @@
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { isUuid, newFileTag } from "@/lib/codes";
-import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
+import { hashPassword } from "@/lib/password";
+import { passwordProblem } from "@/lib/password-rules";
 import { requireAdmin, requireSuperAdmin } from "@/lib/session";
 import { db, ORGANIZER_BUCKET, PHOTO_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Signatory } from "@/lib/types";
@@ -28,12 +29,12 @@ function readProfile(formData: FormData): { name: string; email: string } | { er
   return { name, email };
 }
 
+/** A new password: at least 8 characters, with a number and a special character (see password-rules). */
 function readPassword(formData: FormData, required: boolean): string | null | { error: string } {
   const password = String(formData.get("password") ?? "");
   if (!password && !required) return null;
-  if (password.length < MIN_PASSWORD_LENGTH) return { error: `Passwords need at least ${MIN_PASSWORD_LENGTH} characters.` };
-  if (password.length > 200) return { error: "That password is too long." };
-  return password;
+  const problem = passwordProblem(password);
+  return problem ? { error: problem } : password;
 }
 
 function photoFile(value: FormDataEntryValue | null): File | null | "invalid" {

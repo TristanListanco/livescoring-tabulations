@@ -11,6 +11,41 @@ export type Criterion = { id: string; name: string; max: number };
 /** How criteria totals (out of 100) are shown: as a percentage, or scaled to 10. */
 export type CriteriaDisplay = "percent" | "ten";
 
+/** event: one scoring for every entry. pageant: candidates go through preliminary and pageant proper sub-activities, with cuts. */
+export type ActivityKind = "event" | "pageant";
+/** A pageant's two segments. Each carries a share of the overall score. */
+export type Segment = "preliminary" | "proper";
+/** In a cut's basis: the whole preliminary segment. Pageant proper sub-activities are listed by their ids. */
+export const PRELIMINARY = "preliminary";
+
+/**
+ * A pageant sub-activity (e.g. Closed-door interview, Swimsuit, Q&A). Each has its own scoring, like a small
+ * activity: the same judges score the candidates still in the running.
+ */
+export type Round = {
+  id: string;
+  segment: Segment;
+  name: string;
+  /** Order through the whole pageant: preliminary sub-activities first. */
+  position: number;
+  /** Share of its segment's score, in percent. A segment's sub-activities add up to 100. */
+  weight: number;
+  scoringMode: ScoringMode;
+  min: number;
+  max: number;
+  decimals: Decimals;
+  criteria: Criterion[];
+  criteriaDisplay: CriteriaDisplay;
+  /** Seconds judges get to score each candidate once they're shown, or null for no time limit. */
+  timerSeconds: number | null;
+  /** Pageant proper only: after this sub-activity, the top N candidates go through. Null for no cut. */
+  cutSize: number | null;
+  /** What ranks the cut: PRELIMINARY for the whole preliminary segment, and pageant proper sub-activity ids. */
+  cutBasis: string[];
+  /** Who went through, best first, once the organizer confirmed the cut; null until then. */
+  cutEntryIds: string[] | null;
+};
+
 /** A name and designation printed as a signature line on the results PDF. */
 export type Signatory = { name: string; designation: string };
 
@@ -20,6 +55,7 @@ export type JudgeDevice = { id: string; judgeId: string; pairingCode: string; la
 export type Activity = {
   id: string;
   name: string;
+  kind: ActivityKind;
   publicId: string;
   min: number;
   max: number;
@@ -49,6 +85,12 @@ export type Activity = {
   sessionState: SessionState;
   /** The entry every judge is scoring right now, chosen by the organizer. */
   currentEntryId: string | null;
+  /** Pageant: the preliminary segment's share of the overall score, in percent. Pageant proper gets the rest. */
+  preliminaryWeight: number;
+  /** Pageant: the sub-activity being judged now. */
+  currentRoundId: string | null;
+  /** Pageant: when scoring closes for the candidate on screen, while a sub-activity's timer runs (ISO time). */
+  scoringClosesAt: string | null;
   createdAt: string;
 };
 
@@ -79,12 +121,19 @@ export type Entry = {
   /** Optional photo, shown on the LED wall. */
   photoUrl: string | null;
   position: number;
+  /**
+   * Its number in the full running order, when a pageant's sub-activity judges only some of the candidates:
+   * candidates keep their number through every cut. Otherwise the number is the place in the list shown.
+   */
+  number?: number;
 };
 
 export type Score = {
   entryId: string;
   judgeId: string;
   value: number;
+  /** The pageant sub-activity it was given in; null (or missing) for events. */
+  roundId?: string | null;
 };
 
 /** Everything a scoreboard needs to render one activity. */
@@ -93,6 +142,8 @@ export type Board = {
   judges: Judge[];
   entries: Entry[];
   scores: Score[];
+  /** A pageant's sub-activities in order; empty for events. */
+  rounds: Round[];
 };
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };

@@ -2,10 +2,11 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
-import { findJudgeIdByCode, getActivity, getJudgeContext } from "@/lib/data";
+import { findJudgeIdByCode, getActivity, getBoard, getJudgeContext, getRounds } from "@/lib/data";
 import { isUuid } from "@/lib/codes";
 import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
-import { showEntryColumns } from "@/lib/judging";
+import { showColumns } from "@/lib/judging";
+import { SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { db } from "@/lib/supabase/server";
@@ -55,12 +56,14 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
   if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can move entries." };
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
 
-  const activity = await getActivity(context.activityId);
-  if (!activity || activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now." };
-  const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activity.id).maybeSingle();
-  if (!data) return { ok: false, error: "That entry isn't part of this activity." };
+  const board = await getBoard(context.activityId);
+  if (!board || board.activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now." };
+  if (!board.entries.some((e) => e.id === entryId)) return { ok: false, error: "That entry isn't part of this activity." };
+  // In a pageant, only candidates in the sub-activity being judged; showing one starts its timer.
+  const show = showColumns(board, entryId, Date.now());
+  if ("error" in show) return { ok: false, error: show.error };
 
-  const { error } = await db().from("activities").update(showEntryColumns(entryId)).eq("id", activity.id);
+  const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
   if (error) return { ok: false, error: error.message };
   refresh();
   return { ok: true };
@@ -83,27 +86,49 @@ export async function submitScore(entryId: string, typed: string | Record<string
   if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
   if (activity.currentEntryId !== entryId) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
 
+  // A pageant scores in the sub-activity being judged, with its rules, and only while its timer runs.
+  let rules = activity;
+  let roundId: string | null = null;
+  if (activity.kind === "pageant") {
+    const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
+    if (!round) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
+    if (round.timerSeconds && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
+      return { ok: false, error: "Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it." };
+    }
+    rules = withRoundRules(activity, round);
+    roundId = round.id;
+  }
+
   let value: number;
   let breakdown: Record<string, number> | null = null;
-  if (activity.scoringMode === "criteria") {
+  if (rules.scoringMode === "criteria") {
     if (typeof typed !== "object") return { ok: false, error: "Score each criterion." };
-    const parsed = parseBreakdown(typed, activity.criteria, activity.decimals);
+    const parsed = parseBreakdown(typed, rules.criteria, rules.decimals);
     if (!parsed.ok) return parsed;
     value = parsed.total;
     breakdown = parsed.breakdown;
   } else {
     if (typeof typed !== "string") return { ok: false, error: "Enter a score." };
-    const parsed = parseScore(typed, activity);
+    const parsed = parseScore(typed, rules);
     if (!parsed.ok) return parsed;
     value = parsed.value;
   }
 
   const { error } = await db()
     .from("scores")
-    .insert({ activity_id: activity.id, entry_id: entryId, judge_id: context.judge.id, value, ...(breakdown ? { breakdown } : {}) });
+    .insert({
+      activity_id: activity.id,
+      entry_id: entryId,
+      judge_id: context.judge.id,
+      value,
+      ...(breakdown ? { breakdown } : {}),
+      ...(roundId ? { round_id: roundId } : {}),
+    });
 
   if (error) {
-    if (error.code === "23505") return { ok: false, error: "You already scored this entry. Submitted scores can't be changed." };
+    if (error.code === "23505") {
+      return { ok: false, error: `You already scored this ${roundId ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
+    }
     if (error.code === "23503") return { ok: false, error: "This entry was removed by the organizer." };
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }

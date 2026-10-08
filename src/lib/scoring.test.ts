@@ -195,12 +195,12 @@ describe("scoreProgress", () => {
 
   it("is complete only when every judge scored every entry", () => {
     const one = [{ entryId: "e1", judgeId: "j1", value: 9 }];
-    expect(scoreProgress({ activity, judges, entries, scores: one })).toEqual({ submitted: 1, possible: 2, complete: false });
+    expect(scoreProgress({ activity, judges, entries, scores: one, rounds: [] })).toEqual({ submitted: 1, possible: 2, complete: false });
     const both = [...one, { entryId: "e1", judgeId: "j2", value: 8 }];
-    expect(scoreProgress({ activity, judges, entries, scores: both }).complete).toBe(true);
+    expect(scoreProgress({ activity, judges, entries, scores: both, rounds: [] }).complete).toBe(true);
   });
 
   it("is never complete for an empty activity", () => {
-    expect(scoreProgress({ activity, judges: [], entries: [], scores: [] }).complete).toBe(false);
+    expect(scoreProgress({ activity, judges: [], entries: [], scores: [], rounds: [] }).complete).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Score, SessionState, Signatory } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -25,7 +25,28 @@ type ActivityRow = {
   criteria?: unknown;
   criteria_display?: string;
   result_decimals?: number;
+  kind?: string;
+  preliminary_weight?: number | string;
+  current_round_id?: string | null;
+  scoring_closes_at?: string | null;
   created_at: string;
+};
+type RoundRow = {
+  id: string;
+  segment: string;
+  name: string;
+  position: number;
+  weight: number | string;
+  scoring_mode: string;
+  min_score: number | string;
+  max_score: number | string;
+  decimals: number;
+  criteria: unknown;
+  criteria_display: string;
+  timer_seconds: number | null;
+  cut_size: number | null;
+  cut_basis: unknown;
+  cut_entry_ids: unknown;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = {
@@ -38,7 +59,7 @@ type JudgeRow = {
   is_chair?: boolean;
 };
 type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
-type ScoreRow = { entry_id: string; judge_id: string; value: number | string };
+type ScoreRow = { entry_id: string; judge_id: string; value: number | string; round_id?: string | null };
 
 // "*" rather than a column list so the app keeps working on databases that
 // haven't run the migrations in supabase/migrations/ yet.
@@ -84,7 +105,34 @@ function toActivity(row: ActivityRow): Activity {
     scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
     criteria: toCriteria(row.criteria),
     criteriaDisplay: row.criteria_display === "ten" ? "ten" : "percent",
+    kind: row.kind === "pageant" ? "pageant" : "event",
+    preliminaryWeight: Number(row.preliminary_weight ?? 0),
+    currentRoundId: row.current_round_id ?? null,
+    scoringClosesAt: row.scoring_closes_at ?? null,
     createdAt: row.created_at,
+  };
+}
+
+/** A JSON list of ids; anything else is dropped. */
+const toIds = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
+
+function toRound(row: RoundRow): Round {
+  return {
+    id: row.id,
+    segment: row.segment === "proper" ? "proper" : "preliminary",
+    name: row.name,
+    position: row.position,
+    weight: Number(row.weight),
+    scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
+    min: Number(row.min_score),
+    max: Number(row.max_score),
+    decimals: row.decimals as Decimals,
+    criteria: toCriteria(row.criteria),
+    criteriaDisplay: row.criteria_display === "ten" ? "ten" : "percent",
+    timerSeconds: row.timer_seconds ?? null,
+    cutSize: row.cut_size ?? null,
+    cutBasis: toIds(row.cut_basis),
+    cutEntryIds: Array.isArray(row.cut_entry_ids) ? toIds(row.cut_entry_ids) : null,
   };
 }
 
@@ -98,7 +146,7 @@ const toJudge = (row: JudgeRow): Judge => ({
   isChair: row.is_chair ?? false,
 });
 const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
-const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value) });
+const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value), roundId: row.round_id ?? null });
 
 const toAdmin = (row: AdminRow): AdminAccount => ({
   id: row.id,
@@ -150,6 +198,7 @@ export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id
 export type OrganizerActivityStatus = {
   id: string;
   name: string;
+  kind: Activity["kind"];
   organizer: string;
   sessionState: SessionState;
   judgeCount: number;
@@ -164,21 +213,21 @@ export type OrganizerActivityStatus = {
  */
 export async function listOrganizerActivities(): Promise<OrganizerActivityStatus[]> {
   await connection();
-  const { data, error } = await db()
-    .from("activities")
-    .select(
-      "id, name, session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)",
-    )
-    .not("owner_id", "is", null)
-    .order("created_at", { ascending: false });
+  const counts =
+    "session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
+  const query = (columns: string) => db().from("activities").select(columns).not("owner_id", "is", null).order("created_at", { ascending: false });
+  // With the activity's kind when the database has it (migration 011), so a pageant isn't counted like an event.
+  let { data, error } = await query(`id, name, kind, ${counts}`);
+  if (error && /kind/.test(error.message)) ({ data, error } = await query(`id, name, ${counts}`));
   fail(error);
-  type Row = { id: string; name: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
+  type Row = { id: string; name: string; kind?: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
     "judges" | "entries" | "scores",
     { count: number }[]
   >;
   return (data as unknown as Row[]).map((row) => ({
     id: row.id,
     name: row.name,
+    kind: row.kind === "pageant" ? "pageant" : "event",
     organizer: row.owner?.name ?? "",
     sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
     judgeCount: row.judges[0]?.count ?? 0,
@@ -227,20 +276,25 @@ export async function getAdminCredentials(idOrEmail: string): Promise<{ admin: A
 }
 
 async function loadBoard(activity: Activity): Promise<Board> {
-  const [judges, entries, scores] = await Promise.all([
+  // Only pageants read sub-activities and score rounds, so events load on databases without migration 011.
+  const pageant = activity.kind === "pageant";
+  const [judges, entries, scores, rounds] = await Promise.all([
     // "*" so judges and entries load on databases without the newer columns (migrations 007 and 008).
     db().from("judges").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
     db().from("entries").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
-    db().from("scores").select("entry_id, judge_id, value").eq("activity_id", activity.id),
+    db().from("scores").select(pageant ? "entry_id, judge_id, value, round_id" : "entry_id, judge_id, value").eq("activity_id", activity.id),
+    pageant ? db().from("rounds").select("*").eq("activity_id", activity.id).order("position").order("created_at") : null,
   ]);
   fail(judges.error);
   fail(entries.error);
   fail(scores.error);
+  if (rounds) fail(rounds.error);
   return {
     activity,
     judges: (judges.data as JudgeRow[]).map(toJudge),
     entries: (entries.data as EntryRow[]).map(toEntry),
-    scores: (scores.data as ScoreRow[]).map(toScore),
+    scores: (scores.data as unknown as ScoreRow[]).map(toScore),
+    rounds: rounds ? (rounds.data as RoundRow[]).map(toRound) : [],
   };
 }
 
@@ -264,6 +318,14 @@ export const getPublicBoard = cache(async (publicId: string): Promise<Board | nu
   fail(error);
   return data ? loadBoard(toActivity(data as ActivityRow)) : null;
 });
+
+/** A pageant's sub-activities, in the order they were saved. Empty when there are none (or before migration 011). */
+export async function getRounds(activityId: string): Promise<Round[]> {
+  if (!isUuid(activityId)) return [];
+  const { data, error } = await db().from("rounds").select("*").eq("activity_id", activityId).order("position").order("created_at");
+  if (error) return [];
+  return (data as RoundRow[]).map(toRound);
+}
 
 /** judgeId → access code, for the admin's Access tab only. */
 export async function getAccessCodes(judgeIds: string[]): Promise<Map<string, string>> {

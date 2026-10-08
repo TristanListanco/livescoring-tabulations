@@ -1,6 +1,7 @@
 "use client";
 
 import { KEY_GREEN, ledScene, type LedScene, type TileState } from "@/lib/led";
+import { showingBoard } from "@/lib/pageant";
 import { averageText, scoreText } from "@/lib/scoring";
 import type { Activity, Board, Judge } from "@/lib/types";
 import { Avatar } from "../avatar";
@@ -84,82 +85,90 @@ function averageNote(scene: EntryScene) {
 
 // Green screen overlay ------------------------------------------------------------
 
-/** Type sizes shrink as the judge panel grows so every score still fits its tile. */
+/**
+ * Sizes for the lower third. It's one slim bar, so as the judge panel grows, the name block narrows and the
+ * type shrinks to leave every judge a tile. Scores and names still shrink to fit inside their tile.
+ */
 function sizesFor(judgeCount: number) {
-  if (judgeCount <= 5) return { score: 92, name: 30, photo: 64 };
-  if (judgeCount <= 8) return { score: 68, name: 24, photo: 52 };
-  return { score: 50, name: 20, photo: 40 };
+  if (judgeCount <= 5) return { score: 60, name: 20, photo: 44, nameBlock: 600, average: 240 };
+  if (judgeCount <= 8) return { score: 54, name: 18, photo: 40, nameBlock: 480, average: 220 };
+  if (judgeCount <= 12) return { score: 46, name: 16, photo: 34, nameBlock: 380, average: 200 };
+  return { score: 40, name: 14, photo: 28, nameBlock: 300, average: 180 };
 }
 
+/** The bar's height on the 1920×1080 stage: about a seventh of the frame, so the camera keeps the rest. */
+const BAR_HEIGHT = 160;
+
 /**
- * Broadcast lower third on a 1920×1080 stage. Every shape is a solid, square-cornered panel so the
- * green around it keys out cleanly.
+ * Broadcast lower third on a 1920×1080 stage: one slim bar along the bottom, like a broadcast pageant's,
+ * with the entry on the left, a tile per judge, and the average on the right. Every shape is a solid,
+ * square-cornered panel so the green around it keys out cleanly.
  */
-function Overlay({ board, scene }: { board: Board; scene: LedScene }) {
+function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; subtitle: string }) {
   if (scene.kind === "empty") return null;
   const { activity, judges } = board;
   const size = sizesFor(judges.length);
   const final = scene.average.state === "final";
 
   return (
-    <div key={scene.entry.id} className="led-fade absolute inset-x-16 bottom-16 text-mint">
-      <div className="flex h-[150px] bg-prussian">
-        <div className="flex w-[190px] shrink-0 flex-col items-center justify-center bg-mint text-prussian">
-          <span className="text-[28px] leading-none font-semibold">No.</span>
-          <span className="tabular mt-1 text-[76px] leading-none font-bold">{scene.number}</span>
-        </div>
-        {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} className="h-full w-[150px]" />}
-        <div className="flex min-w-0 flex-1 flex-col justify-center px-12">
-          <FitText className="text-[84px] leading-[1.05] font-bold tracking-tight" minScale={0.45}>
-            {scene.entry.name}
-          </FitText>
-          <FitText className="mt-1 text-[28px] text-powder" minScale={0.7}>
-            {activity.name}
-          </FitText>
-        </div>
+    <div key={scene.entry.id} className="led-fade absolute inset-x-12 bottom-12 flex bg-prussian text-mint" style={{ height: BAR_HEIGHT }}>
+      <div className="flex w-[112px] shrink-0 flex-col items-center justify-center bg-mint text-prussian">
+        <span className="text-[22px] leading-none font-semibold">No.</span>
+        <span className="tabular mt-1 text-[64px] leading-none font-bold">{scene.number}</span>
+      </div>
+      {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: BAR_HEIGHT, height: BAR_HEIGHT }} />}
+      <div className="flex min-w-0 shrink flex-col justify-center px-8" style={{ width: size.nameBlock }}>
+        <FitText className="text-[48px] leading-[1.1] font-bold tracking-tight" minScale={0.45}>
+          {scene.entry.name}
+        </FitText>
+        <FitText className="mt-1 text-[22px] text-powder" minScale={0.7}>
+          {subtitle}
+        </FitText>
       </div>
 
-      <div className="h-1.5 bg-powder" />
-
-      <div className="flex h-[230px] gap-[3px] bg-prussian">
+      <div className="flex min-w-0 flex-1 gap-[2px] border-l-[2px] border-prussian">
         {scene.tiles.map((t) => (
-          <div key={t.judge.id} className="flex min-w-0 flex-1 flex-col justify-between bg-oxford px-7 py-6">
-            <div className="flex min-w-0 items-center gap-4">
+          // Fixed rows (photo, name, score), so every tile lines up whatever its score, dots or "Scored" mark.
+          <div key={t.judge.id} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1.5 bg-oxford px-2 text-center">
+            <div className="flex w-full shrink-0 flex-col items-center gap-1">
               {t.label === null ? (
                 <AnonymousJudge size={size.photo} />
               ) : (
                 <>
                   <Avatar name={t.judge.name} src={t.judge.photoUrl} size={size.photo} />
-                  <FitText className="flex-1 font-semibold" style={{ fontSize: size.name }} minScale={0.6}>
+                  <FitText className="w-full leading-tight font-semibold text-mint/90" style={{ fontSize: size.name }} align="center" minScale={0.6}>
                     {t.label}
                   </FitText>
                 </>
               )}
             </div>
-            <div style={{ fontSize: size.score }}>
-              <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} />
+            <div className="flex w-full shrink-0 items-center justify-center leading-none" style={{ fontSize: size.score, height: size.score }}>
+              <div className="w-full">
+                <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} align="center" />
+              </div>
             </div>
           </div>
         ))}
+      </div>
 
-        <div
-          key={final ? "final" : "running"}
-          className={`flex w-[400px] shrink-0 flex-col justify-between px-10 py-6 ${final ? "led-fade bg-mint text-prussian" : "bg-regal"}`}
-        >
-          <span className={`text-[30px] leading-none font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
-          <div>
-            {scene.average.state === "hidden" ? (
-              // Smaller than the number it stands in for, so the note below stays inside the tile.
-              <p className="text-[64px] leading-[0.9]">
-                <WaitingDots label="Average appears when every judge has scored" />
-              </p>
-            ) : (
-              // Shrinks to fit: "87.50%" or four decimal places are wider than the tile at full size.
-              <FitText className="tabular text-[120px] leading-[0.9] font-bold">{averageText(scene.average.value, activity)}</FitText>
-            )}
-            {!final && <p className="tabular mt-2 text-[24px] leading-tight text-mint/80">{averageNote(scene)}</p>}
-          </div>
-        </div>
+      <div
+        key={final ? "final" : "running"}
+        className={`flex shrink-0 flex-col items-center justify-center px-5 text-center ${final ? "led-fade bg-mint text-prussian" : "bg-regal"}`}
+        style={{ width: size.average }}
+      >
+        <span className={`text-[20px] leading-none font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
+        {scene.average.state === "hidden" ? (
+          // Smaller than the number it stands in for, so the note below stays inside the panel.
+          <p className="mt-2 text-[52px] leading-[0.9]">
+            <WaitingDots label="Average appears when every judge has scored" />
+          </p>
+        ) : (
+          // Shrinks to fit: "87.50%" or four decimal places are wider than the panel at full size.
+          <FitText className="tabular mt-1.5 w-full text-[76px] leading-[0.95] font-bold" align="center">
+            {averageText(scene.average.value, activity)}
+          </FitText>
+        )}
+        {!final && <p className="tabular mt-1.5 text-[18px] leading-tight text-mint/80">{averageNote(scene)}</p>}
       </div>
     </div>
   );
@@ -174,7 +183,7 @@ const NUMBER_BOX = "calc(min(1.8cqw, 3.4cqh) + min(6cqw, 11cqh) + 3cqh)";
  * The scoresheet filling the whole screen. Sizes use container units, so it fills any LED wall
  * shape (16:9, ultra-wide, portrait) and the admin preview alike.
  */
-function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
+function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; heading: string }) {
   const { activity } = board;
 
   if (scene.kind === "empty") {
@@ -193,7 +202,7 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
   return (
     <div key={scene.entry.id} className="led-fade flex h-full flex-col gap-[3cqh] px-[4cqw] py-[5cqh]">
       <FitText className="text-[length:min(2.2cqw,4cqh)] text-powder" minScale={0.6}>
-        {activity.name}
+        {heading}
       </FitText>
       <div className="flex min-w-0 items-stretch gap-[2cqw]">
         <div className="flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian">
@@ -254,24 +263,25 @@ function FullScreen({ board, scene }: { board: Board; scene: LedScene }) {
   );
 }
 
-/** The LED wall output in the mode chosen in the admin panel, sized to its container. */
-export function LedOutput({ board, className = "" }: { board: Board; className?: string }) {
+/**
+ * The LED wall output in the mode chosen in the admin panel, sized to its container. A pageant shows the
+ * sub-activity being judged: its candidates, its scores, and its name under the candidate's.
+ */
+export function LedOutput({ board: full, className = "" }: { board: Board; className?: string }) {
+  const { board, round } = showingBoard(full);
   const scene = ledScene(board);
-  if (board.activity.ledFullscreen) {
+  const { activity } = board;
+  if (activity.ledFullscreen) {
     return (
-      <div
-        data-transition={board.activity.ledTransition}
-        className={`relative overflow-hidden bg-prussian text-mint ${className}`}
-        style={{ containerType: "size" }}
-      >
-        <FullScreen board={board} scene={scene} />
+      <div data-transition={activity.ledTransition} className={`relative overflow-hidden bg-prussian text-mint ${className}`} style={{ containerType: "size" }}>
+        <FullScreen board={board} scene={scene} heading={round ? `${activity.name} · ${round.name}` : activity.name} />
       </div>
     );
   }
   return (
     <FitStage className={className} background={KEY_GREEN}>
-      <div data-transition={board.activity.ledTransition} className="contents">
-        <Overlay board={board} scene={scene} />
+      <div data-transition={activity.ledTransition} className="contents">
+        <Overlay board={board} scene={scene} subtitle={round?.name ?? activity.name} />
       </div>
     </FitStage>
   );
