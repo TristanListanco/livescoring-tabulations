@@ -46,6 +46,9 @@ export default async function ScorePage() {
 
   return (
     <ScoringPanel
+      // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
+      // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
+      key={round?.id ?? "activity"}
       activity={showing.activity}
       judge={context.judge}
       entries={showing.entries}
