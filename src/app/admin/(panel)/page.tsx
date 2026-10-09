@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listActivities, listOrganizerActivities } from "@/lib/data";
+import { listActivities, listDrafts, listOrganizerActivities } from "@/lib/data";
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 import type { Activity } from "@/lib/types";
+import { DraftsList } from "./drafts-list";
 import { SessionStatus } from "./session-status";
 
 export const metadata: Metadata = { title: "Activities" };
@@ -29,11 +30,12 @@ function scoresIn(a: { kind?: Activity["kind"]; scoreCount: number; judgeCount: 
 export default async function ActivitiesPage() {
   const session = await requireAdmin();
   const isSuper = session.kind === "super";
-  const [activities, organizerActivities] = await Promise.all([
+  const [activities, organizerActivities, drafts] = await Promise.all([
     listActivities(isSuper ? null : session.admin.id),
     isSuper ? listOrganizerActivities() : Promise.resolve([]),
+    listDrafts(isSuper ? null : session.admin.id),
   ]);
-  const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0;
+  const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0;
   // A show that's live right now goes to the top; otherwise newest first, as the queries return them.
   const liveFirst = <T extends { sessionState: string }>(list: T[]) => [...list].sort((a, b) => Number(b.sessionState === "live") - Number(a.sessionState === "live"));
 
@@ -56,6 +58,10 @@ export default async function ActivitiesPage() {
             Create an activity
           </Link>
         </div>
+      )}
+
+      {drafts.length > 0 && (
+        <DraftsList drafts={drafts.map((d) => ({ id: d.id, kind: d.kind, name: d.name, saved: dateFormat.format(new Date(d.updatedAt)) }))} />
       )}
 
       {/* The super admin watches organizers' shows: whether judging has started and how far it has got. */}

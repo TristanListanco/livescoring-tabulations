@@ -7,10 +7,37 @@ import { PRELIMINARY, type Activity, type Board, type Entry, type Round, type Sc
  * handed a board narrowed to one sub-activity (see roundBoard).
  */
 
-/** Sub-activities in program order: the preliminary segment first, then pageant proper. */
+/**
+ * Sub-activities in program order, the preliminary segment first, then pageant proper. Not their parts: segments,
+ * shares, cuts and what a cut counts are all made of sub-activities.
+ */
 export function programOrder(rounds: Round[]): Round[] {
   const segment = (r: Round) => (r.segment === "preliminary" ? 0 : 1);
-  return [...rounds].sort((a, b) => segment(a) - segment(b) || a.position - b.position);
+  return rounds.filter((r) => r.parentId === null).sort((a, b) => segment(a) - segment(b) || a.position - b.position);
+}
+
+/** A sub-activity's parts in order, or none when judges score the sub-activity itself. */
+export function partsOf(rounds: Round[], roundId: string): Round[] {
+  return rounds.filter((r) => r.parentId === roundId).sort((a, b) => a.position - b.position);
+}
+
+/** What judges score, in program order: each sub-activity, or its parts in its place. */
+export function judgingOrder(rounds: Round[]): Round[] {
+  return programOrder(rounds).flatMap((r) => {
+    const parts = partsOf(rounds, r.id);
+    return parts.length ? parts : [r];
+  });
+}
+
+/** The sub-activity a part belongs to, or the sub-activity itself. */
+export function unitOf(rounds: Round[], round: Round): Round {
+  return (round.parentId && rounds.find((r) => r.id === round.parentId)) || round;
+}
+
+/** A part's name with its sub-activity's, as judges and screens see it: "Closed-door interview · Q&A". */
+export function roundLabel(rounds: Round[], round: Round): string {
+  const unit = unitOf(rounds, round);
+  return unit === round ? round.name : `${unit.name} · ${round.name}`;
 }
 
 /** Every candidate with their number in the full running order, which they keep through every cut. */
@@ -24,7 +51,10 @@ function numbered(entries: Entry[]): Entry[] {
  */
 export function roundPool(board: Pick<Board, "entries" | "rounds">, roundId: string): { entries: Entry[]; blockedBy: Round | null } {
   const order = programOrder(board.rounds);
-  const index = order.findIndex((r) => r.id === roundId);
+  // A part judges the same candidates as its sub-activity.
+  const round = board.rounds.find((r) => r.id === roundId);
+  const unitId = round ? unitOf(board.rounds, round).id : roundId;
+  const index = order.findIndex((r) => r.id === unitId);
   const all = numbered(board.entries);
   for (let i = index - 1; i >= 0; i--) {
     const earlier = order[i];
@@ -66,12 +96,23 @@ export function roundBoard(board: Board, round: Round): Board {
 export function showingBoard(board: Board): { board: Board; round: Round | null } {
   if (board.activity.kind !== "pageant") return { board, round: null };
   const round = board.rounds.find((r) => r.id === board.activity.currentRoundId) ?? null;
-  if (round) return { board: roundBoard(board, round), round };
+  // A part goes by its full name ("Closed-door interview · Q&A") wherever it's shown.
+  if (round) return { board: roundBoard(board, round), round: { ...round, name: roundLabel(board.rounds, round) } };
   return { board: { ...board, activity: { ...board.activity, currentEntryId: null, ledEntryId: null }, entries: [], scores: [] }, round: null };
 }
 
-/** How far a sub-activity's judging has got: scores in from every judge for every candidate in it. */
+/**
+ * How far a sub-activity's (or a part's) judging has got: scores in from every judge for every candidate in it.
+ * A sub-activity with parts counts all of its parts.
+ */
 export function roundProgress(board: Board, round: Round): { submitted: number; possible: number; complete: boolean; blockedBy: Round | null } {
+  const parts = partsOf(board.rounds, round.id);
+  if (parts.length) {
+    const each = parts.map((p) => roundProgress(board, p));
+    const submitted = each.reduce((n, p) => n + p.submitted, 0);
+    const possible = each.reduce((n, p) => n + p.possible, 0);
+    return { submitted, possible, complete: each.every((p) => p.complete), blockedBy: each[0].blockedBy };
+  }
   const { entries, blockedBy } = roundPool(board, round.id);
   const judgeIds = new Set(board.judges.map((j) => j.id));
   const entryIds = new Set(entries.map((e) => e.id));
@@ -84,7 +125,7 @@ export function roundProgress(board: Board, round: Round): { submitted: number; 
 export function programProgress(board: Board): { submitted: number; possible: number; complete: boolean } {
   let submitted = 0;
   let possible = 0;
-  for (const round of board.rounds) {
+  for (const round of judgingOrder(board.rounds)) {
     const p = roundProgress(board, round);
     submitted += p.submitted;
     // A sub-activity after an unconfirmed cut will judge at most the cut's size.
@@ -127,8 +168,20 @@ export type StandingRow = {
 
 const roundTo = (value: number, places: number) => Math.round((value + Number.EPSILON) * 10 ** places) / 10 ** places;
 
-/** A candidate's average in a sub-activity as a percentage of its maximum (9.5 of 10 → 95), from the scores in so far. */
-function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set<string>): { percent: number | null; count: number } {
+/**
+ * A candidate's average in a sub-activity as a percentage of its maximum (9.5 of 10 → 95), from the scores in so far.
+ * A sub-activity with parts: its parts' percentages weighted by their shares, once each part has a score; `count` is
+ * then the fewest judges who have scored any one part.
+ */
+function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set<string>, rounds: Round[]): { percent: number | null; count: number } {
+  const parts = partsOf(rounds, round.id);
+  if (parts.length) {
+    const each = parts.map((p) => ({ weight: p.weight, ...percentOf(p, entryId, scores, judgeIds, rounds) }));
+    const total = each.reduce((n, p) => n + p.weight, 0);
+    const count = Math.min(...each.map((p) => p.count));
+    if (total <= 0 || each.some((p) => p.percent === null)) return { percent: null, count };
+    return { percent: each.reduce((n, p) => n + (p.weight * p.percent!) / total, 0), count };
+  }
   let hundredths = 0;
   let count = 0;
   for (const s of scores) {
@@ -145,7 +198,22 @@ function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set
  * score in every part go last, unranked, in running order.
  */
 export function standings(board: Board, entries: Entry[], basis: string[]): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
-  const weights = basisWeights(board.rounds, board.activity.preliminaryWeight, basis);
+  return standingsBy(board, entries, basisWeights(board.rounds, board.activity.preliminaryWeight, basis));
+}
+
+/** A sub-activity's parts as weights adding up to 100, for its own standings sheet. */
+export function partWeights(rounds: Round[], round: Round): { round: Round; weight: number }[] {
+  const parts = partsOf(rounds, round.id);
+  const total = parts.reduce((n, p) => n + p.weight, 0);
+  return parts.map((p) => ({ round: p, weight: total > 0 ? (100 * p.weight) / total : 0 }));
+}
+
+/** Candidates ranked by sub-activities (or parts) with the given weights, in percent. See standings. */
+export function standingsBy(
+  board: Board,
+  entries: Entry[],
+  weights: { round: Round; weight: number }[],
+): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
   const judgeIds = new Set(board.judges.map((j) => j.id));
   const places = board.activity.resultDecimals;
 
@@ -155,7 +223,7 @@ export function standings(board: Board, entries: Entry[], basis: string[]): { we
     let scored = true;
     let complete = judgeIds.size > 0;
     for (const { round, weight } of weights) {
-      const { percent, count } = percentOf(round, entry.id, board.scores, judgeIds);
+      const { percent, count } = percentOf(round, entry.id, board.scores, judgeIds, board.rounds);
       parts.set(round.id, percent);
       if (percent === null) scored = false;
       else sum += (weight * percent) / 100;

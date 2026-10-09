@@ -47,6 +47,7 @@ type RoundRow = {
   cut_size: number | null;
   cut_basis: unknown;
   cut_entry_ids: unknown;
+  parent_id?: string | null;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = {
@@ -133,6 +134,8 @@ function toRound(row: RoundRow): Round {
     cutSize: row.cut_size ?? null,
     cutBasis: toIds(row.cut_basis),
     cutEntryIds: Array.isArray(row.cut_entry_ids) ? toIds(row.cut_entry_ids) : null,
+    // Null on databases without migration 012, where sub-activities have no parts.
+    parentId: row.parent_id ?? null,
   };
 }
 
@@ -403,4 +406,37 @@ export async function getSignatories(adminId: string): Promise<Signatory[]> {
   const { data, error } = await db().from("admins").select("signatories").eq("id", adminId).maybeSingle();
   if (error || !data) return [];
   return toSignatories((data as { signatories: unknown }).signatories);
+}
+
+// Drafts ------------------------------------------------------------------------------------
+
+/** An activity still being set up, saved from the create form. `data` is the form's own state, as JSON. */
+export type ActivityDraft = { id: string; kind: "event" | "pageant"; name: string; data: unknown; updatedAt: string };
+
+type DraftRow = { id: string; kind: string; name: string; data?: unknown; updated_at: string };
+const toDraft = (row: DraftRow): ActivityDraft => ({
+  id: row.id,
+  kind: row.kind === "pageant" ? "pageant" : "event",
+  name: row.name,
+  data: row.data ?? null,
+  updatedAt: row.updated_at,
+});
+
+/** An admin's drafts, newest first: an organizer's own, or with null the super admin's. Empty before migration 012. */
+export async function listDrafts(ownerId: string | null): Promise<ActivityDraft[]> {
+  await connection();
+  const query = db().from("activity_drafts").select("id, kind, name, updated_at").order("updated_at", { ascending: false });
+  const { data, error } = await (ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null));
+  if (error) return [];
+  return (data as DraftRow[]).map(toDraft);
+}
+
+/** One of an admin's drafts, with its form state, or null when it isn't theirs (or is gone). */
+export async function getDraft(id: string, ownerId: string | null): Promise<ActivityDraft | null> {
+  await connection();
+  if (!isUuid(id)) return null;
+  const query = db().from("activity_drafts").select("id, kind, name, data, updated_at").eq("id", id);
+  const { data, error } = await (ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null)).maybeSingle();
+  if (error || !data) return null;
+  return toDraft(data as DraftRow);
 }

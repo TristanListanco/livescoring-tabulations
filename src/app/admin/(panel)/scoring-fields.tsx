@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { CriterionDraft, ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
@@ -10,19 +9,18 @@ const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 2, label: "2 decimal places", example: "9.75" },
 ];
 
-const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
+export const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
 const RESULT_DECIMAL_OPTIONS: ResultDecimals[] = [0, 1, 2, 3, 4];
 
 /** How many decimal places averages and totals show. The same cards as the judges' decimals, with a rounded example. */
-export function ResultDecimalsField() {
-  const [value, setValue] = useState<ResultDecimals>(DEFAULT_RESULT_DECIMALS);
+export function ResultDecimalsField({ value, onChange }: { value: ResultDecimals; onChange: (value: ResultDecimals) => void }) {
   return (
     <fieldset>
       <legend className="label">Decimal places shown in results</legend>
       <div className="flex flex-wrap gap-2">
         {RESULT_DECIMAL_OPTIONS.map((n) => (
           <label key={n} className="choice items-center">
-            <input type="radio" name="result_decimals" value={n} checked={value === n} onChange={() => setValue(n)} />
+            <input type="radio" name="result_decimals" value={n} checked={value === n} onChange={() => onChange(n)} />
             <span className="font-semibold">{n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`}</span>
             <span className="tabular text-sm opacity-75">e.g. {(87.4567).toFixed(n)}</span>
           </label>
@@ -32,7 +30,7 @@ export function ResultDecimalsField() {
   );
 }
 
-const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "" }));
+export const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "" }));
 
 /** Criteria rows as the create form sends them: blank rows dropped. */
 export const criteriaJson = (criteria: CriterionDraft[]) =>
@@ -254,20 +252,32 @@ export function ScoringEditor({
   );
 }
 
+/** An event's scoring before anything is chosen: simple, 1 to 10, with three blank criteria rows ready. */
+export const blankEventScoring = (): ScoringDraft => ({ mode: "simple", min: "1", max: "10", decimals: 2, criteria: blankCriteria(0), display: "percent" });
+
 /**
  * How judges score, for the event create form. It can't change once the activity exists. Submits scoring_mode,
  * min, max, decimals, criteria (JSON), criteria_display and result_decimals.
  */
-export function ScoringFields() {
-  const [value, setValue] = useState<ScoringDraft>(() => ({ mode: "simple", min: "1", max: "10", decimals: 2, criteria: blankCriteria(0), display: "percent" }));
+export function ScoringFields({
+  value,
+  onChange,
+  resultDecimals,
+  onResultDecimals,
+}: {
+  value: ScoringDraft;
+  onChange: (value: ScoringDraft) => void;
+  resultDecimals: ResultDecimals;
+  onResultDecimals: (value: ResultDecimals) => void;
+}) {
   return (
     <>
       <input type="hidden" name="scoring_mode" value={value.mode} />
       <input type="hidden" name="criteria" value={value.mode === "criteria" ? criteriaJson(value.criteria) : "[]"} />
       <input type="hidden" name="criteria_display" value={value.display} />
       <div className="space-y-6">
-        <ScoringEditor value={value} onChange={setValue} formNames />
-        <ResultDecimalsField />
+        <ScoringEditor value={value} onChange={onChange} formNames />
+        <ResultDecimalsField value={resultDecimals} onChange={onResultDecimals} />
       </div>
     </>
   );

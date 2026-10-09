@@ -1,6 +1,6 @@
 import { getAdmin, getBoard, getSignatories } from "@/lib/data";
 import { reportId } from "@/lib/report";
-import { cutPlan, finalCutRound, programOrder, roundBoard, roundPool, roundProgress, standings } from "@/lib/pageant";
+import { cutPlan, finalCutRound, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy } from "@/lib/pageant";
 import { renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
@@ -42,13 +42,26 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
 
   const roundId = search.get("round");
   if (roundId) {
-    const round = order.find((r) => r.id === roundId);
+    const round = board.rounds.find((r) => r.id === roundId);
     if (!round) return new Response("Sub-activity not found.", { status: 404 });
+    const label = roundLabel(board.rounds, round);
     const progress = roundProgress(board, round);
-    if (!progress.complete) return notYet(`${round.name} results can be exported once all scores are in (${progress.submitted} of ${progress.possible} so far).`);
+    if (!progress.complete) return notYet(`${label} results can be exported once all scores are in (${progress.submitted} of ${progress.possible} so far).`);
+
+    // A sub-activity in parts: its standings, each part a column with its share.
+    if (partsOf(board.rounds, round.id).length) {
+      const weights = partWeights(board.rounds, round);
+      const { rows } = standingsBy(board, roundPool(board, round.id).entries, weights);
+      const parts = new Set(weights.map((w) => w.round.id));
+      const scope: Board = { ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && parts.has(s.roundId)) };
+      const sheet: StandingsSheet = { kind: "subactivity", title: `${round.name} results`, weights, rows, placed: null, tieBroken: [] };
+      const pdf = await renderStandingsPdf(board, sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), organizer: await organizer() });
+      return pdfResponse(pdf, fileName(activity.name, round.name));
+    }
+
     const part = roundBoard(board, round);
-    const pdf = await renderResultsPdf(part, { timeZone, reportId: reportId(part, `round:${round.id}`), organizer: await organizer(), part: round.name });
-    return pdfResponse(pdf, fileName(activity.name, round.name));
+    const pdf = await renderResultsPdf(part, { timeZone, reportId: reportId(part, `round:${round.id}`), organizer: await organizer(), part: label });
+    return pdfResponse(pdf, fileName(activity.name, label));
   }
 
   const cutId = search.get("cut") ?? (search.get("segment") ? null : finalCutRound(board.rounds)?.id);
@@ -57,7 +70,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     if (!round) return new Response("Cut not found.", { status: 404 });
     if (round.cutEntryIds === null) return notYet(`Confirm the ${round.name} cut on the Session tab first.`);
     const plan = cutPlan(board, round);
-    const basisRounds = new Set(plan.weights.map((w) => w.round.id));
+    const basisRounds = new Set(plan.weights.flatMap((w) => [w.round.id, ...partsOf(board.rounds, w.round.id).map((p) => p.id)]));
     const scope: Board = { ...board, entries: plan.rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && basisRounds.has(s.roundId)) };
     const title = plan.final ? "Final results" : `Top ${round.cutEntryIds.length} after ${round.name}`;
     const sheet: StandingsSheet = {
@@ -80,7 +93,8 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     if (missing) return notYet(`The preliminary results can be exported once every score is in, including ${missing.name}.`);
     const entries = roundPool(board, prelim[0].id).entries;
     const { weights, rows } = standings(board, entries, [PRELIMINARY]);
-    const scope: Board = { ...board, scores: board.scores.filter((s) => prelim.some((r) => r.id === s.roundId)) };
+    const prelimIds = new Set(prelim.flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
+    const scope: Board = { ...board, scores: board.scores.filter((s) => s.roundId && prelimIds.has(s.roundId)) };
     const sheet: StandingsSheet = { kind: "preliminary", title: "Preliminary results", weights, rows, placed: null, tieBroken: [] };
     const pdf = await renderStandingsPdf(board, sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), organizer: await organizer() });
     return pdfResponse(pdf, fileName(activity.name, "preliminary"));

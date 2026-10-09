@@ -44,6 +44,11 @@ export type Round = {
   cutBasis: string[];
   /** Who went through, best first, once the organizer confirmed the cut; null until then. */
   cutEntryIds: string[] | null;
+  /**
+   * A part of a sub-activity (e.g. the Q&A of a closed-door interview), or null for a sub-activity. A sub-activity
+   * with parts is only their container: judges score each part, and its weight is shared among them by theirs.
+   */
+  parentId: string | null;
 };
 
 /** A name and designation printed as a signature line on the results PDF. */

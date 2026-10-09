@@ -193,7 +193,8 @@ function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo
  * `placed`: the candidates who went through (or the final placements), in order, once the cut is confirmed.
  */
 export type StandingsSheet = {
-  kind: "preliminary" | "cut" | "final";
+  /** subactivity: one sub-activity's standings, its parts as the columns. */
+  kind: "preliminary" | "subactivity" | "cut" | "final";
   title: string;
   weights: { round: Round; weight: number }[];
   rows: StandingRow[];
@@ -213,13 +214,13 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   const rows = sheet.placed ? [...sheet.rows].sort((a, b) => (placeOf.get(a.entry.id) ?? Infinity) - (placeOf.get(b.entry.id) ?? Infinity)) : sheet.rows;
   const tieBroken = new Set(sheet.placed ? sheet.tieBroken : []);
   const status = (id: string) => {
-    if (sheet.kind === "preliminary") return null;
+    if (sheet.kind === "preliminary" || sheet.kind === "subactivity") return null;
     if (sheet.kind === "final") return placeOf.has(id) ? String(placeOf.get(id)) : "—";
     return placeOf.has(id) ? "Through" : "—";
   };
   const statusHead = sheet.kind === "final" ? "Place" : sheet.kind === "cut" ? "Result" : null;
   const meta =
-    `Ranked by ${counts}. Each sub-activity counts as a candidate's average as a percentage of its maximum score. ` +
+    `Ranked by ${counts}. Each ${sheet.kind === "subactivity" ? "part" : "sub-activity"} counts as a candidate's average as a percentage of its maximum score. ` +
     `${judges.length} judges, ${sheet.rows.length} candidates.` +
     (tieBroken.size ? " Candidates marked * were tied; the organizer decided their order." : "") +
     ` Generated ${info.generatedAt}.`;

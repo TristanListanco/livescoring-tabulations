@@ -20,7 +20,7 @@ import {
 import { touchJudge } from "@/lib/devices";
 import { isProductionSite } from "@/lib/environment";
 import { showColumns, showEntryColumns } from "@/lib/judging";
-import { cutPlan, cutResult, programOrder, roundPool } from "@/lib/pageant";
+import { cutPlan, cutResult, partsOf, programOrder, roundPool } from "@/lib/pageant";
 import { checkPageant, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
@@ -256,20 +256,21 @@ export async function logout() {
 
 const PAGEANT_HINT = "Pageant mode needs a database update. Run supabase/migrations/011_pageant_mode.sql in the Supabase SQL editor.";
 
+const PARTS_HINT =
+  "Sub-activities with parts need a database update. Run supabase/migrations/012_pageant_parts_and_drafts.sql in the Supabase SQL editor.";
+
 /**
- * Write a pageant's sub-activities. `ids` maps the form's keys to saved sub-activities' ids; new ones get fresh
- * ids, so cut bases (which name sub-activities by key) can be written in the same go. Upserts, so a saved program
- * is updated in place.
+ * Write a pageant's sub-activities and their parts. `ids` maps the form's keys to saved ids; new ones get fresh
+ * ids, so cut bases (which name sub-activities by key) and parts (which name their sub-activity) can be written in
+ * the same go. Upserts, so a saved program is updated in place.
  */
 async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>) {
-  for (const r of rounds) if (!ids.has(r.key)) ids.set(r.key, randomUUID());
-  const rows = rounds.map((r) => ({
-    id: ids.get(r.key)!,
-    activity_id: activityId,
-    segment: r.segment,
-    name: r.name,
-    position: r.position,
-    weight: r.weight,
+  for (const r of rounds) {
+    if (!ids.has(r.key)) ids.set(r.key, randomUUID());
+    for (const p of r.parts) if (!ids.has(p.key)) ids.set(p.key, randomUUID());
+  }
+  type Scored = Pick<CheckedRound, "scoring" | "timerSeconds">;
+  const scoring = (r: Scored) => ({
     scoring_mode: r.scoring.mode,
     min_score: r.scoring.rules.min,
     max_score: r.scoring.rules.max,
@@ -277,9 +278,35 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
     criteria: r.scoring.criteria,
     criteria_display: r.scoring.display ?? "percent",
     timer_seconds: r.timerSeconds,
-    cut_size: r.cutSize,
-    cut_basis: r.cutBasis.map((k) => (k === PRELIMINARY ? k : ids.get(k))).filter(Boolean),
-  }));
+  });
+  // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012.
+  const withParts = rounds.some((r) => r.parts.length > 0);
+  const rows = rounds.flatMap((r) => [
+    {
+      id: ids.get(r.key)!,
+      activity_id: activityId,
+      segment: r.segment,
+      name: r.name,
+      position: r.position,
+      weight: r.weight,
+      ...scoring(r),
+      cut_size: r.cutSize,
+      cut_basis: r.cutBasis.map((k) => (k === PRELIMINARY ? k : ids.get(k))).filter(Boolean),
+      ...(withParts ? { parent_id: null } : {}),
+    },
+    ...r.parts.map((p) => ({
+      id: ids.get(p.key)!,
+      activity_id: activityId,
+      segment: r.segment,
+      name: p.name,
+      position: p.position,
+      weight: p.weight,
+      ...scoring(p),
+      cut_size: null,
+      cut_basis: [],
+      parent_id: ids.get(r.key)!,
+    })),
+  ]);
   check((await db().from("rounds").upsert(rows)).error);
 }
 
@@ -307,13 +334,16 @@ export async function savePageant(activityId: string, json: string): Promise<Act
   const checked = checkPageant(draft, board.entries.length, newCriterionId);
   if (!checked.ok) return err(checked.error);
 
-  // Saved sub-activities come back keyed by their ids, so they're updated in place; insertProgram names the new ones.
+  // Saved sub-activities and parts come back keyed by their ids, so they're updated in place; insertProgram names the new ones.
   const saved = new Set(board.rounds.map((r) => r.id));
-  const ids = new Map(draft.rounds.filter((r) => saved.has(r.key)).map((r) => [r.key, r.key]));
+  const keys = draft.rounds.flatMap((r) => [r.key, ...(r.parts ?? []).map((p) => p.key)]);
+  const ids = new Map(keys.filter((k) => saved.has(k)).map((k) => [k, k]));
   try {
     await insertProgram(activityId, checked.rounds, ids);
   } catch (e) {
-    return dbErr(e instanceof Error ? e : { message: String(e) });
+    const message = e instanceof Error ? e.message : String(e);
+    if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
+    return dbErr({ message });
   }
   const kept = new Set(ids.values());
   const removed = board.rounds.filter((r) => !kept.has(r.id)).map((r) => r.id);
@@ -352,6 +382,8 @@ export async function setCurrentRound(activityId: string, roundId: string | null
   if (roundId !== null) {
     const round = board.rounds.find((r) => r.id === roundId);
     if (!round) return err("Sub-activity not found.");
+    // A sub-activity with parts is judged part by part.
+    if (partsOf(board.rounds, round.id).length) return err(`Choose which part of ${round.name} to judge.`);
     const { blockedBy } = roundPool(board, round.id);
     if (blockedBy) return err(`Confirm the ${blockedBy.name} cut first. It decides who is judged in ${round.name}.`);
   }
@@ -414,7 +446,7 @@ export async function undoCut(activityId: string, roundId: string): Promise<Acti
   const order = programOrder(board.rounds);
   const index = order.findIndex((r) => r.id === roundId);
   if (index < 0 || order[index].cutEntryIds === null) return err("That cut isn't confirmed.");
-  const later = new Set(order.slice(index + 1).map((r) => r.id));
+  const later = new Set(order.slice(index + 1).flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
   if (board.scores.some((s) => s.roundId && later.has(s.roundId))) {
     return err("Judges have already scored after this cut, so it can't be taken back.");
   }
@@ -537,11 +569,15 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
     if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
+    if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
     if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
     console.error(e);
     return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
   }
 
+  // The draft it was set up from has done its job.
+  const draftId = String(formData.get("draftId") ?? "");
+  if (isUuid(draftId)) await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
   redirect(`/admin/${activityId}`);
 }
 
@@ -909,4 +945,59 @@ export async function deleteActivity(activityId: string): Promise<ActionResult> 
   if (error) return dbErr(error);
   await removeFiles((files ?? []).map((f) => `${activityId}/${f.name}`));
   redirect("/admin");
+}
+
+// Drafts ------------------------------------------------------------------------------------
+
+const DRAFTS_HINT = "Saving drafts needs a database update. Run supabase/migrations/012_pageant_parts_and_drafts.sql in the Supabase SQL editor.";
+/** Judge photos ride along as small images, so a draft with a full panel stays well under this. */
+const MAX_DRAFT_CHARS = 6_000_000;
+
+export type DraftResult = { ok: true; id: string; savedAt: string } | { ok: false; error: string };
+
+/** Limit a drafts query to the signed-in admin's own: an organizer's, or the super admin's (no owner). */
+function ownDrafts<Q extends { eq: (column: string, value: string) => Q; is: (column: string, value: null) => Q }>(session: AdminSession, query: Q): Q {
+  return session.kind === "organizer" ? query.eq("owner_id", session.admin.id) : query.is("owner_id", null);
+}
+
+/**
+ * Save the create form as a draft: a new one, or over `draftId`. `data` is the form's own state as JSON; only its
+ * owner can read it back. A draft that has gone (deleted elsewhere) is saved as a new one.
+ */
+export async function saveDraft(draftId: string | null, kind: "event" | "pageant", name: string, data: string): Promise<DraftResult> {
+  const session = await requireAdmin();
+  if (kind !== "event" && kind !== "pageant") return { ok: false, error: "That draft couldn't be read. Try again." };
+  if (typeof data !== "string" || data.length > MAX_DRAFT_CHARS) return { ok: false, error: "That draft is too big to save. Remove some photos and try again." };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return { ok: false, error: "That draft couldn't be read. Try again." };
+  }
+  const row = { kind, name: String(name ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME), data: parsed, updated_at: new Date().toISOString() };
+  // Before migration 012 there's no drafts table: the super admin is told which file to run.
+  const failed = async (e: { message: string }): Promise<DraftResult> => {
+    const result = /activity_drafts/.test(e.message) ? await needsMigration(DRAFTS_HINT) : dbErr(e);
+    return result.ok ? { ok: false, error: "That didn't save. Try again." } : result;
+  };
+
+  if (draftId && isUuid(draftId)) {
+    const { data: updated, error } = await ownDrafts(session, db().from("activity_drafts").update(row).eq("id", draftId)).select("id");
+    if (error) return failed(error);
+    if ((updated as { id: string }[]).length) return { ok: true, id: draftId, savedAt: row.updated_at };
+  }
+  const owner_id = session.kind === "organizer" ? session.admin.id : null;
+  const { data: created, error } = await db().from("activity_drafts").insert({ ...row, owner_id }).select("id").single();
+  if (error) return failed(error);
+  return { ok: true, id: (created as { id: string }).id, savedAt: row.updated_at };
+}
+
+/** Delete one of the signed-in admin's drafts. */
+export async function deleteDraft(draftId: string): Promise<ActionResult> {
+  const session = await requireAdmin();
+  if (!isUuid(draftId)) return err("Draft not found.");
+  const { error } = await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
+  if (error) return dbErr(error);
+  refresh();
+  return ok("Draft deleted.");
 }
