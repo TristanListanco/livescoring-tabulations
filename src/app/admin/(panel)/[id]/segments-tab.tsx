@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { basisWeights, programOrder } from "@/lib/pageant";
+import { basisWeights, partsOf, programOrder } from "@/lib/pageant";
 import { checkPageant, draftFromRounds, segmentLabel, type PageantDraft } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound, rulesSummary } from "@/lib/scoring";
@@ -78,8 +78,24 @@ function LockedProgram({ board }: { board: Board }) {
                   <p>
                     <span className="font-semibold">{r.name}</span> <span className="tabular hint">{percent(r.weight)}</span>
                   </p>
-                  <p className="hint">{rulesSummary(r)}</p>
-                  <TimerSetting round={r} />
+                  {partsOf(board.rounds, r.id).length === 0 ? (
+                    <>
+                      <p className="hint">{rulesSummary(r)}</p>
+                      <TimerSetting round={r} />
+                    </>
+                  ) : (
+                    <ol aria-label={`Parts of ${r.name}`} className="space-y-3 border-l-2 border-line pl-4">
+                      {partsOf(board.rounds, r.id).map((part) => (
+                        <li key={part.id} className="space-y-1.5">
+                          <p>
+                            <span className="font-semibold">{part.name}</span> <span className="tabular hint">{percent(part.weight)} of {r.name}</span>
+                          </p>
+                          <p className="hint">{rulesSummary(part)}</p>
+                          <TimerSetting round={{ ...part, name: `${r.name} · ${part.name}` }} />
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                   {r.cutSize !== null && (
                     <p className="rounded-lg bg-wash/60 px-3 py-2 text-sm">
                       <span className="font-semibold">Cut: Top {r.cutSize}</span>, ranked by{" "}
@@ -104,7 +120,7 @@ function LockedProgram({ board }: { board: Board }) {
  */
 export function SegmentsTab({ board }: { board: Board }) {
   const { activity } = board;
-  const [draft, setDraft] = useState<PageantDraft>(() => draftFromRounds(activity.preliminaryWeight, programOrder(board.rounds)));
+  const [draft, setDraft] = useState<PageantDraft>(() => draftFromRounds(activity.preliminaryWeight, board.rounds));
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
 

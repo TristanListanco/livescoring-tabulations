@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
-import { cutPlan, programOrder, roundPool, roundProgress, type CutPlan, type TieGroup } from "@/lib/pageant";
+import { cutPlan, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, unitOf, type CutPlan, type TieGroup } from "@/lib/pageant";
 import { segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound } from "@/lib/scoring";
@@ -36,24 +36,37 @@ export function PdfLink({ activityId, query, className, children }: { activityId
   );
 }
 
-/** What comes after the sub-activity being judged: its cut, if it's still to confirm, or the next sub-activity. */
+/**
+ * What comes after the sub-activity (or part) being judged: its cut, once its last part is judged and the cut is
+ * still to confirm, or the next thing to judge. A part comes back with its full name ("Interview · Q&A").
+ */
 export function nextUp(board: Board, round: Round | null): { kind: "cut"; round: Round } | { kind: "round"; round: Round } | null {
-  const order = programOrder(board.rounds);
-  if (round && round.cutSize !== null && round.cutEntryIds === null) return { kind: "cut", round };
+  const order = judgingOrder(board.rounds);
+  const labelled = (r: Round) => ({ ...r, name: roundLabel(board.rounds, r) });
+  // The cut that comes right after this part (or sub-activity), if it's still to confirm.
+  const cutAfter = (r: Round) => {
+    const unit = unitOf(board.rounds, r);
+    const parts = partsOf(board.rounds, unit.id);
+    const last = parts.length ? parts[parts.length - 1] : unit;
+    return last.id === r.id && unit.cutSize !== null && unit.cutEntryIds === null ? unit : null;
+  };
   if (!round) {
     // Between sub-activities: the first one not done yet, or the cut holding it back.
     for (const r of order) {
       if (roundProgress(board, r).complete) {
-        if (r.cutSize !== null && r.cutEntryIds === null) return { kind: "cut", round: r };
+        const cut = cutAfter(r);
+        if (cut) return { kind: "cut", round: cut };
         continue;
       }
       const { blockedBy } = roundPool(board, r.id);
-      return blockedBy ? { kind: "cut", round: blockedBy } : { kind: "round", round: r };
+      return blockedBy ? { kind: "cut", round: blockedBy } : { kind: "round", round: labelled(r) };
     }
     return null;
   }
+  const cut = cutAfter(board.rounds.find((r) => r.id === round.id) ?? round);
+  if (cut) return { kind: "cut", round: cut };
   const next = order[order.findIndex((r) => r.id === round.id) + 1];
-  return next ? { kind: "round", round: next } : null;
+  return next ? { kind: "round", round: labelled(next) } : null;
 }
 
 /** Switch judging to a sub-activity, asking first when the one being judged still has scores to come. */
@@ -71,7 +84,8 @@ export function JudgeRoundButton({
   onDone?: (result: ActionResult) => void;
 }) {
   const { activity } = board;
-  const current = board.rounds.find((r) => r.id === activity.currentRoundId) ?? null;
+  const found = board.rounds.find((r) => r.id === activity.currentRoundId) ?? null;
+  const current = found && { ...found, name: roundLabel(board.rounds, found) };
   const go = async () => {
     const result = await reach(() => setCurrentRound(activity.id, round.id));
     onDone?.(result);
@@ -125,6 +139,54 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
     ? "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:px-2.5"
     : "btn btn-quiet btn-sm";
   const prelimDone = order.filter((r) => r.segment === "preliminary").every((r) => roundProgress(board, r).complete);
+  const isCurrent = (r: Round) => r.id === activity.currentRoundId && activity.sessionState === "live";
+  const status = (r: Round, judged: boolean) => {
+    const progress = roundProgress(board, r);
+    // A sub-activity in parts is "judging now" while one of its parts is.
+    const current = judged ? isCurrent(r) : partsOf(board.rounds, r.id).some(isCurrent);
+    return current ? (
+      <span className="inline-flex items-center rounded-md bg-regal px-2 py-0.5 text-xs font-semibold text-mint">Judging now</span>
+    ) : progress.complete ? (
+      <span className="flex items-center gap-1 text-xs font-semibold text-regal">{check}Done</span>
+    ) : progress.blockedBy ? (
+      <span className="text-xs text-prussian/70">After the {progress.blockedBy.name} cut</span>
+    ) : (
+      <span className="tabular text-xs text-prussian/70">{progress.submitted > 0 ? `${progress.submitted} of ${progress.possible} scores` : "Not started"}</span>
+    );
+  };
+  /** A sub-activity or part that judges score: how far it has got, judging it, and its results PDF. `label`: its full name. */
+  const row = (r: Round, label: string, part: boolean) => {
+    const progress = roundProgress(board, r);
+    const current = isCurrent(r);
+    return (
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-3 py-2.5"} ${current ? "bg-white" : ""}`}>
+        <span className={`min-w-0 flex-1 truncate ${part ? "" : "font-semibold"}`} title={label}>
+          {r.name}
+          <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
+        </span>
+        {status(r, true)}
+        {live && !current && !progress.blockedBy && (
+          <JudgeRoundButton
+            board={board}
+            round={{ ...r, name: label }}
+            className={action}
+            onDone={setResult}
+            label={
+              <>
+                {progress.complete ? "Judge again" : progress.submitted > 0 ? "Resume" : "Judge now"}
+                <span className="sr-only"> {label}</span>
+              </>
+            }
+          />
+        )}
+        {progress.complete && (
+          <PdfLink activityId={activity.id} query={`round=${r.id}`} className={action}>
+            PDF<span className="sr-only"> of {label} results</span>
+          </PdfLink>
+        )}
+      </div>
+    );
+  };
 
   return (
     <section aria-labelledby="program" className={compact ? "shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm" : ""}>
@@ -148,47 +210,34 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
             </h3>
             <ol className={`mt-1 divide-y divide-line border-y border-line ${compact ? "" : "bg-white/40"}`}>
               {rounds.map((round) => {
-                const progress = roundProgress(board, round);
-                const current = round.id === activity.currentRoundId && activity.sessionState === "live";
+                const parts = partsOf(board.rounds, round.id);
                 const plan = round.cutSize !== null ? cutPlan(board, round) : null;
                 return (
                   <li key={round.id}>
-                    <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-3 py-2.5"} ${current ? "bg-white" : ""}`}>
-                      <span className="min-w-0 flex-1 truncate font-semibold" title={round.name}>
-                        {round.name}
-                        <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(round.weight)}</span>
-                      </span>
-                      {current ? (
-                        <span className="inline-flex items-center rounded-md bg-regal px-2 py-0.5 text-xs font-semibold text-mint">Judging now</span>
-                      ) : progress.complete ? (
-                        <span className="flex items-center gap-1 text-xs font-semibold text-regal">{check}Done</span>
-                      ) : progress.blockedBy ? (
-                        <span className="text-xs text-prussian/70">After the {progress.blockedBy.name} cut</span>
-                      ) : (
-                        <span className="tabular text-xs text-prussian/70">
-                          {progress.submitted > 0 ? `${progress.submitted} of ${progress.possible} scores` : "Not started"}
-                        </span>
-                      )}
-                      {live && !current && !progress.blockedBy && (
-                        <JudgeRoundButton
-                          board={board}
-                          round={round}
-                          className={action}
-                          onDone={setResult}
-                          label={
-                            <>
-                              {progress.complete ? "Judge again" : progress.submitted > 0 ? "Resume" : "Judge now"}
-                              <span className="sr-only"> {round.name}</span>
-                            </>
-                          }
-                        />
-                      )}
-                      {progress.complete && (
-                        <PdfLink activityId={activity.id} query={`round=${round.id}`} className={action}>
-                          PDF<span className="sr-only"> of {round.name} results</span>
-                        </PdfLink>
-                      )}
-                    </div>
+                    {parts.length === 0 ? (
+                      row(round, round.name, false)
+                    ) : (
+                      <>
+                        {/* A sub-activity in parts: its own line is a summary; judges score each part below it. */}
+                        <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-3 py-2.5"}`}>
+                          <span className="min-w-0 flex-1 truncate font-semibold" title={round.name}>
+                            {round.name}
+                            <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(round.weight)}</span>
+                          </span>
+                          {status(round, false)}
+                          {roundProgress(board, round).complete && (
+                            <PdfLink activityId={activity.id} query={`round=${round.id}`} className={action}>
+                              Standings PDF<span className="sr-only"> for {round.name}</span>
+                            </PdfLink>
+                          )}
+                        </div>
+                        <ol aria-label={`Parts of ${round.name}`} className="border-l-2 border-line ml-1 pl-2">
+                          {parts.map((part) => (
+                            <li key={part.id}>{row(part, `${round.name} · ${part.name}`, true)}</li>
+                          ))}
+                        </ol>
+                      </>
+                    )}
                     {plan && (
                       <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-dashed border-line ${compact ? "py-1.5" : "px-3 py-2"}`}>
                         {scissors}
@@ -283,7 +332,10 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
   const incomplete = plan ? plan.rows.filter((r) => !r.complete).length : 0;
   const picksReady = plan ? plan.ties.every((t, i) => (picks[i] ?? []).length === t.places) : false;
   const order = programOrder(board.rounds);
-  const next = round ? order[order.findIndex((r) => r.id === round.id) + 1] : undefined;
+  const nextUnit = round ? order[order.findIndex((r) => r.id === round.id) + 1] : undefined;
+  // The next sub-activity is judged from its first part, if it has parts.
+  const nextFirst = nextUnit ? (partsOf(board.rounds, nextUnit.id)[0] ?? nextUnit) : undefined;
+  const next = nextFirst && { ...nextFirst, name: roundLabel(board.rounds, nextFirst) };
   const rows = plan
     ? confirmed
       ? [...plan.rows].sort((a, b) => (placeOf.get(a.entry.id) ?? Infinity) - (placeOf.get(b.entry.id) ?? Infinity))
@@ -320,7 +372,7 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
 
             {confirmed ? (
               <p role="note" className="note">
-                Confirmed. {plan.final ? "The order below is the final placement." : `These ${confirmed.length} candidates go through to ${next?.name ?? "the next part"}.`}
+                Confirmed. {plan.final ? "The order below is the final placement." : `These ${confirmed.length} candidates go through to ${nextUnit?.name ?? "the next part"}.`}
               </p>
             ) : !plan.ready ? (
               <p role="note" className="note">

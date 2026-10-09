@@ -8,7 +8,7 @@ import { LiveStatusBadge } from "@/components/live-status";
 import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { entryNeighbors } from "@/lib/judging";
-import { showingBoard } from "@/lib/pageant";
+import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, Signatory } from "@/lib/types";
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
@@ -255,11 +255,13 @@ export function SessionTab({
   const lastOneIn = allIn && !next;
   // In a pageant, the last candidate of a sub-activity leads to its cut, or the next sub-activity, instead.
   const upNext = pageant ? nextUp(board, round) : null;
+  // The sub-activity being judged, when a part of it is on judges' screens: its cut comes after its last part.
+  const unitId = round ? unitOf(board.rounds, board.rounds.find((r) => r.id === round.id) ?? round).id : null;
   const nextClass = "btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full";
   const pageantNext =
     upNext?.kind === "cut" ? (
       <button type="button" className={nextClass} onClick={() => setCutOpen(upNext.round.id)}>
-        {upNext.round.id === round?.id ? `Review the Top ${upNext.round.cutSize}` : `Review the ${upNext.round.name} cut`}
+        {upNext.round.id === unitId ? `Review the Top ${upNext.round.cutSize}` : `Review the ${upNext.round.name} cut`}
       </button>
     ) : upNext?.kind === "round" ? (
       <JudgeRoundButton board={board} round={upNext.round} className={nextClass} label={`Next: ${upNext.round.name}`} onDone={setResult} />

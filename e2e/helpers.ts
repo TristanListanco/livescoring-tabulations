@@ -92,3 +92,10 @@ export async function deleteOrganizerByEmail(email: string) {
   if (!api) return;
   await fetch(`${api.url}/rest/v1/admins?email=eq.${encodeURIComponent(email)}`, { method: "DELETE", headers: api.headers });
 }
+
+/** Remove test drafts straight from the database, in case a test failed before they were used or deleted. */
+export async function deleteDraftsNamed(name: string) {
+  const api = supabaseAdmin();
+  if (!api) return;
+  await fetch(`${api.url}/rest/v1/activity_drafts?name=eq.${encodeURIComponent(name)}`, { method: "DELETE", headers: api.headers });
+}

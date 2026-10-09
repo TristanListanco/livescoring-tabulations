@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { basisWeights, clock, cutPlan, cutResult, roundPool, roundProgress, showingBoard, standings, timerPhase, warningSeconds } from "./pageant";
+import {
+  basisWeights,
+  clock,
+  cutPlan,
+  cutResult,
+  judgingOrder,
+  partWeights,
+  programOrder,
+  roundLabel,
+  roundPool,
+  roundProgress,
+  showingBoard,
+  standings,
+  standingsBy,
+  timerPhase,
+  warningSeconds,
+} from "./pageant";
 import { activityFixture, roundFixture } from "./test-fixtures";
 import { PRELIMINARY, type Board, type Round, type Score } from "./types";
 
@@ -156,5 +172,50 @@ describe("scoring timer", () => {
   it("reads like a clock", () => {
     expect(clock(65)).toBe("1:05");
     expect(clock(9)).toBe("0:09");
+  });
+});
+
+describe("sub-activities with parts", () => {
+  // The interview is scored in two parts: its Q&A (60%) and the advocacy (40%).
+  const qna = roundFixture({ id: "qna", name: "Q&A", segment: "preliminary", position: 0, weight: 60, parentId: "interview" });
+  const advocacy = roundFixture({ id: "advocacy", name: "Advocacy", segment: "preliminary", position: 1, weight: 40, parentId: "interview" });
+  const rounds = [interview, qna, advocacy, costume, swim, qa];
+
+  it("judges the parts in the sub-activity's place, under its name", () => {
+    expect(programOrder(rounds).map((r) => r.id)).toEqual(["interview", "costume", "swim", "qa"]);
+    expect(judgingOrder(rounds).map((r) => r.id)).toEqual(["qna", "advocacy", "costume", "swim", "qa"]);
+    expect(roundLabel(rounds, advocacy)).toBe("interview · Advocacy");
+    expect(roundLabel(rounds, costume)).toBe("costume");
+    const showing = showingBoard(pageant(rounds, [], "advocacy"));
+    expect(showing.round?.name).toBe("interview · Advocacy");
+  });
+
+  it("scores the sub-activity as its parts weighted by their shares", () => {
+    // Ayla: Q&A 10 of 10 (100%), advocacy 5 of 10 (50%), so the interview is 100 × 60% + 50 × 40% = 80%.
+    const scores = [...both("qna", { A: 10 }), ...both("advocacy", { A: 5 })];
+    const board = pageant(rounds, scores);
+    const { rows } = standings(board, roundPool(board, "qna").entries, [PRELIMINARY]);
+    const ayla = rows.find((r) => r.entry.id === "A")!;
+    expect(ayla.parts.get("interview")).toBe(80);
+    // The costume has no scores yet, so the preliminary total waits for it.
+    expect(ayla.total).toBeNull();
+    expect(partWeights(rounds, interview).map((w) => [w.round.id, w.weight])).toEqual([
+      ["qna", 60],
+      ["advocacy", 40],
+    ]);
+    expect(standingsBy(board, [board.entries[0]], partWeights(rounds, interview)).rows[0].total).toBe(80);
+  });
+
+  it("counts every part toward the sub-activity's progress", () => {
+    const board = pageant(rounds, both("qna", { A: 9, B: 9, C: 9, D: 9, E: 9 }));
+    expect(roundProgress(board, qna)).toMatchObject({ submitted: 10, possible: 10, complete: true });
+    expect(roundProgress(board, interview)).toMatchObject({ submitted: 10, possible: 20, complete: false });
+  });
+
+  it("judges a part's candidates the same as its sub-activity's", () => {
+    const later = roundFixture({ id: "later", segment: "proper", position: 9 });
+    const latePart = roundFixture({ id: "late-part", segment: "proper", position: 0, parentId: "later" });
+    const board = pageant([interview, { ...swim, cutEntryIds: ["C", "A", "E"] }, later, latePart], []);
+    expect(roundPool(board, "late-part").entries.map((e) => e.id)).toEqual(["A", "C", "E"]);
   });
 });

@@ -47,6 +47,7 @@ export function roundFixture(overrides: Partial<Round> & Pick<Round, "id" | "seg
     cutSize: null,
     cutBasis: [],
     cutEntryIds: null,
+    parentId: null,
     ...overrides,
   };
 }

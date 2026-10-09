@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { basisChoices, blankScoring, checkPageant, defaultBasis, hasCut, type PageantDraft, type RoundDraft } from "./pageant-setup";
+import { basisChoices, blankScoring, checkPageant, defaultBasis, draftFromRounds, evenShares, hasCut, sharesWithOneMore, type PageantDraft, type PartDraft, type RoundDraft } from "./pageant-setup";
+import { roundFixture } from "./test-fixtures";
 import { PRELIMINARY } from "./types";
 
 const round = (key: string, segment: RoundDraft["segment"], weight: string, extra: Partial<RoundDraft> = {}): RoundDraft => ({
@@ -12,6 +13,7 @@ const round = (key: string, segment: RoundDraft["segment"], weight: string, extr
   cut: false,
   cutSize: "",
   cutBasis: null,
+  parts: null,
   ...extra,
 });
 
@@ -103,5 +105,64 @@ describe("pageant setup", () => {
     expect(checkPageant(draft(unnamed), 20, ids)).toMatchObject({ ok: false, segment: "preliminary" });
     const twice = program.map((r) => (r.key === "Costume" ? { ...r, name: "interview" } : r));
     expect(checkPageant(draft(twice), 20, ids)).toMatchObject({ ok: false, error: '"interview" is listed twice. Give each sub-activity its own name.' });
+  });
+});
+
+describe("shares", () => {
+  it("splits 100% as evenly as whole numbers allow", () => {
+    expect(evenShares(2)).toEqual(["50", "50"]);
+    expect(evenShares(3)).toEqual(["34", "33", "33"]);
+    expect(evenShares(7)).toEqual(["15", "15", "14", "14", "14", "14", "14"]);
+  });
+
+  it("gives a new sub-activity what's left, or splits evenly once 100% is used", () => {
+    expect(sharesWithOneMore(["60"])).toEqual({ shares: ["60", "40"], evened: false });
+    expect(sharesWithOneMore(["60", "40"])).toEqual({ shares: ["34", "33", "33"], evened: true });
+    expect(sharesWithOneMore(["100"])).toEqual({ shares: ["50", "50"], evened: true });
+  });
+});
+
+describe("sub-activities with parts", () => {
+  const part = (key: string, weight: string, extra: Partial<PartDraft> = {}): PartDraft => ({ key, name: key, weight, scoring: blankScoring(), timer: "", ...extra });
+  const withParts = (parts: PartDraft[]) =>
+    program.map((r) => (r.key === "Interview" ? { ...r, parts, scoring: { ...r.scoring, min: "", max: "" } } : r));
+
+  it("checks each part and keeps them in order", () => {
+    const result = checkPageant(draft(withParts([part("Q&A", "50"), part("Advocacy", "30"), part("Video", "20", { timer: "45" })])), 20, ids);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.rounds[0].parts.map((p) => [p.name, p.position, p.weight, p.timerSeconds])).toEqual([
+      ["Q&A", 0, 50, null],
+      ["Advocacy", 1, 30, null],
+      ["Video", 2, 20, 45],
+    ]);
+    // The sub-activity's own (blank) scoring doesn't matter once it has parts.
+    expect(result.rounds[0].scoring.rules).toEqual({ min: 0, max: 100, decimals: 0 });
+  });
+
+  it("needs parts that add up to 100%, with names", () => {
+    expect(checkPageant(draft(withParts([part("Q&A", "50"), part("Advocacy", "40")])), 20, ids)).toMatchObject({
+      ok: false,
+      error: "The parts of Interview add up to 90%. They must add up to 100%.",
+      segment: "preliminary",
+    });
+    expect(checkPageant(draft(withParts([part("Q&A", "100")])), 20, ids)).toMatchObject({ ok: false, error: "Interview: add at least two parts, or score it as a whole." });
+    expect(checkPageant(draft(withParts([part("Q&A", "50"), part(" ", "50")])), 20, ids)).toMatchObject({ ok: false, error: "Give every part of Interview a name." });
+    const badRange = [part("Q&A", "50", { scoring: { ...blankScoring(), min: "10", max: "5" } }), part("Advocacy", "50")];
+    expect(checkPageant(draft(withParts(badRange)), 20, ids)).toMatchObject({ ok: false, error: "Interview · Q&A: Max score must be higher than min score." });
+  });
+
+  it("comes back from the saved sub-activities with its parts", () => {
+    const interview = roundFixture({ id: "i", name: "Interview", segment: "preliminary", weight: 100 });
+    const qna = roundFixture({ id: "q", name: "Q&A", segment: "preliminary", weight: 60, parentId: "i", min: 0, max: 100, decimals: 0 });
+    const advocacy = roundFixture({ id: "a", name: "Advocacy", segment: "preliminary", position: 1, weight: 40, parentId: "i", timerSeconds: 30 });
+    const night = roundFixture({ id: "n", name: "Night", segment: "proper", cutSize: 3, cutBasis: ["n"] });
+    const back = draftFromRounds(30, [advocacy, night, qna, interview]);
+    expect(back.rounds.map((r) => r.key)).toEqual(["i", "n"]);
+    expect(back.rounds[0].parts?.map((p) => [p.key, p.name, p.weight, p.timer, p.scoring.max])).toEqual([
+      ["q", "Q&A", "60", "", "100"],
+      ["a", "Advocacy", "40", "30", "10"],
+    ]);
+    expect(back.rounds[1].parts).toBeNull();
   });
 });
