@@ -1,9 +1,12 @@
 "use client";
 
+import { useRef } from "react";
+import { flushSync } from "react-dom";
 import { PhotoPicker } from "@/components/photo-picker";
 import { fullName } from "@/lib/names";
 import type { JudgePanel } from "@/lib/types";
 import { describedBy, FieldProblem, problemId, useFieldProblems } from "../field-errors";
+import { enterToNext, NEXT_LINE } from "../list-keys";
 import { PersonNameInput } from "../person-name-input";
 
 /** panel: pageants only, which segments the judge judges. */
@@ -63,6 +66,15 @@ export function JudgesFields({
 }) {
   const columns = "sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem_2.75rem]";
   const problems = useFieldProblems();
+  const list = useRef<HTMLOListElement>(null);
+  // Enter goes from first name to last name to the next judge's; at the last, it adds a judge once that one is named.
+  const last = judges.at(-1);
+  const addAfterLast = () => {
+    if (full || !last?.first.trim() || !last.last.trim()) return;
+    // At once, so focus goes straight to the new judge's first name.
+    flushSync(onAdd);
+    list.current?.querySelector<HTMLInputElement>("li:last-child input[data-next-line]")?.focus();
+  };
   // A missing chair points at the board's first Chair radio.
   const chairField = `judge-${start}-chair`;
   return (
@@ -76,11 +88,11 @@ export function JudgesFields({
         <span className="label mb-0">First name</span>
         <span className="label mb-0">Last name</span>
       </div>
-      <ol className="space-y-3">
+      <ol ref={list} className="divide-y divide-line border-y border-line">
         {judges.map((j, i) => {
           const at = start + i;
           return (
-            <li key={j.key} className={`grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 ${columns}`}>
+            <li key={j.key} className={`grid grid-cols-[3.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 py-3 ${columns}`}>
               <div className="row-span-3 self-start sm:row-span-1">
                 <PhotoPicker
                   name={fullName(j.first, j.last)}
@@ -101,6 +113,8 @@ export function JudgesFields({
                   name={`judge-${at}-first_name`}
                   part="first"
                   required
+                  {...NEXT_LINE}
+                  onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
                   value={j.first}
                   onValueChange={(first) => onChange(j.key, { first })}
                 />
@@ -117,6 +131,8 @@ export function JudgesFields({
                   name={`judge-${at}-last_name`}
                   part="last"
                   required
+                  {...NEXT_LINE}
+                  onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
                   value={j.last}
                   onValueChange={(last) => onChange(j.key, { last })}
                 />

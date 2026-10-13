@@ -9,7 +9,7 @@ import { addCandidatePhoto, createPageant, type CreateResult } from "../../actio
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
 import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
-import { blankCandidate, CandidatesFields, MAX_CANDIDATES, type DraftCandidate } from "./candidates-fields";
+import { blankCandidate, CandidatesFields, MAX_CANDIDATES, type DraftCandidate, type PasteResult } from "./candidates-fields";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { PageantReview } from "./pageant-review";
 import { openCandidates, openJudges, SaveDraftButton, saveCandidates, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
@@ -44,7 +44,8 @@ const cleanName = (name: string) => name.replace(/\s+/g, " ").trim();
 const OFFLINE = "That didn't reach the server. Check this screen's connection and try again.";
 
 /** Something to fix before moving on: what, and the id of the field it's about when there is one. */
-type Problem = { message: string; field?: string };
+/** `also`: other fields to mark with it, whose message is the first field's (a judge's blank first and last name). */
+type Problem = { message: string; field?: string; also?: string[] };
 
 /** The id of the list of a step's problems, focused when no problem has a field of its own. */
 const STEP_PROBLEMS = "step-problems";
@@ -156,6 +157,37 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const [name, setName] = useState(start.name);
   const [candidates, setCandidates] = useState<DraftCandidate[]>(start.candidates);
   const nextCandidate = useRef(start.candidates.length);
+  /**
+   * A list pasted into a candidate's name: that row takes the first name, then the blank rows right after it, then
+   * new rows inserted there, so names already typed further down keep their places after the pasted ones.
+   */
+  const pasteNames = (key: number, names: string[]): PasteResult => {
+    const list = [...candidates];
+    let at = list.findIndex((c) => c.key === key);
+    if (at < 0) return { placed: 0, dropped: names.length, lastKey: key };
+    let placed = 0;
+    let dropped = 0;
+    let lastKey = key;
+    names.forEach((name, n) => {
+      const next = list[at + 1];
+      if (n === 0) {
+        list[at] = { ...list[at], name };
+      } else if (next && !next.name.trim()) {
+        list[++at] = { ...next, name };
+        lastKey = next.key;
+      } else if (list.length < MAX_CANDIDATES) {
+        const added = { ...blankCandidate(nextCandidate.current++), name };
+        list.splice(++at, 0, added);
+        lastKey = added.key;
+      } else {
+        dropped++;
+        return;
+      }
+      placed++;
+    });
+    setCandidates(list);
+    return { placed, dropped, lastKey };
+  };
   const nextKey = useRef(start.judges.length);
   const [boards, setBoards] = useState<Boards>(start.boards);
   const [judges, setJudges] = useState<DraftJudge[]>(start.judges);
@@ -233,7 +265,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
         list.forEach((j, n) => {
           const at = start + n;
           if (!j.first.trim() || !j.last.trim()) {
-            found.push({ message: `Enter ${who} ${n + 1}'s first and last name.`, field: `judge-${at}-${j.first.trim() ? "last" : "first"}_name` });
+            const blank = (["first", "last"] as const).filter((part) => !j[part].trim()).map((part) => `judge-${at}-${part}_name`);
+            found.push({ message: `Enter ${who} ${n + 1}'s first and last name.`, field: blank[0], also: blank.slice(1) });
             return;
           }
           if (!isPersonName(j.first)) found.push({ message: `Use letters only for ${who} ${n + 1}'s first name.`, field: `judge-${at}-first_name` });
@@ -245,7 +278,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
         board(preliminaryBoard, "preliminary judge", 0, chairs.preliminary, "Choose the chair of the preliminary board of judges.");
         board(properBoard, "pageant proper judge", preliminaryBoard.length, chairs.proper, "Choose the chair of the pageant proper board of judges.");
       } else {
-        board(judges, "Judge", 0, chairs.proper, "Choose the chair of the board of judges.");
+        board(judges, "judge", 0, chairs.proper, "Choose the chair of the board of judges.");
       }
       const short = MIN_PROPER_JUDGES - properBoard.length;
       if (short > 0) {
@@ -375,6 +408,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const shownProblems = checkedStep === step ? problems(step) : [];
   const fieldProblems = new Map<string, string>();
   for (const p of shownProblems) if (p.field && !fieldProblems.has(p.field)) fieldProblems.set(p.field, p.message);
+  // Marked, with the message shown once, at the first field.
+  for (const p of shownProblems) for (const field of p.also ?? []) if (!fieldProblems.has(field)) fieldProblems.set(field, "");
 
   if (created) {
     return (
@@ -392,7 +427,17 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
 
   return (
     <FieldProblemsProvider value={fieldProblems}>
-      <form ref={formRef} onSubmit={submit} noValidate className="mt-8 max-w-4xl">
+      <form
+        ref={formRef}
+        onSubmit={submit}
+        // Enter in a field never changes step: only the Continue button does. (Name lists go to their next line.)
+        onKeyDown={(e) => {
+          const field = e.target;
+          if (e.key === "Enter" && field instanceof HTMLInputElement && !["submit", "button", "image", "reset"].includes(field.type)) e.preventDefault();
+        }}
+        noValidate
+        className="mt-8 max-w-4xl"
+      >
         <nav aria-label="Pageant setup steps">
           <ol className="flex flex-wrap gap-x-1 gap-y-2">
             {STEPS.map((label, i) => {
@@ -423,7 +468,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
                     </span>
                   )}
                   {i < STEPS.length - 1 && (
-                    <span aria-hidden className="mx-1 inline-block h-px w-4 bg-line" />
+                    // On phones the steps wrap, so the connectors would dangle at line ends.
+                    <span aria-hidden className="mx-1 hidden h-px w-4 bg-line sm:inline-block" />
                   )}
                 </li>
               );
@@ -482,6 +528,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
                 const key = nextCandidate.current++;
                 setCandidates((list) => (list.length < MAX_CANDIDATES ? [...list, blankCandidate(key)] : list));
               }}
+              onPasteNames={pasteNames}
             />
           </div>
         </section>

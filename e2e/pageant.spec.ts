@@ -81,16 +81,27 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("Pageant name").fill(NAME);
     await expect(problems).not.toContainText("Give the pageant a name.");
     await expect(page.getByLabel("Pageant name")).not.toHaveAttribute("aria-invalid", "true");
-    // Each candidate has a row, with a photo for the LED wall; a new pageant starts with three.
-    for (const [i, name] of ["Ayla", "Cora", "Bea"].entries()) await page.getByLabel(`Candidate ${i + 1} name`).fill(name);
+    // Each candidate has a row, with a photo for the LED wall; a new pageant starts with three. A list pasted into a
+    // name, as copied from a score sheet, fills that row and the next ones, its running numbers dropped.
+    await page.getByLabel("Candidate 1 name").evaluate((field, text) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", text);
+      field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    }, "1. Ayla\n2. Cora\n3. Bea");
+    await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Bea");
+    await expect(page.getByLabel("Candidate 3 name")).toBeFocused();
     await expect(problems).toBeHidden();
-    await expect(page.getByText(/^3 candidates, in running order/)).toBeVisible();
+    await expect(page.getByText(/^Pasted 3 names\. 3 candidates, in running order/)).toBeVisible();
     await page.getByRole("button", { name: "Move Bea up" }).click();
     await expect(page.getByLabel("Candidate 2 name")).toHaveValue("Bea");
     // Focus stays on the move button, so the keyboard can keep moving her.
     await expect(page.getByRole("button", { name: "Move Bea up" })).toBeFocused();
-    await page.getByRole("button", { name: "Add a candidate" }).click();
+    // Enter goes to the next name, adding a row after a named last one; it never moves on to the next step.
+    await page.getByLabel("Candidate 3 name").press("Enter");
     await expect(page.getByLabel("Candidate 4 name")).toBeFocused();
+    await page.getByLabel("Candidate 4 name").press("Enter");
+    await expect(page.getByLabel("Candidate 5 name")).toHaveCount(0);
+    await expect(step(1, "Candidates")).toBeVisible();
     await page.getByRole("button", { name: "Continue to judges" }).click();
     await expect(problems).toContainText("Fix this to continue");
     await expect(problems).toContainText("Enter candidate 4's name, or remove the row.");
@@ -119,7 +130,7 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("Judge 2 last name").fill("Torres");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByRole("button", { name: "Continue to preliminary" }).click();
-    await expect(problems).toContainText("Use letters only for Judge 2's first name.");
+    await expect(problems).toContainText("Use letters only for judge 2's first name.");
     await expect(problems).toContainText("Pageant proper needs at least three judges. Add one more judge.");
     await expect(page.getByLabel("Judge 2 first name")).toBeFocused();
     await page.getByLabel("Judge 2 first name").fill("Ben");
@@ -155,6 +166,10 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("The preliminary counts for").fill("40");
     await page.getByLabel("Name of Preliminary sub-activity 1").fill("Interview");
     await expect(page.getByLabel("Share of the overall score for Interview")).toHaveValue("40");
+    // Its only sub-activity can't be removed, and says why.
+    // (It's marked unavailable rather than disabled, so it can still be pressed to hear why.)
+    await page.getByRole("button", { name: "Remove Interview", exact: true }).click({ force: true });
+    await expect(page.getByText("The preliminary needs at least one sub-activity.")).toBeVisible();
     // The interview is scored in parts, each with its own scoring and share; their shares add up to the interview's 40.
     await page.getByRole("checkbox", { name: "Score it in parts for Interview" }).check();
     await page.getByLabel("Name of part 1 of Interview").fill("Questions");
@@ -165,7 +180,16 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Shares were split evenly to make room.").filter({ visible: true })).toBeVisible();
     await expect(page.getByLabel("Share of the overall score for Interview · Questions")).toHaveValue("14");
     await page.getByRole("button", { name: "Remove Interview · Part 3" }).click();
+    // Removing can be undone, as long as nothing else has changed: focus waits on Undo, where the part was.
+    await expect(page.getByRole("button", { name: "Undo removing Part 3" })).toBeFocused();
+    await page.getByRole("button", { name: "Undo removing Part 3" }).click();
+    await expect(page.getByRole("button", { name: "Remove Interview · Part 3" })).toBeFocused();
+    await expect(page.getByLabel("Share of the overall score for Interview · Questions")).toHaveValue("14");
+    await page.getByRole("button", { name: "Remove Interview · Part 3" }).click();
+    // The other parts take its share, so the interview still counts for 40.
+    await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     await page.getByLabel("Share of the overall score for Interview · Questions").fill("24");
+    await expect(page.getByRole("button", { name: "Undo removing Part 3" })).toHaveCount(0);
     await page.getByLabel("Share of the overall score for Interview · Advocacy").fill("16");
     await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     // In parts, the interview's share is theirs added up: shown, not typed.

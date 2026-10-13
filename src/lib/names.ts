@@ -49,3 +49,26 @@ export function firstNames(judges: Pick<Judge, "id" | "name" | "firstName" | "la
     }),
   );
 }
+
+/**
+ * Names pasted as a list, one per line: from a score sheet, a document or a spreadsheet column. Running numbers
+ * ("1.", "2)", "No. 3") and number-only spreadsheet cells are dropped, cells on one line are joined, spaces are
+ * tidied, and blank lines are skipped. Each name is cut to `max` characters.
+ */
+export function namesFromPaste(text: string, max = 120): string[] {
+  const number = /^(no\.?\s*)?\d{1,3}[.):-]?$/i;
+  return text
+    .split(/\r\n|\r|\n/)
+    .map((line) =>
+      line
+        .split("\t")
+        .map((cell) => cell.trim())
+        .filter((cell) => cell && !number.test(cell))
+        .join(" ")
+        .replace(/^(?:no\.?\s*\d{1,3}\s*[.):-]?|\d{1,3}\s*[.):-])\s+/i, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, max),
+    )
+    .filter(Boolean);
+}
