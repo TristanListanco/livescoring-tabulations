@@ -15,7 +15,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
   // The audience's page: one phone per person, so refreshes are spaced out (at most every 2 seconds). It reads a
   // shared server cache, so a check every 15 seconds costs no database read, and puts right a refresh that came in
   // just before a change cleared the cache.
-  const status = useLiveRefresh(full.activity.id, { pollMs: 15_000, safetyPollMs: 15_000, minGapMs: 2_000, withRounds: full.activity.kind === "pageant" });
+  const status = useLiveRefresh(full.activity.id, { pollMs: 15_000, safetyPollMs: 15_000, minGapMs: 2_000 });
   const { board, round } = showingBoard(full);
   const { activity } = board;
   const ranked = activity.showRank;

@@ -65,7 +65,7 @@ const JUDGE_POLL_MS = 5_000;
 
 export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow, offPanel = false }: Props) {
   const pageant = activity.kind === "pageant";
-  const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, withRounds: pageant });
+  const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
   const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);
