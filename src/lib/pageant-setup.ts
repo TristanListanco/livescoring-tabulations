@@ -1,6 +1,6 @@
 import { partsOf, programOrder } from "./pageant";
 import { checkScoring, type Scoring } from "./scoring-rules";
-import { PRELIMINARY, type CriteriaDisplay, type Decimals, type JudgePanel, type Round, type ScoringMode, type Segment } from "./types";
+import { PRELIMINARY, type CriteriaDisplay, type Decimals, type JudgePanel, type Round, type ScoringMode, type Segment, type Violation } from "./types";
 
 /**
  * A pageant's program as the setup form holds it: the preliminary segment's share, and every sub-activity with its
@@ -46,7 +46,10 @@ export type RoundDraft = {
   /** Its parts, each scored on its own, or null when judges score the sub-activity itself (with `scoring` and `timer`). */
   parts: PartDraft[] | null;
 };
-export type PageantDraft = { preliminaryWeight: string; rounds: RoundDraft[] };
+/** A violation the organizer can deduct points for, as typed: e.g. "Late for call time", "1". `id`: a saved one's, or "". */
+export type ViolationDraft = { key: string; id: string; reason: string; points: string };
+/** `violations`: the deductions for violations, or null (or missing) when the pageant has none. */
+export type PageantDraft = { preliminaryWeight: string; rounds: RoundDraft[]; violations?: ViolationDraft[] | null };
 
 export type CheckedRound = {
   key: string;
@@ -65,6 +68,20 @@ export type CheckedRound = {
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
 
 export const MAX_ROUNDS = 20;
+export const MAX_VIOLATIONS = 20;
+export const MAX_REASON = 80;
+/** The most a deduction (or a violation) can take off a preliminary score out of 100. */
+export const MAX_DEDUCTION = 100;
+
+/**
+ * Points for a deduction, as typed: more than 0, up to MAX_DEDUCTION, with at most 2 decimal places. NaN otherwise.
+ */
+export function deductionPoints(text: string): number {
+  const t = text.trim();
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(t)) return NaN;
+  const n = Number(t);
+  return n > 0 && n <= MAX_DEDUCTION ? n : NaN;
+}
 export const MAX_PARTS = 10;
 export const MAX_ROUND_NAME = 60;
 
@@ -328,7 +345,37 @@ function checkScored(
  * The field a program problem is about, for the setup to point at: the preliminary's share, or one field of a
  * sub-activity (or of one of its parts). Keys are the draft's.
  */
-export type ProgramTarget = { input: "preliminary" } | { input: "name" | "share" | "parts" | "scoring" | "timer" | "cut"; round: string; part?: string };
+export type ProgramTarget =
+  | { input: "preliminary" }
+  | { input: "name" | "share" | "parts" | "scoring" | "timer" | "cut"; round: string; part?: string }
+  | { input: "violation"; key: string; field: "reason" | "points" };
+
+/**
+ * The violations, checked: each with a reason and its points, no reason twice. Rows left completely blank are
+ * ignored. Null when deductions are off. `newId` names new ones.
+ */
+export function checkViolations(
+  drafts: ViolationDraft[] | null | undefined,
+  newId: () => string,
+): { ok: true; violations: Violation[] | null } | { ok: false; error: string; target?: ProgramTarget } {
+  if (!drafts) return { ok: true, violations: null };
+  const rows = drafts.filter((v) => v.reason.trim() || v.points.trim());
+  if (rows.length > MAX_VIOLATIONS) return { ok: false, error: `List up to ${MAX_VIOLATIONS} violations. You can type others at the desk.` };
+  const seen = new Set<string>();
+  const violations: Violation[] = [];
+  for (const [i, v] of rows.entries()) {
+    const reason = v.reason.replace(/\s+/g, " ").trim();
+    const at = (field: "reason" | "points"): ProgramTarget => ({ input: "violation", key: v.key, field });
+    if (!reason) return { ok: false, error: `Name violation ${i + 1}, or clear its points.`, target: at("reason") };
+    if (reason.length > MAX_REASON) return { ok: false, error: `Keep "${reason.slice(0, 20)}…" to ${MAX_REASON} characters.`, target: at("reason") };
+    if (seen.has(reason.toLowerCase())) return { ok: false, error: `"${reason}" is listed twice. List each violation once.`, target: at("reason") };
+    seen.add(reason.toLowerCase());
+    const points = deductionPoints(v.points);
+    if (Number.isNaN(points)) return { ok: false, error: `Give "${reason}" its points off the preliminary score, from 0.01 to ${MAX_DEDUCTION}.`, target: at("points") };
+    violations.push({ id: v.id || newId(), reason, points });
+  }
+  return { ok: true, violations };
+}
 
 /**
  * Check a pageant's program. `candidates`: how many there are now, so each cut leaves fewer than the one before.
@@ -339,13 +386,18 @@ export function checkPageant(
   draft: PageantDraft,
   candidates: number,
   newId: () => string,
-): { ok: true; preliminaryWeight: number; rounds: CheckedRound[] } | { ok: false; error: string; segment: Segment | null; target?: ProgramTarget } {
+):
+  | { ok: true; preliminaryWeight: number; rounds: CheckedRound[]; violations: Violation[] | null }
+  | { ok: false; error: string; segment: Segment | null; target?: ProgramTarget } {
   const fail = (error: string, segment: Segment | null = null, target?: ProgramTarget) => ({ ok: false as const, error, segment, ...(target ? { target } : {}) });
 
   const preliminaryWeight = whole(draft.preliminaryWeight);
   if (!(preliminaryWeight >= 1 && preliminaryWeight <= 99)) {
     return fail("Give the preliminary a share of 1 to 99 percent. Pageant proper gets the rest.", "preliminary", { input: "preliminary" });
   }
+  // Deductions are set up with the preliminary, whose score they come off.
+  const deductions = checkViolations(draft.violations, newId);
+  if (!deductions.ok) return fail(deductions.error, "preliminary", deductions.target);
   if (draft.rounds.length > MAX_ROUNDS) return fail(`A pageant can have up to ${MAX_ROUNDS} sub-activities.`);
 
   const names = new Set<string>();
@@ -457,7 +509,7 @@ export function checkPageant(
     left = size;
   }
 
-  return { ok: true, preliminaryWeight, rounds: checked };
+  return { ok: true, preliminaryWeight, rounds: checked, violations: deductions.violations };
 }
 
 const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "");
@@ -515,7 +567,13 @@ export function parsePageantDraft(json: string): PageantDraft | null {
         : null,
     };
   });
-  return { preliminaryWeight: text(obj.preliminaryWeight), rounds };
+  const violations = Array.isArray(obj.violations)
+    ? obj.violations.slice(0, MAX_VIOLATIONS * 2).map((item: unknown, i): ViolationDraft => {
+        const v = record(item);
+        return { key: text(v.key).slice(0, 64) || `violation-${i}`, id: text(v.id).slice(0, 64), reason: text(v.reason), points: text(v.points) };
+      })
+    : null;
+  return { preliminaryWeight: text(obj.preliminaryWeight), rounds, violations };
 }
 
 const scoringDraft = (r: Round): ScoringDraft => ({
@@ -532,11 +590,12 @@ const scoringDraft = (r: Round): ScoringDraft => ({
  * Programs saved under older rules (shares adding up to 100 in each segment, or to pageant proper's share across
  * its cuts) come back with their shares fitted to today's, keeping their proportions: so every cut ranks the same.
  */
-export function draftFromRounds(preliminaryWeight: number, rounds: Round[]): PageantDraft {
+export function draftFromRounds(preliminaryWeight: number, rounds: Round[], violations: Violation[] | null = null): PageantDraft {
   const top = programOrder(rounds);
   const proper = top.filter((r) => r.segment === "proper");
   return fitShares({
     preliminaryWeight: String(preliminaryWeight),
+    violations: violations && violations.map((v) => ({ key: v.id, id: v.id, reason: v.reason, points: String(v.points) })),
     rounds: top.map((r) => {
       const parts = partsOf(rounds, r.id);
       return {

@@ -4,11 +4,14 @@ import {
   clock,
   cutPlan,
   cutResult,
+  deductionsOpen,
+  deductionTotals,
   judgesFor,
   judgesForRounds,
   judgingOrder,
   onPanel,
   partWeights,
+  preliminaryComplete,
   programOrder,
   roundLabel,
   roundPool,
@@ -17,10 +20,11 @@ import {
   standings,
   standingsBy,
   timerPhase,
+  waitsForPreliminary,
   warningSeconds,
 } from "./pageant";
 import { activityFixture, roundFixture } from "./test-fixtures";
-import { PRELIMINARY, type Board, type Round, type Score } from "./types";
+import { PRELIMINARY, type Board, type Deduction, type Round, type Score } from "./types";
 
 const entry = (id: string, position: number) => ({ id, name: id, photoUrl: null, position });
 const judge = (id: string) => ({ id, name: id, firstName: id, lastName: "X", photoUrl: null, position: 0, isChair: false, panel: "all" as const });
@@ -262,5 +266,66 @@ describe("judge panels", () => {
       ["B", 73],
       ["D", 64.2],
     ]);
+  });
+});
+
+describe("preliminary first", () => {
+  const prelimOnly = prelimAndSwim.filter((s) => s.roundId !== "swim");
+
+  it("holds pageant proper until every preliminary score is in", () => {
+    const missingOne = pageant([interview, costume, swim, qa], prelimOnly.slice(1));
+    expect(preliminaryComplete(missingOne)).toBe(false);
+    expect(waitsForPreliminary(missingOne, swim)).toBe(true);
+    // The preliminary itself never waits.
+    expect(waitsForPreliminary(missingOne, costume)).toBe(false);
+
+    const done = pageant([interview, costume, swim, qa], prelimOnly);
+    expect(preliminaryComplete(done)).toBe(true);
+    expect(waitsForPreliminary(done, swim)).toBe(false);
+  });
+});
+
+describe("deductions", () => {
+  const deduction = (entryId: string, points: number, reason = "Late for call time"): Deduction => ({ id: `${entryId}-${points}`, entryId, points, reason, createdAt: "" });
+  const withDeductions = (deductions: Deduction[], scores = prelimAndSwim, sessionState: "draft" | "live" | "ended" = "live"): Board => {
+    const board = pageant([interview, costume, swim, qa], scores);
+    return { ...board, activity: { ...board.activity, sessionState, violations: [] }, deductions };
+  };
+
+  it("come off the preliminary score as given", () => {
+    const board = withDeductions([deduction("A", 1.5), deduction("A", 0.5, "Improper attire")]);
+    expect(deductionTotals(board.deductions).get("A")).toBe(2);
+    const { rows } = standings(board, board.entries, [PRELIMINARY]);
+    const a = rows.find((r) => r.entry.id === "A")!;
+    // 60% of 90 and 40% of 80 is 86; less 2 points.
+    expect([a.total, a.deducted]).toEqual([84, 2]);
+  });
+
+  it("count for the preliminary's share in a cut that counts it, and nothing in one that doesn't", () => {
+    // C leads the swimsuit cut by 1.8 (90.6 to 88.8). 10 points off C's preliminary, which counts for 30%, take 3 off.
+    const board = withDeductions([deduction("C", 10)]);
+    const { rows } = standings(board, roundPool(board, "swim").entries, swim.cutBasis);
+    expect(rows.slice(0, 2).map((r) => [r.entry.id, r.total, r.deducted])).toEqual([
+      ["A", 88.8, 0],
+      ["C", 87.6, 3],
+    ]);
+    // The Q&A's cut counts only the Q&A: scores have started over.
+    expect(standings(board, board.entries, ["qa"]).rows.every((r) => r.deducted === 0)).toBe(true);
+  });
+
+  it("never take a total below zero", () => {
+    const board = withDeductions([deduction("D", 100)]);
+    const d = standings(board, board.entries, [PRELIMINARY]).rows.find((r) => r.entry.id === "D")!;
+    expect(d.total).toBe(0);
+  });
+
+  it("can change until pageant proper starts, and not after the session ends", () => {
+    const prelimOnly = prelimAndSwim.filter((s) => s.roundId !== "swim");
+    expect(deductionsOpen(withDeductions([], prelimOnly, "draft"))).toBe(true);
+    expect(deductionsOpen(withDeductions([], prelimOnly))).toBe(true);
+    expect(deductionsOpen(withDeductions([], prelimAndSwim))).toBe(false);
+    expect(deductionsOpen(withDeductions([], prelimOnly, "ended"))).toBe(false);
+    // A pageant without deductions never takes them.
+    expect(deductionsOpen(pageant([interview, costume, swim, qa], prelimOnly))).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import "server-only";
 import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { StandingRow } from "./pageant";
 import { averageText, formatBound, rankEntries, rulesSummary, scoreText } from "./scoring";
-import type { Board, Round, Signatory } from "./types";
+import type { Board, Deduction, Round, Signatory } from "./types";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
@@ -48,6 +48,12 @@ const s = StyleSheet.create({
   signName: { fontFamily: "Helvetica-Bold", marginTop: 5 },
   signed: { fontFamily: "Helvetica-Oblique", marginTop: 3 },
   signRole: { color: C.muted, marginTop: 2 },
+  // Narrower than the total: "−12.50" at two decimal places.
+  deducted: { width: 64, textAlign: "right" },
+  deductionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  deductionWho: { width: 150, fontFamily: "Helvetica-Bold" },
+  deductionWhy: { flexGrow: 1, flexBasis: 0 },
+  deductionPoints: { width: 90, textAlign: "right", color: C.muted },
   footer: { position: "absolute", bottom: 26, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: C.muted },
 });
 
@@ -201,6 +207,8 @@ export type StandingsSheet = {
   placed: string[] | null;
   /** Candidates whose tie the organizer broke, marked on the sheet. */
   tieBroken: string[];
+  /** The deductions the totals take off (the preliminary's), listed under the table with their reasons. */
+  deductions: Deduction[];
 };
 
 function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportInfo; sheet: StandingsSheet }) {
@@ -219,9 +227,20 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
     return placeOf.has(id) ? "Through" : "—";
   };
   const statusHead = sheet.kind === "final" ? "Place" : sheet.kind === "cut" ? "Result" : null;
+  // Deductions come off the preliminary score: all of it on the preliminary's sheet, its share on a cut that counts it.
+  const deducting = sheet.rows.some((r) => r.deducted > 0);
+  const prelimShare = sheet.weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => n + w.weight, 0);
+  const deductionNote = !deducting
+    ? ""
+    : sheet.kind === "preliminary"
+      ? " Deductions for violations are points off the preliminary score, listed below."
+      : ` Deductions for violations are points off the preliminary score, which counts for ${formatBound(Math.round(prelimShare * 100) / 100)}% here, so each point takes ${formatBound(Math.round(prelimShare * 100) / 10000)} off the total. They're listed below.`;
+  const numberOf = new Map(sheet.rows.map((r) => [r.entry.id, r]));
+  const listed = [...sheet.deductions].sort((a, b) => (numberOf.get(a.entryId)?.number ?? 0) - (numberOf.get(b.entryId)?.number ?? 0));
   const meta =
-    `Ranked by ${counts}. Each ${sheet.kind === "subactivity" ? "part" : "sub-activity"} counts as a candidate's average as a percentage of its maximum score. ` +
-    `${judges.length} judges, ${sheet.rows.length} candidates.` +
+    `Ranked by ${counts}. Each ${sheet.kind === "subactivity" ? "part" : "sub-activity"} counts as a candidate's average as a percentage of its maximum score.` +
+    deductionNote +
+    ` ${judges.length} judges, ${sheet.rows.length} candidates.` +
     (tieBroken.size ? " Candidates marked * were tied; the organizer decided their order." : "") +
     ` Generated ${info.generatedAt}.`;
 
@@ -241,6 +260,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
                 {`${w.round.name} (${formatBound(Math.round(w.weight * 100) / 100)}%)`}
               </Text>
             ))}
+            {deducting && <Text style={[s.cell, s.deducted]}>Deductions</Text>}
             <Text style={[s.cell, s.average]}>Total</Text>
           </View>
           {rows.map((row) => {
@@ -256,11 +276,31 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
                     {pct(row.parts.get(w.round.id))}
                   </Text>
                 ))}
+                {deducting && <Text style={[s.cell, s.deducted]}>{row.deducted > 0 ? `\u2212${row.deducted.toFixed(places)}` : "—"}</Text>}
                 <Text style={[s.cell, s.average]}>{pct(row.total)}</Text>
               </View>
             );
           })}
         </View>
+
+        {deducting && listed.length > 0 && (
+          <View>
+            <Text style={s.sectionTitle} minPresenceAhead={48}>
+              Deductions
+            </Text>
+            <Text style={s.sectionNote}>Points off the preliminary score, for violations during the preliminary.</Text>
+            {listed.map((d) => {
+              const row = numberOf.get(d.entryId);
+              return (
+                <View key={d.id} style={s.deductionRow}>
+                  <Text style={s.deductionWho}>{row ? `No. ${row.number} ${row.entry.name}` : "—"}</Text>
+                  <Text style={s.deductionWhy}>{d.reason}</Text>
+                  <Text style={s.deductionPoints}>{`${formatBound(d.points)} ${d.points === 1 ? "point" : "points"}`}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         <SignOff
           judges={judges}

@@ -70,6 +70,31 @@ function ScoringCell({ scoring, timer }: { scoring: ScoringDraft; timer: string 
   );
 }
 
+/** The violations the organizer can deduct points for, as the score sheet's deductions list them. */
+function Deductions({ violations }: { violations: NonNullable<PageantDraft["violations"]> }) {
+  const listed = violations.filter((v) => v.reason.trim());
+  return (
+    <div className="mt-5">
+      <h5 className="text-sm font-semibold text-prussian/80">Deductions for violations</h5>
+      <p className="text-sm text-prussian/75">Points off the preliminary score, given at the desk.</p>
+      {listed.length > 0 ? (
+        <ul className="mt-2 divide-y divide-line/70 border-y border-line/70">
+          {listed.map((v) => (
+            <li key={v.key} className="flex items-baseline justify-between gap-3 py-1.5">
+              <span>{v.reason.trim()}</span>
+              <span className="tabular shrink-0 text-prussian/80">
+                {v.points.trim()} {Number(v.points) === 1 ? "point" : "points"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm">None listed: each one&apos;s reason and points are typed at the desk.</p>
+      )}
+    </div>
+  );
+}
+
 /** A block of the sheet: its heading, an Edit button that goes back to its step, and what's in it. */
 function Block({ title, meta, onEdit, editLabel, children }: { title: string; meta?: string; onEdit: () => void; editLabel: string; children: React.ReactNode }) {
   return (
@@ -303,6 +328,7 @@ export function PageantReview({
       <div className="divide-y divide-line">
         <Block title="Preliminary" meta={`${share}% of the overall score`} onEdit={() => onEdit(2)} editLabel="the preliminary">
           <SegmentTable draft={draft} segment="preliminary" />
+          {draft.violations && <Deductions violations={draft.violations} />}
         </Block>
         <Block title="Pageant proper" meta={`${100 - share}% of the overall score, then each cut starts over`} onEdit={() => onEdit(3)} editLabel="pageant proper">
           <SegmentTable draft={draft} segment="proper" />

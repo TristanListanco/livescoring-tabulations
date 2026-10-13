@@ -4,7 +4,7 @@ import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 type ActivityRow = {
   id: string;
@@ -33,6 +33,7 @@ type ActivityRow = {
   preliminary_weight?: number | string;
   current_round_id?: string | null;
   scoring_closes_at?: string | null;
+  violations?: unknown;
   created_at: string;
 };
 type RoundRow = {
@@ -66,6 +67,7 @@ type JudgeRow = {
 };
 type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string; round_id?: string | null };
+type DeductionRow = { id: string; entry_id: string; points: number | string; reason: string; created_at: string };
 
 // "*" rather than a column list so the app keeps working on databases that
 // haven't run the migrations in supabase/migrations/ yet.
@@ -87,6 +89,15 @@ function toCriteria(value: unknown): Criterion[] {
       return { id: String(c.id), name: String(c.name), max, ...(min > 0 && min < max ? { min } : {}) };
     })
     .filter((c) => c.id && c.name && Number.isFinite(c.max) && c.max > 0);
+}
+
+/** A pageant's violations, stored as JSON: null when it has no deductions (or before migration 015). Malformed ones are dropped. */
+function toViolations(value: unknown): Violation[] | null {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter((v): v is { id: unknown; reason: unknown; points: unknown } => typeof v === "object" && v !== null)
+    .map((v) => ({ id: String(v.id), reason: String(v.reason), points: Number(v.points) }))
+    .filter((v) => v.id && v.reason && Number.isFinite(v.points) && v.points > 0);
 }
 
 /** 2 on databases without migration 007. */
@@ -124,6 +135,7 @@ function toActivity(row: ActivityRow): Activity {
     preliminaryWeight: Number(row.preliminary_weight ?? 0),
     currentRoundId: row.current_round_id ?? null,
     scoringClosesAt: row.scoring_closes_at ?? null,
+    violations: toViolations(row.violations),
     createdAt: row.created_at,
   };
 }
@@ -328,6 +340,19 @@ export async function getActivity(id: string): Promise<Activity | null> {
 export const getBoard = cache(async (id: string): Promise<Board | null> => {
   const activity = await getActivity(id);
   return activity ? loadBoard(activity) : null;
+});
+
+/**
+ * A board for the organizer: with a pageant's deductions, which only the desk, the results PDFs and the organizer's
+ * actions see. Judges' screens and the public pages use getBoard and getPublicBoard, without them.
+ */
+export const getAdminBoard = cache(async (id: string): Promise<Board | null> => {
+  const board = await getBoard(id);
+  if (!board || board.activity.violations === null) return board;
+  const { data, error } = await db().from("deductions").select("id, entry_id, points, reason, created_at").eq("activity_id", id).order("created_at");
+  fail(error);
+  const toDeduction = (row: DeductionRow): Deduction => ({ id: row.id, entryId: row.entry_id, points: Number(row.points), reason: row.reason, createdAt: row.created_at });
+  return { ...board, deductions: (data as DeductionRow[]).map(toDeduction) };
 });
 
 export const getPublicBoard = cache(async (publicId: string): Promise<Board | null> => {

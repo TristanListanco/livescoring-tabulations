@@ -1,10 +1,10 @@
-import { getAdmin, getBoard, getSignatories } from "@/lib/data";
+import { getAdmin, getAdminBoard, getSignatories } from "@/lib/data";
 import { reportId } from "@/lib/report";
-import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy } from "@/lib/pageant";
+import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
 import { renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
-import { PRELIMINARY, type Board, type Round } from "@/lib/types";
+import { PRELIMINARY, type Board, type Deduction, type Round } from "@/lib/types";
 
 function slug(name: string): string {
   return name
@@ -31,6 +31,13 @@ function pdfResponse(pdf: Buffer, name: string): Response {
 
 const notYet = (message: string) => new Response(message, { status: 409 });
 
+/** The deductions a standings sheet counts: its candidates', when its totals take any off. */
+const countedDeductions = (board: Board, rows: StandingRow[]): Deduction[] | undefined => {
+  if (!rows.some((r) => r.deducted > 0)) return undefined;
+  const ids = new Set(rows.map((r) => r.entry.id));
+  return board.deductions?.filter((d) => ids.has(d.entryId));
+};
+
 /** A standings sheet is signed by the judges of what it counts: the preliminary can have its own panel. */
 const signedBy = (board: Board, rounds: Round[]): Board => ({ ...board, judges: judgesForRounds(board, rounds) });
 
@@ -56,13 +63,14 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const weights = partWeights(board.rounds, round);
       const { rows } = standingsBy(board, roundPool(board, round.id).entries, weights);
       const parts = new Set(weights.map((w) => w.round.id));
-      const scope: Board = { ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && parts.has(s.roundId)) };
-      const sheet: StandingsSheet = { kind: "subactivity", title: `${round.name} results`, weights, rows, placed: null, tieBroken: [] };
+      const scope: Board = { ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && parts.has(s.roundId)), deductions: undefined };
+      const sheet: StandingsSheet = { kind: "subactivity", title: `${round.name} results`, weights, rows, placed: null, tieBroken: [], deductions: [] };
       const pdf = await renderStandingsPdf(signedBy(board, [round]), sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), organizer: await organizer() });
       return pdfResponse(pdf, fileName(activity.name, round.name));
     }
 
-    const part = roundBoard(board, round);
+    // One sub-activity's results: deductions come off the preliminary as a whole, not here.
+    const part: Board = { ...roundBoard(board, round), deductions: undefined };
     const pdf = await renderResultsPdf(part, { timeZone, reportId: reportId(part, `round:${round.id}`), organizer: await organizer(), part: label });
     return pdfResponse(pdf, fileName(activity.name, label));
   }
@@ -74,7 +82,12 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     if (round.cutEntryIds === null) return notYet(`Confirm the ${round.name} cut on the Session tab first.`);
     const plan = cutPlan(board, round);
     const basisRounds = new Set(plan.weights.flatMap((w) => [w.round.id, ...partsOf(board.rounds, w.round.id).map((p) => p.id)]));
-    const scope: Board = { ...board, entries: plan.rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && basisRounds.has(s.roundId)) };
+    const scope: Board = {
+      ...board,
+      entries: plan.rows.map((r) => r.entry),
+      scores: board.scores.filter((s) => s.roundId && basisRounds.has(s.roundId)),
+      deductions: countedDeductions(board, plan.rows),
+    };
     const title = plan.final ? "Final results" : `Top ${round.cutEntryIds.length} after ${round.name}`;
     const sheet: StandingsSheet = {
       kind: plan.final ? "final" : "cut",
@@ -83,6 +96,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       rows: plan.rows,
       placed: round.cutEntryIds,
       tieBroken: plan.ties.flatMap((t) => t.rows.map((r) => r.entry.id)),
+      deductions: scope.deductions ?? [],
     };
     const id = reportId(scope, `cut:${round.id}:${round.cutEntryIds.join(",")}`);
     const pdf = await renderStandingsPdf(signedBy(board, plan.weights.map((w) => w.round)), sheet, { timeZone, reportId: id, organizer: await organizer() });
@@ -97,8 +111,8 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const entries = roundPool(board, prelim[0].id).entries;
     const { weights, rows } = standings(board, entries, [PRELIMINARY]);
     const prelimIds = new Set(prelim.flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
-    const scope: Board = { ...board, scores: board.scores.filter((s) => s.roundId && prelimIds.has(s.roundId)) };
-    const sheet: StandingsSheet = { kind: "preliminary", title: "Preliminary results", weights, rows, placed: null, tieBroken: [] };
+    const scope: Board = { ...board, scores: board.scores.filter((s) => s.roundId && prelimIds.has(s.roundId)), deductions: countedDeductions(board, rows) };
+    const sheet: StandingsSheet = { kind: "preliminary", title: "Preliminary results", weights, rows, placed: null, tieBroken: [], deductions: scope.deductions ?? [] };
     const pdf = await renderStandingsPdf(signedBy(board, prelim), sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), organizer: await organizer() });
     return pdfResponse(pdf, fileName(activity.name, "preliminary"));
   }
@@ -128,7 +142,8 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
   const session = await currentAdmin();
   if (!session) return new Response("Sign in to the admin panel first.", { status: 401 });
 
-  const board = await getBoard((await params).id);
+  // With a pageant's deductions, which its standings sheets list.
+  const board = await getAdminBoard((await params).id);
   // Organizers export only their own activities, the super admin only those no organizer owns.
   if (!board || !canManageActivity(session, board.activity.ownerId)) {
     return new Response("Activity not found.", { status: 404 });

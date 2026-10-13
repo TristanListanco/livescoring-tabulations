@@ -36,4 +36,12 @@ describe("reportId", () => {
     const changed = { ...board, scores: [board.scores[0], { ...board.scores[1], value: 8.5 }] };
     expect(reportId(changed)).not.toBe(reportId(board));
   });
+
+  it("changes with a sheet's deductions, and stays the same without any", () => {
+    const deduction = { id: "d1", entryId: "e1", points: 1, reason: "Late for call time", createdAt: "" };
+    expect(reportId({ ...board, deductions: [] })).toBe(reportId(board));
+    const deducted = reportId({ ...board, deductions: [deduction] });
+    expect(deducted).not.toBe(reportId(board));
+    expect(reportId({ ...board, deductions: [{ ...deduction, points: 2 }] })).not.toBe(deducted);
+  });
 });

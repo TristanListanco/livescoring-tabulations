@@ -1,4 +1,4 @@
-import { PRELIMINARY, type Activity, type Board, type Entry, type Judge, type Round, type Score } from "./types";
+import { PRELIMINARY, type Activity, type Board, type Deduction, type Entry, type Judge, type Round, type Score } from "./types";
 
 /**
  * Pageant mode. Candidates (the activity's entries) go through the preliminary segment's sub-activities, then
@@ -152,6 +152,16 @@ export function programProgress(board: Board): { submitted: number; possible: nu
   return { submitted, possible, complete: possible > 0 && submitted === possible };
 }
 
+/** Every preliminary sub-activity (and part) has all its scores in, so pageant proper can start. */
+export function preliminaryComplete(board: Board): boolean {
+  return judgingOrder(board.rounds)
+    .filter((r) => r.segment === "preliminary")
+    .every((r) => roundProgress(board, r).complete);
+}
+
+/** Pageant proper waits for the preliminary: none of its sub-activities can be judged until every preliminary score is in. */
+export const waitsForPreliminary = (board: Board, round: Pick<Round, "segment">) => round.segment === "proper" && !preliminaryComplete(board);
+
 /**
  * How many scores a judge gives in the whole pageant: one per candidate in each sub-activity (or part) on their panel.
  * A sub-activity after an unconfirmed cut counts the cut's size.
@@ -186,6 +196,11 @@ export function basisWeights(rounds: Round[], preliminaryWeight: number, basis: 
 
 export type StandingRow = {
   entry: Entry;
+  /**
+   * Points taken off the total for the candidate's deductions: their points off the preliminary score, counting as
+   * much as the preliminary does here (2 points, with the preliminary at 40%, take 0.8 off). 0 for none.
+   */
+  deducted: number;
   /** The candidate's number in the full running order. */
   number: number;
   /** Per sub-activity in the basis: the candidate's average as a percentage of its maximum, or null before any score. */
@@ -229,7 +244,29 @@ function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set
  * score in every part go last, unranked, in running order.
  */
 export function standings(board: Board, entries: Entry[], basis: string[]): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
-  return standingsBy(board, entries, basisWeights(board.rounds, board.activity.preliminaryWeight, basis));
+  const weights = basisWeights(board.rounds, board.activity.preliminaryWeight, basis);
+  // Deductions come off the preliminary score, so they count for as much as the preliminary does here: all of it
+  // on the preliminary's own standings, its share in a cut that counts it with pageant proper, nothing in one that doesn't.
+  const prelimShare = weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => n + w.weight, 0);
+  const deduct = new Map([...deductionTotals(board.deductions)].map(([id, points]) => [id, (points * prelimShare) / 100]));
+  return standingsBy(board, entries, weights, deduct);
+}
+
+/** Each candidate's deductions added up, in points off their preliminary score. */
+export function deductionTotals(deductions: Deduction[] | undefined): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const d of deductions ?? []) totals.set(d.entryId, Math.round(((totals.get(d.entryId) ?? 0) + d.points) * 100) / 100);
+  return totals;
+}
+
+/**
+ * Whether deductions can still be added or taken back: the pageant has them, the session isn't over, and pageant
+ * proper hasn't started (no score in it yet), since its first cut can count the preliminary.
+ */
+export function deductionsOpen(board: Board): boolean {
+  if (board.activity.violations === null || board.activity.sessionState === "ended") return false;
+  const proper = new Set(board.rounds.filter((r) => unitOf(board.rounds, r).segment === "proper").map((r) => r.id));
+  return !board.scores.some((s) => s.roundId && proper.has(s.roundId));
 }
 
 /** A sub-activity's parts as weights adding up to 100, for its own standings sheet. */
@@ -239,11 +276,15 @@ export function partWeights(rounds: Round[], round: Round): { round: Round; weig
   return parts.map((p) => ({ round: p, weight: total > 0 ? (100 * p.weight) / total : 0 }));
 }
 
-/** Candidates ranked by sub-activities (or parts) with the given weights, in percent. See standings. */
+/**
+ * Candidates ranked by sub-activities (or parts) with the given weights, in percent. See standings. `deduct`: points
+ * to take off each candidate's total (by entry id); a total never goes below 0.
+ */
 export function standingsBy(
   board: Board,
   entries: Entry[],
   weights: { round: Round; weight: number }[],
+  deduct: Map<string, number> = new Map(),
 ): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
   // Each sub-activity counts its own panel's judges: the preliminary can have its own set.
   const panels = new Map(weights.map(({ round }) => [round.id, new Set(judgesFor(board, round).map((j) => j.id))]));
@@ -262,7 +303,9 @@ export function standingsBy(
       else sum += (weight * percent) / 100;
       if (judgeIds.size === 0 || count < judgeIds.size) complete = false;
     }
-    return { entry, number: entry.number ?? i + 1, parts, total: scored && weights.length ? roundTo(sum, places) : null, rank: null, complete };
+    const deducted = deduct.get(entry.id) ?? 0;
+    const total = scored && weights.length ? roundTo(Math.max(0, sum - deducted), places) : null;
+    return { entry, deducted, number: entry.number ?? i + 1, parts, total, rank: null, complete };
   });
 
   rows.sort((a, b) => {

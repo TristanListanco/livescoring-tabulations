@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
-import { getActivity, getAdminCredentials, getBoard } from "@/lib/data";
+import { getActivity, getAdminBoard, getAdminCredentials, getBoard } from "@/lib/data";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { checkScoring, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
@@ -21,8 +21,9 @@ import { touchJudge } from "@/lib/devices";
 import { isProductionSite } from "@/lib/environment";
 import { showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
-import { cutPlan, cutResult, partsOf, programOrder, roundPool } from "@/lib/pageant";
-import { chairGap, checkPageant, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
+import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import { formatBound } from "@/lib/scoring";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
@@ -274,6 +275,8 @@ const PAGEANT_HINT = "Pageant mode needs a database update. Run supabase/migrati
 const PARTS_HINT =
   "Sub-activities with parts need a database update. Run supabase/migrations/012_pageant_parts_and_drafts.sql in the Supabase SQL editor.";
 
+const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrations/015_deductions_and_themes.sql in the Supabase SQL editor.";
+
 /**
  * Write a pageant's sub-activities and their parts. `ids` maps the form's keys to saved ids; new ones get fresh
  * ids, so cut bases (which name sub-activities by key) and parts (which name their sub-activity) can be written in
@@ -329,7 +332,8 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
 async function managedPageant(activityId: string): Promise<{ session: AdminSession; board: Board } | null> {
   const session = await manage(activityId);
   if (!session) return null;
-  const board = await getBoard(activityId);
+  // With its deductions: cuts that count the preliminary rank by its score after them.
+  const board = await getAdminBoard(activityId);
   return board && board.activity.kind === "pageant" ? { session, board } : null;
 }
 
@@ -348,6 +352,10 @@ export async function savePageant(activityId: string, json: string): Promise<Act
   if (!draft) return err("The program couldn't be read. Try again.");
   const checked = checkPageant(draft, board.entries.length, newCriterionId);
   if (!checked.ok) return err(checked.error);
+  const given = board.deductions?.length ?? 0;
+  if (checked.violations === null && given > 0) {
+    return err(`Take back the ${given === 1 ? "deduction" : `${given} deductions`} already given on the Session tab before turning deductions off.`);
+  }
 
   // Saved sub-activities and parts come back keyed by their ids, so they're updated in place; insertProgram names the new ones.
   const saved = new Set(board.rounds.map((r) => r.id));
@@ -366,8 +374,13 @@ export async function savePageant(activityId: string, json: string): Promise<Act
     const { error } = await db().from("rounds").delete().in("id", removed);
     if (error) return dbErr(error);
   }
-  const { error } = await db().from("activities").update({ preliminary_weight: checked.preliminaryWeight }).eq("id", activityId);
-  if (error) return dbErr(error);
+  // Violations are only written when deductions are (or were) on, so other programs save on databases without migration 015.
+  const deductions = checked.violations !== null || board.activity.violations !== null;
+  const { error } = await db()
+    .from("activities")
+    .update({ preliminary_weight: checked.preliminaryWeight, ...(deductions ? { violations: checked.violations } : {}) })
+    .eq("id", activityId);
+  if (error) return /violations/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
   refresh();
   return ok("Program saved.");
 }
@@ -388,6 +401,11 @@ export async function setCurrentRound(activityId: string, roundId: string | null
     if (partsOf(board.rounds, round.id).length) return err(`Choose which part of ${round.name} to judge.`);
     const { blockedBy } = roundPool(board, round.id);
     if (blockedBy) return err(`Confirm the ${blockedBy.name} cut first. It decides who is judged in ${round.name}.`);
+    // Pageant proper starts once the preliminary is fully judged.
+    if (waitsForPreliminary(board, round)) {
+      const open = judgingOrder(board.rounds).find((r) => r.segment === "preliminary" && !roundProgress(board, r).complete);
+      return err(`Finish judging the preliminary first.${open ? ` ${roundLabel(board.rounds, open)} still has scores to come.` : ""}`);
+    }
   }
   const { error } = await db()
     .from("activities")
@@ -438,6 +456,64 @@ export async function confirmCut(activityId: string, roundId: string, picks: str
   if (plan.final) return ok("Final results confirmed.");
   const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
   return ok(`Top ${result.entryIds.length} confirmed.${next ? ` ${next.name} judges these ${result.entryIds.length} candidates.` : ""}`);
+}
+
+const MAX_DEDUCTIONS = 500;
+
+/** Why deductions can't change now, or null when they can. */
+function deductionsClosed(board: Board): string | null {
+  if (board.activity.violations === null) return "This pageant has no deductions. Turn them on on the Segments tab before the session starts.";
+  if (deductionsOpen(board)) return null;
+  return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "Pageant proper has started, so deductions are final.";
+}
+
+/**
+ * Take points off a candidate's preliminary score for a violation: one listed at setup (`violationId`, whose reason
+ * and points are used), or another with its reason and points typed at the desk. Until pageant proper starts.
+ */
+export async function addDeduction(activityId: string, entryId: string, violationId: string | null, reason: string, points: string): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  const closed = deductionsClosed(board);
+  if (closed) return err(closed);
+  const entry = board.entries.find((e) => e.id === entryId);
+  if (!entry) return err("Choose the candidate.");
+  if ((board.deductions?.length ?? 0) >= MAX_DEDUCTIONS) return err(`A pageant can have up to ${MAX_DEDUCTIONS} deductions.`);
+  let why: string;
+  let off: number;
+  if (violationId) {
+    const violation = board.activity.violations?.find((v) => v.id === violationId);
+    if (!violation) return err("That violation isn't on this pageant's list.");
+    why = violation.reason;
+    off = violation.points;
+  } else {
+    why = String(reason ?? "").replace(/\s+/g, " ").trim();
+    if (!why) return err("Give the reason for the deduction.");
+    if (why.length > MAX_REASON) return err(`Keep the reason to ${MAX_REASON} characters.`);
+    off = deductionPoints(String(points ?? ""));
+    if (Number.isNaN(off)) return err(`Give the points off the preliminary score, from 0.01 to ${MAX_DEDUCTION}.`);
+  }
+  const { error } = await db().from("deductions").insert({ activity_id: activityId, entry_id: entry.id, points: off, reason: why });
+  if (error) return /deductions/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
+  refresh();
+  return ok(`${formatBound(off)} ${off === 1 ? "point" : "points"} off ${entry.name}'s preliminary score: ${why}.`);
+}
+
+/** Take back a deduction, until pageant proper starts. */
+export async function removeDeduction(activityId: string, deductionId: string): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  const closed = deductionsClosed(board);
+  if (closed) return err(closed);
+  const deduction = board.deductions?.find((d) => d.id === deductionId);
+  if (!deduction) return err("That deduction was already taken back.");
+  const { error } = await db().from("deductions").delete().eq("id", deduction.id).eq("activity_id", activityId);
+  if (error) return dbErr(error);
+  refresh();
+  const name = board.entries.find((e) => e.id === deduction.entryId)?.name ?? "The candidate";
+  return ok(`Took back ${name}'s deduction for ${deduction.reason}.`);
 }
 
 /** Take back a confirmed cut, as long as nobody has scored the sub-activities after it yet. */
@@ -510,7 +586,15 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     const checked = checkPageant(draft, entries.length, newCriterionId);
     if (!checked.ok) return err(checked.error);
     program = checked.rounds;
-    columns = { kind: "pageant", preliminary_weight: checked.preliminaryWeight, min_score: 0, max_score: 100, decimals: 2 };
+    columns = {
+      kind: "pageant",
+      preliminary_weight: checked.preliminaryWeight,
+      min_score: 0,
+      max_score: 100,
+      decimals: 2,
+      // Only written with deductions on, so pageants without them create on databases without migration 015.
+      ...(checked.violations !== null ? { violations: checked.violations } : {}),
+    };
   } else {
     const parsed = readScoring(formData);
     if ("error" in parsed) return err(parsed.error);
@@ -562,6 +646,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       .select("id")
       .single();
     if (error && /kind|preliminary_weight/.test(error.message)) return needsMigration(PAGEANT_HINT);
+    if (error && /violations/.test(error.message)) return needsMigration(DEDUCTIONS_HINT);
     if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
     if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
     if (error && error.code !== "23505") return dbErr(error);
@@ -1008,9 +1093,11 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (error) return dbErr(error);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
-  // A pageant also reopens its cuts and goes back to no sub-activity on screen.
+  // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
   if ((await getActivity(activityId))?.kind === "pageant") {
     await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
+    // Fails harmlessly on databases without migration 015, which have no deductions.
+    await db().from("deductions").delete().eq("activity_id", activityId);
     await db().from("activities").update({ current_round_id: null, scoring_closes_at: null }).eq("id", activityId);
   }
   refresh();

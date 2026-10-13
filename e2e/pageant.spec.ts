@@ -171,6 +171,10 @@ test.describe.serial("a pageant", () => {
     // In parts, the interview's share is theirs added up: shown, not typed.
     await expect(page.getByLabel("Share of the overall score for Interview", { exact: true })).toHaveCount(0);
     await expect(page.getByText("sum of parts")).toBeVisible();
+    // Deductions for violations: points off the preliminary score, given at the desk.
+    await page.getByRole("checkbox", { name: "Deductions for violations" }).check();
+    await page.getByLabel("Violation 1", { exact: true }).fill("Late for call time");
+    await page.getByLabel("Violation 1 Points off").fill("1");
     await page.getByRole("button", { name: "Continue to pageant proper" }).click();
 
     // 4. Pageant proper: evening wear with a Top 2 cut, then a timed Q&A with the final cut.
@@ -217,6 +221,8 @@ test.describe.serial("a pageant", () => {
     const proper = page.getByRole("table", { name: /^Pageant proper/ });
     await expect(proper).toContainText("Cut: Top 2");
     await expect(proper).toContainText("Ranked by Interview 40%, Evening wear 60%");
+    await expect(page.getByRole("heading", { name: "Deductions for violations" })).toBeVisible();
+    await expect(page.getByRole("listitem").filter({ hasText: "Late for call time" }).filter({ visible: true })).toContainText("1 point");
     await expect(proper).toContainText("After the Top 2 cut, scores start over");
     await expect(proper.getByRole("row").filter({ hasText: "Q&A" }).first()).toContainText("100%");
     await expect(proper.getByRole("row").filter({ hasText: "Q&A" }).first()).toContainText("5 s to score");
@@ -294,6 +300,25 @@ test.describe.serial("a pageant", () => {
     await judgeCandidate(page, preliminaryBoard(), "Show first candidate", "Ayla", "9", "9.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Cora", "Cora", "8", "8.00");
+
+    // Pageant proper waits until every preliminary score is in.
+    const program = page.getByRole("region", { name: "Program" });
+    await expect(program.getByRole("button", { name: "Judge now Evening wear" })).toHaveCount(0);
+    await expect(program).toContainText("After the preliminary");
+
+    // A deduction for a violation: from the pageant's list, then taken back, so the cut below ranks as before.
+    await program.getByRole("button", { name: /^Deductions/ }).click();
+    const deductions = page.getByRole("dialog", { name: "Deductions" });
+    await deductions.getByLabel("Candidate").selectOption({ label: "No. 1 Ayla" });
+    await deductions.getByLabel("Violation").selectOption({ label: "Late for call time, 1 point" });
+    await deductions.getByRole("button", { name: "Deduct" }).click();
+    await expect(deductions.getByRole("status")).toHaveText("1 point off Ayla's preliminary score: Late for call time.");
+    await expect(deductions.getByRole("listitem").filter({ hasText: "Ayla" })).toContainText("Late for call time");
+    await expectAccessible(page);
+    await deductions.getByRole("button", { name: "Take back Ayla's deduction for Late for call time" }).click();
+    await expect(deductions).toContainText("None yet.");
+    await deductions.getByRole("button", { name: "Close" }).click();
+    await expect(deductions).toBeHidden();
 
     // The interview's next part, judged the same way.
     await page.getByRole("button", { name: "Next: Interview · Advocacy" }).click();

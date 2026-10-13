@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Board } from "./types";
 
 /**
- * A fingerprint of the results: the activity, its rules, judges, entries and every score.
+ * A fingerprint of the results: the activity, its rules, judges, entries, every score and any deductions it counts.
  * The same results always give the same ID, and changing any score changes it, so a printed
  * sheet can be checked against the system. Format: LS-XXXX-XXXX-XXXX. A pageant's sheets add a `scope` (the
  * sub-activity, cut or segment), so two sheets with the same scores still get different IDs.
@@ -25,6 +25,10 @@ export function reportId(board: Board, scope?: string): string {
       .sort((a, b) => (a[0] + a[1] + (a[3] ?? "")).localeCompare(b[0] + b[1] + (b[3] ?? ""))),
     // A pageant's sheets: which sub-activity, cut or segment the sheet is for. Event sheets have none, so their IDs stay the same.
     ...(scope ? { scope } : {}),
+    // Deductions, on the sheets they change (the preliminary standings, and cuts that count the preliminary). Sheets without any keep their IDs.
+    ...(board.deductions?.length
+      ? { deductions: board.deductions.map((d) => [d.entryId, d.points.toFixed(2), d.reason].join("|")).sort() }
+      : {}),
   });
   const hex = createHash("sha256").update(canonical).digest("hex").slice(0, 12).toUpperCase();
   return `LS-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}`;

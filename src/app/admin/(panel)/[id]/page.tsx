@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAccessCodes, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
+import { getAccessCodes, getAdminBoard, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
 import { isProductionSite } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -65,7 +65,8 @@ export async function generateMetadata({ params }: PageProps<"/admin/[id]">): Pr
 
 export default async function ActivityPage({ params, searchParams }: PageProps<"/admin/[id]">) {
   const session = await requireAdmin();
-  const board = await getBoard((await params).id);
+  // With a pageant's deductions, for the desk.
+  const board = await getAdminBoard((await params).id);
   if (!canSee(session, board)) notFound();
 
   const requested = (await searchParams).tab;

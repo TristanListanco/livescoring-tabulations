@@ -25,7 +25,10 @@ import {
   sharesWithOneMore,
   shareText,
   typedShare,
+  MAX_REASON,
+  MAX_VIOLATIONS,
   type PageantDraft,
+  type ViolationDraft,
   type PartDraft,
   type RoundDraft,
   type ScoringDraft,
@@ -621,6 +624,114 @@ function RoundCard({
 }
 
 /**
+ * Deductions for violations during the preliminary: off, or on with the violations the organizer can pick at the
+ * desk (each with its points off the preliminary score). Any other violation can still be typed at the desk.
+ */
+function DeductionsFields({ violations, onChange }: { violations: ViolationDraft[] | null; onChange: (violations: ViolationDraft[] | null) => void }) {
+  const problems = useFieldProblems();
+  const nextKey = useRef(0);
+  const list = useRef<HTMLOListElement>(null);
+  const blank = (): ViolationDraft => ({ key: `violation-new-${nextKey.current++}`, id: "", reason: "", points: "" });
+  const patch = (key: string, p: Partial<ViolationDraft>) => violations && onChange(violations.map((v) => (v.key === key ? { ...v, ...p } : v)));
+  const columns = "sm:grid-cols-[minmax(0,24rem)_7rem_auto]";
+  return (
+    <section aria-labelledby="deductions-heading" className="border-t border-line pt-6">
+      <h4 id="deductions-heading" className="sr-only">
+        Deductions
+      </h4>
+      <label className="flex items-center gap-2.5 font-semibold">
+        <input
+          id="deductions-on"
+          type="checkbox"
+          className="size-5 shrink-0"
+          checked={violations !== null}
+          onChange={(e) => onChange(e.target.checked ? [blank()] : null)}
+          aria-describedby="deductions-hint"
+        />
+        Deductions for violations
+      </label>
+      <p id="deductions-hint" className="hint mt-1 ml-7.5 max-w-[65ch]">
+        Points off a candidate&apos;s preliminary score, given at the desk until pageant proper starts.
+      </p>
+      {violations && (
+        <div className="mt-4 ml-7.5">
+          {violations.length > 0 && (
+            <div aria-hidden className={`mb-1.5 hidden gap-x-2 sm:grid ${columns}`}>
+              <span className="label mb-0">Violation</span>
+              <span className="label mb-0">Points off</span>
+            </div>
+          )}
+          <ol ref={list} className="space-y-4 sm:space-y-2">
+            {violations.map((v, i) => {
+              const id = `violation-${v.key}-`;
+              return (
+                <li key={v.key} className={`grid grid-cols-[1fr_auto] items-end gap-x-2 gap-y-2 ${columns}`}>
+                  <div>
+                    <label htmlFor={`${id}reason`} className="sr-only">
+                      Violation {i + 1}
+                    </label>
+                    <input
+                      id={`${id}reason`}
+                      value={v.reason}
+                      maxLength={MAX_REASON}
+                      onChange={(e) => patch(v.key, { reason: e.target.value })}
+                      placeholder={["e.g. Late for call time", "e.g. Improper attire"][i] ?? `Violation ${i + 1}`}
+                      className={`field ${problemBorder(problems, `${id}reason`)}`}
+                      {...problemProps(problems, `${id}reason`)}
+                    />
+                  </div>
+                  <div className="row-start-2 sm:row-start-auto">
+                    <label htmlFor={`${id}points`} className="label sm:sr-only">
+                      <span className="sr-only">Violation {i + 1} </span>Points off
+                    </label>
+                    <input
+                      id={`${id}points`}
+                      value={v.points}
+                      onChange={(e) => patch(v.key, { points: e.target.value.replace(/[^0-9.]/g, "").slice(0, 6) })}
+                      inputMode="decimal"
+                      placeholder="e.g. 1"
+                      className={`field tabular w-28 sm:w-full ${problemBorder(problems, `${id}points`)}`}
+                      {...problemProps(problems, `${id}points`)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm col-start-2 row-start-1 self-center justify-self-start px-2 text-prussian/75 hover:bg-danger/10 hover:text-danger sm:col-start-auto sm:row-start-auto pointer-coarse:min-w-11"
+                    onClick={() => onChange(violations.filter((x) => x.key !== v.key))}
+                    aria-label={`Remove violation ${i + 1}${v.reason.trim() ? `, ${v.reason.trim()}` : ""}`}
+                  >
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                  <FieldProblem fieldId={`${id}reason`} className="col-span-2 sm:col-span-3" />
+                  <FieldProblem fieldId={`${id}points`} className="col-span-2 sm:col-span-3" />
+                </li>
+              );
+            })}
+          </ol>
+          <button
+            type="button"
+            className="btn btn-quiet btn-sm mt-3"
+            onClick={() => {
+              onChange([...violations, blank()]);
+              // Straight to the new violation's name.
+              requestAnimationFrame(() => list.current?.querySelector<HTMLInputElement>("li:last-child input")?.focus());
+            }}
+            disabled={violations.length >= MAX_VIOLATIONS}
+          >
+            Add a violation
+          </button>
+          <p className="hint mt-2 max-w-[65ch]">
+            {violations.length ? "At the desk you can also deduct for another violation, typing its reason and points." : "With none listed, each deduction's reason and points are typed at the desk."}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
  * One segment of a pageant's program: its sub-activities, in order, with their shares (adding up to 100%), scoring,
  * timers and, in pageant proper, cuts. The preliminary segment also sets its share of the overall score.
  */
@@ -804,6 +915,7 @@ export function SegmentEditor({
           </div>
         );
       })}
+      {segment === "preliminary" && <DeductionsFields violations={draft.violations ?? null} onChange={(violations) => onChange({ ...draft, violations })} />}
     </div>
   );
 }

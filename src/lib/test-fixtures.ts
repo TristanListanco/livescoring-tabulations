@@ -29,6 +29,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     preliminaryWeight: 0,
     currentRoundId: null,
     scoringClosesAt: null,
+    violations: null,
     createdAt: "",
     ...overrides,
   };
