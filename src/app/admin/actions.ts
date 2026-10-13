@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
@@ -380,7 +380,7 @@ export async function savePageant(activityId: string, json: string): Promise<Act
     .update({ preliminary_weight: checked.preliminaryWeight, ...(deductions ? { violations: checked.violations } : {}) })
     .eq("id", activityId);
   if (error) return /violations/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok("Program saved.");
 }
 
@@ -411,7 +411,7 @@ export async function setCurrentRound(activityId: string, roundId: string | null
     .update({ current_round_id: roundId, current_entry_id: null, led_entry_id: null, scoring_closes_at: null })
     .eq("id", activityId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -428,7 +428,7 @@ export async function extendScoring(activityId: string, how: "restart" | "more")
   const closesAt = how === "restart" ? now + round.timerSeconds * 1000 : from + 15_000;
   const { error } = await db().from("activities").update({ scoring_closes_at: new Date(closesAt).toISOString() }).eq("id", activityId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -451,7 +451,7 @@ export async function confirmCut(activityId: string, roundId: string, picks: str
   if (!result.ok) return err(result.error);
   const { error } = await db().from("rounds").update({ cut_entry_ids: result.entryIds }).eq("id", roundId).is("cut_entry_ids", null);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   if (plan.final) return ok("Final results confirmed.");
   const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
   return ok(`Top ${result.entryIds.length} confirmed.${next ? ` ${next.name} judges these ${result.entryIds.length} candidates.` : ""}`);
@@ -495,7 +495,7 @@ export async function addDeduction(activityId: string, entryId: string, violatio
   }
   const { error } = await db().from("deductions").insert({ activity_id: activityId, entry_id: entry.id, points: off, reason: why });
   if (error) return /deductions/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok(`${formatBound(off)} ${off === 1 ? "point" : "points"} off ${entry.name}'s preliminary score: ${why}.`);
 }
 
@@ -510,7 +510,7 @@ export async function removeDeduction(activityId: string, deductionId: string): 
   if (!deduction) return err("That deduction was already taken back.");
   const { error } = await db().from("deductions").delete().eq("id", deduction.id).eq("activity_id", activityId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   const name = board.entries.find((e) => e.id === deduction.entryId)?.name ?? "The candidate";
   return ok(`Took back ${name}'s deduction for ${deduction.reason}.`);
 }
@@ -533,7 +533,7 @@ export async function undoCut(activityId: string, roundId: string): Promise<Acti
   if (board.activity.currentRoundId && later.has(board.activity.currentRoundId)) {
     await db().from("activities").update({ current_round_id: null, current_entry_id: null, scoring_closes_at: null }).eq("id", activityId);
   }
-  refresh();
+  changed();
   return ok("The cut is open again.");
 }
 
@@ -713,7 +713,7 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   if (!name) return err("Give the activity a name.");
   const { error } = await db().from("activities").update({ name }).eq("id", activityId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok("Name saved.");
 }
 
@@ -721,7 +721,7 @@ export async function setShowRank(activityId: string, show: boolean): Promise<Ac
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
 }
 
@@ -771,7 +771,7 @@ export async function setSessionState(activityId: string, state: "live" | "ended
   if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
   if (error) return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
-  refresh();
+  changed();
   if (state === "ended") return ok("The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
 }
@@ -792,7 +792,7 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
   if ("error" in show) return err(show.error);
   const { error } = await db().from("activities").update(show.columns).eq("id", activityId);
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -822,7 +822,7 @@ export async function approveDevice(deviceId: string): Promise<ActionResult> {
   const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }).eq("id", deviceId);
   if (approved.error) return dbErr(approved.error);
   await touchJudge(device.judgeId);
-  refresh();
+  changed();
   return ok("Device approved.");
 }
 
@@ -833,7 +833,7 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
   const { error } = await db().from("judge_devices").update({ status: "revoked", decided_at: new Date().toISOString() }).eq("id", deviceId);
   if (error) return dbErr(error);
   await touchJudge(device.judgeId);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -867,7 +867,7 @@ export async function setLedOptions(
     return needsMigration("Anonymous judges on the LED wall need a database update. Run supabase/migrations/010_led_anonymous_judges.sql in the Supabase SQL editor.");
   }
   if (error) return /led_(fullscreen|hold_scores)/.test(error.message) ? needsMigration(MIGRATION_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -897,7 +897,7 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
     await db().from("judges").delete().eq("id", judgeId);
     return err(e instanceof Error ? e.message : "Could not add the judge.");
   }
-  refresh();
+  changed();
   return ok(`${judgeName.name} added.`);
 }
 
@@ -909,7 +909,7 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
   if ("error" in judgeName) return err(judgeName.error);
   const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
   if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok("Saved.");
 }
 
@@ -923,7 +923,7 @@ export async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise
   if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("A chair's board is set when the pageant is created, so it can't change.");
   const { error } = await db().from("judges").update({ panel: readPanel(panel) }).eq("id", judgeId);
   if (error) return /panel/.test(error.message) ? needsMigration(PANELS_HINT) : dbErr(error);
-  refresh();
+  changed();
   return ok(panel === "preliminary" ? "Judges the preliminary only." : panel === "proper" ? "Judges pageant proper only." : "Judges both segments.");
 }
 
@@ -944,7 +944,7 @@ export async function setJudgePhoto(judgeId: string, formData: FormData): Promis
     return dbErr(error);
   }
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -960,7 +960,7 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return dbErr(error);
   await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -980,7 +980,7 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
     .from("entries")
     .insert(names.map((name, i) => ({ activity_id: activityId, name, position: start + i })));
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok(names.length === 1 ? `${names[0]} added.` : `${names.length} entries added.`);
 }
 
@@ -992,14 +992,14 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
   if (!name) return err("Entries need a name.");
   const { error } = await db().from("entries").update({ name }).eq("id", entryId);
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok("Saved.");
 }
 
 /** An entry's photo for the LED wall, or null to remove it. Allowed at any time, even mid-session. */
 export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const result = await storeEntryPhoto(entryId, formData);
-  if (result.ok) refresh();
+  if (result.ok) changed();
   return result;
 }
 
@@ -1044,7 +1044,7 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
   const { error } = await db().from("entries").delete().eq("id", entryId);
   if (error) return dbErr(error);
   await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
-  refresh();
+  changed();
   return ok();
 }
 
@@ -1074,7 +1074,7 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
             .then(({ error: e }) => check(e)),
     ),
   );
-  refresh();
+  changed();
   return ok();
 }
 
@@ -1095,7 +1095,7 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
     await db().from("deductions").delete().eq("activity_id", activityId);
     await db().from("activities").update({ current_round_id: null, scoring_closes_at: null }).eq("id", activityId);
   }
-  refresh();
+  changed();
   return ok("All scores were deleted and the session is back to not started.");
 }
 
@@ -1120,6 +1120,8 @@ async function removeActivity(activityId: string): Promise<ActionResult> {
   const { error } = await db().from("activities").delete().eq("id", activityId);
   if (error) return dbErr(error);
   await removeFiles((files ?? []).map((f) => `${activityId}/${f.name}`));
+  // Its live results page goes too, rather than showing the cached board until it expires.
+  changed();
   redirect("/admin");
 }
 
@@ -1174,6 +1176,6 @@ export async function deleteDraft(draftId: string): Promise<ActionResult> {
   if (!isUuid(draftId)) return err("Draft not found.");
   const { error } = await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
   if (error) return dbErr(error);
-  refresh();
+  changed();
   return ok("Draft deleted.");
 }

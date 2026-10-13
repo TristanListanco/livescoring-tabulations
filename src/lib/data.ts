@@ -1,6 +1,8 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { connection } from "next/server";
 import { cache } from "react";
+import { LIVE_BOARD_TAG } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
@@ -353,12 +355,30 @@ export const getAdminBoard = cache(async (id: string): Promise<Board | null> => 
   return { ...board, deductions: (data as DeductionRow[]).map(toDeduction) };
 });
 
-export const getPublicBoard = cache(async (publicId: string): Promise<Board | null> => {
-  await connection();
-  if (!/^[a-z0-9]{6,32}$/.test(publicId)) return null;
+const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);
+
+async function loadPublicBoard(publicId: string): Promise<Board | null> {
   const { data, error } = await db().from("activities").select(ACTIVITY_COLUMNS).eq("public_id", publicId).maybeSingle();
   fail(error);
   return data ? loadBoard(toActivity(data as ActivityRow)) : null;
+}
+
+/** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
+export const getPublicBoard = cache(async (publicId: string): Promise<Board | null> => {
+  await connection();
+  return isPublicId(publicId) ? loadPublicBoard(publicId) : null;
+});
+
+/**
+ * The public live results, cached and shared by everyone watching: a crowd of phones refreshing after a score costs
+ * one database read, not one each. Every action that changes an activity clears it (changed() in live-cache.ts), so
+ * a refresh after a change reads it fresh; it also expires on its own after 15 seconds.
+ */
+const cachedLiveBoard = unstable_cache(loadPublicBoard, ["live-board"], { tags: [LIVE_BOARD_TAG], revalidate: 15 });
+
+export const getLiveBoard = cache(async (publicId: string): Promise<Board | null> => {
+  await connection();
+  return isPublicId(publicId) ? cachedLiveBoard(publicId) : null;
 });
 
 /** A pageant's sub-activities, in the order they were saved. Empty when there are none (or before migration 011). */

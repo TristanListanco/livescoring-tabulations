@@ -1,5 +1,5 @@
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -84,6 +84,8 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
     await page.getByRole("button", { name: "Show first entry" }).click();
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
+    // The criteria keypad meets WCAG 2.1 AA too.
+    await expectAccessible(judge);
 
     // Innovativeness is out of 30, so 35 can't go through, and the judge is told why straight away.
     await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toHaveAttribute("aria-pressed", "true");

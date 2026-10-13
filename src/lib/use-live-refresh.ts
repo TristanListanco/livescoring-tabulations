@@ -23,6 +23,11 @@ type Options = {
   withRounds?: boolean;
   /** At most one refresh this often: for a page many people watch at once (the public live results). */
   minGapMs?: number;
+  /**
+   * How often to check while realtime is up, in place of pollEvery's slower pace: for a page whose refreshes are
+   * cheap (the cached live results), so a refresh that just missed a change is put right soon.
+   */
+  safetyPollMs?: number;
 };
 
 /**
@@ -32,7 +37,7 @@ type Options = {
  * while the camera scans a QR code). Changes arriving together make one refresh (see createRefresher).
  * Only pageants follow rounds: databases without migration 011 have no rounds table to follow.
  */
-export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds = false, minGapMs = 0 }: Options = {}): LiveStatus {
+export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds = false, minGapMs = 0, safetyPollMs }: Options = {}): LiveStatus {
   const router = useRouter();
   const [status, setStatus] = useState<LiveStatus>("connecting");
 
@@ -47,7 +52,7 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds 
       pollTimer = setTimeout(() => {
         refresh();
         schedulePoll();
-      }, pollEvery(pollMs, subscribed));
+      }, subscribed && safetyPollMs ? safetyPollMs : pollEvery(pollMs, subscribed));
     };
     const fallback = () => {
       setStatus(navigator.onLine ? "polling" : "offline");
@@ -114,7 +119,7 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds 
       window.removeEventListener("offline", onNetwork);
       void supabase.removeChannel(channel);
     };
-  }, [activityId, router, pollMs, withRounds, minGapMs]);
+  }, [activityId, router, pollMs, withRounds, minGapMs, safetyPollMs]);
 
   return status;
 }
