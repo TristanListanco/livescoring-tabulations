@@ -7,7 +7,20 @@ import type { CSSProperties } from "react";
  */
 
 export type LedFont = "default" | "elegant" | "modern" | "condensed" | "classic";
-export type LedTheme = "navy" | "gold" | "crimson" | "emerald" | "royal" | "pearl";
+export type LedTheme =
+  | "navy"
+  | "gold"
+  | "crimson"
+  | "emerald"
+  | "royal"
+  | "teal"
+  | "rose"
+  | "sunset"
+  | "berry"
+  | "graphite"
+  | "pearl"
+  | "champagne"
+  | "sky";
 export type LedShape = "square" | "soft" | "round";
 
 /** The CSS variable each font sets (see led-fonts.ts), or null for the app's own. */
@@ -31,7 +44,14 @@ export const LED_THEMES: { value: LedTheme; label: string; colors: LedColors }[]
   { value: "crimson", label: "Crimson", colors: { base: "#2a0a10", tile: "#43121c", accent: "#74192a", ink: "#fdf0f2", muted: "#eaa6b1" } },
   { value: "emerald", label: "Emerald", colors: { base: "#04241a", tile: "#0b3a2a", accent: "#10593b", ink: "#effaf4", muted: "#8fd3b5" } },
   { value: "royal", label: "Royal purple", colors: { base: "#1b0c36", tile: "#2c1656", accent: "#46288a", ink: "#f5f0ff", muted: "#bfaef0" } },
+  { value: "teal", label: "Midnight teal", colors: { base: "#062a30", tile: "#0b3c44", accent: "#0f5560", ink: "#eefbfb", muted: "#8fd4d8" } },
+  { value: "rose", label: "Rose gold", colors: { base: "#2b1418", tile: "#3e1e24", accent: "#6e3540", ink: "#fdf1ef", muted: "#ecb9ad" } },
+  { value: "sunset", label: "Sunset amber", colors: { base: "#2a1505", tile: "#40210a", accent: "#7a3c0e", ink: "#fff4e8", muted: "#f5b878" } },
+  { value: "berry", label: "Berry", colors: { base: "#2a0a24", tile: "#401236", accent: "#6e1a59", ink: "#fdf0fa", muted: "#eba8da" } },
+  { value: "graphite", label: "Graphite", colors: { base: "#17191c", tile: "#25292e", accent: "#434a53", ink: "#f4f6f8", muted: "#b9c1cb" } },
   { value: "pearl", label: "Pearl (light)", colors: { base: "#ffffff", tile: "#e8eef6", accent: "#d3e0f1", ink: "#0b2545", muted: "#4a5f7d" } },
+  { value: "champagne", label: "Champagne (light)", colors: { base: "#fbf7ef", tile: "#f1e7d3", accent: "#e8d6b0", ink: "#2b2112", muted: "#65532f" } },
+  { value: "sky", label: "Sky (light)", colors: { base: "#f4f9fe", tile: "#e2eefa", accent: "#c9def4", ink: "#0d2a4a", muted: "#3c5a7d" } },
 ];
 
 /** Corner radius: in stage pixels for the 1920×1080 lower third, and in container units for the full screen. */

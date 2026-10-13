@@ -118,17 +118,13 @@ alter table public.activities add column if not exists led_anonymous boolean not
 alter table public.activities add column if not exists led_font text not null default 'default';
 alter table public.activities add column if not exists led_theme text not null default 'navy';
 alter table public.activities add column if not exists led_shape text not null default 'square';
-do $$
-begin
-  if not exists (select 1 from pg_constraint where conname = 'activities_led_look_check') then
-    alter table public.activities add constraint activities_led_look_check check (
-      led_font in ('default', 'elegant', 'modern', 'condensed', 'classic')
-      and led_theme in ('navy', 'gold', 'crimson', 'emerald', 'royal', 'pearl')
-      and led_shape in ('square', 'soft', 'round')
-    );
-  end if;
-end;
-$$;
+-- Recreated each run, so a database set up before a theme was added takes the new list.
+alter table public.activities drop constraint if exists activities_led_look_check;
+alter table public.activities add constraint activities_led_look_check check (
+  led_font in ('default', 'elegant', 'modern', 'condensed', 'classic')
+  and led_theme in ('navy', 'gold', 'crimson', 'emerald', 'royal', 'teal', 'rose', 'sunset', 'berry', 'graphite', 'pearl', 'champagne', 'sky')
+  and led_shape in ('square', 'soft', 'round')
+);
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then
@@ -210,6 +206,22 @@ alter table public.rounds add column if not exists parent_id uuid references pub
 create index if not exists rounds_parent_idx on public.rounds (parent_id);
 -- The sub-activity being judged now.
 alter table public.activities add column if not exists current_round_id uuid references public.rounds (id) on delete set null;
+-- The violations an organizer can deduct points for during the preliminary; null when a pageant has no deductions.
+alter table public.activities add column if not exists violations jsonb;
+
+-- Deductions -----------------------------------------------------------------
+-- Points off a candidate's preliminary score for a violation, with its reason. No row level security policies, so
+-- only the server reads them: the public results never list them.
+
+create table if not exists public.deductions (
+  id          uuid primary key default gen_random_uuid(),
+  activity_id uuid not null references public.activities (id) on delete cascade,
+  entry_id    uuid not null references public.entries (id) on delete cascade,
+  points      numeric(5, 2) not null check (points > 0 and points <= 100),
+  reason      text not null check (char_length(reason) between 1 and 80),
+  created_at  timestamptz not null default now()
+);
+create index if not exists deductions_activity_idx on public.deductions (activity_id, created_at);
 
 -- Drafts ---------------------------------------------------------------------
 -- Activities still being set up, saved from the create form. No row level security policies, so only the server
@@ -322,6 +334,7 @@ alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
 alter table public.activity_drafts enable row level security;
+alter table public.deductions   enable row level security;
 
 drop policy if exists "Public read" on public.activities;
 create policy "Public read" on public.activities for select to anon, authenticated using (true);

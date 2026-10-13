@@ -53,6 +53,7 @@ const STEP_PROBLEMS = "step-problems";
 function programField(target: ProgramTarget | undefined): string | undefined {
   if (!target) return undefined;
   if (target.input === "preliminary") return "preliminary-weight";
+  if (target.input === "violation") return `violation-${target.key}-${target.field}`;
   const base = target.part ? `part-${target.part}-` : `round-${target.round}-`;
   return `${base}${target.input === "share" ? "weight" : target.input}`;
 }

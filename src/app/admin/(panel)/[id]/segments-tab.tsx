@@ -25,7 +25,7 @@ function LockedProgram({ board }: { board: Board }) {
   const { activity } = board;
   const order = programOrder(board.rounds);
   // Shares as the setup has them (programs saved under older rules fitted to today's), and what each is a share of.
-  const program = draftFromRounds(activity.preliminaryWeight, board.rounds);
+  const program = draftFromRounds(activity.preliminaryWeight, board.rounds, activity.violations);
   const shares = new Map(program.rounds.flatMap((r) => [[r.key, r.weight] as const, ...(r.parts ?? []).map((p) => [p.key, p.weight] as const)]));
   const share = (r: Round, top: Round, overall = "") => {
     const scope = shareScope(program.rounds, { key: top.id, segment: top.segment }).replace(/^of the (overall )?score/, "");
@@ -80,6 +80,14 @@ function LockedProgram({ board }: { board: Board }) {
                 </li>
               ))}
           </ol>
+          {segment === "preliminary" && activity.violations !== null && (
+            <p className="mt-3 text-sm">
+              <span className="font-semibold">Deductions for violations</span>, points off the preliminary score:{" "}
+              {activity.violations.length
+                ? `${activity.violations.map((v) => `${v.reason} (${formatBound(v.points)} ${v.points === 1 ? "point" : "points"})`).join(", ")}, or another with its reason typed at the desk.`
+                : "each with its reason typed at the desk."}
+            </p>
+          )}
         </section>
       ))}
     </>
@@ -92,7 +100,7 @@ function LockedProgram({ board }: { board: Board }) {
  */
 export function SegmentsTab({ board }: { board: Board }) {
   const { activity } = board;
-  const [draft, setDraft] = useState<PageantDraft>(() => draftFromRounds(activity.preliminaryWeight, board.rounds));
+  const [draft, setDraft] = useState<PageantDraft>(() => draftFromRounds(activity.preliminaryWeight, board.rounds, activity.violations));
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
 

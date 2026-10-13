@@ -5,7 +5,9 @@ import {
   chairGap,
   aloneAfterCut,
   checkPageant,
+  checkViolations,
   criteriaForCheck,
+  parsePageantDraft,
   fitShares,
   properStages,
   shareScope,
@@ -378,5 +380,54 @@ describe("boards of judges", () => {
     expect(chairGap([judge("preliminary", true), judge("proper")])).toBe("Choose the chair of the pageant proper board of judges.");
     // A chair of both segments already chairs the preliminary.
     expect(chairGap([judge("all", true), judge("preliminary", true)])).toBe("Choose one chair for the preliminary board of judges.");
+  });
+});
+
+describe("deductions for violations", () => {
+  const newIds = () => {
+    let n = 0;
+    return () => `new-${n++}`;
+  };
+  const v = (key: string, reason: string, points: string, id = "") => ({ key, id, reason, points });
+
+  it("are off unless turned on", () => {
+    expect(checkViolations(null, newIds())).toEqual({ ok: true, violations: null });
+    expect(checkViolations(undefined, newIds())).toEqual({ ok: true, violations: null });
+    // On with none listed: every deduction's reason is typed at the desk.
+    expect(checkViolations([v("a", "", "")], newIds())).toEqual({ ok: true, violations: [] });
+  });
+
+  it("list each violation once, with its points", () => {
+    const checked = checkViolations([v("a", "  Late for  call time ", "1", "saved"), v("b", "Improper attire", "2.5")], newIds());
+    expect(checked).toEqual({
+      ok: true,
+      violations: [
+        { id: "saved", reason: "Late for call time", points: 1 },
+        { id: "new-0", reason: "Improper attire", points: 2.5 },
+      ],
+    });
+  });
+
+  it("point at the field to fix", () => {
+    expect(checkViolations([v("a", "", "1")], newIds())).toMatchObject({ ok: false, target: { input: "violation", key: "a", field: "reason" } });
+    expect(checkViolations([v("a", "Late", "0")], newIds())).toMatchObject({ ok: false, target: { input: "violation", key: "a", field: "points" } });
+    expect(checkViolations([v("a", "Late", "1.234")], newIds())).toMatchObject({ ok: false, target: { field: "points" } });
+    expect(checkViolations([v("a", "Late", "101")], newIds())).toMatchObject({ ok: false, target: { field: "points" } });
+    expect(checkViolations([v("a", "Late", "1"), v("b", "late", "2")], newIds())).toMatchObject({
+      ok: false,
+      error: '"late" is listed twice. List each violation once.',
+      target: { key: "b", field: "reason" },
+    });
+  });
+
+  it("travel with the program, and stop it on the preliminary's step", () => {
+    const program = { ...draft([round("Interview", "preliminary", "30"), round("Gown", "proper", "70", { cutSize: "1" })]), violations: [v("a", "Late", "1")] };
+    const parsed = parsePageantDraft(JSON.stringify(program));
+    expect(parsed?.violations).toEqual([v("a", "Late", "1")]);
+    const checked = checkPageant(program, 3, newIds());
+    expect(checked.ok && checked.violations).toEqual([{ id: "new-0", reason: "Late", points: 1 }]);
+    expect(checkPageant({ ...program, violations: [v("a", "Late", "")] }, 3, newIds())).toMatchObject({ ok: false, segment: "preliminary" });
+    // Saved ones come back for editing on the Segments tab.
+    expect(draftFromRounds(30, [], [{ id: "v1", reason: "Late", points: 1.5 }]).violations).toEqual([v("v1", "Late", "1.5", "v1")]);
   });
 });

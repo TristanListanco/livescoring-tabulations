@@ -3,12 +3,26 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
-import { cutPlan, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, unitOf, type CutPlan, type TieGroup } from "@/lib/pageant";
-import { segmentLabel } from "@/lib/pageant-setup";
+import {
+  cutPlan,
+  deductionsOpen,
+  judgingOrder,
+  partsOf,
+  preliminaryComplete,
+  programOrder,
+  roundLabel,
+  roundPool,
+  roundProgress,
+  unitOf,
+  waitsForPreliminary,
+  type CutPlan,
+  type TieGroup,
+} from "@/lib/pageant";
+import { MAX_REASON, segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound } from "@/lib/scoring";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
-import { confirmCut, extendScoring, setCurrentRound, undoCut } from "../../actions";
+import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
 
 const ordinal = (n: number) => {
@@ -66,6 +80,11 @@ export function nextUp(board: Board, round: Round | null): { kind: "cut"; round:
   const cut = cutAfter(board.rounds.find((r) => r.id === round.id) ?? round);
   if (cut) return { kind: "cut", round: cut };
   const next = order[order.findIndex((r) => r.id === round.id) + 1];
+  // Pageant proper waits for the whole preliminary: first, whatever of it still has scores to come.
+  if (next && waitsForPreliminary(board, next)) {
+    const open = order.find((r) => r.segment === "preliminary" && r.id !== round.id && !roundProgress(board, r).complete);
+    return open ? { kind: "round", round: labelled(open) } : null;
+  }
   return next ? { kind: "round", round: labelled(next) } : null;
 }
 
@@ -129,7 +148,8 @@ const check = (
 /**
  * The pageant's program on the desk: each sub-activity with how far judging has got, the cuts between them, and
  * the results PDFs as they become ready. While the session is live, any sub-activity can be put on judges'
- * screens, except one waiting on a cut that isn't confirmed yet.
+ * screens, except one waiting on a cut that isn't confirmed yet, and pageant proper until the preliminary is fully
+ * judged. A pageant with deductions records them from here too.
  */
 export function ProgramPanel({ board, live, compact = false, onReviewCut }: { board: Board; live: boolean; compact?: boolean; onReviewCut: (roundId: string) => void }) {
   const { activity } = board;
@@ -138,7 +158,9 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
   const action = compact
     ? "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:px-2.5"
     : "btn btn-quiet btn-sm";
-  const prelimDone = order.filter((r) => r.segment === "preliminary").every((r) => roundProgress(board, r).complete);
+  const prelimDone = preliminaryComplete(board);
+  const [deductionsShown, setDeductionsShown] = useState(false);
+  const deductionCount = board.deductions?.length ?? 0;
   const isCurrent = (r: Round) => r.id === activity.currentRoundId && activity.sessionState === "live";
   const status = (r: Round, judged: boolean) => {
     const progress = roundProgress(board, r);
@@ -150,6 +172,8 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
       <span className="flex items-center gap-1 text-xs font-semibold text-regal">{check}Done</span>
     ) : progress.blockedBy ? (
       <span className="text-xs text-prussian/70">After the {progress.blockedBy.name} cut</span>
+    ) : r.segment === "proper" && !prelimDone ? (
+      <span className="text-xs text-prussian/70">After the preliminary</span>
     ) : (
       <span className="tabular text-xs text-prussian/70">{progress.submitted > 0 ? `${progress.submitted} of ${progress.possible} scores` : "Not started"}</span>
     );
@@ -165,7 +189,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
         </span>
         {status(r, true)}
-        {live && !current && !progress.blockedBy && (
+        {live && !current && !progress.blockedBy && !(r.segment === "proper" && !prelimDone) && (
           <JudgeRoundButton
             board={board}
             round={{ ...r, name: label }}
@@ -199,15 +223,27 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
         const share = segment === "preliminary" ? activity.preliminaryWeight : 100 - activity.preliminaryWeight;
         return (
           <div key={segment} className={compact ? "mt-2" : "mt-4"}>
-            <h3 className={`flex items-center gap-2 font-semibold text-prussian/70 ${compact ? "text-xs" : "text-sm"}`}>
-              {segmentLabel(segment)}
-              <span className="tabular">{percent(share)}</span>
-              {segment === "preliminary" && prelimDone && (
-                <PdfLink activityId={activity.id} query="segment=preliminary" className={`${action} ml-auto`}>
-                  Standings PDF<span className="sr-only"> for the preliminary</span>
-                </PdfLink>
+            <div className="flex flex-wrap items-center gap-x-2">
+              <h3 className={`flex items-center gap-2 font-semibold text-prussian/70 ${compact ? "text-xs" : "text-sm"}`}>
+                {segmentLabel(segment)}
+                <span className="tabular">{percent(share)}</span>
+              </h3>
+              {segment === "preliminary" && (
+                <div className="ml-auto flex items-center gap-1">
+                  {activity.violations !== null && (
+                    <button type="button" className={action} onClick={() => setDeductionsShown(true)}>
+                      Deductions
+                      {deductionCount > 0 && <span className="tabular ml-1 font-normal text-prussian/75">{deductionCount}</span>}
+                    </button>
+                  )}
+                  {prelimDone && (
+                    <PdfLink activityId={activity.id} query="segment=preliminary" className={action}>
+                      Standings PDF<span className="sr-only"> for the preliminary</span>
+                    </PdfLink>
+                  )}
+                </div>
               )}
-            </h3>
+            </div>
             <ol className={`mt-1 divide-y divide-line border-y border-line ${compact ? "" : "bg-white/40"}`}>
               {rounds.map((round) => {
                 const parts = partsOf(board.rounds, round.id);
@@ -263,7 +299,185 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           </div>
         );
       })}
+      {deductionsShown && <DeductionsDialog board={board} onClose={() => setDeductionsShown(false)} />}
     </section>
+  );
+}
+
+const pointsText = (n: number) => `${formatBound(n)} ${n === 1 ? "point" : "points"}`;
+
+/**
+ * Deductions: points off a candidate's preliminary score for a violation, one from the pageant's list or another
+ * with its reason typed here. They can be added and taken back until pageant proper starts; after that they're
+ * listed, final. Only the organizer sees them; the results PDFs list them with their reasons.
+ */
+function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const { activity } = board;
+  const violations = activity.violations ?? [];
+  const open = deductionsOpen(board);
+  // Every candidate, with the number they keep through the pageant.
+  const candidates = [...board.entries].sort((a, b) => a.position - b.position).map((e, i) => ({ ...e, number: i + 1 }));
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const given = [...(board.deductions ?? [])].sort((a, b) => (byId.get(a.entryId)?.number ?? 0) - (byId.get(b.entryId)?.number ?? 0));
+  const [entryId, setEntryId] = useState("");
+  const [choice, setChoice] = useState(violations[0]?.id ?? "other");
+  const [reason, setReason] = useState("");
+  const [points, setPoints] = useState("");
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, start] = useTransition();
+
+  // Rendered only while open, so it opens once, on mount.
+  useEffect(() => {
+    if (ref.current && !ref.current.open) ref.current.showModal();
+  }, []);
+
+  const add = () =>
+    start(async () => {
+      const r = await reach(() => addDeduction(activity.id, entryId, choice === "other" ? null : choice, reason, points));
+      setResult(r);
+      // Ready for the next one; the candidate is chosen again, so the same deduction isn't given twice by accident.
+      if (r.ok) {
+        setEntryId("");
+        setReason("");
+        setPoints("");
+      }
+    });
+  const remove = (id: string) => start(async () => setResult(await reach(() => removeDeduction(activity.id, id))));
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      aria-labelledby="deductions-title"
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(40rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
+    >
+      <div className="space-y-5 p-6">
+        <div>
+          <h2 id="deductions-title" className="text-2xl font-bold">
+            Deductions
+          </h2>
+          <p className="hint mt-1 max-w-[65ch]">
+            Points off a candidate&apos;s preliminary score for a violation.{" "}
+            {open
+              ? "You can add or take them back until pageant proper starts."
+              : activity.sessionState === "ended"
+                ? "The session has ended, so they're final."
+                : "Pageant proper has started, so they're final."}
+          </p>
+        </div>
+
+        {open && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              add();
+            }}
+            className="grid gap-x-3 gap-y-4 sm:grid-cols-2"
+          >
+            <div>
+              <label htmlFor="deduct-candidate" className="label">
+                Candidate
+              </label>
+              <select id="deduct-candidate" className="field" value={entryId} onChange={(e) => setEntryId(e.target.value)}>
+                <option value="">Choose a candidate</option>
+                {candidates.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    No. {c.number} {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {violations.length > 0 && (
+              <div>
+                <label htmlFor="deduct-violation" className="label">
+                  Violation
+                </label>
+                <select id="deduct-violation" className="field" value={choice} onChange={(e) => setChoice(e.target.value)}>
+                  {violations.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.reason}, {pointsText(v.points)}
+                    </option>
+                  ))}
+                  <option value="other">Another violation</option>
+                </select>
+              </div>
+            )}
+            {choice === "other" && (
+              <>
+                <div className={violations.length > 0 ? "" : "sm:row-start-2"}>
+                  <label htmlFor="deduct-reason" className="label">
+                    Reason
+                  </label>
+                  <input id="deduct-reason" className="field" maxLength={MAX_REASON} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Late for call time" />
+                </div>
+                <div>
+                  <label htmlFor="deduct-points" className="label">
+                    Points off
+                  </label>
+                  <input
+                    id="deduct-points"
+                    className="field tabular w-28"
+                    inputMode="decimal"
+                    value={points}
+                    onChange={(e) => setPoints(e.target.value.replace(/[^0-9.]/g, "").slice(0, 6))}
+                  />
+                </div>
+              </>
+            )}
+            <div className="sm:col-span-2">
+              <button type="submit" className="btn btn-primary" disabled={pending || !entryId}>
+                {pending ? "Saving…" : "Deduct"}
+              </button>
+            </div>
+          </form>
+        )}
+        <FormMessage state={result} />
+
+        <section aria-labelledby="deductions-given">
+          <h3 id="deductions-given" className="font-bold">
+            Given
+          </h3>
+          {given.length === 0 ? (
+            <p className="hint mt-1">None yet.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line border-y border-line">
+              {given.map((d) => {
+                const who = byId.get(d.entryId);
+                return (
+                  <li key={d.id} className="flex items-center gap-3 py-2">
+                    <span className="tabular w-12 shrink-0 text-sm text-prussian/75">No. {who?.number ?? "—"}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold">{who?.name ?? "Removed candidate"}</span>
+                      <span className="block text-sm text-prussian/80">{d.reason}</span>
+                    </span>
+                    <span className="tabular shrink-0 font-semibold">&minus;{formatBound(d.points)}</span>
+                    {open && (
+                      <button
+                        type="button"
+                        className="btn btn-sm shrink-0 px-2 text-prussian/75 hover:bg-danger/10 hover:text-danger pointer-coarse:min-w-11"
+                        onClick={() => remove(d.id)}
+                        disabled={pending}
+                        aria-label={who ? `Take back ${who.name}'s deduction for ${d.reason}` : `Take back the deduction for ${d.reason}`}
+                      >
+                        <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                          <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
+      <div className="flex justify-end border-t border-line bg-wash/60 px-6 py-4">
+        <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()}>
+          Close
+        </button>
+      </div>
+    </dialog>
   );
 }
 
@@ -330,6 +544,8 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
   const placeOf = new Map((confirmed ?? []).map((id, i) => [id, i + 1]));
   const tied = new Set(plan?.ties.flatMap((t) => t.rows.map((r) => r.entry.id)) ?? []);
   const incomplete = plan ? plan.rows.filter((r) => !r.complete).length : 0;
+  // Deductions come off the preliminary score, so a cut that counts it shows what they took off.
+  const deducting = plan ? plan.rows.some((r) => r.deducted > 0) : false;
   const picksReady = plan ? plan.ties.every((t, i) => (picks[i] ?? []).length === t.places) : false;
   const order = programOrder(board.rounds);
   const nextUnit = round ? order[order.findIndex((r) => r.id === round.id) + 1] : undefined;
@@ -399,6 +615,11 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
                         {w.round.name} <span className="font-normal opacity-80">{percent(w.weight)}</span>
                       </th>
                     ))}
+                    {deducting && (
+                      <th scope="col" className="px-2 py-2 text-right font-semibold">
+                        Deductions
+                      </th>
+                    )}
                     <th scope="col" className="px-3 py-2 text-right font-semibold">
                       Total
                     </th>
@@ -427,6 +648,9 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
                             </td>
                           );
                         })}
+                        {deducting && (
+                          <td className="tabular px-2 py-1.5 text-right">{row.deducted > 0 ? `\u2212${row.deducted.toFixed(activity.resultDecimals)}` : "—"}</td>
+                        )}
                         <td className="tabular px-3 py-1.5 text-right">{row.total === null ? "—" : `${row.total.toFixed(activity.resultDecimals)}%`}</td>
                       </tr>
                     );

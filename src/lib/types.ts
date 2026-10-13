@@ -108,6 +108,11 @@ export type Activity = {
   currentRoundId: string | null;
   /** Pageant: when scoring closes for the candidate on screen, while a sub-activity's timer runs (ISO time). */
   scoringClosesAt: string | null;
+  /**
+   * Pageant: the violations the organizer can deduct points for during the preliminary, listed at setup, or null
+   * when the pageant has no deductions. An empty list still allows deductions with a reason typed at the desk.
+   */
+  violations: Violation[] | null;
   createdAt: string;
 };
 
@@ -150,6 +155,15 @@ export type Entry = {
   number?: number;
 };
 
+/** A pageant violation set up in advance, e.g. "Late for call time", 1 point. */
+export type Violation = { id: string; reason: string; points: number };
+
+/**
+ * Points taken off a candidate's preliminary score for a violation, with its reason. Only the organizer sees them
+ * listed (on the desk and the results PDFs); everyone else sees totals.
+ */
+export type Deduction = { id: string; entryId: string; points: number; reason: string; createdAt: string };
+
 export type Score = {
   entryId: string;
   judgeId: string;
@@ -166,6 +180,11 @@ export type Board = {
   scores: Score[];
   /** A pageant's sub-activities in order; empty for events. */
   rounds: Round[];
+  /**
+   * A pageant's deductions, on boards loaded for the organizer (getAdminBoard). Missing elsewhere, such as the
+   * judges' screens and the public results, which never list them.
+   */
+  deductions?: Deduction[];
 };
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
