@@ -179,9 +179,15 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       <FormMessage state={error ? { ok: false, error } : null} small />
 
       <figure className="max-w-4xl">
-        {/* The preview keeps the wall's own colours in dark mode. */}
-        <LedOutput board={preview} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
+        {/*
+          The preview keeps the wall's own colours in dark mode. It's a picture of the wall, so screen readers hear the
+          caption rather than every name and score on it again.
+        */}
+        <div aria-hidden>
+          <LedOutput board={preview} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
+        </div>
         <figcaption className="hint mt-2">
+          <span className="sr-only">Preview of the LED wall: </span>
           {current ? (
             <>
               Showing <span className="tabular">No. {index + 1}</span> {current.name}

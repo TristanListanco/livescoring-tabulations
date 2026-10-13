@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { findJudgeIdByCode, getActivity, getBoard, getJudgeContext, getRounds } from "@/lib/data";
 import { isUuid } from "@/lib/codes";
@@ -39,7 +39,7 @@ export async function requestApproval() {
   const session = await judgeSession();
   if (!session || !(await getJudgeContext(session.judgeId))) redirect("/judge");
   await signInJudgeDevice(session.judgeId);
-  refresh();
+  changed();
 }
 
 /**
@@ -68,7 +68,7 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
 
   const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
   if (error) return { ok: false, error: error.message };
-  refresh();
+  changed();
   return { ok: true };
 }
 
@@ -138,6 +138,6 @@ export async function submitScore(entryId: string, typed: string | Record<string
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }
 
-  refresh();
+  changed();
   return { ok: true };
 }

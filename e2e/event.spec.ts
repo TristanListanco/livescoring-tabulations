@@ -265,10 +265,14 @@ test.describe.serial("a full event", () => {
     await expect(judge1.getByRole("status", { name: "Score" })).toHaveText("5");
     await expect(judge1.getByRole("dialog")).toBeHidden();
     await judge1.getByRole("button", { name: "Clear" }).click();
+    // The keypad itself, mid-score, meets WCAG 2.1 AA.
+    await expectAccessible(judge1);
 
     await submitScore(judge1, "Agila", "9.75");
     await expect(heading(judge1)).toHaveText("Waiting for the next entry");
     await expect(live.locator("li[data-entry]", { hasText: "Agila" })).toContainText("9.75", REALTIME);
+    // So does the public live results page, with scores on it.
+    await expectAccessible(live);
     // The live results call judges by their first names.
     await expect(live.getByText("Ana", { exact: true }).first()).toBeVisible();
     await expect(live.getByText("Ana Cruz")).toHaveCount(0);
