@@ -55,3 +55,22 @@ describe("parseBreakdown", () => {
     expect(parseBreakdown({ c1: "20" }, criteria, 1).ok).toBe(false);
   });
 });
+
+describe("lowest scores", () => {
+  const sheet = [
+    { id: "c1", name: "Content", max: 40, min: 28 },
+    { id: "c2", name: "Delivery", max: 35, min: 24.5 },
+    { id: "c3", name: "Grace", max: 25, min: 17.5 },
+  ];
+
+  it("refuses a criterion score under its lowest, naming the range", () => {
+    expect(parseBreakdown({ c1: "20", c2: "30", c3: "20" }, sheet, 1)).toEqual({ ok: false, error: "Content: Enter a score from 28 to 40." });
+    expect(parseBreakdown({ c1: "28", c2: "24.5", c3: "17.5" }, sheet, 1)).toEqual({ ok: true, total: 70, breakdown: { c1: 28, c2: 24.5, c3: 17.5 } });
+  });
+
+  it("describes the range in the rules", () => {
+    expect(rulesSummary({ ...percent, criteria: sheet, min: 0, max: 100 })).toBe(
+      "Criteria: Content 28 to 40, Delivery 24.5 to 35, Grace 17.5 to 25. Totals out of 100, shown as a percentage.",
+    );
+  });
+});

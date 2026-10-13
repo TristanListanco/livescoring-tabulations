@@ -5,8 +5,8 @@ import { Avatar } from "@/components/avatar";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
-import { applyKey, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
-import type { Activity, Entry, Judge } from "@/lib/types";
+import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
+import type { Activity, Criterion, Entry, Judge } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { leavePortal, moveToEntry, requestApproval, submitScore } from "../actions";
 
@@ -28,6 +28,8 @@ type Props = {
   round: { name: string; timerSeconds: number | null } | null;
   /** When the server rendered this page, so the scoring timer counts down on the server's clock. */
   serverNow: number;
+  /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
+  offPanel?: boolean;
 };
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -60,13 +62,14 @@ function myScoreText(value: number, activity: Activity): string {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow }: Props) {
+export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow, offPanel = false }: Props) {
   const pageant = activity.kind === "pageant";
   const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, pageant);
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
   const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);
-  const view = judgeView(activity, entries, scores);
+  // Off the panel of the sub-activity on screen: nothing to score until their part comes up.
+  const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(activity, entries, scores);
   const [saved, setSaved] = useState<{ name: string; value: string } | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const approved = gate.status === "approved";
@@ -99,7 +102,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
           </p>
         </div>
         <div className="ml-auto flex items-center gap-4 sm:gap-6">
-          {approved && (
+          {approved && !offPanel && (
             <p className="tabular text-powder">
               <span className="font-bold text-mint">{scores.size}</span>
               <span className="sm:hidden">/{entries.length}</span>
@@ -114,7 +117,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {approved && (
+        {approved && !offPanel && (
           <aside aria-label="Your scores" className="hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
             <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
             <ol className="space-y-1 px-3 pb-4">
@@ -190,7 +193,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
             )
           ) : (
             <div className="my-auto flex w-full max-w-md flex-col items-center lg:max-w-lg">
-              <WaitingCard view={view} judge={judge} activity={activity} round={round} scoredCount={scores.size} movesEntries={!!panel} />
+              <WaitingCard view={view} judge={judge} activity={activity} round={round} scoredCount={scores.size} movesEntries={!!panel} offPanel={offPanel} />
               {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
                 <EntryControls activity={activity} entries={entries} panel={panel} />
               )}
@@ -251,11 +254,14 @@ function WaitingCard({
   round,
   scoredCount,
   movesEntries,
+  offPanel,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
   judge: Judge;
   activity: Activity;
   round: Props["round"];
+  /** The sub-activity on screen has its own judges. */
+  offPanel: boolean;
   scoredCount: number;
   /** The chair shows the next entry themselves, so they aren't told to wait. */
   movesEntries: boolean;
@@ -279,9 +285,11 @@ function WaitingCard({
   };
   // A pageant between sub-activities: nothing to score until the organizer starts the next one.
   const betweenRounds = activity.kind === "pageant" && !round && view.kind === "waiting";
-  const { title, body } = betweenRounds
-    ? { title: "Waiting for the next part of the pageant", body: "The organizer will start it. It appears here by itself." }
-    : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
+  const { title, body } = offPanel
+    ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
+    : betweenRounds
+      ? { title: "Waiting for the next part of the pageant", body: "The organizer will start it. It appears here by itself." }
+      : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   return (
     <div role="status" className="flex w-full flex-col items-center text-center">
@@ -294,7 +302,7 @@ function WaitingCard({
           <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>
         </div>
       )}
-      {view.kind !== "ended" && (!movesEntries || betweenRounds) && <WaitingDots />}
+      {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
       <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">{title}</h1>
       <p className="mt-3 text-lg text-powder text-balance">{body}</p>
     </div>
@@ -609,10 +617,11 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const active = criteria.find((c) => c.id === activeId) ?? criteria[0];
-  const rulesFor = (max: number) => ({ min: 0, max, decimals });
+  // From the criterion's lowest score (if the score sheet sets one) to its points.
+  const rulesFor = (c: Criterion) => criterionRules(c, decimals);
   const isValid = (id: string) => {
     const c = criteria.find((x) => x.id === id);
-    return !!c && parseScore(values[id] ?? "", rulesFor(c.max)).ok;
+    return !!c && parseScore(values[id] ?? "", rulesFor(c)).ok;
   };
   const activeIndex = criteria.indexOf(active);
   const nextMissing = [...criteria.slice(activeIndex + 1), ...criteria.slice(0, activeIndex)].find((c) => !isValid(c.id));
@@ -621,7 +630,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   const press = (key: Key) => {
     if (submitting || !active) return;
     setError(null);
-    setValues((v) => ({ ...v, [active.id]: applyKey(v[active.id] ?? "", key, rulesFor(active.max)) }));
+    setValues((v) => ({ ...v, [active.id]: applyKey(v[active.id] ?? "", key, rulesFor(active)) }));
   };
   const primary = () => {
     if (submitting) return;
@@ -633,7 +642,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
       dialogRef.current?.showModal();
       return;
     }
-    const parsed = parseScore(values[active.id] ?? "", rulesFor(active.max));
+    const parsed = parseScore(values[active.id] ?? "", rulesFor(active));
     if (!parsed.ok) setError(`${active.name}: ${parsed.error}`);
     else if (nextMissing) setActiveId(nextMissing.id);
   };
@@ -649,7 +658,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   useKeypadKeys(press, primary, dialogRef);
 
   const runningTotal = criteria.reduce((sum, c) => {
-    const parsed = parseScore(values[c.id] ?? "", rulesFor(c.max));
+    const parsed = parseScore(values[c.id] ?? "", rulesFor(c));
     return parsed.ok ? sum + Math.round(parsed.value * 100) : sum;
   }, 0);
   const typedActive = values[active?.id ?? ""] ?? "";
@@ -657,6 +666,9 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   const activeTooHigh = !!active && tooHigh(active);
   const message = error ?? (active && activeTooHigh ? `${active.name}: ${overMaxMessage(typedActive, active)}` : null);
   const overCount = criteria.filter(tooHigh).length;
+  // Under the score sheet's lowest score: not an error yet (another digit may bring it up), but the judge is told why
+  // they can't move on.
+  const belowLowest = !!active?.min && /^\d+(\.\d*)?$/.test(typedActive) && Number(typedActive) < active.min;
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
@@ -714,7 +726,10 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
               </>
             )}
           </output>
-          <span className="tabular text-lg text-powder">/ {formatBound(active.max)}</span>
+          <span className="tabular text-right leading-tight text-powder">
+            <span className="block text-lg">/ {formatBound(active.max)}</span>
+            {active.min ? <span className="block text-sm">lowest {formatBound(active.min)}</span> : null}
+          </span>
         </div>
       )}
       {message ? (
@@ -723,12 +738,15 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
           {message}
           {activeTooHigh && !error && " Delete it and type a lower score."}
         </p>
+      ) : overCount > 0 ? (
+        <p className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`} role="alert">
+          <WarningIcon />
+          {overCount === 1 ? "One criterion is" : `${overCount} criteria are`} above the maximum. Tap {overCount === 1 ? "it" : "each one"} to fix it.
+        </p>
       ) : (
-        overCount > 0 && (
-          <p className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`} role="alert">
-            <WarningIcon />
-            {overCount === 1 ? "One criterion is" : `${overCount} criteria are`} above the maximum. Tap {overCount === 1 ? "it" : "each one"} to fix
-            it.
+        belowLowest && (
+          <p role="status" className="mt-2 text-sm font-semibold text-powder">
+            The lowest score for {active.name} is {formatBound(active.min!)}.
           </p>
         )
       )}

@@ -7,7 +7,7 @@ export type ScoringInput = {
   min: string;
   max: string;
   decimals: number;
-  criteria: { id?: unknown; name?: unknown; max?: unknown }[];
+  criteria: { id?: unknown; name?: unknown; max?: unknown; min?: unknown }[];
   display: CriteriaDisplay | null;
 };
 
@@ -61,8 +61,13 @@ export function checkScoring(input: ScoringInput, newId: () => string): { scorin
     if (names.has(name.toLowerCase())) return { error: `"${name}" is listed twice. Give each criterion its own name.` };
     if (!Number.isInteger(max) || max < 1 || max > 100) return { error: `Give ${name} a max of 1 to 100 points.` };
     names.add(name.toLowerCase());
+    // The lowest score a judge can give it, if any: below its points, to the hundredth.
+    const min = Number(item?.min ?? 0);
+    if (!(Number.isFinite(min) && min >= 0 && min < max && Math.round(min * 100) === min * 100)) {
+      return { error: `Give ${name} a lowest score below its ${max} points.` };
+    }
     const id = typeof item?.id === "string" && /^[a-z0-9]{1,40}$/.test(item.id) ? item.id : newId();
-    criteria.push({ id, name, max });
+    criteria.push({ id, name, max, ...(min > 0 ? { min } : {}) });
   }
   const total = criteria.reduce((sum, c) => sum + c.max, 0);
   if (total !== 100) return { error: `The criteria add up to ${total} points. They must add up to 100.` };

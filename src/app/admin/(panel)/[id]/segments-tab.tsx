@@ -2,68 +2,40 @@
 
 import { useState, useTransition } from "react";
 import { basisWeights, partsOf, programOrder } from "@/lib/pageant";
-import { checkPageant, draftFromRounds, segmentLabel, type PageantDraft } from "@/lib/pageant-setup";
+import { checkPageant, draftFromRounds, segmentLabel, shareScope, type PageantDraft } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound, rulesSummary } from "@/lib/scoring";
 import type { ActionResult, Board, Round } from "@/lib/types";
-import { savePageant, setRoundTimer } from "../../actions";
+import { savePageant } from "../../actions";
 import { FormMessage } from "../form-message";
 import { SegmentEditor } from "../program-editor";
 
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 
-/** A sub-activity's timer, which can change at any time, even mid-show. */
-function TimerSetting({ round }: { round: Round }) {
-  const [value, setValue] = useState(round.timerSeconds === null ? "" : String(round.timerSeconds));
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [pending, start] = useTransition();
-  const save = (seconds: number | null) =>
-    start(async () => {
-      const r = await reach(() => setRoundTimer(round.id, seconds));
-      setResult(r);
-      if (r.ok && seconds === null) setValue("");
-    });
-  const id = `timer-${round.id}`;
-  return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save(value === "" ? null : Number(value));
-      }}
-    >
-      <label htmlFor={id} className="text-sm">
-        Seconds to score<span className="sr-only"> each candidate in {round.name}</span>
-      </label>
-      <input
-        id={id}
-        value={value}
-        onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
-        inputMode="numeric"
-        placeholder="Off"
-        className="field tabular h-9 w-20"
-      />
-      <button type="submit" className="btn btn-quiet btn-sm" disabled={pending}>
-        Save<span className="sr-only"> timer for {round.name}</span>
-      </button>
-      {round.timerSeconds !== null && (
-        <button type="button" className="btn btn-sm text-prussian/80 hover:bg-wash" onClick={() => save(null)} disabled={pending}>
-          Turn off<span className="sr-only"> the timer for {round.name}</span>
-        </button>
-      )}
-      <FormMessage state={result} small />
-    </form>
-  );
+/** A sub-activity's timer, as set up: read-only once the session has started. */
+function timerLine(round: Round): string | null {
+  return round.timerSeconds === null ? null : `Judges get ${round.timerSeconds} seconds to score each candidate.`;
 }
 
-/** The program once the session has started: what each sub-activity counts for, and its timer. */
+/**
+ * The program once the session has started, and after it ends: what each sub-activity counts for, its scoring,
+ * timer and cut, read-only. During the show the desk can still give judges more time.
+ */
 function LockedProgram({ board }: { board: Board }) {
   const { activity } = board;
   const order = programOrder(board.rounds);
+  // Shares as the setup has them (programs saved under older rules fitted to today's), and what each is a share of.
+  const program = draftFromRounds(activity.preliminaryWeight, board.rounds);
+  const shares = new Map(program.rounds.flatMap((r) => [[r.key, r.weight] as const, ...(r.parts ?? []).map((p) => [p.key, p.weight] as const)]));
+  const share = (r: Round, top: Round, overall = "") => {
+    const scope = shareScope(program.rounds, { key: top.id, segment: top.segment }).replace(/^of the (overall )?score/, "");
+    return `${percent(Number(shares.get(r.id) ?? r.weight))}${scope || overall}`;
+  };
   return (
     <>
       <p role="note" className="note mt-3">
-        The session has started, so the program is locked. Timers can still change.
+        {activity.sessionState === "ended" ? "Judging has ended" : "The session has started"}, so the program is final and can&apos;t be changed.
+        {activity.sessionState === "live" && " To give judges more time while a candidate is up, use the session desk."}
       </p>
       {(["preliminary", "proper"] as const).map((segment) => (
         <section key={segment} className="mt-6">
@@ -76,22 +48,22 @@ function LockedProgram({ board }: { board: Board }) {
               .map((r) => (
                 <li key={r.id} className="space-y-2 py-4">
                   <p>
-                    <span className="font-semibold">{r.name}</span> <span className="tabular hint">{percent(r.weight)}</span>
+                    <span className="font-semibold">{r.name}</span> <span className="tabular hint">{share(r, r)}</span>
                   </p>
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
                       <p className="hint">{rulesSummary(r)}</p>
-                      <TimerSetting round={r} />
+                      {timerLine(r) && <p className="hint">{timerLine(r)}</p>}
                     </>
                   ) : (
                     <ol aria-label={`Parts of ${r.name}`} className="space-y-3 border-l-2 border-line pl-4">
                       {partsOf(board.rounds, r.id).map((part) => (
                         <li key={part.id} className="space-y-1.5">
                           <p>
-                            <span className="font-semibold">{part.name}</span> <span className="tabular hint">{percent(part.weight)} of {r.name}</span>
+                            <span className="font-semibold">{part.name}</span> <span className="tabular hint">{share(part, r, " of the overall score")}</span>
                           </p>
                           <p className="hint">{rulesSummary(part)}</p>
-                          <TimerSetting round={{ ...part, name: `${r.name} · ${part.name}` }} />
+                          {timerLine(part) && <p className="hint">{timerLine(part)}</p>}
                         </li>
                       ))}
                     </ol>
@@ -157,7 +129,7 @@ export function SegmentsTab({ board }: { board: Board }) {
         <h3 id="segment-proper" className="mb-3 text-lg font-bold">
           Pageant proper
         </h3>
-        <SegmentEditor segment="proper" draft={draft} onChange={setDraft} />
+        <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={board.entries.length} />
       </section>
       <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-6">
         <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>

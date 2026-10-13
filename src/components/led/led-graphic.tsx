@@ -1,12 +1,14 @@
 "use client";
 
 import { KEY_GREEN, ledScene, type LedScene, type TileState } from "@/lib/led";
+import { ledStyle } from "@/lib/led-style";
 import { showingBoard } from "@/lib/pageant";
 import { averageText, scoreText } from "@/lib/scoring";
 import type { Activity, Board, Judge } from "@/lib/types";
 import { Avatar } from "../avatar";
 import { FitText } from "../fit-text";
 import { FitStage } from "./fit-stage";
+import { LED_FONT_VARIABLES } from "./led-fonts";
 
 type EntryScene = Extract<LedScene, { kind: "entry" }>;
 
@@ -36,12 +38,16 @@ function AnonymousJudge({ size }: { size: number | string }) {
   );
 }
 
-/** The entry's photo beside its name. Square-cornered so the green screen keys cleanly around it. */
+/** The entry's photo beside its name, with the wall's corners. */
 function EntryPhoto({ src, style, className = "" }: { src: string; style?: React.CSSProperties; className?: string }) {
   // Photos are already resized to small squares on upload, so the optimizer adds nothing here.
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" data-entry-photo style={style} className={`shrink-0 object-cover ${className}`} />;
+  return <img src={src} alt="" data-entry-photo style={{ borderRadius: ROUNDED, ...style }} className={`shrink-0 object-cover ${className}`} />;
 }
+
+/** The corner radius chosen on the LED tab (--led-radius, set on the wall's root), and half of it for panels inside a bar. */
+const ROUNDED = "var(--led-radius, 0px)";
+const ROUNDED_INSIDE = "calc(var(--led-radius, 0px) / 2)";
 
 /**
  * A judge's score, a "scored" mark while scores are held back, or dots while they're still deciding. Each state
@@ -101,8 +107,8 @@ const BAR_HEIGHT = 160;
 
 /**
  * Broadcast lower third on a 1920×1080 stage: one slim bar along the bottom, like a broadcast pageant's,
- * with the entry on the left, a tile per judge, and the average on the right. Every shape is a solid,
- * square-cornered panel so the green around it keys out cleanly.
+ * with the entry on the left, a tile per judge, and the average on the right. Every shape is a solid panel, with
+ * the corners chosen on the LED tab, so the green around it keys out cleanly.
  */
 function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; subtitle: string }) {
   if (scene.kind === "empty") return null;
@@ -111,12 +117,16 @@ function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; su
   const final = scene.average.state === "final";
 
   return (
-    <div key={scene.entry.id} className="led-fade absolute inset-x-12 bottom-12 flex bg-prussian text-mint" style={{ height: BAR_HEIGHT }}>
+    <div
+      key={scene.entry.id}
+      className="led-fade absolute inset-x-12 bottom-12 flex overflow-hidden bg-prussian text-mint"
+      style={{ height: BAR_HEIGHT, borderRadius: ROUNDED }}
+    >
       <div className="flex w-[112px] shrink-0 flex-col items-center justify-center bg-mint text-prussian">
         <span className="text-[22px] leading-none font-semibold">No.</span>
         <span className="tabular mt-1 text-[64px] leading-none font-bold">{scene.number}</span>
       </div>
-      {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: BAR_HEIGHT, height: BAR_HEIGHT }} />}
+      {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: BAR_HEIGHT, height: BAR_HEIGHT, borderRadius: 0 }} />}
       <div className="flex min-w-0 shrink flex-col justify-center px-8" style={{ width: size.nameBlock }}>
         <FitText className="text-[48px] leading-[1.1] font-bold tracking-tight" minScale={0.45}>
           {scene.entry.name}
@@ -129,7 +139,11 @@ function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; su
       <div className="flex min-w-0 flex-1 gap-[2px] border-l-[2px] border-prussian">
         {scene.tiles.map((t) => (
           // Fixed rows (photo, name, score), so every tile lines up whatever its score, dots or "Scored" mark.
-          <div key={t.judge.id} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1.5 bg-oxford px-2 text-center">
+          <div
+            key={t.judge.id}
+            className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1.5 bg-oxford px-2 text-center"
+            style={{ borderRadius: ROUNDED_INSIDE }}
+          >
             <div className="flex w-full shrink-0 flex-col items-center gap-1">
               {t.label === null ? (
                 <AnonymousJudge size={size.photo} />
@@ -205,7 +219,7 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
         {heading}
       </FitText>
       <div className="flex min-w-0 items-stretch gap-[2cqw]">
-        <div className="flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian">
+        <div className="flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian" style={{ borderRadius: ROUNDED }}>
           <span className="text-[length:min(1.8cqw,3.4cqh)] leading-none font-semibold">No.</span>
           <span className="tabular text-[length:min(6cqw,11cqh)] leading-none font-bold">{scene.number}</span>
         </div>
@@ -216,14 +230,14 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
           </FitText>
         </div>
       </div>
-      <div className="h-[0.6cqh] bg-powder" />
+      <div className="h-[0.6cqh] rounded-full bg-powder" />
 
       <div className="grid min-h-0 flex-1 gap-[0.4cqw]" style={{ gridTemplateColumns: columns }}>
         {scene.tiles.map((t) => (
           <div
             key={t.judge.id}
             className="flex min-w-0 flex-col items-center justify-center gap-[2cqh] bg-oxford px-[1.2cqw]"
-            style={{ containerType: "inline-size" }}
+            style={{ containerType: "inline-size", borderRadius: ROUNDED }}
           >
             {t.label === null ? (
               <AnonymousJudge size="min(40cqi, 24cqh)" />
@@ -244,7 +258,7 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
         <div
           key={final ? "final" : "running"}
           className={`flex min-w-0 flex-col items-center justify-center gap-[1.5cqh] px-[1.2cqw] text-center ${final ? "led-fade bg-mint text-prussian" : "bg-regal"}`}
-          style={{ containerType: "inline-size" }}
+          style={{ containerType: "inline-size", borderRadius: ROUNDED }}
         >
           <span className={`text-[length:min(9cqi,3.6cqh)] font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
           {scene.average.state === "hidden" ? (
@@ -264,23 +278,31 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
 }
 
 /**
- * The LED wall output in the mode chosen in the admin panel, sized to its container. A pageant shows the
- * sub-activity being judged: its candidates, its scores, and its name under the candidate's.
+ * The LED wall output in the mode chosen in the admin panel, sized to its container, in the look chosen there:
+ * its font, colour theme and corners. A pageant shows the sub-activity being judged: its candidates, its scores,
+ * and its name under the candidate's.
  */
 export function LedOutput({ board: full, className = "" }: { board: Board; className?: string }) {
   const { board, round } = showingBoard(full);
   const scene = ledScene(board);
   const { activity } = board;
+  const look = { font: activity.ledFont, theme: activity.ledTheme, shape: activity.ledShape };
   if (activity.ledFullscreen) {
     return (
-      <div data-transition={activity.ledTransition} className={`relative overflow-hidden bg-prussian text-mint ${className}`} style={{ containerType: "size" }}>
+      <div
+        data-transition={activity.ledTransition}
+        data-led-theme={activity.ledTheme}
+        className={`relative overflow-hidden bg-prussian text-mint ${LED_FONT_VARIABLES} ${className}`}
+        style={{ containerType: "size", ...ledStyle(look, true) }}
+      >
         <FullScreen board={board} scene={scene} heading={round ? `${activity.name} · ${round.name}` : activity.name} />
       </div>
     );
   }
   return (
     <FitStage className={className} background={KEY_GREEN}>
-      <div data-transition={activity.ledTransition} className="contents">
+      {/* The look goes on this wrapper: it lays out as its children, but they still take its colours and font. */}
+      <div data-transition={activity.ledTransition} data-led-theme={activity.ledTheme} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
         <Overlay board={board} scene={scene} subtitle={round?.name ?? activity.name} />
       </div>
     </FitStage>

@@ -49,9 +49,20 @@ create table if not exists public.judges (
 -- First and last name; name stays the full name. The LED wall shows the first name, the PDF the full name.
 alter table public.judges add column if not exists first_name text;
 alter table public.judges add column if not exists last_name text;
--- The chair of the board of judges can move to the previous or next entry from their own screen. One per activity.
+-- The chair of the board of judges can move to the previous or next entry from their own screen.
 alter table public.judges add column if not exists is_chair boolean not null default false;
-create unique index if not exists judges_one_chair_idx on public.judges (activity_id) where is_chair;
+-- Pageants: which segments the judge judges. all (the default), or only the preliminary or pageant proper.
+alter table public.judges add column if not exists panel text not null default 'all';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'judges_panel_check') then
+    alter table public.judges add constraint judges_panel_check check (panel in ('all', 'preliminary', 'proper'));
+  end if;
+end;
+$$;
+-- One chair per board: an activity has one, and a pageant with separate boards one for each segment.
+drop index if exists public.judges_one_chair_idx;
+create unique index if not exists judges_one_chair_per_board_idx on public.judges (activity_id, panel) where is_chair;
 create index if not exists judges_activity_idx on public.judges (activity_id, position);
 
 -- Bumped whenever a judge's devices change, so open screens refresh over realtime.
@@ -103,6 +114,21 @@ alter table public.activities add column if not exists led_hold_scores boolean n
 alter table public.activities add column if not exists led_transition text not null default 'fade';
 -- LED wall: keep judges anonymous (a "?" in place of each judge's name and photo).
 alter table public.activities add column if not exists led_anonymous boolean not null default false;
+-- LED wall: its look. A font, a colour theme and how rounded its panels are (see src/lib/led-style.ts).
+alter table public.activities add column if not exists led_font text not null default 'default';
+alter table public.activities add column if not exists led_theme text not null default 'navy';
+alter table public.activities add column if not exists led_shape text not null default 'square';
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_led_look_check') then
+    alter table public.activities add constraint activities_led_look_check check (
+      led_font in ('default', 'elegant', 'modern', 'condensed', 'classic')
+      and led_theme in ('navy', 'gold', 'crimson', 'emerald', 'royal', 'pearl')
+      and led_shape in ('square', 'soft', 'round')
+    );
+  end if;
+end;
+$$;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then

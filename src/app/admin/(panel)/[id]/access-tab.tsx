@@ -13,6 +13,7 @@ export async function AccessTab({
   codes,
   scoredBy,
   entryCount,
+  expected,
 }: {
   activityId: string;
   devices: JudgeDevice[];
@@ -21,6 +22,8 @@ export async function AccessTab({
   codes: Map<string, string>;
   scoredBy: Map<string, number>;
   entryCount: number;
+  /** Pageants: how many scores each judge gives, which depends on the segments they judge. */
+  expected?: Record<string, number>;
 }) {
   const portalUrl = `${origin}/judge`;
   const judgeLinks = judges.map((j) => {
@@ -61,7 +64,7 @@ export async function AccessTab({
                       )}
                     </p>
                     <p className="hint tabular">
-                      {scoredBy.get(judge.id) ?? 0} of {entryCount} scored
+                      {scoredBy.get(judge.id) ?? 0} of {expected?.[judge.id] ?? entryCount} scored
                     </p>
                   </div>
                 </div>

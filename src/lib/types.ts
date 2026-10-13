@@ -1,3 +1,5 @@
+import type { LedFont, LedShape, LedTheme } from "./led-style";
+
 export type Decimals = 0 | 1 | 2;
 /** Decimal places shown for averages and criteria totals in results. */
 export type ResultDecimals = 0 | 1 | 2 | 3 | 4;
@@ -7,7 +9,8 @@ export type LedTransition = "fade" | "wipe";
 
 /** simple: one score per judge between min and max. criteria: judges score each criterion; totals are out of 100. */
 export type ScoringMode = "simple" | "criteria";
-export type Criterion = { id: string; name: string; max: number };
+/** min: the lowest score a judge can give, in points (a score sheet's "lowest possible score", e.g. 28 of 40); none when missing or 0. */
+export type Criterion = { id: string; name: string; max: number; min?: number };
 /** How criteria totals (out of 100) are shown: as a percentage, or scaled to 10. */
 export type CriteriaDisplay = "percent" | "ten";
 
@@ -28,7 +31,12 @@ export type Round = {
   name: string;
   /** Order through the whole pageant: preliminary sub-activities first. */
   position: number;
-  /** Share of its segment's score, in percent. A segment's sub-activities add up to 100. */
+  /**
+   * Share in percent, as score sheets write it: of the overall score in the preliminary (adding up to its share) and in
+   * pageant proper up to the first cut (adding up to the rest). Scores start over after a cut, so the sub-activities
+   * after one add up to 100. A sub-activity's parts add up to its own share. (The math only uses shares relative to
+   * the others a cut counts, so programs saved under older rules rank the same.)
+   */
   weight: number;
   scoringMode: ScoringMode;
   min: number;
@@ -80,6 +88,10 @@ export type Activity = {
   ledTransition: LedTransition;
   /** LED wall keeps judges anonymous: a "?" in place of each judge's name and photo. */
   ledAnonymous: boolean;
+  /** The LED wall's look: its font, colour theme and how rounded its panels are (see led-style.ts). */
+  ledFont: LedFont;
+  ledTheme: LedTheme;
+  ledShape: LedShape;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;
@@ -107,6 +119,9 @@ export type AdminAccount = {
   photoUrl: string | null;
 };
 
+/** Pageants: which segments a judge judges. all: both; or only the preliminary, or only pageant proper. */
+export type JudgePanel = "all" | "preliminary" | "proper";
+
 export type Judge = {
   id: string;
   /** Full name, e.g. "Maria Santos": on the results PDF and in the admin panel. */
@@ -118,6 +133,8 @@ export type Judge = {
   position: number;
   /** Chair of the board of judges: can move to the previous or next entry from their own screen. One per activity. */
   isChair: boolean;
+  /** Pageants: which segments they judge. Always "all" for events. */
+  panel: JudgePanel;
 };
 
 export type Entry = {

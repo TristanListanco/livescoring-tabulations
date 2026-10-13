@@ -1,6 +1,6 @@
 "use client";
 
-import type { CriterionDraft, ScoringDraft } from "@/lib/pageant-setup";
+import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
@@ -30,11 +30,11 @@ export function ResultDecimalsField({ value, onChange }: { value: ResultDecimals
   );
 }
 
-export const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "" }));
+export const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "", min: "" }));
 
-/** Criteria rows as the create form sends them: blank rows dropped. */
+/** Criteria rows as the create form sends them: blank rows dropped, each with its lowest score in points (0 for none). */
 export const criteriaJson = (criteria: CriterionDraft[]) =>
-  JSON.stringify(criteria.filter((r) => r.name.trim() || r.max).map((r) => ({ id: r.id, name: r.name.trim(), max: Number(r.max) })));
+  JSON.stringify(criteriaForCheck(criteria).map((r) => ({ id: r.id, name: r.name.trim(), max: Number(r.max), min: Number.isNaN(r.min) ? -1 : r.min })));
 
 /**
  * How judges score: simple (one score from min to max) or criteria (points per criterion, adding up to 100).
@@ -63,6 +63,7 @@ export function ScoringEditor({
   // No verdict on the total until some points have been typed.
   const started = rows.some((r) => r.max !== "");
   const update = (key: number, patch: Partial<CriterionDraft>) => set({ criteria: rows.map((r) => (r.key === key ? { ...r, ...patch } : r)) });
+  const columns = "sm:grid-cols-[minmax(0,20rem)_5rem_6rem_auto]";
   // With several on a page, screen readers hear whose field it is first: "Swimsuit: Min score".
   const whose = label ? <span className="sr-only">{label}: </span> : null;
   const prefix = label ? `${label}: ` : "";
@@ -138,47 +139,69 @@ export function ScoringEditor({
         </div>
       ) : (
         <fieldset>
-          {/* On phones the legend names the list and each number has its "points" unit; from sm up, column headings do. */}
-          <legend className="label sm:sr-only">
-            {whose}Criteria and their max points
-          </legend>
-          <div aria-hidden className="mb-1.5 hidden grid-cols-[minmax(0,20rem)_5rem_auto] gap-x-2 sm:grid">
+          {/* On phones the legend names the list and each number has its own label; from sm up, column headings do. */}
+          <legend className="label sm:sr-only">{whose}Criteria</legend>
+          <div aria-hidden className={`mb-1.5 hidden gap-x-2 sm:grid ${columns}`}>
             <span className="label mb-0">Criterion</span>
             <span className="label mb-0">Max points</span>
+            <span className="label mb-0">Lowest score</span>
           </div>
-          <ol className="space-y-2">
+          {/*
+           * From sm up, one row per criterion under the column headings. On a phone, the name has the row's first
+           * line to itself (with remove), and max points and lowest score sit under it, each with its own label.
+           */}
+          <ol className="space-y-4 sm:space-y-2">
             {rows.map((r, i) => (
-              <li key={r.key} className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[minmax(0,20rem)_5rem_auto]">
-                <label htmlFor={`${idPrefix}criterion-${r.key}`} className="sr-only">
-                  {prefix}Criterion {i + 1} name
-                </label>
-                <input
-                  id={`${idPrefix}criterion-${r.key}`}
-                  value={r.name}
-                  onChange={(e) => update(r.key, { name: e.target.value })}
-                  maxLength={60}
-                  placeholder={["e.g. Innovativeness", "e.g. Design", "e.g. Impact"][i] ?? `Criterion ${i + 1}`}
-                  className="field max-w-xs flex-1 sm:max-w-none"
-                />
-                <label htmlFor={`${idPrefix}criterion-${r.key}-max`} className="sr-only">
-                  {prefix}Criterion {i + 1} max points
-                </label>
-                <input
-                  id={`${idPrefix}criterion-${r.key}-max`}
-                  value={r.max}
-                  onChange={(e) => update(r.key, { max: e.target.value.replace(/[^0-9]/g, "").slice(0, 3) })}
-                  inputMode="numeric"
-                  className="field tabular w-20"
-                />
-                <span className="hint sm:hidden">points</span>
+              <li key={r.key} className={`grid grid-cols-[1fr_1fr_auto] items-end gap-x-2 gap-y-2 ${columns}`}>
+                <div className="col-span-2 sm:col-span-1">
+                  <label htmlFor={`${idPrefix}criterion-${r.key}`} className="sr-only">
+                    {prefix}Criterion {i + 1} name
+                  </label>
+                  <input
+                    id={`${idPrefix}criterion-${r.key}`}
+                    value={r.name}
+                    onChange={(e) => update(r.key, { name: e.target.value })}
+                    maxLength={60}
+                    placeholder={["e.g. Innovativeness", "e.g. Design", "e.g. Impact"][i] ?? `Criterion ${i + 1}`}
+                    className="field"
+                  />
+                </div>
+                <div className="row-start-2 sm:row-start-auto">
+                  <label htmlFor={`${idPrefix}criterion-${r.key}-max`} className="label sm:sr-only">
+                    <span className="sr-only">{prefix}Criterion {i + 1} </span>Max points
+                  </label>
+                  <input
+                    id={`${idPrefix}criterion-${r.key}-max`}
+                    value={r.max}
+                    onChange={(e) => update(r.key, { max: e.target.value.replace(/[^0-9]/g, "").slice(0, 3) })}
+                    inputMode="numeric"
+                    className="field tabular"
+                  />
+                </div>
+                <div className="row-start-2 sm:row-start-auto">
+                  <label htmlFor={`${idPrefix}criterion-${r.key}-min`} className="label sm:sr-only">
+                    <span className="sr-only">{prefix}Criterion {i + 1} </span>Lowest score
+                  </label>
+                  <input
+                    id={`${idPrefix}criterion-${r.key}-min`}
+                    value={r.min}
+                    onChange={(e) => update(r.key, { min: typedLowest(e.target.value) })}
+                    inputMode="decimal"
+                    placeholder="None"
+                    className="field tabular"
+                    aria-describedby={`${idPrefix}lowest-hint`}
+                  />
+                </div>
                 {rows.length > 1 && (
                   <button
                     type="button"
-                    className="btn btn-sm justify-self-start text-danger hover:bg-danger/10"
+                    className="btn btn-sm col-start-3 row-start-1 self-center justify-self-start px-2 text-prussian/75 hover:bg-danger/10 hover:text-danger sm:col-start-auto sm:row-start-auto pointer-coarse:min-w-11"
                     onClick={() => set({ criteria: rows.filter((x) => x.key !== r.key) })}
                     aria-label={`${prefix}Remove criterion ${i + 1}`}
                   >
-                    Remove
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
                   </button>
                 )}
               </li>
@@ -188,7 +211,7 @@ export function ScoringEditor({
             <button
               type="button"
               className="btn btn-quiet btn-sm"
-              onClick={() => set({ criteria: [...rows, { key: nextKey, id: "", name: "", max: "" }] })}
+              onClick={() => set({ criteria: [...rows, { key: nextKey, id: "", name: "", max: "", min: "" }] })}
               disabled={rows.length >= 20}
             >
               Add criterion
@@ -197,6 +220,9 @@ export function ScoringEditor({
               Total {total} of 100 points{total === 100 || !started ? "" : ". The criteria must add up to 100."}
             </p>
           </div>
+          <p id={`${idPrefix}lowest-hint`} className="hint mt-3 max-w-[65ch]">
+            Lowest score: the least a judge can give, like 28 for a criterion worth 40. Leave it blank for none.
+          </p>
         </fieldset>
       )}
 

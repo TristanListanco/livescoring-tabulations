@@ -50,6 +50,9 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
 
+    // Like a score sheet's "lowest possible score", each criterion can have a lowest score, in points.
+    await page.getByLabel("Criterion 1 lowest score").fill("21");
+    await page.getByLabel("Criterion 2 lowest score").fill("49");
     await expect(page.getByText("Total 90 of 100 points. The criteria must add up to 100.")).toBeVisible();
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "add up to 90 points" })).toBeVisible();
@@ -94,6 +97,12 @@ test.describe.serial("criteria scoring", () => {
     await judge.getByRole("button", { name: "Delete last digit" }).click();
     await judge.getByRole("button", { name: "Delete last digit" }).click();
     await expect(tooHigh).toHaveCount(0);
+    // Under the lowest score: the judge is told what it is, and can't move on.
+    await tapScore(judge, "20");
+    await expect(judge.getByRole("status").filter({ hasText: "The lowest score for Innovativeness is 21." })).toBeVisible();
+    await expect(judge.getByRole("button", { name: "Next: Design" })).toBeDisabled();
+    await judge.getByRole("button", { name: "Delete last digit" }).click();
+    await judge.getByRole("button", { name: "Delete last digit" }).click();
     await tapScore(judge, "25");
     await judge.getByRole("button", { name: "Next: Design" }).click();
     await expect(judge.getByRole("button", { name: /^Design/ })).toHaveAttribute("aria-pressed", "true");
@@ -117,8 +126,8 @@ test.describe.serial("criteria scoring", () => {
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);
     // The criteria are listed with their points and the total.
-    await expect(page.getByRole("row", { name: "Innovativeness 30" })).toBeVisible();
-    await expect(page.getByRole("row", { name: "Design 70" })).toBeVisible();
+    await expect(page.getByRole("row", { name: "Innovativeness 21 to 30" })).toBeVisible();
+    await expect(page.getByRole("row", { name: "Design 49 to 70" })).toBeVisible();
     await expect(page.getByRole("row", { name: "Total 100" })).toBeVisible();
     await expect(page.locator("dl")).toContainText("Totals shownAs a percentage");
     await expect(page.getByRole("radio")).toHaveCount(0);
@@ -143,5 +152,33 @@ test.describe.serial("criteria scoring", () => {
     for (const value of await values.all()) expect(await fitsItsBox(value)).toBe(true);
     await snap(led, "LED full screen with long percentages");
     await led.context().close();
+  });
+
+  test("on a test site, Settings resets scores and deletes the activity even mid-session", async ({ page }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByRole("heading", { name: "Test site tools" })).toBeVisible();
+
+    // Deleting asks with the session still live, and says what that stops.
+    await page.getByRole("button", { name: "Delete activity" }).click();
+    let dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Its session is live");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    // Resetting the scores puts the session back to not started.
+    await page.getByRole("button", { name: "Reset scores" }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").fill("RESET");
+    await dialog.getByRole("button", { name: "Delete all scores" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "All scores were deleted" })).toHaveText(
+      "All scores were deleted and the session is back to not started.",
+    );
+
+    await page.getByRole("button", { name: "Delete activity" }).click();
+    dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").fill(NAME);
+    await dialog.getByRole("button", { name: "Delete activity" }).click();
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
   });
 });

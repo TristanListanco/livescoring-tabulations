@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { deleteActivityNamed, deleteDraftsNamed, signInAsSuperAdmin } from "./helpers";
+import { choosePhoto, deleteActivityNamed, deleteDraftsNamed, signInAsSuperAdmin } from "./helpers";
 
 // Setting up an activity can be saved as a draft and finished later, and leaving with unsaved changes asks first.
 const RUN = Date.now().toString(36);
@@ -85,7 +85,9 @@ test.describe.serial("drafts", () => {
     await page.goto("/admin/new");
     await page.getByRole("radio", { name: /^Pageant/ }).check();
     await page.getByLabel("Pageant name").fill(PAGEANT);
-    await page.getByLabel("Candidates, one per line").fill("Ayla\nBea\nCora");
+    for (const [i, name] of ["Ayla", "Bea", "Cora"].entries()) await page.getByLabel(`Candidate ${i + 1} name`).fill(name);
+    // Candidates' photos are kept in the draft too.
+    await choosePhoto(page, "Photo for Bea");
     await page.getByRole("button", { name: "Continue to judges" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByRole("button", { name: "Save draft" }).click();
@@ -96,6 +98,10 @@ test.describe.serial("drafts", () => {
     await expect(page.getByRole("radio", { name: /^Pageant/ })).toBeChecked();
     await expect(page.getByRole("heading", { level: 2, name: "Step 2 of 5: Judges" })).toBeVisible();
     await expect(page.getByLabel("Judge 1 first name")).toHaveValue("Ana");
+    // Back on the candidates, the draft kept their names and Bea's photo.
+    await page.getByRole("button", { name: /Candidates \(done, go back\)/ }).click();
+    await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Cora");
+    await expect(page.getByRole("button", { name: "Remove photo of Bea" })).toBeVisible();
 
     // A draft that isn't needed anymore can be deleted from the Activities page.
     await page.goto("/admin");

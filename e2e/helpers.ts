@@ -11,6 +11,14 @@ export const PHOTO = {
   buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64"),
 };
 
+/** Choose a photo with the photo button labelled `label`, and keep the crop its dialog starts with. */
+export async function choosePhoto(page: Page, label: string) {
+  await page.getByLabel(label).setInputFiles(PHOTO);
+  const crop = page.getByRole("dialog", { name: /^Crop the photo/ });
+  await crop.getByRole("button", { name: "Use photo" }).click();
+  await expect(crop).toBeHidden();
+}
+
 export async function signInAsSuperAdmin(page: Page) {
   await page.goto("/admin/login?as=super");
   await page.getByLabel("Super admin password").fill(ADMIN_PASSWORD);

@@ -8,6 +8,7 @@ import { formatBound, rangeLabel } from "@/lib/scoring";
 import { deleteActivity, setActivityOwner, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
+import { TestSiteTools } from "./developer-tab";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -36,7 +37,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
               {activity.criteria.map((c) => (
                 <tr key={c.id} className="border-b border-line">
                   <td className="py-1.5 pr-4">{c.name}</td>
-                  <td className="py-1.5 text-right">{formatBound(c.max)}</td>
+                  <td className="py-1.5 text-right">{c.min ? `${formatBound(c.min)} to ${formatBound(c.max)}` : formatBound(c.max)}</td>
                 </tr>
               ))}
             </tbody>
@@ -115,10 +116,16 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
 export function SettingsTab({
   activity,
   organizers,
+  developer = false,
+  scoreCount = 0,
 }: {
   activity: Activity;
   /** Present for the super admin only. */
   organizers: OrganizerOption[] | null;
+  /** A test site: scores can be reset, and the activity deleted even mid-session. */
+  developer?: boolean;
+  /** Scores submitted so far, for resetting them on a test site. */
+  scoreCount?: number;
 }) {
   const [state, action] = useActionState<FormResult, FormData>(updateSettings.bind(null, activity.id), null);
 
@@ -147,25 +154,32 @@ export function SettingsTab({
         </Section>
       )}
 
-      <Section title="Delete activity">
-        {activity.sessionState === "live" ? (
-          <p role="note" className="note max-w-xl">
-            The session is live. End it on the Session tab before deleting the activity.
-          </p>
-        ) : (
-          <ConfirmDialog
-            triggerLabel="Delete activity"
-            triggerClassName="btn btn-danger-quiet"
-            title="Delete this activity?"
-            tone="danger"
-            confirmLabel="Delete activity"
-            requireText={activity.name}
-            onConfirm={() => deleteActivity(activity.id)}
-          >
-            This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop working.
-          </ConfirmDialog>
-        )}
-      </Section>
+      {developer ? (
+        <Section title="Test site tools" hint="For testing and rehearsals. The live site doesn't have these.">
+          <TestSiteTools activity={activity} scoreCount={scoreCount} />
+        </Section>
+      ) : (
+        <Section title="Delete activity">
+          {activity.sessionState === "live" ? (
+            <p role="note" className="note max-w-xl">
+              The session is live. End it on the Session tab before deleting the activity.
+            </p>
+          ) : (
+            <ConfirmDialog
+              triggerLabel="Delete activity"
+              triggerClassName="btn btn-danger-quiet"
+              title="Delete this activity?"
+              tone="danger"
+              confirmLabel="Delete activity"
+              requireText={activity.name}
+              onConfirm={() => deleteActivity(activity.id)}
+            >
+              This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop
+              working.
+            </ConfirmDialog>
+          )}
+        </Section>
+      )}
     </div>
   );
 }

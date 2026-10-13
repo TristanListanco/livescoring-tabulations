@@ -183,10 +183,13 @@ export function rulesSummary(activity: Pick<Activity, "scoringMode" | "criteria"
     const places = activity.decimals === 0 ? "whole numbers" : `${activity.decimals} decimal place${activity.decimals > 1 ? "s" : ""}`;
     return `Scores from ${rangeLabel(activity)}, ${places}.`;
   }
-  const list = activity.criteria.map((c) => `${c.name} ${formatBound(c.max)}`).join(", ");
+  const list = activity.criteria.map((c) => `${c.name} ${c.min ? `${formatBound(c.min)} to ` : ""}${formatBound(c.max)}`).join(", ");
   const shown = activity.criteriaDisplay === "ten" ? "scaled to 10" : "as a percentage";
   return `Criteria: ${list}. Totals out of 100, shown ${shown}.`;
 }
+
+/** What a judge can give one criterion: from its lowest score (or 0) to its points. */
+export const criterionRules = (c: Criterion, decimals: Decimals): ScoreRules => ({ min: c.min ?? 0, max: c.max, decimals });
 
 /** Criteria mode: points per criterion → total, or an error. Each value is checked against its criterion's max. */
 export function parseBreakdown(
@@ -197,7 +200,7 @@ export function parseBreakdown(
   const breakdown: Record<string, number> = {};
   let hundredths = 0;
   for (const c of criteria) {
-    const parsed = parseScore(typed[c.id] ?? "", { min: 0, max: c.max, decimals });
+    const parsed = parseScore(typed[c.id] ?? "", criterionRules(c, decimals));
     if (!parsed.ok) return { ok: false, error: `${c.name}: ${parsed.error}` };
     breakdown[c.id] = parsed.value;
     hundredths += Math.round(parsed.value * 100);
