@@ -6,7 +6,7 @@ import { isProductionSite } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
 import { reportId } from "@/lib/report";
-import { programProgress } from "@/lib/pageant";
+import { expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
@@ -189,8 +189,9 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             judges={judges}
             codes={await getAccessCodes(judges.map((j) => j.id))}
             scoredBy={scoredBy}
-            // A pageant judge scores each candidate once per sub-activity they're judged in.
-            entryCount={pageant && judges.length ? progress.possible / judges.length : entries.length}
+            entryCount={entries.length}
+            // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
+            expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
           />
         )}
         {tab === "session" && (
@@ -206,7 +207,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             ledUrl={ledUrl}
           />
         )}
-        {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} />}
+        {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} pageant={pageant} />}
         {tab === "entries" && (
           <EntriesTab
             activityId={activity.id}
@@ -222,6 +223,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
+            developer={!isProductionSite()}
+            scoreCount={scores.length}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}
           />
         )}

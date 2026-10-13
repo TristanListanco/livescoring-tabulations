@@ -2,6 +2,7 @@ import "server-only";
 import { connection } from "next/server";
 import { cache } from "react";
 import { isUuid, normalizeCode } from "./codes";
+import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Activity, AdminAccount, Board, Criterion, Decimals, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory } from "./types";
 
@@ -18,6 +19,9 @@ type ActivityRow = {
   led_hold_scores?: boolean;
   led_transition?: string;
   led_anonymous?: boolean;
+  led_font?: string;
+  led_theme?: string;
+  led_shape?: string;
   owner_id?: string | null;
   session_state?: string;
   current_entry_id?: string | null;
@@ -58,6 +62,7 @@ type JudgeRow = {
   photo_path: string | null;
   position: number;
   is_chair?: boolean;
+  panel?: string;
 };
 type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string; round_id?: string | null };
@@ -74,8 +79,13 @@ function fail(error: { message: string } | null): asserts error is null {
 function toCriteria(value: unknown): Criterion[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((c): c is { id: unknown; name: unknown; max: unknown } => typeof c === "object" && c !== null)
-    .map((c) => ({ id: String(c.id), name: String(c.name), max: Number(c.max) }))
+    .filter((c): c is { id: unknown; name: unknown; max: unknown; min?: unknown } => typeof c === "object" && c !== null)
+    .map((c) => {
+      const max = Number(c.max);
+      const min = Number(c.min ?? 0);
+      // A lowest score only counts when it's below the criterion's points.
+      return { id: String(c.id), name: String(c.name), max, ...(min > 0 && min < max ? { min } : {}) };
+    })
     .filter((c) => c.id && c.name && Number.isFinite(c.max) && c.max > 0);
 }
 
@@ -100,6 +110,10 @@ function toActivity(row: ActivityRow): Activity {
     ledHoldScores: row.led_hold_scores ?? false,
     ledTransition: row.led_transition === "wipe" ? "wipe" : "fade",
     ledAnonymous: row.led_anonymous ?? false,
+    // Databases without migration 014 show the wall's original look.
+    ledFont: toLedFont(row.led_font),
+    ledTheme: toLedTheme(row.led_theme),
+    ledShape: toLedShape(row.led_shape),
     ownerId: row.owner_id ?? null,
     sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
     currentEntryId: row.current_entry_id ?? null,
@@ -147,6 +161,8 @@ const toJudge = (row: JudgeRow): Judge => ({
   photoUrl: photoUrl(row.photo_path),
   position: row.position,
   isChair: row.is_chair ?? false,
+  // "all" on databases without migration 013.
+  panel: row.panel === "preliminary" || row.panel === "proper" ? row.panel : "all",
 });
 const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value), roundId: row.round_id ?? null });

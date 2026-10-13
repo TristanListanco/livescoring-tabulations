@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { devices, expect, test, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
 import {
   boardOrder,
+  choosePhoto,
   deleteActivityNamed,
   deleteOrganizerByEmail,
   expectAccessible,
-  PHOTO,
   signInAsOrganizer,
   signInAsSuperAdmin,
   snap,
@@ -58,7 +58,7 @@ async function createOrganizer(page: Page, organizer: typeof ORGANIZER, withPhot
   await page.getByLabel("Email").fill(organizer.email);
   await page.getByLabel("Password").fill(organizer.password);
   if (withPhoto) {
-    await page.getByLabel(`Photo for ${organizer.name}`).setInputFiles(PHOTO);
+    await choosePhoto(page, `Photo for ${organizer.name}`);
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
   }
   await page.getByRole("button", { name: "Create organizer" }).click();
@@ -136,7 +136,7 @@ test.describe.serial("a full event", () => {
     await page.getByLabel("Judge 2 last name").fill("Torres");
     // Ben chairs the board of judges: he can move entries from his own screen. Picking a chair is required.
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
-    await page.getByLabel("Photo for Ana Cruz").setInputFiles(PHOTO);
+    await choosePhoto(page, "Photo for Ana Cruz");
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
     await page.getByRole("button", { name: "Create activity" }).click();
@@ -227,7 +227,7 @@ test.describe.serial("a full event", () => {
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("button", { name: "Move Agila down" })).toBeDisabled();
     // Photos can still change: they're only for the LED wall.
-    await page.getByLabel("Photo for Agila").setInputFiles(PHOTO);
+    await choosePhoto(page, "Photo for Agila");
     await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
     await page.getByLabel("Add entries, one per line").fill("Dalisay");
     await page.getByRole("button", { name: "Add entries" }).click();

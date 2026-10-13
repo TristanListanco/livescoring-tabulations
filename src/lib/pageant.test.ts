@@ -4,7 +4,10 @@ import {
   clock,
   cutPlan,
   cutResult,
+  judgesFor,
+  judgesForRounds,
   judgingOrder,
+  onPanel,
   partWeights,
   programOrder,
   roundLabel,
@@ -20,7 +23,7 @@ import { activityFixture, roundFixture } from "./test-fixtures";
 import { PRELIMINARY, type Board, type Round, type Score } from "./types";
 
 const entry = (id: string, position: number) => ({ id, name: id, photoUrl: null, position });
-const judge = (id: string) => ({ id, name: id, firstName: id, lastName: "X", photoUrl: null, position: 0, isChair: false });
+const judge = (id: string) => ({ id, name: id, firstName: id, lastName: "X", photoUrl: null, position: 0, isChair: false, panel: "all" as const });
 
 const interview = roundFixture({ id: "interview", segment: "preliminary", position: 0, weight: 60 });
 const costume = roundFixture({ id: "costume", segment: "preliminary", position: 1, weight: 40 });
@@ -217,5 +220,47 @@ describe("sub-activities with parts", () => {
     const latePart = roundFixture({ id: "late-part", segment: "proper", position: 0, parentId: "later" });
     const board = pageant([interview, { ...swim, cutEntryIds: ["C", "A", "E"] }, later, latePart], []);
     expect(roundPool(board, "late-part").entries.map((e) => e.id)).toEqual(["A", "C", "E"]);
+  });
+});
+
+describe("judge panels", () => {
+  // Cy judges only the preliminary; Ana and Ben judge both segments.
+  const cy = { ...judge("j3"), panel: "preliminary" as const };
+  const withCy = (rounds: Round[], scores: Score[], currentRoundId: string | null = null): Board => {
+    const board = pageant(rounds, scores, currentRoundId);
+    return { ...board, judges: [...board.judges, cy] };
+  };
+
+  it("gives each sub-activity its own segment's judges", () => {
+    const board = withCy([interview, costume, swim, qa], []);
+    expect(judgesFor(board, interview).map((j) => j.id)).toEqual(["j1", "j2", "j3"]);
+    expect(judgesFor(board, swim).map((j) => j.id)).toEqual(["j1", "j2"]);
+    expect(onPanel(cy, swim)).toBe(false);
+    expect(showingBoard(withCy([interview, costume, swim, qa], [], "swim")).board.judges.map((j) => j.id)).toEqual(["j1", "j2"]);
+    expect(judgesForRounds(board, [interview, swim]).map((j) => j.id)).toEqual(["j1", "j2", "j3"]);
+  });
+
+  it("waits only for the panel's judges", () => {
+    const board = withCy([interview, costume, swim, qa], [...both("interview", { A: 9, B: 9, C: 9, D: 9, E: 9 }), ...both("swim", { A: 9, B: 9, C: 9, D: 9, E: 9 })]);
+    // The interview still needs Cy's five scores; swimsuit doesn't.
+    expect(roundProgress(board, interview)).toMatchObject({ submitted: 10, possible: 15, complete: false });
+    expect(roundProgress(board, swim)).toMatchObject({ submitted: 10, possible: 10, complete: true });
+  });
+
+  it("ranks a cut once every panel has scored its own sub-activities", () => {
+    const cyScores = Object.entries({ A: 9, B: 8, C: 10, D: 7, E: 9 }).map(([entryId, value]) => ({ entryId, judgeId: "j3", value, roundId: "interview" }));
+    const costumeCy = Object.entries({ A: 8, B: 8, C: 8, D: 8, E: 8 }).map(([entryId, value]) => ({ entryId, judgeId: "j3", value, roundId: "costume" }));
+    const without = withCy([interview, costume, swim, qa], prelimAndSwim);
+    expect(cutPlan(without, swim).ready).toBe(false);
+    const board = withCy([interview, costume, swim, qa], [...prelimAndSwim, ...cyScores, ...costumeCy]);
+    expect(cutPlan(board, swim).ready).toBe(true);
+    // Cy's scores match Ana's and Ben's, so the standings are the same as without a third judge.
+    expect(cutPlan(board, swim).rows.map((r) => [r.entry.id, r.total])).toEqual([
+      ["C", 90.6],
+      ["A", 88.8],
+      ["E", 81.8],
+      ["B", 73],
+      ["D", 64.2],
+    ]);
   });
 });

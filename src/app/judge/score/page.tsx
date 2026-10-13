@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getBoard, getDevice, getJudgeContext } from "@/lib/data";
-import { showingBoard } from "@/lib/pageant";
+import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
 import { ScoringPanel, type DeviceGate } from "./scoring-panel";
 
@@ -26,6 +26,8 @@ export default async function ScorePage() {
 
   // A pageant's judges see the sub-activity being judged: its rules, its candidates, and their scores in it.
   const { board: showing, round } = showingBoard(board);
+  // The preliminary can have its own judges: a judge not on this sub-activity's panel waits for their part.
+  const offPanel = round !== null && !onPanel(context.judge, round);
 
   // Judges only ever receive their own scores, and nothing at all until their device is approved.
   const mine =
@@ -35,7 +37,7 @@ export default async function ScorePage() {
 
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   const panel =
-    gate.status === "approved" && context.judge.isChair
+    gate.status === "approved" && context.judge.isChair && !offPanel
       ? showing.judges.map((j) => ({
           id: j.id,
           name: j.name,
@@ -56,6 +58,7 @@ export default async function ScorePage() {
       gate={gate}
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}
+      offPanel={offPanel}
       // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
       // eslint-disable-next-line react-hooks/purity
       serverNow={Date.now()}

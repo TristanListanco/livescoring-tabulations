@@ -7,8 +7,8 @@ function board(options: { hold: boolean; onAir: string | null; scores: [string, 
   return {
     activity: activityFixture({ ledEntryId: options.onAir, ledHoldScores: options.hold, ledAnonymous: options.anonymous ?? false }),
     judges: [
-      { id: "j1", name: "Ana", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false },
-      { id: "j2", name: "Ben", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false },
+      { id: "j1", name: "Ana", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false, panel: "all" as const },
+      { id: "j2", name: "Ben", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false, panel: "all" as const },
     ],
     entries: [
       { id: "e1", name: "Agila", photoUrl: null, position: 0 },

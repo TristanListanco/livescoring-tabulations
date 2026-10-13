@@ -88,7 +88,7 @@ function EntryRow({
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {entry.photoUrl && !photoPending && (
           <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
-            Remove photo
+            Remove photo<span className="sr-only"> of {entry.name}</span>
           </button>
         )}
       </div>

@@ -1,10 +1,10 @@
 import { getAdmin, getBoard, getSignatories } from "@/lib/data";
 import { reportId } from "@/lib/report";
-import { cutPlan, finalCutRound, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy } from "@/lib/pageant";
+import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy } from "@/lib/pageant";
 import { renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
-import { PRELIMINARY, type Board } from "@/lib/types";
+import { PRELIMINARY, type Board, type Round } from "@/lib/types";
 
 function slug(name: string): string {
   return name
@@ -31,6 +31,9 @@ function pdfResponse(pdf: Buffer, name: string): Response {
 
 const notYet = (message: string) => new Response(message, { status: 409 });
 
+/** A standings sheet is signed by the judges of what it counts: the preliminary can have its own panel. */
+const signedBy = (board: Board, rounds: Round[]): Board => ({ ...board, judges: judgesForRounds(board, rounds) });
+
 /**
  * A pageant's sheets: a sub-activity's results (?round=id), a cut or the final results (?cut=id), or the
  * preliminary's standings (?segment=preliminary). Each once its scores are all in, and a cut once it's confirmed.
@@ -55,7 +58,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const parts = new Set(weights.map((w) => w.round.id));
       const scope: Board = { ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && parts.has(s.roundId)) };
       const sheet: StandingsSheet = { kind: "subactivity", title: `${round.name} results`, weights, rows, placed: null, tieBroken: [] };
-      const pdf = await renderStandingsPdf(board, sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), organizer: await organizer() });
+      const pdf = await renderStandingsPdf(signedBy(board, [round]), sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), organizer: await organizer() });
       return pdfResponse(pdf, fileName(activity.name, round.name));
     }
 
@@ -82,7 +85,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       tieBroken: plan.ties.flatMap((t) => t.rows.map((r) => r.entry.id)),
     };
     const id = reportId(scope, `cut:${round.id}:${round.cutEntryIds.join(",")}`);
-    const pdf = await renderStandingsPdf(board, sheet, { timeZone, reportId: id, organizer: await organizer() });
+    const pdf = await renderStandingsPdf(signedBy(board, plan.weights.map((w) => w.round)), sheet, { timeZone, reportId: id, organizer: await organizer() });
     return pdfResponse(pdf, fileName(activity.name, plan.final ? "final" : `top ${round.cutEntryIds.length}`));
   }
 
@@ -96,7 +99,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const prelimIds = new Set(prelim.flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
     const scope: Board = { ...board, scores: board.scores.filter((s) => s.roundId && prelimIds.has(s.roundId)) };
     const sheet: StandingsSheet = { kind: "preliminary", title: "Preliminary results", weights, rows, placed: null, tieBroken: [] };
-    const pdf = await renderStandingsPdf(board, sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), organizer: await organizer() });
+    const pdf = await renderStandingsPdf(signedBy(board, prelim), sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), organizer: await organizer() });
     return pdfResponse(pdf, fileName(activity.name, "preliminary"));
   }
 

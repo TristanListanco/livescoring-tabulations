@@ -1,10 +1,13 @@
 "use client";
 
 import { useId, useState } from "react";
-import { squareJpeg } from "@/lib/resize-image";
 import { Avatar } from "./avatar";
+import { PhotoCropDialog } from "./photo-crop-dialog";
 
-/** Round photo button. Picks an image, crops it to a square and hands back a small JPEG. */
+/**
+ * Round photo button. Picks an image, lets the organizer crop and resize it (see PhotoCropDialog), and hands back a
+ * small square JPEG. Every photo in the app (judges, entries and candidates, organizers) is chosen here.
+ */
 export function PhotoPicker({
   name,
   currentUrl,
@@ -28,16 +31,23 @@ export function PhotoPicker({
   const id = useId();
   const shape = square ? "rounded-lg" : "rounded-full";
   const [error, setError] = useState<string | null>(null);
+  // The photo being cropped, decoded, with an address for showing it; null when none is.
+  const [cropping, setCropping] = useState<{ image: ImageBitmap; src: string } | null>(null);
 
   const handle = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
     try {
-      const blob = await squareJpeg(file, pixels);
-      onPick(blob, URL.createObjectURL(blob));
+      setCropping({ image: await createImageBitmap(file), src: URL.createObjectURL(file) });
     } catch {
       setError("That file isn't an image we can read.");
     }
+  };
+  const finish = (photo: Blob | null) => {
+    if (photo) onPick(photo, URL.createObjectURL(photo));
+    cropping?.image.close();
+    if (cropping) URL.revokeObjectURL(cropping.src);
+    setCropping(null);
   };
 
   return (
@@ -88,6 +98,18 @@ export function PhotoPicker({
         />
       </label>
       {error && <span className="max-w-32 text-center text-xs text-danger">{error}</span>}
+      {/* Beside the button, not in it: a click inside the dialog mustn't open the file chooser again. */}
+      {cropping && (
+        <PhotoCropDialog
+          image={cropping.image}
+          src={cropping.src}
+          pixels={pixels ?? 320}
+          round={!square}
+          name={name}
+          onDone={(photo) => finish(photo)}
+          onCancel={() => finish(null)}
+        />
+      )}
     </div>
   );
 }

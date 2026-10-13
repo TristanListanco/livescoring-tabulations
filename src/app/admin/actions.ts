@@ -20,12 +20,22 @@ import {
 import { touchJudge } from "@/lib/devices";
 import { isProductionSite } from "@/lib/environment";
 import { showColumns, showEntryColumns } from "@/lib/judging";
+import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, partsOf, programOrder, roundPool } from "@/lib/pageant";
-import { checkPageant, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import { chairGap, checkPageant, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { newFileTag as newCriterionId } from "@/lib/codes";
-import { PRELIMINARY, type ActionResult, type Board, type CriteriaDisplay, type LedTransition, type ResultDecimals, type SessionState } from "@/lib/types";
+import {
+  PRELIMINARY,
+  type ActionResult,
+  type Board,
+  type CriteriaDisplay,
+  type JudgePanel,
+  type LedTransition,
+  type ResultDecimals,
+  type SessionState,
+} from "@/lib/types";
 
 export type FormResult = ActionResult | null;
 
@@ -135,6 +145,11 @@ function readJudgeName(formData: FormData, prefix: string, who: string): { first
   if (!isPersonName(last)) return { error: `Use letters only for ${who}'s last name.` };
   return { first, last, name: fullName(first, last) };
 }
+
+const PANELS_HINT = "Separate boards of judges need a database update. Run supabase/migrations/013_judge_panels.sql in the Supabase SQL editor.";
+
+/** A judge's panel from a form: both segments unless it says the preliminary or pageant proper. */
+const readPanel = (value: FormDataEntryValue | null): JudgePanel => (value === "preliminary" || value === "proper" ? value : "all");
 
 /** Columns for a judge's name. */
 const nameColumns = (n: { first: string; last: string; name: string }) => ({ name: n.name, first_name: n.first, last_name: n.last });
@@ -328,7 +343,7 @@ export async function savePageant(activityId: string, json: string): Promise<Act
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
-  if (board.activity.sessionState !== "draft") return err("The session has started, so the program is locked. Timers can still change.");
+  if (board.activity.sessionState !== "draft") return err("The session has started, so the program is final and can't be changed.");
   const draft = parsePageantDraft(json);
   if (!draft) return err("The program couldn't be read. Try again.");
   const checked = checkPageant(draft, board.entries.length, newCriterionId);
@@ -355,19 +370,6 @@ export async function savePageant(activityId: string, json: string): Promise<Act
   if (error) return dbErr(error);
   refresh();
   return ok("Program saved.");
-}
-
-/** A sub-activity's scoring timer, in seconds, or null to turn it off. It can change at any time, even mid-show. */
-export async function setRoundTimer(roundId: string, seconds: number | null): Promise<ActionResult> {
-  if (!isUuid(roundId)) return err("Sub-activity not found.");
-  const { data } = await db().from("rounds").select("activity_id").eq("id", roundId).maybeSingle();
-  const activityId = (data as { activity_id: string } | null)?.activity_id;
-  if (!activityId || !(await manage(activityId))) return err("Sub-activity not found.");
-  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 5 && seconds <= 3600)) return err("Set the timer from 5 to 3600 seconds, or turn it off.");
-  const { error } = await db().from("rounds").update({ timer_seconds: seconds }).eq("id", roundId);
-  if (error) return dbErr(error);
-  refresh();
-  return ok(seconds === null ? "Timer off." : `Judges get ${seconds} seconds to score each candidate.`);
 }
 
 /**
@@ -467,6 +469,26 @@ export async function undoCut(activityId: string, roundId: string): Promise<Acti
  * pageant setup, sent as JSON in `pageant`.
  */
 export async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
+  const result = await createFromForm(formData);
+  if (!("activityId" in result)) return result;
+  redirect(`/admin/${result.activityId}`);
+}
+
+/** A new activity: where to find it, and its entries' ids in running order (for adding their photos next). */
+type Created = { activityId: string; entryIds: string[] };
+export type CreateResult = ({ ok: true } & Created) | { ok: false; error: string };
+
+/**
+ * Create a pageant without leaving the page, so the setup can then upload each candidate's photo on its own:
+ * together they can be more than one request may carry. The page goes to the pageant once they're up.
+ */
+export async function createPageant(formData: FormData): Promise<CreateResult> {
+  const result = await createFromForm(formData);
+  if ("activityId" in result) return { ok: true, ...result };
+  return result.ok ? { ok: false, error: "That didn't save. Try again." } : result;
+}
+
+async function createFromForm(formData: FormData): Promise<ActionResult | Created> {
   const session = await requireAdmin();
   const pageant = formData.get("kind") === "pageant";
 
@@ -499,18 +521,30 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
     return err(`An activity needs 1 to ${MAX_JUDGES} judges.`);
   }
-  const judges: { name: { first: string; last: string; name: string }; photo: File | null }[] = [];
+  const judges: { name: { first: string; last: string; name: string }; photo: File | null; panel: JudgePanel }[] = [];
   for (let i = 0; i < judgeCount; i++) {
     const judgeName = readJudgeName(formData, `judge-${i}-`, `judge ${i + 1}`);
     if ("error" in judgeName) return err(judgeName.error.replace(/\bjudge (\d+)/, "Judge $1"));
     const photo = photoFile(formData.get(`judge-${i}-photo`));
     if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
-    judges.push({ name: judgeName, photo });
+    judges.push({ name: judgeName, photo, panel: pageant ? readPanel(formData.get(`judge-${i}-panel`)) : "all" });
   }
-  // The chair of the board of judges, by position in the list. Decided now: it can't change later.
-  const chairText = String(formData.get("chair") ?? "");
-  const chair = /^\d+$/.test(chairText) && Number(chairText) < judgeCount ? Number(chairText) : null;
-  if (chair === null) return err("Choose the chair of the board of judges.");
+  // The chair of the board of judges, by position in the list; a pageant with separate boards has one per board
+  // ("0,3"). Decided now: chairs can't change later.
+  const chairs = new Set(
+    String(formData.get("chair") ?? "")
+      .split(",")
+      .filter((t) => /^\d+$/.test(t) && Number(t) < judgeCount)
+      .map(Number),
+  );
+  if (pageant) {
+    const gap = panelGap(judges.map((j) => j.panel)) ?? chairGap(judges.map((j, i) => ({ panel: j.panel, isChair: chairs.has(i) })));
+    if (gap) return err(gap);
+  } else if (chairs.size !== 1) {
+    return err("Choose the chair of the board of judges.");
+  }
+  // Only sent when a judge sits out a segment, so pageants with one board save on databases without migration 013.
+  const panels = judges.some((j) => j.panel !== "all");
 
   const owner_id = session.kind === "organizer" ? session.admin.id : null;
   let activityId: string | null = null;
@@ -536,12 +570,15 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   if (!activityId) return err("Could not create the activity. Try again.");
 
   const uploaded: string[] = [];
+  let entryIds: string[] = [];
   try {
     if (program.length) await insertProgram(activityId, program, new Map());
     const { data, error } = await db()
       .from("judges")
       // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
-      .insert(judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: position === chair })))
+      .insert(
+        judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: chairs.has(position), ...(panels ? { panel: j.panel } : {}) })),
+      )
       .select("id, position");
     check(error);
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
@@ -556,19 +593,20 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
     }
 
     if (entries.length) {
-      check(
-        (
-          await db()
-            .from("entries")
-            .insert(entries.map((n, position) => ({ activity_id: activityId, name: n, position })))
-        ).error,
-      );
+      const { data: rows, error: entriesError } = await db()
+        .from("entries")
+        .insert(entries.map((n, position) => ({ activity_id: activityId, name: n, position })))
+        .select("id, position");
+      check(entriesError);
+      entryIds = (rows as { id: string; position: number }[]).sort((a, b) => a.position - b.position).map((r) => r.id);
     }
   } catch (e) {
     await db().from("activities").delete().eq("id", activityId);
     await removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
     if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
+    // Before migration 013 an activity has one chair, so separate boards' two chairs break judges_one_chair_idx.
+    if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
     if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
     if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
     console.error(e);
@@ -578,7 +616,7 @@ export async function createActivity(_prev: FormResult, formData: FormData): Pro
   // The draft it was set up from has done its job.
   const draftId = String(formData.get("draftId") ?? "");
   if (isUuid(draftId)) await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
-  redirect(`/admin/${activityId}`);
+  return { activityId, entryIds };
 }
 
 /**
@@ -637,6 +675,11 @@ export async function setSessionState(activityId: string, state: "live" | "ended
     ]);
     if (!judges.count) return err("Add at least one judge before starting the session.");
     if (!entries.count) return err("Add at least one entry before starting the session.");
+    const board = await getBoard(activityId);
+    if (board?.activity.kind === "pageant") {
+      const gap = panelGap(board.judges.map((j) => j.panel));
+      if (gap) return err(gap);
+    }
   }
   if (state === "ended" && current.state !== "live") return err("The session isn't running.");
 
@@ -714,10 +757,13 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
 
 const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
 
-/** Full screen or green screen overlay, and whether scores wait until every judge has scored. */
+/**
+ * Full screen or green screen overlay, the animation, whether scores wait until every judge has scored, whether
+ * judges stay anonymous, and the wall's look: font, colour theme and corners.
+ */
 export async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition; anonymous?: boolean },
+  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
@@ -725,7 +771,15 @@ export async function setLedOptions(
   if (typeof options.holdScores === "boolean") update.led_hold_scores = options.holdScores;
   if (options.transition === "fade" || options.transition === "wipe") update.led_transition = options.transition;
   if (typeof options.anonymous === "boolean") update.led_anonymous = options.anonymous;
+  // Only the choices the wall knows; anything else is ignored.
+  if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
+  if (options.theme !== undefined && toLedTheme(options.theme) === options.theme) update.led_theme = options.theme;
+  if (options.shape !== undefined && toLedShape(options.shape) === options.shape) update.led_shape = options.shape;
+  if (Object.keys(update).length === 0) return ok();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error && /led_(font|theme|shape)/.test(error.message)) {
+    return needsMigration("The LED wall's look needs a database update. Run supabase/migrations/014_led_look.sql in the Supabase SQL editor.");
+  }
   if (error && /led_anonymous/.test(error.message)) {
     return needsMigration("Anonymous judges on the LED wall need a database update. Run supabase/migrations/010_led_anonymous_judges.sql in the Supabase SQL editor.");
   }
@@ -748,11 +802,13 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
   const { count } = await db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
   if ((count ?? 0) >= MAX_JUDGES) return err(`An activity can have up to ${MAX_JUDGES} judges.`);
 
+  const panel = readPanel(formData.get("panel"));
   const { data, error } = await db()
     .from("judges")
-    .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName) })
+    .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName), ...(panel === "all" ? {} : { panel }) })
     .select("id")
     .single();
+  if (error && /panel/.test(error.message)) return needsMigration(PANELS_HINT);
   if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   const judgeId = (data as { id: string }).id;
   try {
@@ -775,6 +831,20 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
   if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   refresh();
   return ok("Saved.");
+}
+
+/** Pageants: which segments a judge judges. Only before the session starts, like the rest of the panel. */
+export async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise<ActionResult> {
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  // A chair chairs their board: like the chair, it's decided when the pageant is created.
+  const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
+  if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("A chair's board is set when the pageant is created, so it can't change.");
+  const { error } = await db().from("judges").update({ panel: readPanel(panel) }).eq("id", judgeId);
+  if (error) return /panel/.test(error.message) ? needsMigration(PANELS_HINT) : dbErr(error);
+  refresh();
+  return ok(panel === "preliminary" ? "Judges the preliminary only." : panel === "proper" ? "Judges pageant proper only." : "Judges both segments.");
 }
 
 export async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
@@ -848,6 +918,20 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
 
 /** An entry's photo for the LED wall, or null to remove it. Allowed at any time, even mid-session. */
 export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
+  const result = await storeEntryPhoto(entryId, formData);
+  if (result.ok) refresh();
+  return result;
+}
+
+/**
+ * A candidate's photo from the pageant setup, sent one at a time just after the pageant is created. Nothing to
+ * refresh: the setup goes on to the pageant's page once they're all up.
+ */
+export async function addCandidatePhoto(entryId: string, formData: FormData): Promise<ActionResult> {
+  return storeEntryPhoto(entryId, formData);
+}
+
+async function storeEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
@@ -864,7 +948,6 @@ export async function setEntryPhoto(entryId: string, formData: FormData): Promis
     return /photo_path/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
   }
   await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
-  refresh();
   return ok();
 }
 
@@ -939,7 +1022,18 @@ export async function deleteActivity(activityId: string): Promise<ActionResult> 
   // Not mid-show: the Settings tab hides the button while live, and this holds even if a stale page still shows it.
   const { data: live } = await db().from("activities").select("id").eq("id", activityId).eq("session_state", "live").maybeSingle();
   if (live) return err("The session is live. End it on the Session tab before deleting the activity.");
+  return removeActivity(activityId);
+}
 
+/** Developer tool for rehearsals: delete the activity at any time, even mid-session. Refused on the live site. */
+export async function deleteActivityNow(activityId: string): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  if (isProductionSite()) return err("Deleting an activity mid-session isn't available on the live site. End the session, then delete it from Settings.");
+  return removeActivity(activityId);
+}
+
+/** Delete an activity with everything in it (judges, entries, scores, sub-activities) and its photos. */
+async function removeActivity(activityId: string): Promise<ActionResult> {
   const { data: files } = await db().storage.from(PHOTO_BUCKET).list(activityId, { limit: 1000 });
   const { error } = await db().from("activities").delete().eq("id", activityId);
   if (error) return dbErr(error);

@@ -1,4 +1,4 @@
-import { PRELIMINARY, type Activity, type Board, type Entry, type Round, type Score } from "./types";
+import { PRELIMINARY, type Activity, type Board, type Entry, type Judge, type Round, type Score } from "./types";
 
 /**
  * Pageant mode. Candidates (the activity's entries) go through the preliminary segment's sub-activities, then
@@ -66,6 +66,22 @@ export function roundPool(board: Pick<Board, "entries" | "rounds">, roundId: str
   return { entries: all, blockedBy: null };
 }
 
+/** Whether a judge judges this sub-activity (or part): their panel is both segments, or its segment. */
+export const onPanel = (judge: Pick<Judge, "panel">, round: Pick<Round, "segment">) => judge.panel === "all" || judge.panel === round.segment;
+
+/**
+ * The judges of a sub-activity (or part): every judge for an event, and for a pageant those on its segment's panel,
+ * since the preliminary can have its own set of judges.
+ */
+export function judgesFor(board: Pick<Board, "activity" | "judges">, round: Pick<Round, "segment">): Judge[] {
+  return board.activity.kind === "pageant" ? board.judges.filter((j) => onPanel(j, round)) : board.judges;
+}
+
+/** The judges of any of these sub-activities, in panel order: who signs a standings sheet that counts them. */
+export function judgesForRounds(board: Pick<Board, "activity" | "judges">, rounds: Pick<Round, "segment">[]): Judge[] {
+  return board.judges.filter((j) => rounds.some((r) => judgesFor(board, r).includes(j)));
+}
+
 /** A sub-activity's scoring in the shape of an activity, so keypads, scoreboards and the LED wall use it unchanged. */
 export function withRoundRules(activity: Activity, round: Round): Activity {
   return {
@@ -79,11 +95,12 @@ export function withRoundRules(activity: Activity, round: Round): Activity {
   };
 }
 
-/** One sub-activity as a board of its own: its rules, its candidates, and only the scores given in it. */
+/** One sub-activity as a board of its own: its rules, its judges, its candidates, and only the scores given in it. */
 export function roundBoard(board: Board, round: Round): Board {
   return {
     ...board,
     activity: withRoundRules(board.activity, round),
+    judges: judgesFor(board, round),
     entries: roundPool(board, round.id).entries,
     scores: board.scores.filter((s) => s.roundId === round.id),
   };
@@ -114,7 +131,7 @@ export function roundProgress(board: Board, round: Round): { submitted: number; 
     return { submitted, possible, complete: each.every((p) => p.complete), blockedBy: each[0].blockedBy };
   }
   const { entries, blockedBy } = roundPool(board, round.id);
-  const judgeIds = new Set(board.judges.map((j) => j.id));
+  const judgeIds = new Set(judgesFor(board, round).map((j) => j.id));
   const entryIds = new Set(entries.map((e) => e.id));
   const submitted = board.scores.filter((s) => s.roundId === round.id && judgeIds.has(s.judgeId) && entryIds.has(s.entryId)).length;
   const possible = judgeIds.size * entryIds.size;
@@ -129,9 +146,23 @@ export function programProgress(board: Board): { submitted: number; possible: nu
     const p = roundProgress(board, round);
     submitted += p.submitted;
     // A sub-activity after an unconfirmed cut will judge at most the cut's size.
-    possible += p.blockedBy ? Math.min(p.blockedBy.cutSize ?? 0, p.possible / Math.max(1, board.judges.length)) * board.judges.length : p.possible;
+    const panel = judgesFor(board, round).length;
+    possible += p.blockedBy ? Math.min(p.blockedBy.cutSize ?? 0, p.possible / Math.max(1, panel)) * panel : p.possible;
   }
   return { submitted, possible, complete: possible > 0 && submitted === possible };
+}
+
+/**
+ * How many scores a judge gives in the whole pageant: one per candidate in each sub-activity (or part) on their panel.
+ * A sub-activity after an unconfirmed cut counts the cut's size.
+ */
+export function expectedScores(board: Board, judge: Judge): number {
+  return judgingOrder(board.rounds)
+    .filter((r) => onPanel(judge, r))
+    .reduce((n, r) => {
+      const { entries, blockedBy } = roundPool(board, r.id);
+      return n + (blockedBy ? Math.min(blockedBy.cutSize ?? 0, entries.length) : entries.length);
+    }, 0);
 }
 
 // Cuts and standings ---------------------------------------------------------------------
@@ -214,20 +245,22 @@ export function standingsBy(
   entries: Entry[],
   weights: { round: Round; weight: number }[],
 ): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
-  const judgeIds = new Set(board.judges.map((j) => j.id));
+  // Each sub-activity counts its own panel's judges: the preliminary can have its own set.
+  const panels = new Map(weights.map(({ round }) => [round.id, new Set(judgesFor(board, round).map((j) => j.id))]));
   const places = board.activity.resultDecimals;
 
   const rows: StandingRow[] = entries.map((entry, i) => {
     const parts = new Map<string, number | null>();
     let sum = 0;
     let scored = true;
-    let complete = judgeIds.size > 0;
+    let complete = true;
     for (const { round, weight } of weights) {
+      const judgeIds = panels.get(round.id)!;
       const { percent, count } = percentOf(round, entry.id, board.scores, judgeIds, board.rounds);
       parts.set(round.id, percent);
       if (percent === null) scored = false;
       else sum += (weight * percent) / 100;
-      if (count < judgeIds.size) complete = false;
+      if (judgeIds.size === 0 || count < judgeIds.size) complete = false;
     }
     return { entry, number: entry.number ?? i + 1, parts, total: scored && weights.length ? roundTo(sum, places) : null, rank: null, complete };
   });

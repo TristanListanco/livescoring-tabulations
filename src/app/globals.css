@@ -156,6 +156,47 @@ body {
 [data-admin-theme] input[type="radio"]:checked::before {
   transform: scale(1);
 }
+/*
+ * Admin checkboxes, drawn to match: the text colour fills a ticked one, with a tick in the page colour, so they read
+ * the same in both themes. Size them with a utility (size-5).
+ */
+[data-admin-theme] input[type="checkbox"] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex-shrink: 0;
+  border: 2px solid var(--color-field);
+  border-radius: 0.3rem;
+  background: var(--color-white);
+}
+[data-admin-theme] input[type="checkbox"]::before {
+  content: "";
+  width: 0.375rem;
+  height: 0.6875rem;
+  margin-top: -0.125rem;
+  border: solid var(--color-mint);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.12s ease-out;
+}
+[data-admin-theme] input[type="checkbox"]:checked {
+  border-color: currentColor;
+  background: currentColor;
+}
+[data-admin-theme] input[type="checkbox"]:checked::before {
+  transform: rotate(45deg) scale(1);
+}
+
+/* Headings and messages that take focus so they're read out (tabindex="-1") aren't controls: no ring on them. */
+[tabindex="-1"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* While a share total is pinned to the bottom of the screen, a field scrolled into view stops above it. */
+html:has(.share-ledger) {
+  scroll-padding-bottom: 5rem;
+}
 
 @layer components {
   .btn {

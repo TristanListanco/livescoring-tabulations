@@ -6,7 +6,7 @@ import { findJudgeIdByCode, getActivity, getBoard, getJudgeContext, getRounds } 
 import { isUuid } from "@/lib/codes";
 import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { showColumns } from "@/lib/judging";
-import { SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
+import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { db } from "@/lib/supabase/server";
@@ -59,6 +59,9 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
   const board = await getBoard(context.activityId);
   if (!board || board.activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now." };
   if (!board.entries.some((e) => e.id === entryId)) return { ok: false, error: "That entry isn't part of this activity." };
+  // In a pageant, only a chair on the panel of the sub-activity being judged moves it.
+  const round = board.rounds.find((r) => r.id === board.activity.currentRoundId);
+  if (round && !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
   // In a pageant, only candidates in the sub-activity being judged; showing one starts its timer.
   const show = showColumns(board, entryId, Date.now());
   if ("error" in show) return { ok: false, error: show.error };
@@ -92,6 +95,8 @@ export async function submitScore(entryId: string, typed: string | Record<string
   if (activity.kind === "pageant") {
     const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
     if (!round) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
+    // The preliminary can have its own judges: only the panel of the sub-activity on screen scores it.
+    if (!onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant. Wait for your part." };
     if (round.timerSeconds && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
       return { ok: false, error: "Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it." };
     }

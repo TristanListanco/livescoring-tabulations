@@ -69,8 +69,8 @@ describe("parseScore", () => {
 describe("rankEntries", () => {
   const rules = activityFixture();
   const judges = [
-    { id: "j1", name: "A", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false },
-    { id: "j2", name: "B", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false },
+    { id: "j1", name: "A", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false, panel: "all" as const },
+    { id: "j2", name: "B", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false, panel: "all" as const },
   ];
   const entries = [
     { id: "e1", name: "One", photoUrl: null, position: 0 },
@@ -105,7 +105,7 @@ describe("rankEntries", () => {
     expect(rows[0].average).toBeNull();
   });
 
-  const three = [...judges, { id: "j3", name: "C", photoUrl: null, position: 2, firstName: null, lastName: null, isChair: false }];
+  const three = [...judges, { id: "j3", name: "C", photoUrl: null, position: 2, firstName: null, lastName: null, isChair: false, panel: "all" as const }];
   const thirds = [
     { entryId: "e1", judgeId: "j1", value: 8 },
     { entryId: "e1", judgeId: "j2", value: 9 },
@@ -188,8 +188,8 @@ describe("overMax", () => {
 describe("scoreProgress", () => {
   const activity = activityFixture();
   const judges = [
-    { id: "j1", name: "A", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false },
-    { id: "j2", name: "B", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false },
+    { id: "j1", name: "A", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false, panel: "all" as const },
+    { id: "j2", name: "B", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false, panel: "all" as const },
   ];
   const entries = [{ id: "e1", name: "One", photoUrl: null, position: 0 }];
 
