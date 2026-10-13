@@ -17,7 +17,6 @@ type ActivityRow = {
   led_entry_id?: string | null;
   led_fullscreen?: boolean;
   led_hold_scores?: boolean;
-  led_transition?: string;
   led_anonymous?: boolean;
   led_font?: string;
   led_theme?: string;
@@ -119,7 +118,6 @@ function toActivity(row: ActivityRow): Activity {
     ledEntryId: row.led_entry_id ?? null,
     ledFullscreen: row.led_fullscreen ?? false,
     ledHoldScores: row.led_hold_scores ?? false,
-    ledTransition: row.led_transition === "wipe" ? "wipe" : "fade",
     ledAnonymous: row.led_anonymous ?? false,
     // Databases without migration 014 show the wall's original look.
     ledFont: toLedFont(row.led_font),

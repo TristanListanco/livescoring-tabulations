@@ -5,7 +5,6 @@ export type Decimals = 0 | 1 | 2;
 export type ResultDecimals = 0 | 1 | 2 | 3 | 4;
 
 export type SessionState = "draft" | "live" | "ended";
-export type LedTransition = "fade" | "wipe";
 
 /** simple: one score per judge between min and max. criteria: judges score each criterion; totals are out of 100. */
 export type ScoringMode = "simple" | "criteria";
@@ -84,8 +83,6 @@ export type Activity = {
   ledFullscreen: boolean;
   /** LED wall hides scores until every judge has scored the entry on air. */
   ledHoldScores: boolean;
-  /** How entries and scores appear on the LED wall: a fade, or a wipe from the left. */
-  ledTransition: LedTransition;
   /** LED wall keeps judges anonymous: a "?" in place of each judge's name and photo. */
   ledAnonymous: boolean;
   /** The LED wall's look: its font, colour theme and how rounded its panels are (see led-style.ts). */

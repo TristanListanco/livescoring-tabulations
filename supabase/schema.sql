@@ -110,7 +110,7 @@ create index if not exists activities_owner_idx on public.activities (owner_id);
 -- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
 alter table public.activities add column if not exists led_fullscreen boolean not null default false;
 alter table public.activities add column if not exists led_hold_scores boolean not null default false;
--- LED wall animation: fade (default) or wipe.
+-- LED wall animation: no longer read (the wall always fades); kept so older deployments still work.
 alter table public.activities add column if not exists led_transition text not null default 'fade';
 -- LED wall: keep judges anonymous (a "?" in place of each judge's name and photo).
 alter table public.activities add column if not exists led_anonymous boolean not null default false;

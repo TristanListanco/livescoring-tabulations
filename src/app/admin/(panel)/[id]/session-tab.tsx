@@ -193,7 +193,7 @@ export function SessionTab({
   ledUrl: string;
 }) {
   const pageant = board.activity.kind === "pageant";
-  const connection = useLiveRefresh(board.activity.id, undefined, pageant);
+  const connection = useLiveRefresh(board.activity.id, { withRounds: pageant });
   // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
   // lists every candidate, and the program says what to judge next.
   const { board: shown, round } = showingBoard(board);
@@ -642,7 +642,7 @@ export function SessionTab({
                 >
                   <span className="font-semibold">LED wall</span>{" "}
                   <span className="text-prussian/70">
-                    {activity.ledFullscreen ? "full screen" : "lower third"}, {activity.ledTransition === "wipe" ? "wipe" : "fade"}
+                    {activity.ledFullscreen ? "full screen" : "lower third"}
                     {activity.ledAnonymous && ", anonymous judges"}
                   </span>
                 </Link>
@@ -832,8 +832,8 @@ export function SessionTab({
         </h2>
         <LinkField url={ledUrl} openLabel="LED wall" className="mt-3" />
         <p className="hint mt-2">
-          Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"} with a{" "}
-          {activity.ledTransition === "wipe" ? "wipe" : "fade"}.{activity.ledAnonymous && " Judges stay anonymous."}{" "}
+          Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"}.
+          {activity.ledAnonymous && " Judges stay anonymous."}{" "}
           <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
             Change the display
           </Link>
