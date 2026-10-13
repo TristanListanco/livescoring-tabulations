@@ -290,7 +290,6 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
   if (activity.ledFullscreen) {
     return (
       <div
-        data-transition={activity.ledTransition}
         data-led-theme={activity.ledTheme}
         className={`relative overflow-hidden bg-prussian text-mint ${LED_FONT_VARIABLES} ${className}`}
         style={{ containerType: "size", ...ledStyle(look, true) }}
@@ -302,7 +301,7 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
   return (
     <FitStage className={className} background={KEY_GREEN}>
       {/* The look goes on this wrapper: it lays out as its children, but they still take its colours and font. */}
-      <div data-transition={activity.ledTransition} data-led-theme={activity.ledTheme} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
+      <div data-led-theme={activity.ledTheme} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
         <Overlay board={board} scene={scene} subtitle={round?.name ?? activity.name} />
       </div>
     </FitStage>

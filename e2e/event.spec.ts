@@ -192,6 +192,11 @@ test.describe.serial("a full event", () => {
     await page.getByRole("button", { name: `Approve Ben Torres's device ${code2}` }).click();
     await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
     await expect(heading(judge2)).toHaveText("Waiting for the organizer to start", REALTIME);
+    // Signing out would revoke the approved device, so it asks first; staying keeps the judge in.
+    await judge1.getByRole("button", { name: "Sign out" }).click();
+    await expect(judge1.getByRole("dialog", { name: "Sign out of judging?" })).toBeVisible();
+    await judge1.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(heading(judge1)).toHaveText("Waiting for the organizer to start");
 
     // Approving Ana's phone signed out every other device for her, including the intruder's.
     await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
@@ -254,6 +259,12 @@ test.describe.serial("a full event", () => {
     await expect(judge1.getByRole("button", { name: "Submit score" })).toBeDisabled();
     await snap(judge1, "judge typed a score above the max");
     await judge1.getByRole("button", { name: "Clear" }).click();
+    // Enter on a focused key presses that key, as on any button, rather than submitting.
+    await judge1.getByRole("button", { name: "5", exact: true }).focus();
+    await judge1.keyboard.press("Enter");
+    await expect(judge1.getByRole("status", { name: "Score" })).toHaveText("5");
+    await expect(judge1.getByRole("dialog")).toBeHidden();
+    await judge1.getByRole("button", { name: "Clear" }).click();
 
     await submitScore(judge1, "Agila", "9.75");
     await expect(heading(judge1)).toHaveText("Waiting for the next entry");
@@ -300,11 +311,6 @@ test.describe.serial("a full event", () => {
     await expect.poll(() => ledBackground(led), REALTIME).toBe("rgb(11, 37, 69)");
     await expect(led.getByText("Scored", { exact: true })).toBeVisible();
     await expect(led.locator("img[data-entry-photo]")).toBeVisible();
-
-    // Entries and scores can wipe in instead of fading.
-    await expect(led.locator('[data-transition="fade"]')).toHaveCount(1);
-    await page.getByLabel("Wipe").check();
-    await expect(led.locator('[data-transition="wipe"]')).toHaveCount(1, REALTIME);
 
     // Judges can be kept anonymous on the wall: no names or photos, a "?" each instead. Scores still show.
     const anonymous = page.getByRole("switch", { name: "Keep judges anonymous" });

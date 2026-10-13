@@ -12,7 +12,9 @@ import { Scoreboard } from "./scoreboard";
  * setting. A pageant shows the sub-activity being judged, with only the candidates still in the running.
  */
 export function LiveBoard({ board: full }: { board: Board }) {
-  const status = useLiveRefresh(full.activity.id, undefined, full.activity.kind === "pageant");
+  // The audience's page: one phone per person, so refreshes are spaced out (at most every 2 seconds), and
+  // checks without realtime come every 15 seconds.
+  const status = useLiveRefresh(full.activity.id, { pollMs: 15_000, minGapMs: 2_000, withRounds: full.activity.kind === "pageant" });
   const { board, round } = showingBoard(full);
   const { activity } = board;
   const ranked = activity.showRank;

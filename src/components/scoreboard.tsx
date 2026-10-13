@@ -6,9 +6,6 @@ import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scori
 import type { Board } from "@/lib/types";
 import { Avatar } from "./avatar";
 
-const POWDER = "#8da9c4";
-const PRUSSIAN = "#0b2545";
-
 type Place = "first" | "podium" | "rest";
 
 function placeOf(row: RankedRow, ranked: boolean): Place {
@@ -54,13 +51,15 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
     }
     tops.current = nextTops;
 
-    // A newly arrived score glows briefly so the room can see what changed.
+    // A newly arrived score glows briefly so the room can see what changed, in the board's own colours.
+    const styles = getComputedStyle(list);
+    const glow = { backgroundColor: styles.getPropertyValue("--color-powder").trim(), color: styles.getPropertyValue("--color-prussian").trim() };
     const seen = new Set<string>();
     for (const el of list.querySelectorAll<HTMLElement>("[data-score]")) {
       const key = el.dataset.score!;
       seen.add(key);
       if (knownScores.current && !knownScores.current.has(key)) {
-        el.animate([{ backgroundColor: POWDER, color: PRUSSIAN, offset: 0 }], { duration: 1800, easing: "ease-out" });
+        el.animate([{ ...glow, offset: 0 }], { duration: 1800, easing: "ease-out" });
       }
     }
     knownScores.current = seen;

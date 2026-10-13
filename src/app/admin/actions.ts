@@ -33,7 +33,6 @@ import {
   type Board,
   type CriteriaDisplay,
   type JudgePanel,
-  type LedTransition,
   type ResultDecimals,
   type SessionState,
 } from "@/lib/types";
@@ -843,18 +842,17 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
 const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migrations/004_organizer_accounts.sql in the Supabase SQL editor.";
 
 /**
- * Full screen or green screen overlay, the animation, whether scores wait until every judge has scored, whether
- * judges stay anonymous, and the wall's look: font, colour theme and corners.
+ * Full screen or green screen overlay, whether scores wait until every judge has scored, whether judges stay
+ * anonymous, and the wall's look: font, colour theme and corners.
  */
 export async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; transition?: LedTransition; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
+  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
   if (typeof options.fullscreen === "boolean") update.led_fullscreen = options.fullscreen;
   if (typeof options.holdScores === "boolean") update.led_hold_scores = options.holdScores;
-  if (options.transition === "fade" || options.transition === "wipe") update.led_transition = options.transition;
   if (typeof options.anonymous === "boolean") update.led_anonymous = options.anonymous;
   // Only the choices the wall knows; anything else is ignored.
   if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
@@ -867,9 +865,6 @@ export async function setLedOptions(
   }
   if (error && /led_anonymous/.test(error.message)) {
     return needsMigration("Anonymous judges on the LED wall need a database update. Run supabase/migrations/010_led_anonymous_judges.sql in the Supabase SQL editor.");
-  }
-  if (error && /led_transition/.test(error.message)) {
-    return needsMigration("LED wall animations need a database update. Run supabase/migrations/009_led_transition.sql in the Supabase SQL editor.");
   }
   if (error) return /led_(fullscreen|hold_scores)/.test(error.message) ? needsMigration(MIGRATION_HINT) : dbErr(error);
   refresh();

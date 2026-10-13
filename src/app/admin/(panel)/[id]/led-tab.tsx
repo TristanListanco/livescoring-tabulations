@@ -6,7 +6,7 @@ import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
 import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
-import type { Board, LedTransition } from "@/lib/types";
+import type { Board } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { setLedOptions } from "../../actions";
 import { FormMessage } from "../form-message";
@@ -16,7 +16,6 @@ import { Switch } from "../switch";
 type LedOptions = {
   fullscreen: boolean;
   holdScores: boolean;
-  transition: LedTransition;
   anonymous: boolean;
   font: LedFont;
   theme: LedTheme;
@@ -43,28 +42,6 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
                 disabled={disabled}
               />
               {m.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend className="label">Animation</legend>
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              { transition: "fade", label: "Fade" },
-              { transition: "wipe", label: "Wipe" },
-            ] as const
-          ).map((a) => (
-            <label key={a.transition} className="choice items-center font-semibold">
-              <input
-                type="radio"
-                name="led-transition"
-                checked={options.transition === a.transition}
-                onChange={() => onChange({ transition: a.transition })}
-                disabled={disabled}
-              />
-              {a.label}
             </label>
           ))}
         </div>
@@ -145,13 +122,12 @@ function LookSettings({ options, onChange, disabled }: { options: LedOptions; on
 }
 
 export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
-  useLiveRefresh(board.activity.id, undefined, board.activity.kind === "pageant");
+  useLiveRefresh(board.activity.id, { withRounds: board.activity.kind === "pageant" });
   const { activity, entries } = board;
   const [options, setOptions] = useOptimistic<LedOptions, Partial<LedOptions>>(
     {
       fullscreen: activity.ledFullscreen,
       holdScores: activity.ledHoldScores,
-      transition: activity.ledTransition,
       anonymous: activity.ledAnonymous,
       font: activity.ledFont,
       theme: activity.ledTheme,
@@ -176,7 +152,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ...activity,
       ledFullscreen: options.fullscreen,
       ledHoldScores: options.holdScores,
-      ledTransition: options.transition,
       ledAnonymous: options.anonymous,
       ledFont: options.font,
       ledTheme: options.theme,

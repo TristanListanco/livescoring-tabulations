@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
@@ -64,7 +65,7 @@ const JUDGE_POLL_MS = 5_000;
 
 export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow, offPanel = false }: Props) {
   const pageant = activity.kind === "pageant";
-  const status = useLiveRefresh(activity.id, gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, pageant);
+  const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, withRounds: pageant });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
   const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);
@@ -110,9 +111,26 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
             </p>
           )}
           <LiveStatusBadge status={status} className="text-mint" compact />
-          <form action={leavePortal}>
-            <button className="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint">Sign out</button>
-          </form>
+          {approved ? (
+            // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
+            // stray tap mid-show would stall the panel.
+            <ConfirmDialog
+              triggerLabel="Sign out"
+              triggerClassName="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint"
+              title="Sign out of judging?"
+              confirmLabel="Sign out"
+              tone="danger"
+              onConfirm={async () => {
+                await leavePortal();
+              }}
+            >
+              This device stops scoring. To judge again you&apos;ll need your judge code, and the organizer has to approve a new pairing code.
+            </ConfirmDialog>
+          ) : (
+            <form action={leavePortal}>
+              <button className="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint">Sign out</button>
+            </form>
+          )}
         </div>
       </header>
 
@@ -434,11 +452,15 @@ function KeypadKey({ label, onPress, ariaLabel }: { label: React.ReactNode; onPr
   );
 }
 
-/** Physical keyboard support: digits, point, Backspace, Escape to clear, Enter for the main button. */
+/**
+ * Physical keyboard support: digits, point, Backspace, Escape to clear, Enter for the main button. Enter and Space on a
+ * focused button (a keypad key, a criterion) press that button, as they do anywhere else.
+ */
 function useKeypadKeys(press: (key: Key) => void, enter: () => void, dialogRef: React.RefObject<HTMLDialogElement | null>) {
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     if (dialogRef.current?.open || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target instanceof HTMLElement && e.target.closest("input, textarea")) return;
+    if ((e.key === "Enter" || e.key === " ") && e.target instanceof HTMLElement && e.target.closest("button, a, summary")) return;
     if (/^[0-9]$/.test(e.key)) press(e.key as Key);
     else if (e.key === "." || e.key === ",") press(".");
     else if (e.key === "Backspace") press("back");
@@ -566,7 +588,7 @@ function Keypad({ activity, entry, number, onSaved, timer, closed = false }: Key
         >
           {buffer || (
             <>
-              <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full bg-powder/70" />
+              <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full motion-reduce:animate-none bg-powder/70" />
               <span className="sr-only">No score typed yet</span>
             </>
           )}
@@ -697,8 +719,11 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
               >
                 <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
                 {over && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too high</span>}
-                <span className={`tabular text-lg font-bold ${over ? ERROR_TEXT : ""}`}>{value || <span className="text-powder/60">–</span>}</span>
-                <span className="tabular w-12 text-right text-sm text-powder">/ {formatBound(c.max)}</span>
+                {/* Light blue reads on the unselected rows; on the selected (brighter) one, the text colour does. */}
+                <span className={`tabular text-lg font-bold ${over ? ERROR_TEXT : ""}`}>
+                  {value || <span className={isActive ? "text-mint/70" : "text-powder"}>–</span>}
+                </span>
+                <span className={`tabular w-12 text-right text-sm ${isActive ? "text-mint/80" : "text-powder"}`}>/ {formatBound(c.max)}</span>
               </button>
             </li>
           );
@@ -721,7 +746,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
           >
             {typedActive || (
               <>
-                <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full bg-powder/70" />
+                <span aria-hidden className="inline-block h-[0.85em] w-[3px] translate-y-[0.08em] animate-pulse rounded-full motion-reduce:animate-none bg-powder/70" />
                 <span className="sr-only">No score typed yet</span>
               </>
             )}

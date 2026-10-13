@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { createRefresher, pollEvery } from "./refresh-schedule";
 import { browserClient } from "./supabase/browser";
 
 /**
@@ -12,26 +13,46 @@ export type LiveStatus = "connecting" | "live" | "polling" | "offline";
 
 const CONNECT_GRACE_MS = 8_000;
 
+type Options = {
+  /**
+   * How often to check while realtime is down (a judge waiting for approval checks more often). While realtime is
+   * up, a much slower check (see pollEvery) only catches anything it missed.
+   */
+  pollMs?: number;
+  /** Pageants also follow their sub-activities, so a confirmed cut or a changed timer lands right away. */
+  withRounds?: boolean;
+  /** At most one refresh this often: for a page many people watch at once (the public live results). */
+  minGapMs?: number;
+};
+
 /**
  * Re-render the current page whenever this activity's data changes.
  * Realtime does the fast path. Polling, and refreshing whenever the page comes back into view, cover
  * connections that drop on venue Wi-Fi or while a phone's browser sits in the background (for example
- * while the camera scans a QR code). Screens that must react quickly, like a judge waiting for
- * approval, pass a shorter `pollMs`. Pageants pass `withRounds`, so a confirmed cut or a changed timer lands
- * right away (only pageants: databases without migration 011 have no rounds table to follow).
+ * while the camera scans a QR code). Changes arriving together make one refresh (see createRefresher).
+ * Only pageants follow rounds: databases without migration 011 have no rounds table to follow.
  */
-export function useLiveRefresh(activityId: string, pollMs = 15_000, withRounds = false): LiveStatus {
+export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds = false, minGapMs = 0 }: Options = {}): LiveStatus {
   const router = useRouter();
   const [status, setStatus] = useState<LiveStatus>("connecting");
 
   useEffect(() => {
     let subscribed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => router.refresh(), 150);
+    const refresher = createRefresher(() => router.refresh(), { minGapMs });
+    const refresh = refresher.request;
+    // Polls at a pace that follows realtime: often while it's down, rarely while it's up.
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const schedulePoll = () => {
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(() => {
+        refresh();
+        schedulePoll();
+      }, pollEvery(pollMs, subscribed));
     };
-    const fallback = () => setStatus(navigator.onLine ? "polling" : "offline");
+    const fallback = () => {
+      setStatus(navigator.onLine ? "polling" : "offline");
+      schedulePoll();
+    };
 
     const supabase = browserClient();
     const filter = `activity_id=eq.${activityId}`;
@@ -51,17 +72,19 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000, withRounds =
       if (state === "SUBSCRIBED") {
         subscribed = true;
         setStatus("live");
+        schedulePoll();
         refresh(); // catch anything that changed while connecting
       } else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT" || state === "CLOSED") {
         subscribed = false;
         fallback();
+        refresh(); // anything missed while it was failing
       }
     });
 
     const grace = setTimeout(() => {
       if (!subscribed) fallback();
     }, CONNECT_GRACE_MS);
-    const poll = setInterval(refresh, pollMs);
+    schedulePoll();
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh();
     };
@@ -81,9 +104,9 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000, withRounds =
     window.addEventListener("offline", onNetwork);
 
     return () => {
-      clearTimeout(timer);
+      refresher.cancel();
       clearTimeout(grace);
-      clearInterval(poll);
+      clearTimeout(pollTimer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onShow);
       window.removeEventListener("focus", onShow);
@@ -91,7 +114,7 @@ export function useLiveRefresh(activityId: string, pollMs = 15_000, withRounds =
       window.removeEventListener("offline", onNetwork);
       void supabase.removeChannel(channel);
     };
-  }, [activityId, router, pollMs, withRounds]);
+  }, [activityId, router, pollMs, withRounds, minGapMs]);
 
   return status;
 }
