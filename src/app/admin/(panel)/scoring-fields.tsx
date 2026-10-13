@@ -216,8 +216,12 @@ export function ScoringEditor({
             >
               Add criterion
             </button>
-            <p role="status" className={`tabular text-sm font-semibold ${total === 100 ? "text-regal" : started ? "text-danger" : "text-prussian/70"}`}>
-              Total {total} of 100 points{total === 100 || !started ? "" : ". The criteria must add up to 100."}
+            <p className={`tabular text-sm font-semibold ${total === 100 ? "text-regal" : started ? "text-danger" : "text-prussian/70"}`}>
+              Total {total} of 100 points{total !== 100 && started && <span aria-hidden>. The criteria must add up to 100.</span>}
+              {/* Screen readers hear only when the criteria start or stop adding up, not every number typed. */}
+              <span role="status" className="sr-only">
+                {total === 100 ? " They add up." : started ? " The criteria must add up to 100." : ""}
+              </span>
             </p>
           </div>
           <p id={`${idPrefix}lowest-hint`} className="hint mt-3 max-w-[65ch]">

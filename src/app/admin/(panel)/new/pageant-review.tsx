@@ -346,11 +346,7 @@ export function PageantReview({
                   <span className="sr-only">No. </span>
                   {i + 1}
                 </span>
-                {c.preview ? (
-                  <Avatar name={c.name} src={c.preview} size={28} square />
-                ) : (
-                  <span aria-hidden className="size-7 shrink-0 rounded-lg bg-wash" />
-                )}
+                <Avatar name={c.name.trim() || "?"} src={c.preview} size={28} square />
                 <span className="min-w-0 truncate">{c.name.trim() || "Unnamed"}</span>
               </li>
             ))}

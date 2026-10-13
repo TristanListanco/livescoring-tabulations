@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { basisWeights } from "@/lib/pageant";
 import {
   afterCut,
@@ -95,6 +96,9 @@ function IconButton({
   onClick,
   disabled,
   move,
+  removes,
+  blocked,
+  onBlocked,
   children,
 }: {
   label: string;
@@ -102,19 +106,49 @@ function IconButton({
   disabled?: boolean;
   /** For a move button: the item it moves and which way, so focus comes back to it after the move. */
   move?: { item: string; direction: -1 | 1 };
+  /** For a remove button: the item it removes, so Undo can put focus back on it. */
+  removes?: string;
+  /** Why it can't be used now, in place of `disabled`: it stays focusable, and pressing it says why (onBlocked). */
+  blocked?: string | null;
+  onBlocked?: (why: string) => void;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      className="btn btn-sm px-2 text-prussian/75 hover:bg-wash pointer-coarse:min-w-11"
-      onClick={() => (move ? moveKeepingFocus(move.item, move.direction, onClick) : onClick())}
+      className={`btn btn-sm px-2 text-prussian/75 pointer-coarse:min-w-11 ${blocked ? "cursor-not-allowed opacity-50" : "hover:bg-wash"}`}
+      onClick={() => (blocked ? onBlocked?.(blocked) : move ? moveKeepingFocus(move.item, move.direction, onClick) : onClick())}
       disabled={disabled}
+      aria-disabled={blocked ? true : undefined}
       aria-label={label}
       {...(move && moveButton(move.item, move.direction))}
+      {...(removes && { "data-remove": removes })}
     >
       {children}
     </button>
+  );
+}
+
+/** Between the move arrows and remove, so a tap meant for moving doesn't remove. */
+const Gap = () => <span aria-hidden className="mx-1 h-5 w-px self-center bg-line" />;
+
+/** Focus the remove button of the item an Undo has just put back. */
+const focusRemove = (key: string) => document.querySelector<HTMLElement>(`[data-remove="${CSS.escape(key)}"]`)?.focus();
+
+/**
+ * Where a removed sub-activity or part was, until the next change: what went, and Undo to put it back as it was.
+ * Focus moves here from the remove button that's gone.
+ */
+function Removed({ id, name, what, onUndo, className }: { id: string; name: string; what: string; onUndo: () => void; className: string }) {
+  return (
+    <li className={`flex flex-wrap items-center gap-x-3 gap-y-2 border border-dashed border-field/60 px-4 py-3 ${className}`}>
+      <p role="status" className="min-w-0 flex-1 text-sm">
+        <span className="font-semibold">{name}</span> was removed, {what}.
+      </p>
+      <button id={id} type="button" className="btn btn-quiet btn-sm" onClick={onUndo}>
+        Undo<span className="sr-only"> removing {name}</span>
+      </button>
+    </li>
   );
 }
 
@@ -207,10 +241,15 @@ function SharesTotal({
   label?: string;
 }) {
   const done = target !== null && Math.round(total * 100) === target * 100;
+  const off = !done && started && target !== null;
   return (
-    <p role="status" className={`tabular text-sm font-semibold ${done ? "text-regal" : started ? "text-danger" : "text-prussian/70"}`}>
+    <p className={`tabular text-sm font-semibold ${done ? "text-regal" : started ? "text-danger" : "text-prussian/70"}`}>
       {label} {shareText(total)}
-      {target !== null && ` of ${target}`}%{done || !started || target === null ? "" : `. The ${of} must add up to ${target}%.`}
+      {target !== null && ` of ${target}`}%{off && <span aria-hidden>{`. The ${of} must add up to ${target}%.`}</span>}
+      {/* Screen readers hear only when the shares start or stop adding up, not every number typed. */}
+      <span role="status" className="sr-only">
+        {done ? " They add up." : off ? ` The ${of} must add up to ${target}%.` : ""}
+      </span>
     </p>
   );
 }
@@ -248,6 +287,39 @@ function PartsEditor({
   const [evened, setEvened] = useState(false);
   const total = roundShare(round);
   const patch = (key: string, p: Partial<PartDraft>) => onChange(parts.map((x) => (x.key === key ? { ...x, ...p } : x)));
+  // The part last removed, which Undo puts back while nothing else has changed since.
+  const [removed, setRemoved] = useState<{ part: PartDraft; at: number; before: PartDraft[]; after: PartDraft[] } | null>(null);
+  const undoable = removed && round.parts === removed.after ? removed : null;
+  const [why, setWhy] = useState<{ key: string; text: string } | null>(null);
+  // The others take the removed part's share, keeping their proportions, so the sub-activity still counts for what
+  // it did (as removing a sub-activity refits its group). Applied at once, so focus goes straight from the remove
+  // button that's gone to Undo in its place.
+  const remove = (at: number) => {
+    const kept = parts.filter((_, i) => i !== at);
+    const shares = kept.every((p) => parseShare(p.weight) > 0) ? rescaleShares(kept.map((p) => p.weight), total) : kept.map((p) => p.weight);
+    const after = kept.map((p, i) => ({ ...p, weight: shares[i] }));
+    flushSync(() => {
+      onChange(after);
+      setRemoved({ part: parts[at], at, before: parts, after });
+    });
+    document.getElementById(`undo-part-${round.key}`)?.focus();
+  };
+  const undo = () => {
+    if (!undoable) return;
+    flushSync(() => onChange(undoable.before));
+    setRemoved(null);
+    focusRemove(undoable.part.key);
+  };
+  const undoRow = (at: number) =>
+    undoable?.at === at && (
+      <Removed
+        id={`undo-part-${round.key}`}
+        name={undoable.part.name.trim() || `Part ${at + 1}`}
+        what="with its scoring and share"
+        onUndo={undo}
+        className="rounded-xl"
+      />
+    );
   const move = (from: number, to: number) => {
     if (to < 0 || to >= parts.length) return;
     const next = [...parts];
@@ -271,83 +343,99 @@ function PartsEditor({
           const full = `${name} · ${partName}`;
           const id = `part-${part.key}-`;
           return (
-            <li key={part.key}>
-              <div className="flex items-start gap-2">
-                <h5 className="min-w-0 flex-1 pt-1.5 font-semibold">
-                  <span className="tabular text-prussian/75">Part {i + 1}.</span> {part.name.trim()}
-                </h5>
-                <IconButton label={`Move ${full} up`} onClick={() => move(i, i - 1)} disabled={i === 0} move={{ item: part.key, direction: -1 }}>
-                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                    <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </IconButton>
-                <IconButton label={`Move ${full} down`} onClick={() => move(i, i + 1)} disabled={i === parts.length - 1} move={{ item: part.key, direction: 1 }}>
-                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                    <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </IconButton>
-                <IconButton label={`Remove ${full}`} onClick={() => onChange(parts.filter((p) => p.key !== part.key))} disabled={parts.length <= 2}>
-                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </IconButton>
-              </div>
-              <div className="mt-2 flex flex-wrap items-end gap-3">
-                <div className="min-w-48 flex-1">
-                  <label htmlFor={`${id}name`} className="label">
-                    Name
-                    <span className="sr-only">
-                      {" "}
-                      of part {i + 1} of {name}
-                    </span>
-                  </label>
-                  <input
-                    id={`${id}name`}
-                    value={part.name}
-                    maxLength={MAX_ROUND_NAME}
-                    onChange={(e) => patch(part.key, { name: e.target.value })}
-                    placeholder={["e.g. Q&A", "e.g. Advocacy", "e.g. Advocacy video"][i] ?? `Part ${i + 1}`}
-                    className={`field ${problemBorder(problems, `${id}name`)}`}
-                    {...problemProps(problems, `${id}name`)}
-                  />
+            <Fragment key={part.key}>
+              {undoRow(i)}
+              <li>
+                <div className="flex items-start gap-2">
+                  <h5 className="min-w-0 flex-1 pt-1.5 font-semibold">
+                    <span className="tabular text-prussian/75">Part {i + 1}.</span> {part.name.trim()}
+                  </h5>
+                  <IconButton label={`Move ${full} up`} onClick={() => move(i, i - 1)} disabled={i === 0} move={{ item: part.key, direction: -1 }}>
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </IconButton>
+                  <IconButton label={`Move ${full} down`} onClick={() => move(i, i + 1)} disabled={i === parts.length - 1} move={{ item: part.key, direction: 1 }}>
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </IconButton>
+                  <Gap />
+                  <IconButton
+                    label={`Remove ${full}`}
+                    onClick={() => remove(i)}
+                    removes={part.key}
+                    blocked={parts.length <= 2 ? `A sub-activity in parts has at least two. To score ${name} as a whole, untick Score it in parts.` : null}
+                    onBlocked={(text) => setWhy({ key: part.key, text })}
+                  >
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </IconButton>
                 </div>
-                <div className="w-36">
-                  <label htmlFor={`${id}weight`} className="label">
-                    Share
-                    <span className="sr-only">
-                      {" "}
-                      {scope} for {full}
-                    </span>
-                  </label>
-                  <div className="flex items-center gap-2">
+                {why?.key === part.key && parts.length <= 2 && (
+                  <p role="status" className="hint mt-1 max-w-[65ch]">
+                    {why.text}
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap items-end gap-3">
+                  <div className="min-w-48 flex-1">
+                    <label htmlFor={`${id}name`} className="label">
+                      Name
+                      <span className="sr-only">
+                        {" "}
+                        of part {i + 1} of {name}
+                      </span>
+                    </label>
                     <input
-                      id={`${id}weight`}
-                      value={part.weight}
-                      onChange={(e) => patch(part.key, { weight: typedShare(e.target.value) })}
-                      inputMode="decimal"
-                      className={`field tabular w-20 ${problemBorder(problems, `${id}weight`)}`}
-                      {...problemProps(problems, `${id}weight`)}
+                      id={`${id}name`}
+                      value={part.name}
+                      maxLength={MAX_ROUND_NAME}
+                      onChange={(e) => patch(part.key, { name: e.target.value })}
+                      placeholder={["e.g. Q&A", "e.g. Advocacy", "e.g. Advocacy video"][i] ?? `Part ${i + 1}`}
+                      className={`field ${problemBorder(problems, `${id}name`)}`}
+                      {...problemProps(problems, `${id}name`)}
                     />
-                    <span aria-hidden className="font-semibold">
-                      %
-                    </span>
                   </div>
+                  <div className="w-36">
+                    <label htmlFor={`${id}weight`} className="label">
+                      Share
+                      <span className="sr-only">
+                        {" "}
+                        {scope} for {full}
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`${id}weight`}
+                        value={part.weight}
+                        onChange={(e) => patch(part.key, { weight: typedShare(e.target.value) })}
+                        inputMode="decimal"
+                        className={`field tabular w-20 ${problemBorder(problems, `${id}weight`)}`}
+                        {...problemProps(problems, `${id}weight`)}
+                      />
+                      <span aria-hidden className="font-semibold">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                  {/* Under the row, at full width: the name's or share's problem. */}
+                  <FieldProblem fieldId={`${id}name`} className="basis-full" />
+                  <FieldProblem fieldId={`${id}weight`} className="basis-full" />
                 </div>
-                {/* Under the row, at full width: the name's or share's problem. */}
-                <FieldProblem fieldId={`${id}name`} className="basis-full" />
-                <FieldProblem fieldId={`${id}weight`} className="basis-full" />
-              </div>
-              <ScoredFields
-                id={id}
-                name={full}
-                scoring={part.scoring}
-                timer={part.timer}
-                onScoring={(scoring) => patch(part.key, { scoring })}
-                onTimer={(timer) => patch(part.key, { timer })}
-              />
-            </li>
+                <ScoredFields
+                  id={id}
+                  name={full}
+                  scoring={part.scoring}
+                  timer={part.timer}
+                  onScoring={(scoring) => patch(part.key, { scoring })}
+                  onTimer={(timer) => patch(part.key, { timer })}
+                />
+              </li>
+            </Fragment>
           );
         })}
+        {undoable && undoable.at >= parts.length && undoRow(undoable.at)}
       </ol>
       <button type="button" className="btn btn-quiet btn-sm mt-4" onClick={add} disabled={parts.length >= MAX_PARTS}>
         Add a part<span className="sr-only"> to {name}</span>
@@ -385,6 +473,8 @@ function RoundCard({
   const cut = hasCut(draft.rounds, round);
   const basis = basisOf(draft.rounds, round);
   const problems = useFieldProblems();
+  // Why remove can't be used, once it's pressed: the segment's only sub-activity.
+  const [why, setWhy] = useState<string | null>(null);
   // How much of its group's share (its segment's, or its stage's after a cut) no sub-activity has yet: where a new
   // part's share comes from.
   const group = shareGroups(draft).find((g) => g.rounds.some((r) => r.key === round.key));
@@ -440,12 +530,24 @@ function RoundCard({
             <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </IconButton>
-        <IconButton label={`Remove ${name}`} onClick={onRemove} disabled={count <= 1}>
+        <Gap />
+        <IconButton
+          label={`Remove ${name}`}
+          onClick={onRemove}
+          removes={round.key}
+          blocked={count <= 1 ? `${round.segment === "preliminary" ? "The preliminary" : "Pageant proper"} needs at least one sub-activity.` : null}
+          onBlocked={setWhy}
+        >
           <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
             <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </IconButton>
       </div>
+      {why && count <= 1 && (
+        <p role="status" className="hint mt-1">
+          {why}
+        </p>
+      )}
 
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div className="min-w-56 flex-1">
@@ -766,17 +868,45 @@ export function SegmentEditor({
   };
   // Taking a sub-activity away, moving one, or adding or removing a cut changes which shares belong together: each
   // group's are then fitted to its total again, keeping their proportions.
-  const refit = (rounds: RoundDraft[]) => {
+  const refit = (rounds: RoundDraft[]): PageantDraft => {
     const ordered = [...rounds.filter((r) => r.segment === "preliminary"), ...rounds.filter((r) => r.segment === "proper")];
-    onChange(fitShares({ ...draft, rounds: ordered }));
+    const next = fitShares({ ...draft, rounds: ordered });
+    onChange(next);
+    return next;
   };
   const patch = (key: string, p: Partial<RoundDraft>) => {
     const rounds = draft.rounds.map((r) => (r.key === key ? { ...r, ...p } : r));
     if ("cut" in p) refit(rounds);
     else setRounds(rounds);
   };
-  const remove = (key: string) =>
-    refit(draft.rounds.filter((r) => r.key !== key).map((r) => (r.cutBasis ? { ...r, cutBasis: r.cutBasis.filter((k) => k !== key) } : r)));
+  // The sub-activity last removed: Undo puts the program back as it was, while nothing else has changed since.
+  const [removed, setRemoved] = useState<{ round: RoundDraft; at: number; before: PageantDraft; after: PageantDraft } | null>(null);
+  const undoable = removed && removed.after === draft ? removed : null;
+  // Applied at once, so focus goes straight from the remove button that's gone to Undo in its place.
+  const remove = (key: string) => {
+    const at = list.findIndex((r) => r.key === key);
+    flushSync(() => {
+      const after = refit(draft.rounds.filter((r) => r.key !== key).map((r) => (r.cutBasis ? { ...r, cutBasis: r.cutBasis.filter((k) => k !== key) } : r)));
+      setRemoved({ round: list[at], at, before: draft, after });
+    });
+    document.getElementById(`undo-round-${segment}`)?.focus();
+  };
+  const undo = () => {
+    if (!undoable) return;
+    flushSync(() => onChange(undoable.before));
+    setRemoved(null);
+    focusRemove(undoable.round.key);
+  };
+  const undoRow = (at: number) =>
+    undoable?.at === at && (
+      <Removed
+        id={`undo-round-${segment}`}
+        name={undoable.round.name.trim() || `Sub-activity ${at + 1}`}
+        what={`with its ${undoable.round.parts ? "parts" : "scoring"}${hasCut(undoable.before.rounds, undoable.round) ? " and cut" : ""}`}
+        onUndo={undo}
+        className="rounded-2xl"
+      />
+    );
   const move = (key: string, direction: -1 | 1) => {
     const keys = list.map((r) => r.key);
     const from = keys.indexOf(key);
@@ -888,19 +1018,22 @@ export function SegmentEditor({
               {group.rounds.map((round) => {
                 const i = list.indexOf(round);
                 return (
-                  <RoundCard
-                    key={round.key}
-                    draft={draft}
-                    round={round}
-                    index={i}
-                    count={list.length}
-                    candidates={candidates}
-                    onChange={(p) => patch(round.key, p)}
-                    onMove={(d) => move(round.key, d)}
-                    onRemove={() => remove(round.key)}
-                  />
+                  <Fragment key={round.key}>
+                    {undoRow(i)}
+                    <RoundCard
+                      draft={draft}
+                      round={round}
+                      index={i}
+                      count={list.length}
+                      candidates={candidates}
+                      onChange={(p) => patch(round.key, p)}
+                      onMove={(d) => move(round.key, d)}
+                      onRemove={() => remove(round.key)}
+                    />
+                  </Fragment>
                 );
               })}
+              {last && undoable && undoable.at >= list.length && undoRow(undoable.at)}
             </ol>
             {last && (
               <div>
