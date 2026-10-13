@@ -6,7 +6,7 @@ import { blankScoring, checkPageant, MIN_PROPER_JUDGES, parsePageantDraft, type 
 import { isPersonName } from "@/lib/names";
 import type { JudgePanel, ResultDecimals } from "@/lib/types";
 import { addCandidatePhoto, createPageant, type CreateResult } from "../../actions";
-import { FieldProblemsProvider } from "../field-errors";
+import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
 import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
 import { blankCandidate, CandidatesFields, MAX_CANDIDATES, type DraftCandidate } from "./candidates-fields";
@@ -450,9 +450,12 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
               maxLength={120}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="field max-w-xl"
+              className={`field max-w-xl ${fieldProblems.has("name") ? "border-danger" : ""}`}
               placeholder="e.g. Miss Intramurals 2026"
+              aria-invalid={fieldProblems.has("name") || undefined}
+              aria-describedby={describedBy(fieldProblems.has("name") && problemId("name"))}
             />
+            <FieldProblem fieldId="name" />
           </div>
           <div>
             <h3 className="label">Candidates</h3>

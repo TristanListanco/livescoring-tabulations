@@ -58,9 +58,6 @@ test.describe.serial("drafts", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(EVENT);
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(EVENT);
     await expect(page.getByLabel("Judge 1 first name")).toHaveValue("Ana");
-    await page.getByRole("button", { name: /Candidates \(done, go back\)/ }).click();
-    await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Cora");
-    await expect(page.getByRole("button", { name: "Remove photo of Bea" })).toBeVisible();
 
     // Changes since the draft: leaving can save them on the way out.
     await page.getByLabel("Name", { exact: true }).fill(EDITED);
@@ -101,6 +98,10 @@ test.describe.serial("drafts", () => {
     await expect(page.getByRole("radio", { name: /^Pageant/ })).toBeChecked();
     await expect(page.getByRole("heading", { level: 2, name: "Step 2 of 5: Judges" })).toBeVisible();
     await expect(page.getByLabel("Judge 1 first name")).toHaveValue("Ana");
+    // Back on the candidates, the draft kept their names and Bea's photo.
+    await page.getByRole("button", { name: /Candidates \(done, go back\)/ }).click();
+    await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Cora");
+    await expect(page.getByRole("button", { name: "Remove photo of Bea" })).toBeVisible();
 
     // A draft that isn't needed anymore can be deleted from the Activities page.
     await page.goto("/admin");

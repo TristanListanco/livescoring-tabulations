@@ -194,7 +194,7 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("Top (candidates who go through after Evening wear)").fill("2");
     await expect(page.getByText("of the 2 candidates left are placed")).toBeVisible();
     // Alone after the cut, Q&A counts for 100% of the score from there, so it has no share to give.
-    await expect(page.getByText("After the Top 2 cut, scores start over")).toBeVisible();
+    await expect(page.getByText("After the Top 2 cut, scores start over", { exact: true })).toBeVisible();
     await expect(page.getByText("Q&A counts for 100% and ranks the final cut.")).toBeVisible();
     await expect(page.getByLabel(/^Share .* for Q&A$/)).toHaveCount(0);
     // The first cut counts everything so far; the preliminary keeps its 40%.
