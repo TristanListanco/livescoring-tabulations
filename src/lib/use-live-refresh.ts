@@ -19,8 +19,6 @@ type Options = {
    * up, a much slower check (see pollEvery) only catches anything it missed.
    */
   pollMs?: number;
-  /** Pageants also follow their sub-activities, so a confirmed cut or a changed timer lands right away. */
-  withRounds?: boolean;
   /** At most one refresh this often: for a page many people watch at once (the public live results). */
   minGapMs?: number;
   /**
@@ -35,9 +33,13 @@ type Options = {
  * Realtime does the fast path. Polling, and refreshing whenever the page comes back into view, cover
  * connections that drop on venue Wi-Fi or while a phone's browser sits in the background (for example
  * while the camera scans a QR code). Changes arriving together make one refresh (see createRefresher).
- * Only pageants follow rounds: databases without migration 011 have no rounds table to follow.
+ *
+ * Realtime only says that the activity changed (activity_changes, kept up to date by database triggers on its
+ * settings, judges, entries, scores and program), never what: the results tables are private, so the page reloads
+ * its data from the server. Before migration 016 that table doesn't exist; realtime then reports an error and the
+ * screen falls back to polling.
  */
-export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds = false, minGapMs = 0, safetyPollMs }: Options = {}): LiveStatus {
+export function useLiveRefresh(activityId: string, { pollMs = 5_000, minGapMs = 0, safetyPollMs }: Options = {}): LiveStatus {
   const router = useRouter();
   const [status, setStatus] = useState<LiveStatus>("connecting");
 
@@ -60,19 +62,12 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds 
     };
 
     const supabase = browserClient();
+    // The first change makes the activity's row, later ones update it.
     const filter = `activity_id=eq.${activityId}`;
-    let channel = supabase
+    const channel = supabase
       .channel(`activity:${activityId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "scores", filter }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "judges", filter }, refresh)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "activities", filter: `id=eq.${activityId}` }, refresh)
-      // Realtime cannot filter deletes, so any delete (a developer reset, a removed entry) triggers a refetch.
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "scores" }, refresh)
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "entries" }, refresh)
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "judges" }, refresh)
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "activities" }, refresh);
-    if (withRounds) channel = channel.on("postgres_changes", { event: "*", schema: "public", table: "rounds", filter }, refresh);
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_changes", filter }, refresh)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "activity_changes", filter }, refresh);
     channel.subscribe((state) => {
       if (state === "SUBSCRIBED") {
         subscribed = true;
@@ -119,7 +114,7 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, withRounds 
       window.removeEventListener("offline", onNetwork);
       void supabase.removeChannel(channel);
     };
-  }, [activityId, router, pollMs, withRounds, minGapMs, safetyPollMs]);
+  }, [activityId, router, pollMs, minGapMs, safetyPollMs]);
 
   return status;
 }

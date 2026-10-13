@@ -42,9 +42,9 @@ The selling point is all three together, integrity and broadcast-speed output, i
 
 ## Capabilities and Constraints
 
-- **Built on:** Next.js 16 (App Router), Supabase (Postgres, Realtime, Storage) and Tailwind CSS 4. All writes go through Server Actions. The browser holds only the publishable key.
+- **Built on:** Next.js 16 (App Router), Supabase (Postgres, Realtime, Storage) and Tailwind CSS 4. All writes go through Server Actions. The browser holds only the publishable key, which reads nothing but when each activity last changed: results stay private.
 - **Accounts:** organizers see only their own activities. Organizer passwords need at least 8 characters, a number and a special character. Judges' first and last names are letters (with the spaces, hyphens, apostrophes and periods names carry). Organizer accounts and judge access codes sit in tables with no public access.
-- **Live updates:** live pages update on Realtime events, poll every 15 seconds as a fallback, and refresh when the tab regains focus.
+- **Live updates:** live pages reload from the server when Realtime says their activity changed, check on a timer as a fallback, and refresh when the tab regains focus.
 - **Rankings:** rankings use the average of the scores submitted so far, rounded to two decimals. Equal averages share a rank.
 - **Criteria totals:** shown as a percentage or scaled to 10 on the live results, LED wall and PDF.
 - **Fixed requirement:** the LED lower third's chroma green is there so the switcher can key it out. It is not a styling choice. The lower third is one slim bar along the bottom, so the camera keeps most of the frame.

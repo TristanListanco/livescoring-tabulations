@@ -122,7 +122,7 @@ function LookSettings({ options, onChange, disabled }: { options: LedOptions; on
 }
 
 export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
-  useLiveRefresh(board.activity.id, { withRounds: board.activity.kind === "pageant" });
+  useLiveRefresh(board.activity.id);
   const { activity, entries } = board;
   const [options, setOptions] = useOptimistic<LedOptions, Partial<LedOptions>>(
     {

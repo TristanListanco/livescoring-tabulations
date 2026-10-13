@@ -322,8 +322,8 @@ create trigger scores_final
   for each row execute function public.forbid_score_update();
 
 -- Row level security ---------------------------------------------------------
--- Public read for the live board; no public writes. judge_access has no
--- policies at all, so only the secret key can touch it.
+-- None of these tables has a policy, so only the secret key (the server) can read or write them. The public key
+-- reads only activity_changes (see Realtime below).
 
 alter table public.admins       enable row level security;
 alter table public.activities   enable row level security;
@@ -336,31 +336,58 @@ alter table public.rounds       enable row level security;
 alter table public.activity_drafts enable row level security;
 alter table public.deductions   enable row level security;
 
+-- The results tables are server-only: the public key reads none of them (scores stay private until the app shows
+-- them). Databases set up before migration 016 had a public read policy on each; these drop it.
 drop policy if exists "Public read" on public.activities;
-create policy "Public read" on public.activities for select to anon, authenticated using (true);
 drop policy if exists "Public read" on public.judges;
-create policy "Public read" on public.judges for select to anon, authenticated using (true);
 drop policy if exists "Public read" on public.entries;
-create policy "Public read" on public.entries for select to anon, authenticated using (true);
 drop policy if exists "Public read" on public.scores;
-create policy "Public read" on public.scores for select to anon, authenticated using (true);
 drop policy if exists "Public read" on public.rounds;
-create policy "Public read" on public.rounds for select to anon, authenticated using (true);
 
 -- Realtime -------------------------------------------------------------------
+-- Open screens hear that an activity changed, never what changed: one row per activity with the time it last
+-- changed, kept up to date by triggers on every write to its settings, judges, entries, scores and program. The
+-- screens then reload their data from the server. No link to activities, so a deleted one's last change remains.
+
+create table if not exists public.activity_changes (
+  activity_id  uuid primary key,
+  changed_at   timestamptz not null default now()
+);
+alter table public.activity_changes enable row level security;
+drop policy if exists "Public read" on public.activity_changes;
+create policy "Public read" on public.activity_changes for select to anon, authenticated using (true);
+
+create or replace function public.note_activity_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  changed uuid;
+begin
+  if tg_table_name = 'activities' then
+    changed := case when tg_op = 'DELETE' then old.id else new.id end;
+  else
+    changed := case when tg_op = 'DELETE' then old.activity_id else new.activity_id end;
+  end if;
+  insert into public.activity_changes (activity_id, changed_at) values (changed, clock_timestamp())
+    on conflict (activity_id) do update set changed_at = excluded.changed_at;
+  return null;
+end;
+$$;
 
 do $$
 declare
   t text;
 begin
   foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds'] loop
-    if not exists (
-      select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
-    ) then
-      execute format('alter publication supabase_realtime add table public.%I', t);
+    execute format('drop trigger if exists note_activity_change on public.%I', t);
+    execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
+    -- Databases set up before migration 016 sent these tables over realtime.
+    if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime drop table public.%I', t);
     end if;
   end loop;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'activity_changes') then
+    alter publication supabase_realtime add table public.activity_changes;
+  end if;
 end;
 $$;
 

@@ -193,7 +193,7 @@ export function SessionTab({
   ledUrl: string;
 }) {
   const pageant = board.activity.kind === "pageant";
-  const connection = useLiveRefresh(board.activity.id, { withRounds: pageant });
+  const connection = useLiveRefresh(board.activity.id);
   // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
   // lists every candidate, and the program says what to judge next.
   const { board: shown, round } = showingBoard(board);
