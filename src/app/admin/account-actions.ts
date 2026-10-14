@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { isUuid, newFileTag } from "@/lib/codes";
 import { hashPassword } from "@/lib/password";
 import { passwordProblem } from "@/lib/password-rules";
+import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
 import { requireAdmin, requireSuperAdmin } from "@/lib/session";
 import { db, ORGANIZER_BUCKET, PHOTO_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Signatory } from "@/lib/types";
@@ -12,7 +13,6 @@ import type { FormResult } from "./actions";
 
 // Organizer accounts. Only the super admin can create, change or delete them.
 
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
 /** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
@@ -37,17 +37,11 @@ function readPassword(formData: FormData, required: boolean): string | null | { 
   return problem ? { error: problem } : password;
 }
 
-function photoFile(value: FormDataEntryValue | null): File | null | "invalid" {
-  if (!(value instanceof File) || value.size === 0) return null;
-  if (value.size > MAX_PHOTO_BYTES || !value.type.startsWith("image/")) return "invalid";
-  return value;
-}
-
-async function uploadOrganizerPhoto(adminId: string, file: File): Promise<string> {
-  const path = `${adminId}-${newFileTag()}.jpg`;
+async function uploadOrganizerPhoto(adminId: string, photo: Photo): Promise<string> {
+  const path = `${adminId}-${newFileTag()}.${photoExtension(photo.type)}`;
   const { error } = await db()
     .storage.from(ORGANIZER_BUCKET)
-    .upload(path, file, { contentType: file.type || "image/jpeg", cacheControl: "31536000", upsert: false });
+    .upload(path, photo.file, { contentType: photo.type, cacheControl: "31536000", upsert: false });
   if (error) throw new Error(error.message);
   return path;
 }
@@ -64,7 +58,7 @@ export async function createOrganizer(_prev: FormResult, formData: FormData): Pr
   if ("error" in profile) return err(profile.error);
   const password = readPassword(formData, true);
   if (typeof password !== "string") return err(password?.error ?? "Enter a password.");
-  const photo = photoFile(formData.get("photo"));
+  const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("The photo must be an image under 2 MB.");
 
   const { data, error } = await db()
@@ -111,7 +105,7 @@ export async function setOrganizerPhoto(adminId: string, formData: FormData): Pr
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
   if (!current) return err("Organizer not found.");
 
-  const photo = photoFile(formData.get("photo"));
+  const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
   const path = photo ? await uploadOrganizerPhoto(adminId, photo) : null;
   const { error } = await db().from("admins").update({ photo_path: path, updated_at: new Date().toISOString() }).eq("id", adminId);

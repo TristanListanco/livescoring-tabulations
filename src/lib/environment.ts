@@ -1,6 +1,13 @@
 import "server-only";
 
-/** The live site on Vercel. Developer tools (resetting scores) are hidden and refused there. */
-export function isProductionSite(): boolean {
-  return process.env.VERCEL_ENV === "production";
+/**
+ * Where the test tools (Reset scores, deleting an activity mid-session) are offered. Never on the live site. Vercel
+ * previews share the live site's database, so they're off there too unless TEST_TOOLS=on is set for a preview that
+ * has a database of its own. Running locally (`vercel dev` included) and in CI, they're on.
+ */
+export function testToolsAllowed(): boolean {
+  const env = process.env.VERCEL_ENV;
+  if (env === "production") return false;
+  if (env === "preview") return process.env.TEST_TOOLS === "on";
+  return true;
 }

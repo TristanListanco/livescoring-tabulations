@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { getAdminCredentials } from "./data";
 import { passwordVersion } from "./password";
-import { ADMIN_COOKIE, JUDGE_COOKIE, safeEqual, signToken, verifyToken } from "./token";
+import { ADMIN_COOKIE, fingerprint, JUDGE_COOKIE, safeEqual, signToken, verifyToken } from "./token";
 import type { AdminAccount } from "./types";
 
 const ADMIN_TTL_S = 60 * 60 * 12;
@@ -37,8 +37,16 @@ export function checkSuperAdminPassword(input: string): boolean {
   return safeEqual(input, password);
 }
 
+/** The super admin's password version: it changes with ADMIN_PASSWORD, so changing that signs the super admin out everywhere. */
+function superPasswordVersion(): string | null {
+  const password = process.env.ADMIN_PASSWORD;
+  return password ? fingerprint(password) : null;
+}
+
 export async function startSuperAdminSession() {
-  const token = signToken({ role: "admin", sub: "super", exp: Date.now() + ADMIN_TTL_S * 1000 });
+  const pv = superPasswordVersion();
+  if (!pv) throw new Error("ADMIN_PASSWORD is not set.");
+  const token = signToken({ role: "admin", sub: "super", pv, exp: Date.now() + ADMIN_TTL_S * 1000 });
   (await cookies()).set(ADMIN_COOKIE, token, await cookieOptions(ADMIN_TTL_S));
 }
 
@@ -53,12 +61,15 @@ export async function endAdminSession() {
 
 /**
  * Who is signed in to the admin panel, or null. An organizer session ends as soon as the account
- * is deleted or its password changes.
+ * is deleted or its password changes; a super admin session, as soon as ADMIN_PASSWORD changes.
  */
 export const currentAdmin = cache(async (): Promise<AdminSession | null> => {
   const payload = verifyToken((await cookies()).get(ADMIN_COOKIE)?.value, "admin");
   if (!payload) return null;
-  if (payload.sub === "super") return { kind: "super" };
+  if (payload.sub === "super") {
+    const pv = superPasswordVersion();
+    return pv && payload.pv === pv ? { kind: "super" } : null;
+  }
   const account = await getAdminCredentials(payload.sub);
   if (!account || passwordVersion(account.passwordHash) !== payload.pv) return null;
   return { kind: "organizer", admin: account.admin };

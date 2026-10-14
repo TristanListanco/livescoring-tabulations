@@ -54,7 +54,11 @@ test.describe.serial("judge devices without realtime", () => {
   });
 
   test("switching the phone to another judge signs it out of the first", async ({ page }) => {
+    // A link for another judge doesn't switch an approved phone by itself: it asks first.
     await phone.goto(`/judge/join/${codes[1]}`);
+    await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Switch judge?");
+    await expect(phone.getByRole("link", { name: "Keep judging as Judge Alpha" })).toBeVisible();
+    await phone.getByRole("button", { name: "Switch judge" }).click();
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=access`);

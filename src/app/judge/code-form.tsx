@@ -4,11 +4,22 @@ import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { enterCode, type CodeState } from "./actions";
 
-export function CodeForm({ initialCode, initialError }: { initialCode: string; initialError?: string }) {
+export function CodeForm({
+  initialCode,
+  initialError,
+  submitLabel = "Start judging",
+  quiet = false,
+}: {
+  initialCode: string;
+  initialError?: string;
+  submitLabel?: string;
+  /** A secondary choice (switching judge): no autofocus, and a quieter button. */
+  quiet?: boolean;
+}) {
   const [state, action] = useActionState<CodeState, FormData>(enterCode, { code: initialCode, error: initialError });
 
   return (
-    <form action={action} className="mt-8">
+    <form action={action} className={quiet ? "mt-3" : "mt-8"}>
       <label htmlFor="code" className="sr-only">
         Judge code
       </label>
@@ -19,7 +30,7 @@ export function CodeForm({ initialCode, initialError }: { initialCode: string; i
         key={state.code}
         required
         maxLength={7}
-        autoFocus
+        autoFocus={!quiet}
         autoComplete="off"
         autoCapitalize="characters"
         spellCheck={false}
@@ -33,8 +44,11 @@ export function CodeForm({ initialCode, initialError }: { initialCode: string; i
           {state.error}
         </p>
       )}
-      <SubmitButton pendingLabel="Checking…" className="btn mt-6 h-16 w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white">
-        Start judging
+      <SubmitButton
+        pendingLabel="Checking…"
+        className={`btn mt-6 h-16 w-full rounded-2xl text-xl ${quiet ? "border-2 border-oxford text-mint hover:bg-oxford" : "bg-mint text-prussian hover:bg-white"}`}
+      >
+        {submitLabel}
       </SubmitButton>
     </form>
   );

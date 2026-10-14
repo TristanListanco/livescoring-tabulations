@@ -87,6 +87,16 @@ create table if not exists public.judge_devices (
 );
 create index if not exists judge_devices_judge_idx on public.judge_devices (judge_id);
 
+-- Failed sign-ins (admin passwords, judge codes), counted per network address and per account so too many in a short
+-- time are refused for a while. Server only, like judge_access.
+create table if not exists public.sign_in_failures (
+  id          bigint generated always as identity primary key,
+  -- What failed: "admin-ip:<address>", "admin:<email or super>" or "judge-ip:<address>".
+  key         text not null check (char_length(key) between 1 and 300),
+  created_at  timestamptz not null default now()
+);
+create index if not exists sign_in_failures_key_idx on public.sign_in_failures (key, created_at);
+
 -- Entries ------------------------------------------------------------------
 
 create table if not exists public.entries (
@@ -330,6 +340,7 @@ alter table public.activities   enable row level security;
 alter table public.judges       enable row level security;
 alter table public.judge_access enable row level security;
 alter table public.judge_devices enable row level security;
+alter table public.sign_in_failures enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;

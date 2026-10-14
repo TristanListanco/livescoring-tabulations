@@ -18,7 +18,8 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
-import { isProductionSite } from "@/lib/environment";
+import { testToolsAllowed } from "@/lib/environment";
+import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
@@ -26,6 +27,7 @@ import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, pan
 import { formatBound } from "@/lib/scoring";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
+import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import {
   PRELIMINARY,
@@ -42,7 +44,6 @@ export type FormResult = ActionResult | null;
 const MAX_JUDGES = 20;
 const MAX_ENTRIES = 300;
 const MAX_NAME = 120;
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
@@ -79,12 +80,6 @@ function entryNames(value: FormDataEntryValue | null): string[] {
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, " ").trim().slice(0, MAX_NAME))
     .filter(Boolean);
-}
-
-function photoFile(value: FormDataEntryValue | null): File | null | "invalid" {
-  if (!(value instanceof File) || value.size === 0) return null;
-  if (value.size > MAX_PHOTO_BYTES || !value.type.startsWith("image/")) return "invalid";
-  return value;
 }
 
 /**
@@ -217,11 +212,11 @@ async function assignCodes(judgeIds: string[]) {
 }
 
 /** Judge and entry photos live in the activity's folder, so deleting the activity removes them all. */
-async function uploadPhoto(activityId: string, ownerId: string, file: File): Promise<string> {
-  const path = `${activityId}/${ownerId}-${newFileTag()}.jpg`;
+async function uploadPhoto(activityId: string, ownerId: string, photo: Photo): Promise<string> {
+  const path = `${activityId}/${ownerId}-${newFileTag()}.${photoExtension(photo.type)}`;
   const { error } = await db()
     .storage.from(PHOTO_BUCKET)
-    .upload(path, file, { contentType: file.type || "image/jpeg", cacheControl: "31536000", upsert: false });
+    .upload(path, photo.file, { contentType: photo.type, cacheControl: "31536000", upsert: false });
   check(error);
   return path;
 }
@@ -244,20 +239,33 @@ let decoyHash: Promise<string> | undefined;
 
 export async function login(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const password = String(formData.get("password") ?? "");
+  // Guessing is limited per network address and per account (see sign-in-limits).
+  const address = `admin-ip:${await clientAddress()}`;
 
   if (formData.get("as") === "super") {
-    if (!checkSuperAdminPassword(password)) return err("That password isn't right.");
+    const keys = [address, "admin:super"];
+    if (await tooManyFailures([[address, LIMITS.adminAddress], ["admin:super", LIMITS.adminAccount]])) return err(TOO_MANY);
+    if (!checkSuperAdminPassword(password)) {
+      await recordFailure(keys);
+      return err("That password isn't right.");
+    }
     await startSuperAdminSession();
     redirect("/admin");
   }
 
   const email = String(formData.get("email") ?? "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .slice(0, 254);
+  const accountKey = `admin:${email}`;
+  if (await tooManyFailures([[address, LIMITS.adminAddress], [accountKey, LIMITS.adminAccount]])) return err(TOO_MANY);
   const account = email ? await getAdminCredentials(email) : null;
   decoyHash ??= hashPassword("decoy password");
   const valid = await verifyPassword(password, account?.passwordHash ?? (await decoyHash));
-  if (!account || !valid) return err("That email and password don't match an organizer account.");
+  if (!account || !valid) {
+    await recordFailure([address, accountKey]);
+    return err("That email and password don't match an organizer account.");
+  }
   await startOrganizerSession(account.admin.id, account.passwordHash);
   redirect("/admin");
 }
@@ -604,11 +612,11 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
     return err(`An activity needs 1 to ${MAX_JUDGES} judges.`);
   }
-  const judges: { name: { first: string; last: string; name: string }; photo: File | null; panel: JudgePanel }[] = [];
+  const judges: { name: { first: string; last: string; name: string }; photo: Photo | null; panel: JudgePanel }[] = [];
   for (let i = 0; i < judgeCount; i++) {
     const judgeName = readJudgeName(formData, `judge-${i}-`, `judge ${i + 1}`);
     if ("error" in judgeName) return err(judgeName.error.replace(/\bjudge (\d+)/, "Judge $1"));
-    const photo = photoFile(formData.get(`judge-${i}-photo`));
+    const photo = await photoFile(formData.get(`judge-${i}-photo`));
     if (photo === "invalid") return err(`The photo for ${judgeName.name} must be an image under 2 MB.`);
     judges.push({ name: judgeName, photo, panel: pageant ? readPanel(formData.get(`judge-${i}-panel`)) : "all" });
   }
@@ -933,7 +941,7 @@ export async function setJudgePhoto(judgeId: string, formData: FormData): Promis
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
 
-  const photo = photoFile(formData.get("photo"));
+  const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
   let path: string | null = null;
@@ -1015,7 +1023,7 @@ async function storeEntryPhoto(entryId: string, formData: FormData): Promise<Act
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
-  const photo = photoFile(formData.get("photo"));
+  const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
   // "*" so a database without migration 007 gets the update hint below rather than a failed read.
@@ -1080,10 +1088,10 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
 
 // Developer -------------------------------------------------------------------
 
-/** Developer tool for rehearsals: refused on the live site. */
+/** Developer tool for rehearsals: refused on the live site and on previews (see testToolsAllowed). */
 export async function resetScores(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  if (isProductionSite()) return err("Resetting scores isn't available on the live site.");
+  if (!testToolsAllowed()) return err("Resetting scores is only available on a test site.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return dbErr(error);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
@@ -1107,10 +1115,10 @@ export async function deleteActivity(activityId: string): Promise<ActionResult> 
   return removeActivity(activityId);
 }
 
-/** Developer tool for rehearsals: delete the activity at any time, even mid-session. Refused on the live site. */
+/** Developer tool for rehearsals: delete the activity at any time, even mid-session. Refused on the live site and on previews. */
 export async function deleteActivityNow(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  if (isProductionSite()) return err("Deleting an activity mid-session isn't available on the live site. End the session, then delete it from Settings.");
+  if (!testToolsAllowed()) return err("Deleting an activity mid-session is only available on a test site. End the session, then delete it from Settings.");
   return removeActivity(activityId);
 }
 

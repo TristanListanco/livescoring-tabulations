@@ -9,15 +9,22 @@ import { showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
+import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
 
 export type CodeState = { error?: string; code?: string };
 
 export async function enterCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
-  const code = String(formData.get("code") ?? "");
+  const code = String(formData.get("code") ?? "").slice(0, 32);
+  // Guessing codes is limited per network address (see sign-in-limits).
+  const address = `judge-ip:${await clientAddress()}`;
+  if (await tooManyFailures([[address, LIMITS.judgeAddress]])) return { error: TOO_MANY, code };
   const judgeId = await findJudgeIdByCode(code);
-  if (!judgeId) return { error: "That code doesn't match any judge. Check it with the organizer.", code };
+  if (!judgeId) {
+    await recordFailure([address]);
+    return { error: "That code doesn't match any judge. Check it with the organizer.", code };
+  }
   const failed = await signInJudgeDevice(judgeId);
   if (failed) return { error: failed.error, code };
   redirect("/judge/score");
