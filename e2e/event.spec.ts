@@ -430,6 +430,11 @@ test.describe.serial("a full event", () => {
     ]);
     expect(download.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.pdf$/);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
+
+    // The second PDF: each judge's own score sheet, with their sign-off and the signatories.
+    const [sheets] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' score sheets" }).click()]);
+    expect(sheets.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-score-sheets\.pdf$/);
+    expect(readFileSync(await sheets.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   test("ending the session closes the judges' screens", async ({ page }) => {

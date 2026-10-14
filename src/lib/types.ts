@@ -167,6 +167,11 @@ export type Score = {
   value: number;
   /** The pageant sub-activity it was given in; null (or missing) for events. */
   roundId?: string | null;
+  /**
+   * Criteria scoring: the points given for each criterion, by criterion id. Loaded only for the judges' score sheets
+   * (withBreakdowns); missing everywhere else.
+   */
+  breakdown?: Record<string, number> | null;
 };
 
 /** Everything a scoreboard needs to render one activity. */

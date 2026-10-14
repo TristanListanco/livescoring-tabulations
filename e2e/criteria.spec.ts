@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
 import { deleteActivityNamed, expectAccessible, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
@@ -133,6 +134,15 @@ test.describe.serial("criteria scoring", () => {
     await expect(page.getByRole("row", { name: "Total 100" })).toBeVisible();
     await expect(page.locator("dl")).toContainText("Totals shownAs a percentage");
     await expect(page.getByRole("radio")).toHaveCount(0);
+  });
+
+  test("the judges' score sheets download next to the results", async ({ page }) => {
+    // Every score is in (Ana's for Agila), so both PDFs are ready on the desk: Ana's sheet lists her points per criterion.
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=session`);
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' score sheets" }).click()]);
+    expect(download.suggestedFilename()).toMatch(/^e2e-criteria-[a-z0-9]+-judges-score-sheets\.pdf$/);
+    expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   test("long percentages shrink to fit the LED wall instead of overflowing", async ({ page, browser }) => {

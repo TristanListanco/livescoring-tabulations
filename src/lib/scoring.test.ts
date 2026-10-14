@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activityFixture } from "./test-fixtures";
-import { applyKey, averageText, overMax, parseScore, rankEntries, scoreProgress, type Key, type ScoreRules } from "./scoring";
+import { applyKey, averageText, judgeSheet, overMax, parseScore, rankEntries, scoreProgress, type Key, type ScoreRules } from "./scoring";
 
 const press = (keys: Key[], rules: ScoreRules) => keys.reduce((buf, k) => applyKey(buf, k, rules), "");
 
@@ -202,5 +202,58 @@ describe("scoreProgress", () => {
 
   it("is never complete for an empty activity", () => {
     expect(scoreProgress({ activity, judges: [], entries: [], scores: [], rounds: [] }).complete).toBe(false);
+  });
+});
+
+describe("judgeSheet", () => {
+  const judges = [
+    { id: "j1", name: "A", photoUrl: null, position: 0, firstName: null, lastName: null, isChair: false, panel: "all" as const },
+    { id: "j2", name: "B", photoUrl: null, position: 1, firstName: null, lastName: null, isChair: false, panel: "all" as const },
+  ];
+  const entries = [
+    { id: "e2", name: "Two", photoUrl: null, position: 1 },
+    { id: "e1", name: "One", photoUrl: null, position: 0 },
+    { id: "e3", name: "Three", photoUrl: null, position: 2 },
+  ];
+
+  it("lists one judge's scores in running order, whoever scored higher", () => {
+    const scores = [
+      { entryId: "e2", judgeId: "j1", value: 9.5 },
+      { entryId: "e1", judgeId: "j1", value: 7 },
+      { entryId: "e1", judgeId: "j2", value: 10 },
+    ];
+    const rows = judgeSheet({ activity: activityFixture(), judges, entries, scores, rounds: [] }, "j1");
+    expect(rows.map((r) => [r.number, r.entry.name, r.value])).toEqual([
+      [1, "One", 7],
+      [2, "Two", 9.5],
+      [3, "Three", null],
+    ]);
+    expect(rows.every((r) => r.points.length === 0)).toBe(true);
+  });
+
+  it("gives each criterion's points with criteria scoring", () => {
+    const activity = activityFixture({
+      scoringMode: "criteria",
+      criteria: [
+        { id: "poise", name: "Poise", max: 40 },
+        { id: "wit", name: "Wit", max: 60 },
+      ],
+    });
+    const scores = [
+      { entryId: "e1", judgeId: "j2", value: 88.5, breakdown: { wit: 52.5, poise: 36 } },
+      { entryId: "e2", judgeId: "j2", value: 70, breakdown: null },
+    ];
+    const rows = judgeSheet({ activity, judges, entries, scores, rounds: [] }, "j2");
+    expect(rows.map((r) => [r.entry.name, r.points, r.value])).toEqual([
+      ["One", [36, 52.5], 88.5],
+      ["Two", [null, null], 70],
+      ["Three", [null, null], null],
+    ]);
+  });
+
+  it("keeps a pageant candidate's number through the cuts", () => {
+    const pool = [{ id: "e3", name: "Three", photoUrl: null, position: 2, number: 3 }];
+    const rows = judgeSheet({ activity: activityFixture(), judges, entries: pool, scores: [], rounds: [] }, "j1");
+    expect(rows[0].number).toBe(3);
   });
 });
