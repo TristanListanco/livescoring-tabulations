@@ -1,25 +1,52 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getJudgeContext } from "@/lib/data";
+import { approvedDevice } from "@/lib/devices";
 import { judgeSession } from "@/lib/session";
+import { TOO_MANY } from "@/lib/sign-in-limits";
 import { CodeForm } from "./code-form";
 
 export const metadata: Metadata = { title: "Judge sign-in" };
 
 export default async function JudgePortal({ searchParams }: PageProps<"/judge">) {
-  const session = await judgeSession();
-  if (session && (await getJudgeContext(session.judgeId))) redirect("/judge/score");
-
   const query = await searchParams;
-  const code = typeof query.code === "string" ? query.code : "";
+  const code = typeof query.code === "string" ? query.code.slice(0, 32) : "";
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  // A judge link for someone else, opened on a device that's judging: it asks before switching (see the join route).
+  const switching = query.switch === "1" && !!context && !!session && (await approvedDevice(session.judgeId, session.deviceId));
+  if (context && !switching) redirect("/judge/score");
+
   const invalid = query.invalid === "1";
+  const limited = query.limited === "1";
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-prussian px-4 py-12 text-mint">
       <div className="w-full max-w-md">
-        <h1 className="text-4xl font-bold tracking-tight">Judge sign-in</h1>
-        <p className="mt-3 text-lg text-powder">Enter the six-character code the organizer gave you.</p>
-        <CodeForm initialCode={code} initialError={invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined} />
+        {switching && context ? (
+          <>
+            <h1 className="text-4xl font-bold tracking-tight">Switch judge?</h1>
+            <p className="mt-3 text-lg text-powder">
+              This device is judging as {context.judge.name}. Switching signs it out for them, and the organizer has to approve it again
+              before it can score.
+            </p>
+            <Link href="/judge/score" className="btn mt-8 h-16 w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white">
+              Keep judging as {context.judge.name}
+            </Link>
+            <p className="mt-8 text-sm font-semibold text-powder">Or switch to the code from the link:</p>
+            <CodeForm initialCode={code} submitLabel="Switch judge" quiet />
+          </>
+        ) : (
+          <>
+            <h1 className="text-4xl font-bold tracking-tight">Judge sign-in</h1>
+            <p className="mt-3 text-lg text-powder">Enter the six-character code the organizer gave you.</p>
+            <CodeForm
+              initialCode={code}
+              initialError={limited ? TOO_MANY : invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined}
+            />
+          </>
+        )}
       </div>
     </main>
   );

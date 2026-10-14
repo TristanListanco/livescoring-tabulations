@@ -4,7 +4,10 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 export const ADMIN_COOKIE = "ls_admin";
 export const JUDGE_COOKIE = "ls_judge";
 
-/** sub: "super", an organizer's id, or a judge's id. pv: the organizer's password version. dev: the judge's device. */
+/**
+ * sub: "super", an organizer's id, or a judge's id. pv: the password version (the organizer's, or the super admin's).
+ * dev: the judge's device.
+ */
 export type SessionPayload = { role: "admin" | "judge"; sub: string; pv?: string; dev?: string; exp: number };
 
 function secret(): string {
@@ -39,6 +42,14 @@ export function verifyToken(token: string | undefined, role: SessionPayload["rol
   } catch {
     return null;
   }
+}
+
+/**
+ * A short fingerprint of a secret, keyed with SESSION_SECRET: it changes when the secret does, and a session can carry
+ * it without giving away anything to guess the secret from.
+ */
+export function fingerprint(value: string): string {
+  return mac(`fingerprint:${value}`).toString("base64url").slice(0, 16);
 }
 
 /** Constant-time comparison that does not leak the password length. */

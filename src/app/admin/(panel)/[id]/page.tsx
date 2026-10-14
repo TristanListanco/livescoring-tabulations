@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAccessCodes, getAdminBoard, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
-import { isProductionSite } from "@/lib/environment";
+import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
 import { reportId } from "@/lib/report";
@@ -75,7 +75,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // Developer tools are for rehearsals; the live site only offers deleting the activity, from Settings.
   const pageant = activity.kind === "pageant";
   const allTabs = pageant ? PAGEANT_TABS : TABS;
-  const tabs = isProductionSite() ? allTabs.filter((t) => t.id !== "developer") : allTabs;
+  const tabs = testToolsAllowed() ? allTabs : allTabs.filter((t) => t.id !== "developer");
   const tab = tabs.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
   const started = activity.sessionState !== "draft";
   const devices = await listDevices(judges.map((j) => j.id));
@@ -224,7 +224,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
-            developer={!isProductionSite()}
+            developer={testToolsAllowed()}
             scoreCount={scores.length}
             organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}
           />
