@@ -66,18 +66,23 @@ function DeskConnection({ status, renderedAt, className }: { status: LiveStatus;
   return <LiveStatusBadge status={status} labels={CONNECTION_LABELS} detail={freshness} compact className={className} />;
 }
 
-/** The results PDF link. The time zone goes along so the sheet's printed time matches the venue's clock. */
-function DownloadResults({ activityId, className }: { activityId: string; className: string }) {
+/**
+ * The results PDF link, or (`sheets`) the judges' score sheets that go with it: one page per judge, with their
+ * scores (and each criterion's points) and their sign-off. The time zone goes along so the sheet's printed time
+ * matches the venue's clock.
+ */
+function DownloadResults({ activityId, sheets = false, className }: { activityId: string; sheets?: boolean; className: string }) {
+  const href = `/admin/${activityId}/export${sheets ? "?sheet=judges" : ""}`;
   return (
     <a
-      href={`/admin/${activityId}/export`}
+      href={href}
       onClick={(e) => {
-        e.currentTarget.href = `/admin/${activityId}/export?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
+        e.currentTarget.href = `${href}${sheets ? "&" : "?"}tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
       }}
       className={className}
       download
     >
-      Download results PDF
+      {sheets ? "Download judges' score sheets" : "Download results PDF"}
     </a>
   );
 }
@@ -654,6 +659,7 @@ export function SessionTab({
               {progress.complete && !pageant && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
                   <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
+                  <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
                   <p className="text-[13px]">
                     Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
                   </p>
@@ -773,7 +779,8 @@ export function SessionTab({
                   <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
                   <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
                   <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                    Printed on the results PDF. The ID changes if any score changes, so anyone can check a printed sheet against this screen.
+                    Printed on the results PDF and on each judge&apos;s score sheet. The ID changes if any score changes, so anyone can check a printed sheet
+                    against this screen.
                   </p>
                 </>
               ) : (
@@ -791,12 +798,15 @@ export function SessionTab({
             </div>
             {progress.complete && !pageant && (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-                <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white" />
+                <div className="flex flex-wrap gap-3">
+                  <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white max-sm:w-full" />
+                  <DownloadResults activityId={activity.id} sheets className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
+                </div>
                 {signatories && (
                   <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
                     {signatories.length > 0
                       ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
-                      : "No signatories yet, so the PDF prints one blank Tabulator line."}{" "}
+                      : "No signatories yet, so the PDFs print one blank Tabulator line."}{" "}
                     <Link href="/admin/profile" className="font-semibold text-mint underline underline-offset-2">
                       Edit signatories
                     </Link>

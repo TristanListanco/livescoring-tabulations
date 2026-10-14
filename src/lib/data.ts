@@ -355,6 +355,26 @@ export const getAdminBoard = cache(async (id: string): Promise<Board | null> => 
   return { ...board, deductions: (data as DeductionRow[]).map(toDeduction) };
 });
 
+/**
+ * The board with each score's points per criterion, for the judges' score sheets. Only the organizer's export reads
+ * them: the boards the judges' screens and public pages use never carry them.
+ */
+export async function withBreakdowns(board: Board): Promise<Board> {
+  const pageant = board.activity.kind === "pageant";
+  const { data, error } = await db()
+    .from("scores")
+    .select(pageant ? "entry_id, judge_id, round_id, breakdown" : "entry_id, judge_id, breakdown")
+    .eq("activity_id", board.activity.id);
+  fail(error);
+  const key = (entryId: string, judgeId: string, roundId: string | null | undefined) => `${entryId}|${judgeId}|${roundId ?? ""}`;
+  const points = new Map<string, Record<string, number>>();
+  for (const row of data as unknown as (ScoreRow & { breakdown: Record<string, number | string> | null })[]) {
+    if (!row.breakdown) continue;
+    points.set(key(row.entry_id, row.judge_id, row.round_id), Object.fromEntries(Object.entries(row.breakdown).map(([id, v]) => [id, Number(v)])));
+  }
+  return { ...board, scores: board.scores.map((s) => ({ ...s, breakdown: points.get(key(s.entryId, s.judgeId, s.roundId)) ?? null })) };
+}
+
 const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);
 
 async function loadPublicBoard(publicId: string): Promise<Board | null> {

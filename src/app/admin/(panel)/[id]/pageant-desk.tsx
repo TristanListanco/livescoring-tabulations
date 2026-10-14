@@ -178,7 +178,10 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
       <span className="tabular text-xs text-prussian/70">{progress.submitted > 0 ? `${progress.submitted} of ${progress.possible} scores` : "Not started"}</span>
     );
   };
-  /** A sub-activity or part that judges score: how far it has got, judging it, and its results PDF. `label`: its full name. */
+  /**
+   * A sub-activity or part that judges score: how far it has got, judging it, its results PDF and the judges' score
+   * sheets that go with it. `label`: its full name.
+   */
   const row = (r: Round, label: string, part: boolean) => {
     const progress = roundProgress(board, r);
     const current = isCurrent(r);
@@ -204,9 +207,14 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           />
         )}
         {progress.complete && (
-          <PdfLink activityId={activity.id} query={`round=${r.id}`} className={action}>
-            PDF<span className="sr-only"> of {label} results</span>
-          </PdfLink>
+          <>
+            <PdfLink activityId={activity.id} query={`round=${r.id}`} className={action}>
+              PDF<span className="sr-only"> of {label} results</span>
+            </PdfLink>
+            <PdfLink activityId={activity.id} query={`round=${r.id}&sheet=judges`} className={action}>
+              Judges&apos; sheets<span className="sr-only"> for {label}, as a PDF</span>
+            </PdfLink>
+          </>
         )}
       </div>
     );

@@ -148,6 +148,28 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
   return rows;
 }
 
+/** One row of a judge's score sheet: an entry in running order and what the judge gave it. */
+export type JudgeSheetRow = {
+  entry: Entry;
+  number: number;
+  /** Criteria scoring: the points for each criterion, in the activity's order (null where a score has no breakdown). */
+  points: (number | null)[];
+  /** The judge's score (with criteria, the total out of 100), or null when they haven't scored the entry. */
+  value: number | null;
+};
+
+/** A judge's score sheet: every entry in running order, numbered as on the results sheet, with that judge's score. */
+export function judgeSheet(board: Board, judgeId: string): JudgeSheetRow[] {
+  const criteria = board.activity.scoringMode === "criteria" ? board.activity.criteria : [];
+  const mine = new Map(board.scores.filter((s) => s.judgeId === judgeId).map((s) => [s.entryId, s]));
+  return [...board.entries]
+    .sort((a, b) => a.position - b.position)
+    .map((entry, index) => {
+      const score = mine.get(entry.id);
+      return { entry, number: entry.number ?? index + 1, points: criteria.map((c) => score?.breakdown?.[c.id] ?? null), value: score?.value ?? null };
+    });
+}
+
 /** How many of the expected scores (every judge × every entry) are in. */
 export function scoreProgress(board: Board): { submitted: number; possible: number; complete: boolean } {
   const judgeIds = new Set(board.judges.map((j) => j.id));

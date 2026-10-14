@@ -478,8 +478,10 @@ test.describe.serial("a pageant", () => {
     const slug = NAME.toLowerCase().replace(/\s+/g, "-");
     for (const [link, file] of [
       ["PDF of Interview · Questions results", `${slug}-interview-questions-results.pdf`],
+      ["Judges' sheets for Interview · Questions, as a PDF", `${slug}-interview-questions-judges-score-sheets.pdf`],
       ["Standings PDF for Interview", `${slug}-interview-results.pdf`],
       ["PDF of Q&A results", `${slug}-qa-results.pdf`],
+      ["Judges' sheets for Q&A, as a PDF", `${slug}-qa-judges-score-sheets.pdf`],
       ["Standings PDF for the preliminary", `${slug}-preliminary-results.pdf`],
       ["PDF of the Top 2", `${slug}-top-2-results.pdf`],
       ["PDF of the final results", `${slug}-final-results.pdf`],

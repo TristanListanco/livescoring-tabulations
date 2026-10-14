@@ -1,7 +1,7 @@
-import { getAdmin, getAdminBoard, getSignatories } from "@/lib/data";
+import { getAdmin, getAdminBoard, getSignatories, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
-import { renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
+import { renderJudgeSheetsPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
 import { PRELIMINARY, type Board, type Deduction, type Round } from "@/lib/types";
@@ -18,6 +18,14 @@ function slug(name: string): string {
 function fileName(...parts: string[]): string {
   return `${parts.map(slug).filter(Boolean).join("-") || "activity"}-results.pdf`;
 }
+
+/** The judges' score sheets that go with a results sheet: "finals-judges-score-sheets.pdf". */
+function sheetsName(...parts: string[]): string {
+  return `${parts.map(slug).filter(Boolean).join("-") || "activity"}-judges-score-sheets.pdf`;
+}
+
+/** ?sheet=judges: each judge's score sheet rather than the results. */
+const wantsJudgeSheets = (search: URLSearchParams) => search.get("sheet") === "judges";
 
 function pdfResponse(pdf: Buffer, name: string): Response {
   return new Response(new Uint8Array(pdf), {
@@ -44,6 +52,7 @@ const signedBy = (board: Board, rounds: Round[]): Board => ({ ...board, judges: 
 /**
  * A pageant's sheets: a sub-activity's results (?round=id), a cut or the final results (?cut=id), or the
  * preliminary's standings (?segment=preliminary). Each once its scores are all in, and a cut once it's confirmed.
+ * A sub-activity's (or part's) judges' score sheets: ?round=id&sheet=judges.
  */
 async function pageantPdf(board: Board, search: URLSearchParams, timeZone: string | undefined): Promise<Response> {
   const { activity } = board;
@@ -57,6 +66,15 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const label = roundLabel(board.rounds, round);
     const progress = roundProgress(board, round);
     if (!progress.complete) return notYet(`${label} results can be exported once all scores are in (${progress.submitted} of ${progress.possible} so far).`);
+
+    if (wantsJudgeSheets(search)) {
+      if (partsOf(board.rounds, round.id).length) return new Response(`Download the judges' score sheets for each part of ${round.name}.`, { status: 400 });
+      const part = roundBoard(await withBreakdowns(board), round);
+      // The results sheet's report ID: the two go together.
+      const id = reportId({ ...roundBoard(board, round), deductions: undefined }, `round:${round.id}`);
+      const pdf = await renderJudgeSheetsPdf(part, { timeZone, reportId: id, organizer: await organizer(), part: label });
+      return pdfResponse(pdf, sheetsName(activity.name, label));
+    }
 
     // A sub-activity in parts: its standings, each part a column with its share.
     if (partsOf(board.rounds, round.id).length) {
@@ -74,6 +92,8 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const pdf = await renderResultsPdf(part, { timeZone, reportId: reportId(part, `round:${round.id}`), organizer: await organizer(), part: label });
     return pdfResponse(pdf, fileName(activity.name, label));
   }
+
+  if (wantsJudgeSheets(search)) return new Response("Judges' score sheets come with each sub-activity's results.", { status: 400 });
 
   const cutId = search.get("cut") ?? (search.get("segment") ? null : finalCutRound(board.rounds)?.id);
   if (cutId) {
@@ -137,7 +157,10 @@ async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer 
   return { name: admin.name, photo, signatories };
 }
 
-/** Results sheet as a PDF. Only once every judge has scored every entry (for a pageant, see pageantPdf). */
+/**
+ * Results sheet as a PDF, or with ?sheet=judges each judge's score sheet. Only once every judge has scored every
+ * entry (for a pageant, see pageantPdf).
+ */
 export async function GET(request: Request, { params }: RouteContext<"/admin/[id]/export">) {
   const session = await currentAdmin();
   if (!session) return new Response("Sign in to the admin panel first.", { status: 401 });
@@ -149,8 +172,9 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
     return new Response("Activity not found.", { status: 404 });
   }
 
-  const timeZone = new URL(request.url).searchParams.get("tz") ?? undefined;
-  if (board.activity.kind === "pageant") return pageantPdf(board, new URL(request.url).searchParams, timeZone);
+  const search = new URL(request.url).searchParams;
+  const timeZone = search.get("tz") ?? undefined;
+  if (board.activity.kind === "pageant") return pageantPdf(board, search, timeZone);
 
   const progress = scoreProgress(board);
   if (!progress.complete) {
@@ -159,6 +183,7 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
     });
   }
 
-  const pdf = await renderResultsPdf(board, { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) });
-  return pdfResponse(pdf, fileName(board.activity.name));
+  const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) };
+  if (wantsJudgeSheets(search)) return pdfResponse(await renderJudgeSheetsPdf(await withBreakdowns(board), options), sheetsName(board.activity.name));
+  return pdfResponse(await renderResultsPdf(board, options), fileName(board.activity.name));
 }

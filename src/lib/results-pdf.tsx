@@ -1,8 +1,8 @@
 import "server-only";
 import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { StandingRow } from "./pageant";
-import { averageText, formatBound, rankEntries, rulesSummary, scoreText } from "./scoring";
-import type { Board, Deduction, Round, Signatory } from "./types";
+import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
+import type { Board, Deduction, Judge, Round, Signatory } from "./types";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
@@ -28,6 +28,8 @@ const s = StyleSheet.create({
   reportLabel: { fontFamily: "Helvetica", color: C.muted },
   title: { fontFamily: "Helvetica-Bold", fontSize: 22, marginTop: 4 },
   subtitle: { fontFamily: "Helvetica-Bold", fontSize: 14, marginTop: 2, color: C.regal },
+  byline: { fontFamily: "Helvetica-Bold", fontSize: 13, marginTop: 6 },
+  bylineRole: { fontFamily: "Helvetica", color: C.muted },
   meta: { marginTop: 6, color: C.muted, maxWidth: 480 },
   table: { marginTop: 22 },
   headRow: { flexDirection: "row", backgroundColor: C.prussian, color: C.mint, fontFamily: "Helvetica-Bold", fontSize: 9 },
@@ -55,6 +57,9 @@ const s = StyleSheet.create({
   deductionWhy: { flexGrow: 1, flexBasis: 0 },
   deductionPoints: { width: 90, textAlign: "right", color: C.muted },
   footer: { position: "absolute", bottom: 26, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: C.muted },
+  // A long label wraps rather than running into the page number.
+  footerLabel: { flexShrink: 1, marginRight: 16 },
+  footerPage: { flexShrink: 0 },
 });
 
 /** The organizer as printed on the sheet: their name, photo (JPEG bytes) and the people who sign. */
@@ -62,8 +67,25 @@ export type ReportOrganizer = { name: string; photo: Buffer | null; signatories:
 
 type ReportInfo = { generatedAt: string; reportId: string; organizer: ReportOrganizer | null };
 
-/** The sheet's header: the organizer's photo, "Official results", the report ID, the title and what the sheet is. */
-function Header({ info, title, subtitle, meta }: { info: ReportInfo; title: string; subtitle?: string; meta: string }) {
+/**
+ * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID, the title,
+ * and what the sheet covers. `byline`: whose sheet it is, on a judge's score sheet.
+ */
+function Header({
+  info,
+  eyebrow = "Official results",
+  title,
+  subtitle,
+  byline,
+  meta,
+}: {
+  info: ReportInfo;
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+  byline?: React.ReactNode;
+  meta: string;
+}) {
   const { reportId, organizer } = info;
   return (
     <View style={s.header}>
@@ -72,7 +94,7 @@ function Header({ info, title, subtitle, meta }: { info: ReportInfo; title: stri
       {organizer?.photo && <Image style={s.photo} src={{ data: organizer.photo, format: "jpg" }} />}
       <View style={s.headerText}>
         <View style={s.topRow}>
-          <Text style={s.eyebrow}>Official results</Text>
+          <Text style={s.eyebrow}>{eyebrow}</Text>
           <Text style={s.reportId}>
             <Text style={s.reportLabel}>Report ID </Text>
             {reportId}
@@ -80,6 +102,7 @@ function Header({ info, title, subtitle, meta }: { info: ReportInfo; title: stri
         </View>
         <Text style={s.title}>{title}</Text>
         {subtitle && <Text style={s.subtitle}>{subtitle}</Text>}
+        {byline && <Text style={s.byline}>{byline}</Text>}
         {/* One string: react-pdf spaces mixed text children unevenly. */}
         <Text style={s.meta}>{(organizer ? `Organized by ${organizer.name}. ` : "") + meta}</Text>
       </View>
@@ -87,47 +110,68 @@ function Header({ info, title, subtitle, meta }: { info: ReportInfo; title: stri
   );
 }
 
-/** The judges' sign-offs and the signatories' signature lines. */
-function SignOff({ judges, signatories, note }: { judges: Board["judges"]; signatories: Signatory[]; note: string }) {
+const roleOf = (judge: Judge) => (judge.isChair ? "Chair, Board of Judges" : "Judge");
+
+/**
+ * The judges' sign-offs and the signatories' signature lines. `inline`: all in one row, the judge's name level with
+ * the signatories' (a judge's score sheet, which one judge signs); otherwise the judges, then the signatories.
+ */
+function SignOff({ judges, signatories, note, inline = false }: { judges: Board["judges"]; signatories: Signatory[]; note: string; inline?: boolean }) {
+  const signed = judges.map((j) => (
+    <View key={j.id} style={s.signature}>
+      {/* Level with the signatories' names, under their signature lines. */}
+      {inline && <View style={{ height: s.signLine.height }} />}
+      <Text style={s.signName}>{j.name}</Text>
+      <Text style={s.signed}>(Sgd.)</Text>
+      <Text style={s.signRole}>{roleOf(j)}</Text>
+    </View>
+  ));
+  const lines =
+    signatories.length > 0 ? (
+      signatories.map((p, i) => (
+        <View key={i} style={s.signature}>
+          <View style={s.signLine} />
+          <Text style={s.signName}>{p.name}</Text>
+          {p.designation && <Text style={s.signRole}>{p.designation}</Text>}
+        </View>
+      ))
+    ) : (
+      <View style={s.signature}>
+        <View style={s.signLine} />
+        <Text style={s.signName}> </Text>
+        <Text style={s.signRole}>Tabulator</Text>
+      </View>
+    );
   return (
     <View wrap={false}>
       <Text style={s.sectionTitle}>Certified correct</Text>
       <Text style={s.sectionNote}>{note}</Text>
-      <View style={s.signatures}>
-        {judges.map((j) => (
-          <View key={j.id} style={s.signature}>
-            <Text style={s.signName}>{j.name}</Text>
-            <Text style={s.signed}>(Sgd.)</Text>
-            <Text style={s.signRole}>{j.isChair ? "Chair, Board of Judges" : "Judge"}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={s.signatures}>
-        {signatories.length > 0 ? (
-          signatories.map((p, i) => (
-            <View key={i} style={s.signature}>
-              <View style={s.signLine} />
-              <Text style={s.signName}>{p.name}</Text>
-              {p.designation && <Text style={s.signRole}>{p.designation}</Text>}
-            </View>
-          ))
-        ) : (
-          <View style={s.signature}>
-            <View style={s.signLine} />
-            <Text style={s.signName}> </Text>
-            <Text style={s.signRole}>Tabulator</Text>
-          </View>
-        )}
-      </View>
+      {inline ? (
+        <View style={s.signatures}>
+          {signed}
+          {lines}
+        </View>
+      ) : (
+        <>
+          <View style={s.signatures}>{signed}</View>
+          <View style={s.signatures}>{lines}</View>
+        </>
+      )}
     </View>
   );
 }
 
-function Footer({ label, info }: { label: string; info: ReportInfo }) {
+/** `perSheet`: count pages within each judge's sheet rather than the whole document, so each sheet stands alone. */
+function Footer({ label, info, perSheet = false }: { label: string; info: ReportInfo; perSheet?: boolean }) {
   return (
     <View style={s.footer} fixed>
-      <Text>{`${label}, report ${info.reportId}, generated ${info.generatedAt}`}</Text>
-      <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+      <Text style={s.footerLabel}>{`${label}, report ${info.reportId}, generated ${info.generatedAt}`}</Text>
+      <Text
+        style={s.footerPage}
+        render={({ pageNumber, totalPages, subPageNumber, subPageTotalPages }) =>
+          perSheet ? `Page ${subPageNumber} of ${subPageTotalPages}` : `Page ${pageNumber} of ${totalPages}`
+        }
+      />
     </View>
   );
 }
@@ -189,6 +233,87 @@ function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo
         <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={SIGN_NOTE} />
         <Footer label={label} info={info} />
       </Page>
+    </Document>
+  );
+}
+
+/**
+ * Each judge's score sheet, one after another: every entry in running order with the score that judge gave it, and
+ * with criteria scoring the points for each criterion. Each sheet is signed by its judge and the signatories, and
+ * carries the report ID of the results sheet it goes with. `part`: a pageant sub-activity's name.
+ */
+function JudgeSheetsDocument({ board, info, part }: { board: Board; info: ReportInfo; part?: string }) {
+  const { activity, judges } = board;
+  const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
+  const noun = part ? "candidates" : "entries";
+  const label = part ? `${activity.name}, ${part}` : activity.name;
+  const total = criteria.length === 0 ? "Score" : activity.criteriaDisplay === "ten" ? "Total (of 10)" : "Total";
+  const meta = `${rulesSummary(activity)} ${board.entries.length} ${noun}, in running order. Generated ${info.generatedAt}.`;
+  const row = (r: JudgeSheetRow) => (
+    <View key={r.entry.id} style={s.row} wrap={false}>
+      <Text style={[s.cell, s.number]}>{r.number}</Text>
+      <Text style={[s.cell, s.entry]}>{r.entry.name}</Text>
+      {r.points.map((v, i) => (
+        <Text key={criteria[i].id} style={[s.cell, s.judge]}>
+          {v === null ? "—" : formatScore(v, activity.decimals)}
+        </Text>
+      ))}
+      <Text style={[s.cell, s.average]}>{r.value === null ? "—" : scoreText(r.value, activity)}</Text>
+    </View>
+  );
+
+  return (
+    <Document title={`${label}, judges' score sheets`} author="LiveScoring" creator="LiveScoring">
+      {judges.map((judge) => {
+        const rows = judgeSheet(board, judge.id);
+        // The last rows go with the sign-off, so a sheet that runs over never leaves the signatures alone on a page.
+        const kept = rows.slice(-2);
+        return (
+          <Page key={judge.id} size="A4" orientation={criteria.length > 4 ? "landscape" : "portrait"} style={s.page}>
+            <Header
+              info={info}
+              eyebrow="Judge's score sheet"
+              title={activity.name}
+              subtitle={part}
+              byline={
+                <>
+                  {judge.name}
+                  <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
+                </>
+              }
+              meta={meta}
+            />
+
+            <View style={s.table}>
+              <View style={s.headRow} fixed>
+                <Text style={[s.cell, s.number, { color: C.mint }]}>No.</Text>
+                <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
+                {criteria.map((c) => (
+                  <Text key={c.id} style={[s.cell, s.judge]}>
+                    {`${c.name} (${formatBound(c.max)})`}
+                  </Text>
+                ))}
+                <Text style={[s.cell, s.average]}>{total}</Text>
+              </View>
+              {rows.slice(0, rows.length - kept.length).map(row)}
+              <View wrap={false}>
+                {kept.map(row)}
+                <SignOff
+                  inline
+                  judges={[judge]}
+                  signatories={info.organizer?.signatories ?? []}
+                  note={
+                    `${judge.name} submitted every score above from their approved device with a personal access code, and submitted scores are final. ` +
+                    "(Sgd.) marks the judge's verified sign-off."
+                  }
+                />
+              </View>
+            </View>
+
+            <Footer label={`${judge.name}'s score sheet`} info={info} perSheet />
+          </Page>
+        );
+      })}
     </Document>
   );
 }
@@ -341,4 +466,12 @@ export function renderResultsPdf(
   { timeZone, reportId, organizer, part }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string },
 ): Promise<Buffer> {
   return renderToBuffer(<ResultsDocument board={board} part={part} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+}
+
+/** The judges' score sheets that go with a results sheet: an event's, or (with `part`) one pageant sub-activity's. */
+export function renderJudgeSheetsPdf(
+  board: Board,
+  { timeZone, reportId, organizer, part }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string },
+): Promise<Buffer> {
+  return renderToBuffer(<JudgeSheetsDocument board={board} part={part} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
 }
