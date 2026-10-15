@@ -2,7 +2,9 @@
 
 import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
-import { findJudgeIdByCode, getActivity, getBoard, getJudgeContext, getRounds } from "@/lib/data";
+import { settleCorrection } from "@/lib/correction-settle";
+import { cleanReason, correctionVoters } from "@/lib/corrections";
+import { findJudgeIdByCode, getActivity, getBoard, getCorrections, getJudgeContext, getRounds } from "@/lib/data";
 import { isUuid } from "@/lib/codes";
 import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { showColumns } from "@/lib/judging";
@@ -174,6 +176,128 @@ export async function submitScore(entryId: string, typed: string | Record<string
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }
 
+  changed();
+  return { ok: true };
+}
+
+const CORRECTIONS_UNAVAILABLE = "Score corrections need an update to the database. Ask the organizer.";
+const sameBreakdown = (a: Record<string, number> | null, b: Record<string, number> | null) =>
+  JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
+
+/**
+ * A judge asks to correct their own score on the entry on screen, saying why. It changes only if every other judge on
+ * their panel agrees (a judge alone on their panel waits for the organizer). Only while judging is open, and in a
+ * pageant only in the sub-activity being judged.
+ */
+export async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
+  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved to score. Ask the organizer." };
+  if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
+  const why = cleanReason(reason);
+  if (!why) return { ok: false, error: "Say why the score needs correcting, so the other judges can decide." };
+
+  const activity = await getActivity(context.activityId);
+  if (!activity) return { ok: false, error: "This activity no longer exists." };
+  if (activity.sessionState !== "live") return { ok: false, error: "Corrections can only be asked for while judging is open." };
+  if (activity.currentEntryId !== entryId) return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
+
+  let rules = activity;
+  let roundId: string | null = null;
+  if (activity.kind === "pageant") {
+    const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
+    if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
+    rules = withRoundRules(activity, round);
+    roundId = round.id;
+  }
+
+  let value: number;
+  let breakdown: Record<string, number> | null = null;
+  if (rules.scoringMode === "criteria") {
+    if (typeof typed !== "object") return { ok: false, error: "Score each criterion." };
+    const parsed = parseBreakdown(typed, rules.criteria, rules.decimals);
+    if (!parsed.ok) return parsed;
+    value = parsed.total;
+    breakdown = parsed.breakdown;
+  } else {
+    if (typeof typed !== "string") return { ok: false, error: "Enter a score." };
+    const parsed = parseScore(typed, rules);
+    if (!parsed.ok) return parsed;
+    value = parsed.value;
+  }
+
+  const scores = db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId);
+  const { data: given } = await (roundId ? scores.eq("round_id", roundId) : scores.is("round_id", null)).maybeSingle();
+  const old = given as { value: number | string; breakdown: Record<string, number | string> | null } | null;
+  if (!old) return { ok: false, error: "You haven't scored this entry yet." };
+  const oldBreakdown = old.breakdown ? Object.fromEntries(Object.entries(old.breakdown).map(([id, v]) => [id, Number(v)])) : null;
+  if (Number(old.value) === value && sameBreakdown(oldBreakdown, breakdown)) return { ok: false, error: "That's the score you already gave." };
+
+  const { error } = await db()
+    .from("score_corrections")
+    .insert({
+      activity_id: activity.id,
+      judge_id: context.judge.id,
+      entry_id: entryId,
+      round_id: roundId,
+      old_value: Number(old.value),
+      new_value: value,
+      old_breakdown: oldBreakdown,
+      new_breakdown: breakdown,
+      reason: why,
+    });
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "You've already asked to correct this score. Wait for the other judges, or withdraw it." };
+    console.error(error);
+    return { ok: false, error: error.code === "42P01" || error.code === "PGRST205" ? CORRECTIONS_UNAVAILABLE : "That didn't go through. Check your connection and try again." };
+  }
+  changed();
+  return { ok: true };
+}
+
+/** Another judge's vote on a correction: final once cast. Any judge disagreeing turns it down; every judge agreeing changes the score. */
+export async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
+  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };
+
+  const [board, corrections] = await Promise.all([getBoard(context.activityId), getCorrections(context.activityId)]);
+  const correction = corrections?.find((c) => c.id === correctionId);
+  if (!board || !correction) return { ok: false, error: "That correction no longer exists." };
+  // Settled meanwhile (another judge disagreed, or it was withdrawn): nothing left to vote on.
+  if (correction.status !== "open") return { ok: true };
+  if (!correctionVoters(board, correction).some((j) => j.id === context.judge.id)) return { ok: false, error: "You don't vote on this correction." };
+
+  const { error } = await db().from("correction_votes").insert({ correction_id: correction.id, judge_id: context.judge.id, activity_id: board.activity.id, agree });
+  if (error && error.code !== "23505") {
+    console.error(error);
+    return { ok: false, error: "Your vote didn't go through. Check your connection and try again." };
+  }
+  if (!error) await settleCorrection(board, { ...correction, votes: [...correction.votes, { judgeId: context.judge.id, agree }] });
+  changed();
+  return { ok: true };
+}
+
+/** The judge who asked takes back a correction no one has settled yet. */
+export async function withdrawCorrection(correctionId: string): Promise<ActionResult> {
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
+  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };
+  const { error } = await db()
+    .from("score_corrections")
+    .update({ status: "withdrawn", decided_at: new Date().toISOString() })
+    .eq("id", correctionId)
+    .eq("judge_id", context.judge.id)
+    .eq("status", "open");
+  if (error) {
+    console.error(error);
+    return { ok: false, error: "That didn't go through. Check your connection and try again." };
+  }
   changed();
   return { ok: true };
 }

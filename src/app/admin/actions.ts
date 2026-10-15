@@ -4,7 +4,9 @@ import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
-import { getActivity, getAdminBoard, getAdminCredentials, getBoard } from "@/lib/data";
+import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections } from "@/lib/data";
+import { settleCorrection } from "@/lib/correction-settle";
+import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { checkScoring, cleanGuide, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
@@ -742,6 +744,28 @@ export async function updateCriterionGuides(activityId: string, _prev: FormResul
   return ok(criteria.some((c) => c.guide) ? "Guides saved. Judges see each one while they score its criterion." : "Guides saved.");
 }
 
+/**
+ * A score correction from a judge alone on their panel, who has no other judge to agree with them: the organizer
+ * approves it (changing the score) or turns it down. Corrections other judges vote on are theirs alone to decide.
+ */
+export async function decideCorrection(activityId: string, correctionId: string, approve: boolean): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  if (!isUuid(correctionId)) return err("That correction no longer exists.");
+  const [board, corrections] = await Promise.all([getBoard(activityId), getCorrections(activityId)]);
+  const correction = corrections?.find((c) => c.id === correctionId);
+  if (!board || !correction) return err("That correction no longer exists.");
+  if (correction.status !== "open") return err("That correction has already been settled.");
+  if (correctionVoters(board, correction).length > 0) return err("The other judges decide this correction, not the organizer.");
+  try {
+    await settleCorrection(board, correction, { outcome: approve ? "approved" : "rejected", by: "organizer" });
+  } catch (e) {
+    console.error(e);
+    return err("The correction didn't go through. Try again.");
+  }
+  changed();
+  return ok(approve ? "Correction approved. The score has changed." : "Correction turned down. The score stays as it was.");
+}
+
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
@@ -1111,6 +1135,8 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (!testToolsAllowed()) return err("Resetting scores is only available on a test site.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return dbErr(error);
+  // The corrections were to those scores (votes go with them). Fails harmlessly before migration 019.
+  await db().from("score_corrections").delete().eq("activity_id", activityId);
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.

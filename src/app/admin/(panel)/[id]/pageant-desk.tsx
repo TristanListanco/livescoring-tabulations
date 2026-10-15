@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import {
@@ -33,9 +33,33 @@ const ordinal = (n: number) => {
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 const cutName = (plan: Pick<CutPlan, "final" | "round" | "size">) => (plan.final ? "the final cut" : `the Top ${plan.size}`);
 
+/**
+ * Why results PDFs are held back, or null: while a score correction is being voted on, a score may still change, so
+ * every results link shows disabled with the reason.
+ */
+export const PdfHold = createContext<string | null>(null);
+
+/** A results link held back (see PdfHold): the same look, disabled, with why. */
+export function HeldLink({ reason, className, children }: { reason: string; className: string; children: React.ReactNode }) {
+  return (
+    <span role="link" aria-disabled="true" title={reason} className={`${className} cursor-not-allowed opacity-50`}>
+      {children}
+      <span className="sr-only">: {reason}</span>
+    </span>
+  );
+}
+
 /** A pageant results PDF. The time zone goes along so the sheet's printed time matches the venue's clock. */
 export function PdfLink({ activityId, query, className, children }: { activityId: string; query: string; className: string; children: React.ReactNode }) {
+  const held = useContext(PdfHold);
   const href = `/admin/${activityId}/export?${query}`;
+  if (held) {
+    return (
+      <HeldLink reason={held} className={className}>
+        {children}
+      </HeldLink>
+    );
+  }
   return (
     <a
       href={href}

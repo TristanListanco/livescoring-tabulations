@@ -1,4 +1,5 @@
-import { getActivityNotes, getAdmin, getAdminBoard, getSignatories, withBreakdowns } from "@/lib/data";
+import { correctionView, type Correction, type CorrectionView } from "@/lib/corrections";
+import { getActivityNotes, getAdmin, getAdminBoard, getCorrections, getSignatories, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
 import { renderJudgeSheetsPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
@@ -26,6 +27,13 @@ function sheetsName(...parts: string[]): string {
 
 /** ?sheet=judges: each judge's score sheet rather than the results. */
 const wantsJudgeSheets = (search: URLSearchParams) => search.get("sheet") === "judges";
+
+/** The applied corrections to a sheet's scores (one pageant sub-activity's, or an event's): null before migration 019. */
+const appliedTo = (board: Board, corrections: Correction[] | null, roundId: string | null): CorrectionView[] | null =>
+  corrections && corrections.filter((c) => c.status === "approved" && c.roundId === roundId).map((c) => correctionView(board, c));
+
+const correctionOpen = () =>
+  notYet("A score correction is waiting for the judges' votes. The results can be downloaded once it's settled, since it may change a score.");
 
 /** The judges' notes on an activity's entries, for their score sheets: "judgeId|entryId" to the note. */
 async function sheetNotes(activityId: string): Promise<Map<string, string>> {
@@ -59,7 +67,7 @@ const signedBy = (board: Board, rounds: Round[]): Board => ({ ...board, judges: 
  * preliminary's standings (?segment=preliminary). Each once its scores are all in, and a cut once it's confirmed.
  * A sub-activity's (or part's) judges' score sheets: ?round=id&sheet=judges.
  */
-async function pageantPdf(board: Board, search: URLSearchParams, timeZone: string | undefined): Promise<Response> {
+async function pageantPdf(board: Board, search: URLSearchParams, timeZone: string | undefined, corrections: Correction[] | null): Promise<Response> {
   const { activity } = board;
   const organizer = () => reportOrganizer(activity.ownerId);
   const order = programOrder(board.rounds);
@@ -77,7 +85,14 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const part = roundBoard(await withBreakdowns(board), round);
       // The results sheet's report ID: the two go together.
       const id = reportId({ ...roundBoard(board, round), deductions: undefined }, `round:${round.id}`);
-      const pdf = await renderJudgeSheetsPdf(part, { timeZone, reportId: id, organizer: await organizer(), part: label, notes: await sheetNotes(activity.id) });
+      const pdf = await renderJudgeSheetsPdf(part, {
+        timeZone,
+        reportId: id,
+        organizer: await organizer(),
+        part: label,
+        notes: await sheetNotes(activity.id),
+        corrections: appliedTo(board, corrections, round.id) ?? [],
+      });
       return pdfResponse(pdf, sheetsName(activity.name, label));
     }
 
@@ -94,7 +109,13 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
 
     // One sub-activity's results: deductions come off the preliminary as a whole, not here.
     const part: Board = { ...roundBoard(board, round), deductions: undefined };
-    const pdf = await renderResultsPdf(part, { timeZone, reportId: reportId(part, `round:${round.id}`), organizer: await organizer(), part: label });
+    const pdf = await renderResultsPdf(part, {
+      timeZone,
+      reportId: reportId(part, `round:${round.id}`),
+      organizer: await organizer(),
+      part: label,
+      corrections: appliedTo(board, corrections, round.id),
+    });
     return pdfResponse(pdf, fileName(activity.name, label));
   }
 
@@ -179,7 +200,10 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
 
   const search = new URL(request.url).searchParams;
   const timeZone = search.get("tz") ?? undefined;
-  if (board.activity.kind === "pageant") return pageantPdf(board, search, timeZone);
+  // A correction still being voted on may change a score: nothing is printed until it's settled.
+  const corrections = await getCorrections(board.activity.id);
+  if (corrections?.some((c) => c.status === "open")) return correctionOpen();
+  if (board.activity.kind === "pageant") return pageantPdf(board, search, timeZone, corrections);
 
   const progress = scoreProgress(board);
   if (!progress.complete) {
@@ -190,8 +214,12 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
 
   const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) };
   if (wantsJudgeSheets(search)) {
-    const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), { ...options, notes: await sheetNotes(board.activity.id) });
+    const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), {
+      ...options,
+      notes: await sheetNotes(board.activity.id),
+      corrections: appliedTo(board, corrections, null) ?? [],
+    });
     return pdfResponse(pdf, sheetsName(board.activity.name));
   }
-  return pdfResponse(await renderResultsPdf(board, options), fileName(board.activity.name));
+  return pdfResponse(await renderResultsPdf(board, { ...options, corrections: appliedTo(board, corrections, null) }), fileName(board.activity.name));
 }

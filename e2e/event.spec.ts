@@ -345,7 +345,35 @@ test.describe.serial("a full event", () => {
     // Agila is fully scored, so the running order offers to show it again rather than to judge it.
     await expect(page.getByRole("region", { name: "Running order" }).getByRole("button", { name: "Show again Agila" })).toBeVisible();
     await expect(led.getByText("Bagwis", { exact: true })).toBeVisible(REALTIME);
-    await submitScore(judge1, "Bagwis", "8.5", "8.50");
+    // Ana slips: 5.8 for 8.5. The score is in, so she asks to correct it, saying why.
+    await submitScore(judge1, "Bagwis", "5.8", "5.80");
+    await judge1.getByRole("button", { name: "Ask to correct this score" }).click();
+    await expect(judge1.getByText("Correcting your score: No. 2")).toBeVisible();
+    await tapScore(judge1, "8.5");
+    await judge1.getByRole("button", { name: "Review correction" }).click();
+    const ask = judge1.getByRole("dialog", { name: "Ask to change your score for Bagwis?" });
+    await expect(ask).toContainText("5.80");
+    await expect(ask).toContainText("8.50");
+    await expect(ask.getByRole("button", { name: "Ask the judges" })).toBeDisabled();
+    await ask.getByLabel("Why does it need correcting?").fill("Typed 5.8 instead of 8.5.");
+    await ask.getByRole("button", { name: "Ask the judges" }).click();
+    await expect(judge1.getByText("You asked to change it to 8.50.")).toBeVisible();
+    // The desk sees it waiting; the score only changes if Ben agrees.
+    const corrections = page.getByRole("region", { name: "Score corrections" });
+    await expect(corrections).toContainText("Ana Cruz asks to change their score for No. 2 Bagwis: 5.80 to 8.50", REALTIME);
+    await expect(corrections).toContainText("0 of 1 judge has agreed");
+    // Ben's screen asks for his vote, with the score, the new one and the reason, and won't let it be put off.
+    const vote = judge2.getByRole("dialog", { name: "Ana Cruz asks to change their score for No. 2 Bagwis" });
+    await expect(vote).toBeVisible(REALTIME);
+    await expect(vote).toContainText("Typed 5.8 instead of 8.5.");
+    await expectAccessible(judge2);
+    await judge2.keyboard.press("Escape");
+    await expect(vote).toBeVisible();
+    await vote.getByRole("button", { name: /^Agree/ }).click();
+    await expect(vote).toBeHidden(REALTIME);
+    await expect(judge1.getByText("Corrected from 5.80: every other judge agreed.")).toBeVisible(REALTIME);
+    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.50", REALTIME);
+    await expect(corrections).toContainText("1 settled", REALTIME);
     await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
     await submitScore(judge2, "Bagwis", "8.75");
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
@@ -365,6 +393,19 @@ test.describe.serial("a full event", () => {
     await expect(heading(judge2)).toHaveText("Kidlat", REALTIME);
     await submitScore(judge2, "Kidlat", "9.5", "9.50");
     await expect(page.getByText(/That was the last entry/)).toBeVisible(REALTIME);
+
+    // Ben asks to change his Kidlat score; Ana disagrees, and one judge disagreeing keeps it as it was.
+    await judge2.getByRole("button", { name: "Ask to correct this score" }).click();
+    await tapScore(judge2, "9");
+    await judge2.getByRole("button", { name: "Review correction" }).click();
+    const ask2 = judge2.getByRole("dialog", { name: "Ask to change your score for Kidlat?" });
+    await ask2.getByLabel("Why does it need correcting?").fill("Meant 9, not 9.5.");
+    await ask2.getByRole("button", { name: "Ask the judges" }).click();
+    const vote2 = judge1.getByRole("dialog", { name: "Ben Torres asks to change their score for No. 3 Kidlat" });
+    await vote2.getByRole("button", { name: /^Disagree/ }).click();
+    await expect(vote2).toBeHidden(REALTIME);
+    await expect(judge2.getByText("Your correction to 9.00 wasn't accepted: a judge disagreed, so this score stands.")).toBeVisible(REALTIME);
+    await expect(live.locator("li[data-entry]", { hasText: "Kidlat" })).toContainText("9.50");
     // With the last entry fully scored, the desk's main button is End session, not a dead "No more entries".
     const controls = page.getByRole("group", { name: "Show controls" });
     await expect(controls.getByRole("button", { name: "End session" })).toBeVisible();

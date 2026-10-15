@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { CopyButton } from "@/components/copy-button";
 import { LiveStatusBadge } from "@/components/live-status";
 import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import type { CorrectionView } from "@/lib/corrections";
 import { entryNeighbors } from "@/lib/judging";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
@@ -15,8 +16,9 @@ import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { FormMessage } from "../form-message";
 import { LinkField } from "../link-field";
+import { CorrectionsPanel } from "./corrections-panel";
 import { ApproveDeviceButton } from "./judge-devices";
-import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
+import { CutDialog, DeskTimer, HeldLink, JudgeRoundButton, nextUp, PdfHold, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
@@ -72,7 +74,16 @@ function DeskConnection({ status, renderedAt, className }: { status: LiveStatus;
  * matches the venue's clock.
  */
 function DownloadResults({ activityId, sheets = false, className }: { activityId: string; sheets?: boolean; className: string }) {
+  const held = useContext(PdfHold);
   const href = `/admin/${activityId}/export${sheets ? "?sheet=judges" : ""}`;
+  const label = sheets ? "Download judges' score sheets" : "Download results PDF";
+  if (held) {
+    return (
+      <HeldLink reason={held} className={className}>
+        {label}
+      </HeldLink>
+    );
+  }
   return (
     <a
       href={href}
@@ -82,7 +93,7 @@ function DownloadResults({ activityId, sheets = false, className }: { activityId
       className={className}
       download
     >
-      {sheets ? "Download judges' score sheets" : "Download results PDF"}
+      {label}
     </a>
   );
 }
@@ -184,6 +195,7 @@ export function SessionTab({
   liveUrl,
   liveQr,
   ledUrl,
+  corrections,
 }: {
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -196,9 +208,13 @@ export function SessionTab({
   liveUrl: string;
   liveQr: string;
   ledUrl: string;
+  /** Score corrections, oldest first (empty before migration 019). */
+  corrections: CorrectionView[];
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id);
+  // A correction being voted on may still change a score: the results PDFs wait for it.
+  const held = corrections.some((c) => c.status === "open") ? "Waits until the score correction is settled" : null;
   // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
   // lists every candidate, and the program says what to judge next.
   const { board: shown, round } = showingBoard(board);
@@ -492,363 +508,369 @@ export function SessionTab({
   if (live) {
     const textAction = "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
     return (
-      <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
-        <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-2xl bg-prussian text-mint">
-          {offline}
-          <div className="flex items-start justify-between gap-4 px-6 pt-4">
-            <div className="min-w-0 flex-1">
-              <h2 id="desk-heading" className="text-sm text-powder">
-                {round && <span className="font-semibold text-mint">{round.name} · </span>}
-                {entry
-                  ? entry.number
-                    ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
-                    : `Now judging: No. ${index + 1} of ${entries.length}`
-                  : between
-                    ? "Between sub-activities"
-                    : "On judges' screens"}
-              </h2>
-              <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-bold text-balance wrap-anywhere">
-                {entry ? entry.name : between ? "Choose what to judge next" : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
-              {(!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
-            </div>
-          </div>
-          {round && <DeskTimer activity={activity} round={round} renderedAt={renderedAt} />}
-          {/* A success ("The session has ended…") is what the desk now shows anyway, so it's announced, not repeated on screen. */}
-          <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
-
-          {between ? (
-            <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
-              <p className="max-w-xl text-[15px] leading-relaxed text-powder">
-                Judges are waiting. Pick a sub-activity from the program to put its candidates on their screens.
-              </p>
-              {upNext?.kind === "round" && (
-                <JudgeRoundButton board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" label={`Judge ${upNext.round.name}`} onDone={setResult} />
-              )}
-              {upNext?.kind === "cut" && (
-                <button type="button" className="btn bg-mint text-prussian hover:bg-white" onClick={() => setCutOpen(upNext.round.id)}>
-                  Review the {upNext.round.cutSize === null ? "" : `Top ${upNext.round.cutSize} `}cut after {upNext.round.name}
-                </button>
-              )}
-              {!upNext && <p className="font-semibold">Every sub-activity is judged and every cut confirmed. End the session when you&apos;re ready.</p>}
-            </div>
-          ) : (
-            <>
-              <div tabIndex={0} role="region" aria-label="Judges" className="@container mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-3">
-                <ul className="grid gap-2 @sm:grid-cols-2 @2xl:grid-cols-4">
-                  {judges.map((j) => (
-                    <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={entry ? scoredBy.has(j.id) : null} stacked />
-                  ))}
-                </ul>
-              </div>
-
-              {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
-              <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
-                {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
-                <p role="status" className="line-clamp-2 min-w-48 flex-1 leading-snug font-semibold">
-                  {entry &&
-                    (allIn
-                      ? next
-                        ? `Every judge has scored ${entry.name}.`
-                        : `Every judge has scored ${entry.name}. That was the last entry.`
-                      : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${names(stillScoring)}.`)}
+      <PdfHold value={held}>
+        <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
+          <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-2xl bg-prussian text-mint">
+            {offline}
+            <div className="flex items-start justify-between gap-4 px-6 pt-4">
+              <div className="min-w-0 flex-1">
+                <h2 id="desk-heading" className="text-sm text-powder">
+                  {round && <span className="font-semibold text-mint">{round.name} · </span>}
+                  {entry
+                    ? entry.number
+                      ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
+                      : `Now judging: No. ${index + 1} of ${entries.length}`
+                    : between
+                      ? "Between sub-activities"
+                      : "On judges' screens"}
+                </h2>
+                <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-bold text-balance wrap-anywhere">
+                  {entry ? entry.name : between ? "Choose what to judge next" : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
                 </p>
-                {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
-                {previous ? (
-                  moveControl({
-                    target: previous,
-                    kind: "previous",
-                    label: (
-                      <>
-                        {kbd("←")}
-                        {pageant ? "Previous candidate" : "Previous entry"}
-                      </>
-                    ),
-                    className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
-                    title: `Go back to ${previous.name}?`,
-                    confirmLabel: "Go back anyway",
-                    keyShortcuts: "ArrowLeft",
-                  })
-                ) : (
-                  <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
-                    {pageant ? "Previous candidate" : "Previous entry"}
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
+                {(!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+              </div>
+            </div>
+            {round && <DeskTimer activity={activity} round={round} renderedAt={renderedAt} />}
+            {/* A success ("The session has ended…") is what the desk now shows anyway, so it's announced, not repeated on screen. */}
+            <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
+            <CorrectionsPanel activityId={activity.id} corrections={corrections} onDark />
+
+            {between ? (
+              <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
+                <p className="max-w-xl text-[15px] leading-relaxed text-powder">
+                  Judges are waiting. Pick a sub-activity from the program to put its candidates on their screens.
+                </p>
+                {upNext?.kind === "round" && (
+                  <JudgeRoundButton board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" label={`Judge ${upNext.round.name}`} onDone={setResult} />
+                )}
+                {upNext?.kind === "cut" && (
+                  <button type="button" className="btn bg-mint text-prussian hover:bg-white" onClick={() => setCutOpen(upNext.round.id)}>
+                    Review the {upNext.round.cutSize === null ? "" : `Top ${upNext.round.cutSize} `}cut after {upNext.round.name}
                   </button>
                 )}
-                {lastOneIn ? (
-                  (pageantNext ?? endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full"))
-                ) : next ? (
-                  moveControl({
-                    target: next,
-                    kind: "next",
-                    label: (
-                      <>
-                        <span className="truncate">{entry ? `Show next ${noun}: ${next.name}` : `Show first ${noun}`}</span>
-                        {kbd("→")}
-                      </>
-                    ),
-                    className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
-                    title: `Move on to ${next.name}?`,
-                    confirmLabel: "Move on anyway",
-                    keyShortcuts: "ArrowRight Space",
-                  })
-                ) : (
-                  <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
-                    {entry ? (pageant ? "No more candidates" : "No more entries") : pageant ? "No candidates" : "No entries yet"}
-                  </button>
-                )}
-                {moveError && (
-                  <p role="alert" className="basis-full text-sm font-semibold text-danger-soft max-sm:order-3">
-                    {moveError}
-                  </p>
-                )}
+                {!upNext && <p className="font-semibold">Every sub-activity is judged and every cut confirmed. End the session when you&apos;re ready.</p>}
               </div>
-            </>
-          )}
-        </section>
-
-        <aside aria-label="Running order and screens" className="flex min-h-0 flex-col gap-4">
-          {pageant && (
-            <div className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto">
-              <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />
-            </div>
-          )}
-          {runningOrder(true)}
-
-          <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
-            <h2 id="screens" className="text-base font-bold">
-              Screens
-            </h2>
-            <div className="mt-1.5 space-y-1">
-              <RankingSwitch activity={activity} compact />
-              <div className="flex items-center gap-1">
-                <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
-                <CopyButton value={liveUrl} className={textAction} />
-                <a href={liveUrl} target="_blank" rel="noreferrer" className={textAction}>
-                  Open<span className="sr-only"> live results</span>
-                </a>
-                <button type="button" className={textAction} aria-expanded={showQr} onClick={() => setShowQr((v) => !v)}>
-                  QR<span className="sr-only"> code for live results</span>
-                </button>
-              </div>
-              {showQr && (
-                <div className="pb-1">
-                  <Qr svg={liveQr} label="QR code for the live results page" />
+            ) : (
+              <>
+                <div tabIndex={0} role="region" aria-label="Judges" className="@container mt-3 min-h-0 flex-1 overflow-y-auto px-6 pb-3">
+                  <ul className="grid gap-2 @sm:grid-cols-2 @2xl:grid-cols-4">
+                    {judges.map((j) => (
+                      <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={entry ? scoredBy.has(j.id) : null} stacked />
+                    ))}
+                  </ul>
                 </div>
-              )}
-              <div className="flex items-center gap-1">
-                <Link
-                  href={`/admin/${activity.id}?tab=led`}
-                  scroll={false}
-                  className="tap-target min-w-0 flex-1 truncate hover:underline"
-                  title="Change the LED wall's display"
-                >
-                  <span className="font-semibold">LED wall</span>{" "}
-                  <span className="text-prussian/70">
-                    {activity.ledFullscreen ? "full screen" : "lower third"}
-                    {activity.ledAnonymous && ", anonymous judges"}
-                  </span>
-                </Link>
-                <CopyButton value={ledUrl} className={textAction} />
-                <a href={ledUrl} target="_blank" rel="noreferrer" className={textAction}>
-                  Open<span className="sr-only"> LED wall</span>
-                </a>
-              </div>
-              {progress.complete && !pageant && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
-                  <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
-                  <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
-                  <p className="text-[13px]">
-                    Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
+
+                {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
+                <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
+                  {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
+                  <p role="status" className="line-clamp-2 min-w-48 flex-1 leading-snug font-semibold">
+                    {entry &&
+                      (allIn
+                        ? next
+                          ? `Every judge has scored ${entry.name}.`
+                          : `Every judge has scored ${entry.name}. That was the last entry.`
+                        : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${names(stillScoring)}.`)}
                   </p>
+                  {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
+                  {previous ? (
+                    moveControl({
+                      target: previous,
+                      kind: "previous",
+                      label: (
+                        <>
+                          {kbd("←")}
+                          {pageant ? "Previous candidate" : "Previous entry"}
+                        </>
+                      ),
+                      className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
+                      title: `Go back to ${previous.name}?`,
+                      confirmLabel: "Go back anyway",
+                      keyShortcuts: "ArrowLeft",
+                    })
+                  ) : (
+                    <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
+                      {pageant ? "Previous candidate" : "Previous entry"}
+                    </button>
+                  )}
+                  {lastOneIn ? (
+                    (pageantNext ?? endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full"))
+                  ) : next ? (
+                    moveControl({
+                      target: next,
+                      kind: "next",
+                      label: (
+                        <>
+                          <span className="truncate">{entry ? `Show next ${noun}: ${next.name}` : `Show first ${noun}`}</span>
+                          {kbd("→")}
+                        </>
+                      ),
+                      className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
+                      title: `Move on to ${next.name}?`,
+                      confirmLabel: "Move on anyway",
+                      keyShortcuts: "ArrowRight Space",
+                    })
+                  ) : (
+                    <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
+                      {entry ? (pageant ? "No more candidates" : "No more entries") : pageant ? "No candidates" : "No entries yet"}
+                    </button>
+                  )}
+                  {moveError && (
+                    <p role="alert" className="basis-full text-sm font-semibold text-danger-soft max-sm:order-3">
+                      {moveError}
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </section>
-        </aside>
-        {cutDialog}
-      </div>
+
+          <aside aria-label="Running order and screens" className="flex min-h-0 flex-col gap-4">
+            {pageant && (
+              <div className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto">
+                <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />
+              </div>
+            )}
+            {runningOrder(true)}
+
+            <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
+              <h2 id="screens" className="text-base font-bold">
+                Screens
+              </h2>
+              <div className="mt-1.5 space-y-1">
+                <RankingSwitch activity={activity} compact />
+                <div className="flex items-center gap-1">
+                  <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
+                  <CopyButton value={liveUrl} className={textAction} />
+                  <a href={liveUrl} target="_blank" rel="noreferrer" className={textAction}>
+                    Open<span className="sr-only"> live results</span>
+                  </a>
+                  <button type="button" className={textAction} aria-expanded={showQr} onClick={() => setShowQr((v) => !v)}>
+                    QR<span className="sr-only"> code for live results</span>
+                  </button>
+                </div>
+                {showQr && (
+                  <div className="pb-1">
+                    <Qr svg={liveQr} label="QR code for the live results page" />
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <Link
+                    href={`/admin/${activity.id}?tab=led`}
+                    scroll={false}
+                    className="tap-target min-w-0 flex-1 truncate hover:underline"
+                    title="Change the LED wall's display"
+                  >
+                    <span className="font-semibold">LED wall</span>{" "}
+                    <span className="text-prussian/70">
+                      {activity.ledFullscreen ? "full screen" : "lower third"}
+                      {activity.ledAnonymous && ", anonymous judges"}
+                    </span>
+                  </Link>
+                  <CopyButton value={ledUrl} className={textAction} />
+                  <a href={ledUrl} target="_blank" rel="noreferrer" className={textAction}>
+                    Open<span className="sr-only"> LED wall</span>
+                  </a>
+                </div>
+                {progress.complete && !pageant && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
+                    <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
+                    <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
+                    <p className="text-[13px]">
+                      Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          </aside>
+          {cutDialog}
+        </div>
+      </PdfHold>
     );
   }
 
   return (
-    <div className="max-w-4xl space-y-10">
-      <div className="space-y-4">
-        {/*
-         * The control desk carries the whole show: who is ready before it starts, who has scored while it runs,
-         * and the official results once it ends. It looks like the judges' screens, so it keeps their colours in dark mode.
-         */}
-        {state === "draft" && (
-          <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
-            {offline}
-            <div className="px-6 pt-6 pb-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <h2 id="desk-heading" className="text-powder">
-                    Before you start
-                  </h2>
-                  <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-bold text-balance">
-                    {judges.length === 0
-                      ? "Add judges to get started"
-                      : unpaired.length === 0
-                        ? "Every judge has an approved device"
-                        : `${judges.length - unpaired.length} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} an approved device`}
-                  </p>
+    <PdfHold value={held}>
+      <div className="max-w-4xl space-y-10">
+        <div className="space-y-4">
+          <CorrectionsPanel activityId={activity.id} corrections={corrections} />
+          {/*
+           * The control desk carries the whole show: who is ready before it starts, who has scored while it runs,
+           * and the official results once it ends. It looks like the judges' screens, so it keeps their colours in dark mode.
+           */}
+          {state === "draft" && (
+            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+              {offline}
+              <div className="px-6 pt-6 pb-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h2 id="desk-heading" className="text-powder">
+                      Before you start
+                    </h2>
+                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-bold text-balance">
+                      {judges.length === 0
+                        ? "Add judges to get started"
+                        : unpaired.length === 0
+                          ? "Every judge has an approved device"
+                          : `${judges.length - unpaired.length} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} an approved device`}
+                    </p>
+                  </div>
+                  <DeskConnection status={connection} renderedAt={renderedAt} className="shrink-0 pt-1 text-powder" />
                 </div>
-                <DeskConnection status={connection} renderedAt={renderedAt} className="shrink-0 pt-1 text-powder" />
+                <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
+                {judges.length > 0 && (
+                  <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+                    {judges.map((j) => (
+                      <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
+                    ))}
+                  </ul>
+                )}
               </div>
-              <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-              {judges.length > 0 && (
-                <ul className="mt-5 grid gap-2 sm:grid-cols-2">
-                  {judges.map((j) => (
-                    <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-              <p className="min-w-56 flex-1 text-[15px] text-powder">
-                {entries.length} {pageant ? (entries.length === 1 ? "candidate" : "candidates") : entries.length === 1 ? "entry" : "entries"} in the running
-                order.{" "}
-                {judges.length === 0 ? (
-                  <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
-                    Add judges
-                  </Link>
-                ) : (
-                  <>
-                    Judges&apos; codes and QR codes are on the{" "}
-                    <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
-                      Judge devices
-                    </Link>{" "}
-                    tab.
-                  </>
-                )}
-              </p>
-              <ConfirmDialog
-                triggerLabel="Start session"
-                triggerClassName="btn shrink-0 bg-mint text-prussian hover:bg-white"
-                title="Start judging?"
-                confirmLabel="Start session"
-                onConfirm={() => changeState("live")}
-              >
-                {pageant
-                  ? "Judges' screens open, and the judges, running order and program lock. Choose the first sub-activity to judge when you're ready."
-                  : "Judges' screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when you're ready."}
-                {judges.length > 0 && unpaired.length > 0 && (
-                  <span className="mt-3 block font-semibold text-prussian">
-                    {names(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
-                  </span>
-                )}
-              </ConfirmDialog>
-            </div>
-          </section>
-        )}
-
-        {state === "ended" && (
-          <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
-            <div className="px-6 pt-6 pb-6">
-              <div className="flex items-start justify-between gap-4">
-                <h2 id="desk-heading" className="text-powder">
-                  Judging has ended
-                </h2>
-                {/* Ending took a password; reopening at least asks, because it reopens the official record. */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
+                <p className="min-w-56 flex-1 text-[15px] text-powder">
+                  {entries.length} {pageant ? (entries.length === 1 ? "candidate" : "candidates") : entries.length === 1 ? "entry" : "entries"} in the running
+                  order.{" "}
+                  {judges.length === 0 ? (
+                    <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
+                      Add judges
+                    </Link>
+                  ) : (
+                    <>
+                      Judges&apos; codes and QR codes are on the{" "}
+                      <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
+                        Judge devices
+                      </Link>{" "}
+                      tab.
+                    </>
+                  )}
+                </p>
                 <ConfirmDialog
-                  triggerLabel="Reopen session"
-                  triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
-                  title="Reopen the session?"
-                  confirmLabel="Reopen session"
+                  triggerLabel="Start session"
+                  triggerClassName="btn shrink-0 bg-mint text-prussian hover:bg-white"
+                  title="Start judging?"
+                  confirmLabel="Start session"
                   onConfirm={() => changeState("live")}
                 >
-                  Judges can score again, and entries can be changed. If a new score comes in, the report ID changes, so a results PDF you&apos;ve
-                  already downloaded or printed won&apos;t match anymore.
+                  {pageant
+                    ? "Judges' screens open, and the judges, running order and program lock. Choose the first sub-activity to judge when you're ready."
+                    : "Judges' screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when you're ready."}
+                  {judges.length > 0 && unpaired.length > 0 && (
+                    <span className="mt-3 block font-semibold text-prussian">
+                      {names(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
+                    </span>
+                  )}
                 </ConfirmDialog>
               </div>
-              <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-              {progress.complete && pageant ? (
-                <>
-                  <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
-                  <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                    Download each sub-activity&apos;s results, the cuts and the final results from the program below. Each sheet has its own report ID.
-                  </p>
-                </>
-              ) : progress.complete ? (
-                <>
-                  <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
-                  <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
-                  <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
-                  <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                    Printed on the results PDF and on each judge&apos;s score sheet. The ID changes if any score changes, so anyone can check a printed sheet
-                    against this screen.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
-                    {missing} {missing === 1 ? "score is" : "scores are"} missing
-                  </p>
-                  <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                    {pageant
-                      ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
-                      : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
-                  </p>
-                </>
-              )}
-            </div>
-            {progress.complete && !pageant && (
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-                <div className="flex flex-wrap gap-3">
-                  <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white max-sm:w-full" />
-                  <DownloadResults activityId={activity.id} sheets className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
+            </section>
+          )}
+
+          {state === "ended" && (
+            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+              <div className="px-6 pt-6 pb-6">
+                <div className="flex items-start justify-between gap-4">
+                  <h2 id="desk-heading" className="text-powder">
+                    Judging has ended
+                  </h2>
+                  {/* Ending took a password; reopening at least asks, because it reopens the official record. */}
+                  <ConfirmDialog
+                    triggerLabel="Reopen session"
+                    triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
+                    title="Reopen the session?"
+                    confirmLabel="Reopen session"
+                    onConfirm={() => changeState("live")}
+                  >
+                    Judges can score again, and entries can be changed. If a new score comes in, the report ID changes, so a results PDF you&apos;ve
+                    already downloaded or printed won&apos;t match anymore.
+                  </ConfirmDialog>
                 </div>
-                {signatories && (
-                  <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
-                    {signatories.length > 0
-                      ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
-                      : "No signatories yet, so the PDFs print one blank Tabulator line."}{" "}
-                    <Link href="/admin/profile" className="font-semibold text-mint underline underline-offset-2">
-                      Edit signatories
-                    </Link>
-                  </p>
+                <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
+                {progress.complete && pageant ? (
+                  <>
+                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
+                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
+                      Download each sub-activity&apos;s results, the cuts and the final results from the program below. Each sheet has its own report ID.
+                    </p>
+                  </>
+                ) : progress.complete ? (
+                  <>
+                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
+                    <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
+                    <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
+                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
+                      Printed on the results PDF and on each judge&apos;s score sheet. The ID changes if any score changes, so anyone can check a printed sheet
+                      against this screen.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
+                      {missing} {missing === 1 ? "score is" : "scores are"} missing
+                    </p>
+                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
+                      {pageant
+                        ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
+                        : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
+                    </p>
+                  </>
                 )}
               </div>
-            )}
-          </section>
-        )}
-      </div>
-
-      {pageant && <ProgramPanel board={board} live={false} onReviewCut={setCutOpen} />}
-      {runningOrder(false)}
-      {cutDialog}
-
-      <section aria-labelledby="live-results">
-        <h2 id="live-results" className="font-bold">
-          Public live results
-        </h2>
-        <LinkField url={liveUrl} openLabel="live results" className="mt-3" />
-        <div className="mt-5 flex flex-wrap items-start gap-x-10 gap-y-6">
-          <Qr svg={liveQr} label="QR code for the live results page" />
-          <div className="min-w-60 flex-1 pt-1">
-            <RankingSwitch activity={activity} />
-            <p className="hint mt-2 max-w-sm">With ranks off, entries stay in running order, so you can hold the standings back until the reveal.</p>
-          </div>
+              {progress.complete && !pageant && (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
+                  <div className="flex flex-wrap gap-3">
+                    <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white max-sm:w-full" />
+                    <DownloadResults activityId={activity.id} sheets className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
+                  </div>
+                  {signatories && (
+                    <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
+                      {signatories.length > 0
+                        ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
+                        : "No signatories yet, so the PDFs print one blank Tabulator line."}{" "}
+                      <Link href="/admin/profile" className="font-semibold text-mint underline underline-offset-2">
+                        Edit signatories
+                      </Link>
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
         </div>
-      </section>
 
-      <section aria-labelledby="led-wall">
-        <h2 id="led-wall" className="font-bold">
-          LED wall
-        </h2>
-        <LinkField url={ledUrl} openLabel="LED wall" className="mt-3" />
-        <p className="hint mt-2">
-          Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"}.
-          {activity.ledAnonymous && " Judges stay anonymous."}{" "}
-          <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
-            Change the display
-          </Link>
-        </p>
-      </section>
-    </div>
+        {pageant && <ProgramPanel board={board} live={false} onReviewCut={setCutOpen} />}
+        {runningOrder(false)}
+        {cutDialog}
+
+        <section aria-labelledby="live-results">
+          <h2 id="live-results" className="font-bold">
+            Public live results
+          </h2>
+          <LinkField url={liveUrl} openLabel="live results" className="mt-3" />
+          <div className="mt-5 flex flex-wrap items-start gap-x-10 gap-y-6">
+            <Qr svg={liveQr} label="QR code for the live results page" />
+            <div className="min-w-60 flex-1 pt-1">
+              <RankingSwitch activity={activity} />
+              <p className="hint mt-2 max-w-sm">With ranks off, entries stay in running order, so you can hold the standings back until the reveal.</p>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="led-wall">
+          <h2 id="led-wall" className="font-bold">
+            LED wall
+          </h2>
+          <LinkField url={ledUrl} openLabel="LED wall" className="mt-3" />
+          <p className="hint mt-2">
+            Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"}.
+            {activity.ledAnonymous && " Judges stay anonymous."}{" "}
+            <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
+              Change the display
+            </Link>
+          </p>
+        </section>
+      </div>
+    </PdfHold>
   );
 }

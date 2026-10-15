@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
+import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
 import type { Activity, Criterion, Entry, Judge } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { leavePortal, moveToEntry, requestApproval, submitScore } from "../actions";
+import { leavePortal, moveToEntry, requestApproval, requestCorrection, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
 import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
@@ -27,6 +28,8 @@ type Props = {
   myScores: { entryId: string; value: number }[];
   /** The judge's notes, by entry id; null when there are none to show (not approved yet, or before migration 018). */
   notes: Record<string, string> | null;
+  /** Score corrections; null when judges can't ask for them (not approved yet, or before migration 019). */
+  corrections: Corrections | null;
   gate: DeviceGate;
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
@@ -71,6 +74,18 @@ function myScoreText(value: number, activity: Activity): string {
 }
 
 /**
+ * Score corrections on this judge's screen: the ones waiting for their vote (oldest first), their own latest one on the
+ * entry on screen, whether other judges (or, for a judge alone on their panel, the organizer) decide theirs, and the
+ * points per criterion they gave the entry on screen, to start a correction from.
+ */
+export type Corrections = {
+  toVote: CorrectionView[];
+  mine: CorrectionView | null;
+  othersVote: boolean;
+  fromBreakdown: Record<string, number> | null;
+};
+
+/**
  * A score the judge has confirmed, waiting out its undo window before it goes to the server. `typed`: what the keypad
  * sends (the score, or each criterion's points). `sending`: the window is over and it's on its way.
  */
@@ -93,12 +108,13 @@ type Submission = {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, panel, round, serverNow, offPanel = false }: Props) {
+export function ScoringPanel({ activity, judge, entries, myScores, notes, corrections, gate, panel, round, serverNow, offPanel = false }: Props) {
   const pageant = activity.kind === "pageant";
   const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
-  // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
+  // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back. Once the page
+  // has a score, its value wins: a correction can change it.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
-  const scores = new Map([...myScores.map((s) => [s.entryId, s.value] as const), ...justSaved]);
+  const scores = new Map([...justSaved, ...myScores.map((s) => [s.entryId, s.value] as const)]);
   // Off the panel of the sub-activity on screen: nothing to score until their part comes up.
   const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(activity, entries, scores);
   const [saved, setSaved] = useState<{ name: string; value: string } | null>(null);
@@ -144,6 +160,10 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, 
   });
 
   const currentId = approved && (view.kind === "scoring" || view.kind === "scored") ? view.entry.id : null;
+  // Correcting the score on screen: the keypad comes back, starting from what they gave.
+  const [correctingFor, setCorrectingFor] = useState<string | null>(null);
+  const correcting = corrections && view.kind === "scored" && correctingFor === view.entry.id;
+  const idle: Submission = { submit: () => {}, busy: false, error: null };
 
   // Notes on the entry on screen: beside the keypad on a wide screen, under the entry's name otherwise. Notes saved here
   // are remembered until the refreshed page has them.
@@ -267,6 +287,20 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, 
 
           {!approved ? (
             <DeviceGateCard gate={gate} />
+          ) : correcting ? (
+            (() => {
+              const fix: Correcting = {
+                from: view.value,
+                fromBreakdown: corrections.fromBreakdown,
+                othersVote: corrections.othersVote,
+                onDone: () => setCorrectingFor(null),
+              };
+              return activity.scoringMode === "criteria" ? (
+                <CriteriaKeypad key={`${view.entry.id}-fix`} activity={activity} entry={view.entry} number={view.number} submission={idle} correcting={fix} />
+              ) : (
+                <Keypad key={`${view.entry.id}-fix`} activity={activity} entry={view.entry} number={view.number} submission={idle} correcting={fix} />
+              );
+            })()
           ) : view.kind === "scoring" ? (
             activity.scoringMode === "criteria" ? (
               <CriteriaKeypad
@@ -293,7 +327,20 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, 
             )
           ) : (
             <div className="my-auto flex w-full max-w-md flex-col items-center lg:max-w-lg">
-              <WaitingCard view={view} judge={judge} activity={activity} round={round} scoredCount={scores.size} movesEntries={!!panel} offPanel={offPanel} />
+              <WaitingCard
+                view={view}
+                judge={judge}
+                activity={activity}
+                round={round}
+                scoredCount={scores.size}
+                movesEntries={!!panel}
+                offPanel={offPanel}
+                correction={
+                  corrections && view.kind === "scored" ? (
+                    <CorrectionStatus mine={corrections.mine} othersVote={corrections.othersVote} onAsk={() => setCorrectingFor(view.entry.id)} />
+                  ) : null
+                }
+              />
               {view.kind === "scored" && inlineNotes && <div className="mt-6 w-full">{inlineNotes}</div>}
               {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
                 <EntryControls activity={activity} entries={entries} panel={panel} />
@@ -304,6 +351,156 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, 
         {noteStore && wide && <NotesBeside entry={noteEntry} notes={noteStore} />}
       </div>
       {pending && <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />}
+      {/* Another judge's correction waits for this judge's vote: it can't be put off. */}
+      {corrections && corrections.toVote.length > 0 && <CorrectionVote key={corrections.toVote[0].id} view={corrections.toVote[0]} />}
+    </div>
+  );
+}
+
+/**
+ * Another judge asks to change their score: this judge sees the score, the new one and the reason, and agrees or
+ * disagrees. It can't be closed without a vote (Escape reopens it), and the vote is final.
+ */
+function CorrectionVote({ view }: { view: CorrectionView }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  // Focus starts on the question, so neither answer is one Enter away.
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [pending, startTransition] = useTransition();
+  const [voted, setVoted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ref.current?.open) ref.current?.showModal();
+    titleRef.current?.focus();
+  }, []);
+  const vote = (agree: boolean) =>
+    startTransition(async () => {
+      setError(null);
+      const result = await voteOnCorrection(view.id, agree).catch(() => ({ ok: false as const, error: "Your vote didn't go through. Check your connection and try again." }));
+      if (result.ok) setVoted(true);
+      else setError(result.error);
+    });
+  const where = view.roundName ? ` in ${view.roundName}` : "";
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="vote-title"
+      aria-describedby="vote-rule"
+      onCancel={(e) => e.preventDefault()}
+      onClose={() => {
+        if (!voted) ref.current?.showModal();
+      }}
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto rounded-3xl bg-mint p-0 text-prussian shadow-2xl"
+    >
+      <div className="px-6 pt-6 pb-5">
+        <p className="text-sm font-semibold text-regal">Score correction · your vote</p>
+        <h2 id="vote-title" ref={titleRef} tabIndex={-1} className="mt-1 text-xl leading-snug font-bold text-balance focus:outline-none">
+          {view.judgeName} asks to change their score for No. {view.entryNumber} {view.entryName}
+          {where}
+        </h2>
+        <FromTo from={view.fromNumber} to={view.toNumber} />
+        {view.outOf100 && <p className="text-center text-sm text-prussian/75">out of 100</p>}
+        {view.criteria.length > 0 && (
+          <ol aria-label="Points for each criterion, before and after" className="mt-4 space-y-1 text-left">
+            {view.criteria.map((c) => (
+              <li key={c.name} className={`flex items-baseline gap-3 rounded-lg px-3 py-1.5 ${c.changed ? "bg-white font-semibold ring-1 ring-regal/40" : ""}`}>
+                <span className="min-w-0 flex-1">{c.name}</span>
+                <span className="tabular">
+                  {c.changed ? (
+                    <>
+                      {c.from} <span aria-hidden>→</span>
+                      <span className="sr-only"> to </span> {c.to}
+                    </>
+                  ) : (
+                    c.to
+                  )}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <blockquote className="mt-4 rounded-xl bg-white px-4 py-3 text-left">
+          <p className="text-sm text-prussian/70">Why</p>
+          <p className="mt-0.5 whitespace-pre-line">{view.reason}</p>
+        </blockquote>
+        <p id="vote-rule" className="mt-3 text-sm text-prussian/75">
+          It changes only if every other judge agrees; one disagreeing keeps the score as it is. Your vote is final.
+        </p>
+        {error && (
+          <p role="alert" className="mt-3 font-semibold text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3 px-6 pb-6">
+        <button type="button" disabled={pending || voted} onClick={() => vote(false)} className="btn btn-quiet h-auto min-h-14 flex-col gap-0 rounded-xl py-2 text-lg">
+          Disagree
+          <span className="tabular text-sm font-normal">Keep {view.from}</span>
+        </button>
+        <button type="button" disabled={pending || voted} onClick={() => vote(true)} className="btn btn-primary h-auto min-h-14 flex-col gap-0 rounded-xl py-2 text-lg">
+          {voted ? "Vote sent" : "Agree"}
+          {!voted && <span className="tabular text-sm font-normal">Change to {view.to}</span>}
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+/**
+ * Under a judge's submitted score: their correction waiting for votes (with Withdraw), how their last one ended, and
+ * a way to ask for one.
+ */
+function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | null; othersVote: boolean; onAsk: () => void }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  if (mine?.status === "open") {
+    return (
+      <div className="mt-5 rounded-xl bg-oxford px-4 py-3 text-left">
+        <p className="font-semibold">
+          You asked to change it to <span className="tabular">{mine.to}</span>.
+        </p>
+        <p className="mt-1 text-sm text-powder">
+          {othersVote
+            ? `${mine.agreed} of ${mine.voters} ${mine.voters === 1 ? "judge has" : "judges have"} agreed. It changes only if every one of them agrees.`
+            : "Waiting for the organizer to approve it."}
+        </p>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              setError(null);
+              const result = await withdrawCorrection(mine.id).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
+              if (!result.ok) setError(result.error);
+            })
+          }
+          className="btn btn-sm mt-3 border border-regal text-mint hover:bg-regal"
+        >
+          Withdraw it
+        </button>
+        {error && (
+          <p role="alert" className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`}>
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-5">
+      {mine?.status === "approved" && (
+        <p className="text-sm font-semibold">
+          Corrected from <span className="tabular">{mine.from}</span>: {mine.decidedBy === "organizer" ? "the organizer approved it." : "every other judge agreed."}
+        </p>
+      )}
+      {mine?.status === "rejected" && (
+        <p className="text-sm text-powder">
+          Your correction to <span className="tabular">{mine.to}</span> wasn&apos;t accepted{mine.decidedBy === "organizer" ? " by the organizer" : ": a judge disagreed"}, so
+          this score stands.
+        </p>
+      )}
+      <button type="button" onClick={onAsk} className="btn mt-3 border border-regal text-mint hover:bg-regal">
+        Ask to correct this score
+      </button>
     </div>
   );
 }
@@ -400,8 +597,11 @@ function WaitingCard({
   scoredCount,
   movesEntries,
   offPanel,
+  correction,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
+  /** Under a submitted score: asking for a correction, or how one stands (null before migration 019). */
+  correction?: React.ReactNode;
   judge: Judge;
   activity: Activity;
   round: Props["round"];
@@ -444,7 +644,10 @@ function WaitingCard({
             No. {view.number} {view.entry.name}
           </p>
           <p className="tabular mt-2 text-6xl font-bold">{myScoreText(view.value, activity)}</p>
-          <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>
+          <p className="mt-2 text-sm text-powder">
+            {correction ? "Submitted. If it's wrong, you can ask to correct it." : "Submitted. Scores can't be changed after submitting."}
+          </p>
+          {correction}
         </div>
       )}
       {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
@@ -607,11 +810,19 @@ function ConfirmScore({
   dialogRef,
   entry,
   onConfirm,
+  title = `Submit this score for ${entry.name}?`,
+  note = `After submitting you have ${SCORE_UNDO_MS / 1000} seconds to undo. Then it's final.`,
+  confirmLabel = "Submit",
+  confirmDisabled = false,
   children,
 }: {
   dialogRef: React.RefObject<HTMLDialogElement | null>;
   entry: Entry;
   onConfirm: () => void;
+  title?: string;
+  note?: string;
+  confirmLabel?: string;
+  confirmDisabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -622,20 +833,111 @@ function ConfirmScore({
     >
       <div className="px-6 pt-7 pb-6 text-center">
         <h2 id="confirm-title" className="text-lg font-semibold">
-          Submit this score for {entry.name}?
+          {title}
         </h2>
         {children}
-        <p className="mt-3 text-prussian/75">After submitting you have {SCORE_UNDO_MS / 1000} seconds to undo. Then it&apos;s final.</p>
+        <p className="mt-3 text-prussian/75">{note}</p>
       </div>
       <div className="grid grid-cols-2 gap-3 px-6 pb-6">
         <button type="button" className="btn btn-quiet h-14 rounded-xl text-lg" onClick={() => dialogRef.current?.close()} autoFocus>
           Go back
         </button>
-        <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm}>
-          Submit
+        <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm} disabled={confirmDisabled}>
+          {confirmLabel}
         </button>
       </div>
     </dialog>
+  );
+}
+
+/**
+ * Correcting a submitted score: what was given (with criteria, each criterion's points, which the keypad starts from),
+ * whether other judges or the organizer decide, and what to do once it's asked for or cancelled.
+ */
+type Correcting = { from: number; fromBreakdown: Record<string, number> | null; othersVote: boolean; onDone: () => void };
+
+/** Sending a correction request from the confirmation: the reason, whether it's on its way, and why it didn't go. */
+function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, dialogRef: React.RefObject<HTMLDialogElement | null>) {
+  const [reason, setReason] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ask = async (typed: string | Record<string, string>) => {
+    if (!correcting || asking) return;
+    setAsking(true);
+    setError(null);
+    const result = await requestCorrection(entry.id, typed, reason).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
+    setAsking(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    dialogRef.current?.close();
+    correcting.onDone();
+  };
+  const dialog = correcting
+    ? {
+        title: `Ask to change your score for ${entry.name}?`,
+        note: correcting.othersVote
+          ? "Every other judge has to agree before it changes. They'll see your score, this one and your reason."
+          : "The organizer has to approve it before it changes.",
+        confirmLabel: asking ? "Asking…" : correcting.othersVote ? "Ask the judges" : "Ask the organizer",
+        confirmDisabled: asking || !reason.trim(),
+      }
+    : {};
+  return { reason, setReason, error, ask, dialog };
+}
+
+/** The reason a correction is asked for, required: the other judges decide on it. */
+function ReasonField({ value, onChange, error }: { value: string; onChange: (value: string) => void; error: string | null }) {
+  const id = useId();
+  return (
+    <div className="mt-4 text-left">
+      <label htmlFor={id} className="text-sm font-semibold">
+        Why does it need correcting?
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={MAX_CORRECTION_REASON}
+        rows={2}
+        required
+        placeholder="e.g. I typed 59 instead of 95."
+        className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-[15px] leading-relaxed text-prussian placeholder:text-prussian/50"
+      />
+      {error && (
+        <p role="alert" className="mt-2 text-sm font-semibold text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The score before and after, large. */
+function FromTo({ from, to }: { from: string; to: string }) {
+  return (
+    <p className="tabular mt-3 flex items-baseline justify-center gap-3">
+      <span className="text-3xl font-bold text-prussian/60">{from}</span>
+      <span aria-hidden className="text-2xl text-prussian/60">
+        →
+      </span>
+      <span className="sr-only">to</span>
+      <span className="text-5xl font-bold text-regal">{to}</span>
+    </p>
+  );
+}
+
+/** Above the keypad: the entry being judged, or the one whose score is being corrected (with Cancel). */
+function KeypadHeading({ number, correcting }: { number: number; correcting?: Correcting }) {
+  if (!correcting) return <p className="text-powder">Now judging: No. {number}</p>;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <p className="font-semibold text-powder">Correcting your score: No. {number}</p>
+      <button type="button" onClick={correcting.onDone} className="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint">
+        Cancel
+      </button>
+    </div>
   );
 }
 
@@ -643,6 +945,8 @@ type KeypadProps = {
   activity: Activity;
   entry: Entry;
   number: number;
+  /** Correcting the judge's submitted score rather than scoring: asks the other judges (or the organizer) instead of submitting. */
+  correcting?: Correcting;
   /** The judge's notes on this entry, under its name (phones and narrow tablets). */
   notes?: React.ReactNode;
   submission: Submission;
@@ -655,7 +959,7 @@ type KeypadProps = {
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 
 /** Simple scoring: one score between min and max. */
-function Keypad({ activity, entry, number, notes, submission, timer, closed = false }: KeypadProps) {
+function Keypad({ activity, entry, number, notes, submission, timer, closed = false, correcting }: KeypadProps) {
   const [buffer, setBuffer] = useState("");
   const [error, setError] = useState<string | null>(null);
   // While the score waits out its undo window (or is on its way), the keypad holds still; Undo brings it back as it was.
@@ -677,9 +981,14 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
     if (!parsed.ok) setError(parsed.error);
     else dialogRef.current?.showModal();
   };
+  const request = useCorrectionRequest(entry, correcting, dialogRef);
   const confirm = () => {
     const parsed = parseScore(buffer, activity);
     if (busy || !parsed.ok) return;
+    if (correcting) {
+      void request.ask(buffer);
+      return;
+    }
     dialogRef.current?.close();
     setError(null);
     submission.submit(entry, buffer, parsed.value);
@@ -695,7 +1004,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
       {timer}
-      <p className="text-powder">Now judging: No. {number}</p>
+      <KeypadHeading number={number} correcting={correcting} />
       <h1 className="text-[clamp(1.6rem,4vw,2.5rem)] leading-tight font-bold text-balance">{entry.name}</h1>
       {notes}
 
@@ -726,7 +1035,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
             {tooHigh && !error && " Clear it and type a lower score."}
           </>
         ) : (
-          `Score from ${rangeLabel(activity)}, ${decimalsHint}.`
+          `Score from ${rangeLabel(activity)}, ${decimalsHint}.${correcting ? ` You gave ${formatScore(correcting.from, activity.decimals)}.` : ""}`
         )}
       </p>
 
@@ -738,20 +1047,31 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
         disabled={!typed.ok || busy || closed}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
-        Submit score
+        {correcting ? "Review correction" : "Submit score"}
       </button>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm}>
-        <p className="tabular mt-3 text-7xl font-bold text-regal">{typed.ok ? formatScore(typed.value, activity.decimals) : buffer}</p>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...request.dialog}>
+        {correcting ? (
+          <>
+            <FromTo from={formatScore(correcting.from, activity.decimals)} to={typed.ok ? formatScore(typed.value, activity.decimals) : buffer} />
+            <ReasonField value={request.reason} onChange={request.setReason} error={request.error} />
+          </>
+        ) : (
+          <p className="tabular mt-3 text-7xl font-bold text-regal">{typed.ok ? formatScore(typed.value, activity.decimals) : buffer}</p>
+        )}
       </ConfirmScore>
     </div>
   );
 }
 
 /** Criteria scoring: points for each criterion on the same keypad, totalling up to 100. */
-function CriteriaKeypad({ activity, entry, number, notes, submission, timer, closed = false }: KeypadProps) {
+function CriteriaKeypad({ activity, entry, number, notes, submission, timer, closed = false, correcting }: KeypadProps) {
   const { criteria, decimals } = activity;
-  const [values, setValues] = useState<Record<string, string>>({});
+  const given = correcting?.fromBreakdown ?? null;
+  const givenText = (id: string) => (given?.[id] === undefined ? "" : formatScore(given[id], decimals));
+  // A correction starts from the points given; the first key on a criterion replaces its old value.
+  const [values, setValues] = useState<Record<string, string>>(() => (given ? Object.fromEntries(criteria.map((c) => [c.id, givenText(c.id)])) : {}));
+  const [untouched, setUntouched] = useState<Set<string>>(() => new Set(given ? criteria.map((c) => c.id) : []));
   const [activeId, setActiveId] = useState(criteria[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const { busy } = submission;
@@ -775,11 +1095,13 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   const press = (key: Key) => {
     if (busy || !active) return;
     setError(null);
-    setValues((v) => ({ ...v, [active.id]: applyKey(v[active.id] ?? "", key, rulesFor(active)) }));
+    const fresh = untouched.has(active.id);
+    if (fresh) setUntouched((u) => new Set([...u].filter((id) => id !== active.id)));
+    setValues((v) => ({ ...v, [active.id]: applyKey(fresh ? "" : (v[active.id] ?? ""), key, rulesFor(active)) }));
   };
   const primary = () => {
     if (busy) return;
-    if (all.ok && closed) {
+    if (all.ok && closed && !correcting) {
       setError(TIME_UP);
       return;
     }
@@ -792,8 +1114,13 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
     if (!parsed.ok) setError(`${active.name}: ${parsed.error}`);
     else if (nextMissing) setActiveId(nextMissing.id);
   };
+  const request = useCorrectionRequest(entry, correcting, dialogRef);
   const confirm = () => {
     if (busy || !all.ok) return;
+    if (correcting) {
+      void request.ask(values);
+      return;
+    }
     dialogRef.current?.close();
     setError(null);
     submission.submit(entry, values, all.total);
@@ -816,7 +1143,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
       {timer}
-      <p className="text-powder">Now judging: No. {number}</p>
+      <KeypadHeading number={number} correcting={correcting} />
       <h1 className="text-[clamp(1.5rem,3.6vw,2.25rem)] leading-tight font-bold text-balance">{entry.name}</h1>
       {notes}
 
@@ -845,6 +1172,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
                 </span>
                 {c.guide && <GuideIcon className={isActive ? "text-mint/80" : "text-powder"} />}
                 {over && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too high</span>}
+                {given && value !== givenText(c.id) && <span className={`tabular text-sm ${isActive ? "text-mint/80" : "text-powder"}`}>was {givenText(c.id) || "–"}</span>}
                 {/* Light blue reads on the unselected rows; on the selected (brighter) one, the text colour does. */}
                 <span className={`tabular text-lg font-bold ${over ? ERROR_TEXT : ""}`}>
                   {value || <span className={isActive ? "text-mint/70" : "text-powder"}>–</span>}
@@ -930,14 +1258,42 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
       <button
         type="button"
         onClick={primary}
-        disabled={busy || (all.ok && closed) || (!all.ok && !isValid(active?.id ?? ""))}
+        disabled={busy || (all.ok && closed && !correcting) || (!all.ok && !isValid(active?.id ?? ""))}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
-        {all.ok ? "Submit score" : nextMissing ? `Next: ${nextMissing.name}` : "Submit score"}
+        {all.ok ? (correcting ? "Review correction" : "Submit score") : nextMissing ? `Next: ${nextMissing.name}` : "Submit score"}
       </button>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm}>
-        {all.ok && (
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...request.dialog}>
+        {all.ok && correcting && (
+          <>
+            <FromTo from={formatScore(correcting.from, decimals)} to={formatScore(all.total, decimals)} />
+            <p className="text-sm text-prussian/75">out of 100</p>
+            <ol aria-label="Points for each criterion, before and after" className="mt-3 max-h-[min(16rem,35dvh)] space-y-1 overflow-y-auto text-left">
+              {criteria.map((c) => {
+                const now = formatScore(all.breakdown[c.id], decimals);
+                const changed = now !== givenText(c.id);
+                return (
+                  <li key={c.id} className={`flex items-baseline gap-3 rounded-lg px-3 py-1.5 ${changed ? "bg-white font-semibold ring-1 ring-regal/40" : ""}`}>
+                    <span className="min-w-0 flex-1">{c.name}</span>
+                    <span className="tabular">
+                      {changed ? (
+                        <>
+                          {givenText(c.id) || "–"} <span aria-hidden>→</span>
+                          <span className="sr-only"> to </span> {now}
+                        </>
+                      ) : (
+                        now
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <ReasonField value={request.reason} onChange={request.setReason} error={request.error} />
+          </>
+        )}
+        {all.ok && !correcting && (
           <>
             <p className="mt-1 text-sm font-semibold text-prussian/80">Check each criterion before you submit.</p>
             {/* Each criterion lights up in turn, so a slip in any one of them gets a look. */}

@@ -22,7 +22,7 @@ LiveScoring is the tabulation for a judged event. Judges score each entry from t
 
 At most events today, judges fill in paper sheets and tabulators add them up in Excel. LiveScoring replaces both with one system, where every score is:
 
-- **Final and traceable:** a submitted score can't be changed, and the database rejects any attempt. Only an approved device per judge can score. The PDF's report ID changes if any score changes, and each judge's sign-off is recorded (Sgd.).
+- **Final and traceable:** a submitted score changes only when every other judge on the panel agrees to the judge's correction (or, for a judge alone on their panel, the organizer approves it), and the database rejects any other change; the results PDF lists every correction. Only an approved device per judge can score. The PDF's report ID changes if any score changes, and each judge's sign-off is recorded (Sgd.).
 - **On screen instantly:** the same score reaches the live results page, the LED wall and the broadcast lower third the moment the judge submits it.
 - **Usable cold:** judges and organizers who have never used it can run an event with no training.
 
