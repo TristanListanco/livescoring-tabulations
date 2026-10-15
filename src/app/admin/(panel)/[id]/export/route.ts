@@ -1,4 +1,4 @@
-import { getAdmin, getAdminBoard, getSignatories, withBreakdowns } from "@/lib/data";
+import { getActivityNotes, getAdmin, getAdminBoard, getSignatories, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
 import { renderJudgeSheetsPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
@@ -26,6 +26,11 @@ function sheetsName(...parts: string[]): string {
 
 /** ?sheet=judges: each judge's score sheet rather than the results. */
 const wantsJudgeSheets = (search: URLSearchParams) => search.get("sheet") === "judges";
+
+/** The judges' notes on an activity's entries, for their score sheets: "judgeId|entryId" to the note. */
+async function sheetNotes(activityId: string): Promise<Map<string, string>> {
+  return new Map((await getActivityNotes(activityId))?.map((n) => [`${n.judgeId}|${n.entryId}`, n.body]));
+}
 
 function pdfResponse(pdf: Buffer, name: string): Response {
   return new Response(new Uint8Array(pdf), {
@@ -72,7 +77,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const part = roundBoard(await withBreakdowns(board), round);
       // The results sheet's report ID: the two go together.
       const id = reportId({ ...roundBoard(board, round), deductions: undefined }, `round:${round.id}`);
-      const pdf = await renderJudgeSheetsPdf(part, { timeZone, reportId: id, organizer: await organizer(), part: label });
+      const pdf = await renderJudgeSheetsPdf(part, { timeZone, reportId: id, organizer: await organizer(), part: label, notes: await sheetNotes(activity.id) });
       return pdfResponse(pdf, sheetsName(activity.name, label));
     }
 
@@ -184,6 +189,9 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
   }
 
   const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) };
-  if (wantsJudgeSheets(search)) return pdfResponse(await renderJudgeSheetsPdf(await withBreakdowns(board), options), sheetsName(board.activity.name));
+  if (wantsJudgeSheets(search)) {
+    const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), { ...options, notes: await sheetNotes(board.activity.id) });
+    return pdfResponse(pdf, sheetsName(board.activity.name));
+  }
   return pdfResponse(await renderResultsPdf(board, options), fileName(board.activity.name));
 }

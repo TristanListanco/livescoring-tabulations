@@ -7,7 +7,8 @@ import { PRELIMINARY, type CriteriaDisplay, type Decimals, type JudgePanel, type
  * scoring, timer and cut. Shared by the browser, which checks each step, and the server, which decides.
  */
 /** min: the lowest score judges can give it, in points (e.g. 28 of 40, as a score sheet's "lowest possible score"); blank for none. */
-export type CriterionDraft = { key: number; id: string; name: string; max: string; min: string };
+/** guide: what judges should look for, as typed (see cleanGuide). */
+export type CriterionDraft = { key: number; id: string; name: string; max: string; min: string; guide: string };
 export type ScoringDraft = {
   mode: ScoringMode;
   min: string;
@@ -120,10 +121,16 @@ export function chairGap(judges: { panel: JudgePanel; isChair: boolean }[]): str
  * Criteria rows as the server checks them: blank rows dropped, and each criterion's lowest score in points (0 when
  * it's blank). A lowest score that isn't a number is sent as NaN, which the check refuses with the criterion's name.
  */
-export function criteriaForCheck(criteria: CriterionDraft[]): { id: string; name: string; max: string; min: number }[] {
+export function criteriaForCheck(criteria: CriterionDraft[]): { id: string; name: string; max: string; min: number; guide: string }[] {
   return criteria
     .filter((c) => c.name.trim() || c.max.trim())
-    .map((c) => ({ id: c.id, name: c.name, max: c.max, min: c.min.trim() === "" ? 0 : /^\d{1,3}(\.\d{1,2})?$/.test(c.min.trim()) ? Number(c.min) : NaN }));
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      max: c.max,
+      min: c.min.trim() === "" ? 0 : /^\d{1,3}(\.\d{1,2})?$/.test(c.min.trim()) ? Number(c.min) : NaN,
+      guide: c.guide ?? "",
+    }));
 }
 
 /** What a lowest-score field accepts as it's typed: digits and one decimal point, up to 2 decimal places. */
@@ -526,7 +533,7 @@ export function parseScoringDraft(value: unknown): ScoringDraft {
     decimals: (decimals === 0 || decimals === 1 || decimals === 2 ? decimals : -1) as Decimals,
     criteria: (Array.isArray(sc.criteria) ? sc.criteria : []).slice(0, 40).map((c: unknown, k) => {
       const row = record(c);
-      return { key: k, id: text(row.id), name: text(row.name), max: text(row.max), min: text(row.min) };
+      return { key: k, id: text(row.id), name: text(row.name), max: text(row.max), min: text(row.min), guide: text(row.guide) };
     }),
     display: sc.display === "ten" ? "ten" : "percent",
   };
@@ -581,7 +588,7 @@ const scoringDraft = (r: Round): ScoringDraft => ({
   min: String(r.min),
   max: String(r.max),
   decimals: r.decimals,
-  criteria: r.criteria.map((c, k) => ({ key: k, id: c.id, name: c.name, max: String(c.max), min: c.min ? String(c.min) : "" })),
+  criteria: r.criteria.map((c, k) => ({ key: k, id: c.id, name: c.name, max: String(c.max), min: c.min ? String(c.min) : "", guide: c.guide ?? "" })),
   display: r.criteriaDisplay,
 });
 

@@ -331,6 +331,20 @@ create trigger scores_final
   before update on public.scores
   for each row execute function public.forbid_score_update();
 
+-- Judges' notes -------------------------------------------------------------
+-- One note per judge per entry (a candidate's note carries through a pageant), written on the judge's screen and read
+-- by that judge and the organizer. Server only, like judge_access.
+
+create table if not exists public.judge_notes (
+  judge_id     uuid not null references public.judges (id) on delete cascade,
+  entry_id     uuid not null references public.entries (id) on delete cascade,
+  activity_id  uuid not null references public.activities (id) on delete cascade,
+  body         text not null check (char_length(body) between 1 and 2000),
+  updated_at   timestamptz not null default now(),
+  primary key (judge_id, entry_id)
+);
+create index if not exists judge_notes_activity_idx on public.judge_notes (activity_id);
+
 -- Row level security ---------------------------------------------------------
 -- None of these tables has a policy, so only the secret key (the server) can read or write them. The public key
 -- reads only activity_changes (see Realtime below).
@@ -341,6 +355,7 @@ alter table public.judges       enable row level security;
 alter table public.judge_access enable row level security;
 alter table public.judge_devices enable row level security;
 alter table public.sign_in_failures enable row level security;
+alter table public.judge_notes enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;

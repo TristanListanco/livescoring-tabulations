@@ -5,7 +5,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import type { Activity } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
-import { deleteActivity, setActivityOwner, updateSettings, type FormResult } from "../../actions";
+import { MAX_GUIDE } from "@/lib/scoring-rules";
+import { deleteActivity, setActivityOwner, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { TestSiteTools } from "./developer-tab";
@@ -69,6 +70,50 @@ function ScoringSummary({ activity }: { activity: Activity }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * What judges should look for in each criterion, shown on their screen while they score it. Editable until judging
+ * starts, so every entry is judged against the same guides; read-only after.
+ */
+function CriterionGuides({ activity }: { activity: Activity }) {
+  const [state, action] = useActionState<FormResult, FormData>(updateCriterionGuides.bind(null, activity.id), null);
+  if (activity.sessionState !== "draft") {
+    return (
+      <ul className="max-w-2xl space-y-4">
+        {activity.criteria.map((c) => (
+          <li key={c.id}>
+            <p className="font-semibold">{c.name}</p>
+            <p className={`mt-1 whitespace-pre-line ${c.guide ? "text-prussian/80" : "text-prussian/60"}`}>{c.guide ?? "No guide"}</p>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <form action={action} className="max-w-2xl space-y-4">
+      {activity.criteria.map((c) => (
+        <div key={c.id}>
+          <label htmlFor={`guide-${c.id}`} className="label">
+            {c.name}
+          </label>
+          <textarea
+            id={`guide-${c.id}`}
+            name={`guide-${c.id}`}
+            defaultValue={c.guide ?? ""}
+            maxLength={MAX_GUIDE}
+            rows={3}
+            placeholder="Guide questions or what to look for"
+            className="field min-h-20 resize-y py-2 leading-relaxed"
+          />
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-4">
+        <SubmitButton>Save guides</SubmitButton>
+        <FormMessage state={state} />
+      </div>
+    </form>
   );
 }
 
@@ -147,6 +192,19 @@ export function SettingsTab({
       <Section title="Scoring">
         <ScoringSummary activity={activity} />
       </Section>
+
+      {activity.kind === "event" && activity.scoringMode === "criteria" && (
+        <Section
+          title="Guides for judges"
+          hint={
+            activity.sessionState === "draft"
+              ? `Guide questions or what to look for in each criterion, up to ${MAX_GUIDE} characters. Judges see a criterion's guide while they score it.`
+              : "Fixed once judging started, so every entry was judged against the same guides."
+          }
+        >
+          <CriterionGuides activity={activity} />
+        </Section>
+      )}
 
       {organizers && (
         <Section title="Organizer">

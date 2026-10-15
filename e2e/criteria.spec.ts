@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, SAVED, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -38,6 +38,9 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("radio", { name: /^Criteria/ }).check();
     await page.getByLabel("Criterion 1 name").fill("Innovativeness");
     await page.getByLabel("Criterion 1 max points").fill("30");
+    // A guide for judges: what to look for, shown on their screen while they score the criterion.
+    await page.getByRole("button", { name: "Add guide for judges to criterion 1" }).click();
+    await page.getByLabel("Criterion 1 Guide for judges").fill("Is the idea new?\nDoes it solve a real problem?");
     await page.getByLabel("Criterion 2 name").fill("Design");
     await page.getByLabel("Criterion 2 max points").fill("60");
     await page.getByRole("group", { name: "Judges give points in" }).getByRole("radio", { name: /1 decimal place/ }).check();
@@ -88,6 +91,15 @@ test.describe.serial("criteria scoring", () => {
     // The criteria keypad meets WCAG 2.1 AA too.
     await expectAccessible(judge);
 
+    // Innovativeness has a guide, open while it's being scored; Design has none.
+    await expect(judge.getByRole("button", { name: "Guide for Innovativeness" })).toHaveAttribute("aria-expanded", "true");
+    await expect(judge.getByText(/^Is the idea new\?\s+Does it solve a real problem\?$/)).toBeVisible();
+
+    // A note on the entry, kept for the judge (and the organizer): saved as it's typed.
+    await judge.getByRole("button", { name: "Add notes" }).click();
+    await judge.getByLabel("Your notes on Agila").fill("Clever use of local materials.");
+    await expect(judge.getByText("Saved", { exact: true })).toBeVisible();
+
     // Innovativeness is out of 30, so 35 can't go through, and the judge is told why straight away.
     await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toHaveAttribute("aria-pressed", "true");
     await tapScore(judge, "35");
@@ -112,12 +124,21 @@ test.describe.serial("criteria scoring", () => {
     await tapScore(judge, "62.5");
     await expect(judge.getByText("87.5", { exact: true }).first()).toBeVisible();
 
+    await expect(judge.getByRole("button", { name: "Guide for Innovativeness" })).toHaveCount(0);
+
+    // Before it goes in, each criterion's points are laid out to check.
     await judge.getByRole("button", { name: "Submit score" }).click();
     const dialog = judge.getByRole("dialog");
-    await expect(dialog).toContainText("Innovativeness");
-    await expect(dialog).toContainText("87.5");
+    await expect(dialog).toContainText("Check each criterion before you submit.");
+    await expect(dialog.getByRole("list", { name: "Points for each criterion" }).getByRole("listitem")).toHaveText([/^Innovativeness\s*25\.0\s*\/ 30$/, /^Design\s*62\.5\s*\/ 70$/]);
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila");
+    // Five seconds to take it back: Undo returns the keypad as it was, and nothing was saved.
+    await judge.getByRole("button", { name: "Undo" }).click();
+    await expect(judge.getByRole("button", { name: "Undo" })).toHaveCount(0);
+    await expect(judge.getByRole("button", { name: /^Design/ })).toContainText("62.5");
+    await judge.getByRole("button", { name: "Submit score" }).click();
+    await dialog.getByRole("button", { name: "Submit", exact: true }).click();
+    await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
 
     // The judge's 87.5 and the average both show as percentages to four decimal places.
     const live = await (await browser.newContext()).newPage();
@@ -125,6 +146,12 @@ test.describe.serial("criteria scoring", () => {
     const row = live.locator("li[data-entry]", { hasText: "Agila" });
     await expect(row).toContainText("87.5000%", REALTIME);
     await live.context().close();
+
+    // The organizer reads the judges' notes on the Notes tab.
+    await page.goto(`${adminPath}?tab=notes`);
+    const agila = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /Agila$/ }) });
+    await expect(agila).toContainText("Ana Cruz");
+    await expect(agila).toContainText("Clever use of local materials.");
 
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);

@@ -82,12 +82,13 @@ function fail(error: { message: string } | null): asserts error is null {
 function toCriteria(value: unknown): Criterion[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((c): c is { id: unknown; name: unknown; max: unknown; min?: unknown } => typeof c === "object" && c !== null)
+    .filter((c): c is { id: unknown; name: unknown; max: unknown; min?: unknown; guide?: unknown } => typeof c === "object" && c !== null)
     .map((c) => {
       const max = Number(c.max);
       const min = Number(c.min ?? 0);
+      const guide = typeof c.guide === "string" ? c.guide.trim() : "";
       // A lowest score only counts when it's below the criterion's points.
-      return { id: String(c.id), name: String(c.name), max, ...(min > 0 && min < max ? { min } : {}) };
+      return { id: String(c.id), name: String(c.name), max, ...(min > 0 && min < max ? { min } : {}), ...(guide ? { guide } : {}) };
     })
     .filter((c) => c.id && c.name && Number.isFinite(c.max) && c.max > 0);
 }
@@ -373,6 +374,27 @@ export async function withBreakdowns(board: Board): Promise<Board> {
     points.set(key(row.entry_id, row.judge_id, row.round_id), Object.fromEntries(Object.entries(row.breakdown).map(([id, v]) => [id, Number(v)])));
   }
   return { ...board, scores: board.scores.map((s) => ({ ...s, breakdown: points.get(key(s.entryId, s.judgeId, s.roundId)) ?? null })) };
+}
+
+/** A judge's note on an entry (see judge_notes): read by that judge and the organizer. */
+export type JudgeNote = { judgeId: string; entryId: string; body: string; updatedAt: string };
+type NoteRow = { judge_id: string; entry_id: string; body: string; updated_at: string };
+
+/**
+ * One judge's notes, by entry id. Null when notes can't be read (before migration 018), so their screen leaves notes
+ * out rather than failing.
+ */
+export async function getJudgeNotes(judgeId: string): Promise<Record<string, string> | null> {
+  const { data, error } = await db().from("judge_notes").select("entry_id, body").eq("judge_id", judgeId);
+  if (error) return null;
+  return Object.fromEntries((data as Pick<NoteRow, "entry_id" | "body">[]).map((r) => [r.entry_id, r.body]));
+}
+
+/** Every judge's notes on an activity, for the organizer: null before migration 018. */
+export async function getActivityNotes(activityId: string): Promise<JudgeNote[] | null> {
+  const { data, error } = await db().from("judge_notes").select("judge_id, entry_id, body, updated_at").eq("activity_id", activityId).order("updated_at");
+  if (error) return null;
+  return (data as NoteRow[]).map((r) => ({ judgeId: r.judge_id, entryId: r.entry_id, body: r.body, updatedAt: r.updated_at }));
 }
 
 const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);

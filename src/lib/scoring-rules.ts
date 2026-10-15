@@ -7,13 +7,31 @@ export type ScoringInput = {
   min: string;
   max: string;
   decimals: number;
-  criteria: { id?: unknown; name?: unknown; max?: unknown; min?: unknown }[];
+  criteria: { id?: unknown; name?: unknown; max?: unknown; min?: unknown; guide?: unknown }[];
   display: CriteriaDisplay | null;
 };
 
 export type Scoring = { mode: ScoringMode; rules: ScoreRules; criteria: Criterion[]; display: CriteriaDisplay | null };
 
 export const MAX_CRITERIA = 20;
+/** The longest guide a criterion can have: a few guide questions, not an essay. */
+export const MAX_GUIDE = 600;
+
+/**
+ * A criterion's guide as typed: each line trimmed, line breaks kept (at most one blank line in a row), control
+ * characters dropped, and cut to MAX_GUIDE characters. Empty when there's nothing to show.
+ */
+export function cleanGuide(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, " ")
+    .split(/\r\n?|\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, MAX_GUIDE)
+    .trim();
+}
 
 function checkRange(minText: string, maxText: string, decimals: Decimals): { rules: ScoreRules } | { error: string } {
   const number = /^\d{1,4}(\.\d{1,2})?$/;
@@ -67,7 +85,8 @@ export function checkScoring(input: ScoringInput, newId: () => string): { scorin
       return { error: `Give ${name} a lowest score below its ${max} points.` };
     }
     const id = typeof item?.id === "string" && /^[a-z0-9]{1,40}$/.test(item.id) ? item.id : newId();
-    criteria.push({ id, name, max, ...(min > 0 ? { min } : {}) });
+    const guide = cleanGuide(item?.guide);
+    criteria.push({ id, name, max, ...(min > 0 ? { min } : {}), ...(guide ? { guide } : {}) });
   }
   const total = criteria.reduce((sum, c) => sum + c.max, 0);
   if (total !== 100) return { error: `The criteria add up to ${total} points. They must add up to 100.` };

@@ -404,8 +404,11 @@ export function cutResult(plan: CutPlan, picks: string[][]): { ok: true; entryId
 
 // Scoring timer -------------------------------------------------------------------------
 
-/** A score that left the judge's screen just as time ran out still counts, if it arrives within this margin. */
-export const SUBMIT_GRACE_MS = 2_000;
+/** How long a judge can undo a score after submitting it, before it goes to the server (events and pageants alike). */
+export const SCORE_UNDO_MS = 5_000;
+
+/** A score submitted just as time ran out still counts, if it arrives within this margin: the undo window and two seconds for the network. */
+export const SUBMIT_GRACE_MS = SCORE_UNDO_MS + 2_000;
 
 /** The warning (yellow) starts this many seconds before scoring closes: the last 10, or the last third of a short timer. */
 export function warningSeconds(timerSeconds: number): number {
