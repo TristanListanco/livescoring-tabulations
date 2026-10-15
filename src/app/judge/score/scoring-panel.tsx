@@ -6,10 +6,13 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
+import { SCORE_UNDO_MS } from "@/lib/pageant";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
 import type { Activity, Criterion, Entry, Judge } from "@/lib/types";
+import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { leavePortal, moveToEntry, requestApproval, submitScore } from "../actions";
+import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
 export type DeviceGate = { status: "approved" } | { status: "pending"; pairingCode: string; label: string } | { status: "revoked" };
@@ -22,6 +25,8 @@ type Props = {
   judge: Judge;
   entries: Entry[];
   myScores: { entryId: string; value: number }[];
+  /** The judge's notes, by entry id; null when there are none to show (not approved yet, or before migration 018). */
+  notes: Record<string, string> | null;
   gate: DeviceGate;
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
@@ -39,6 +44,17 @@ const NETWORK_ERROR = "The score didn't save. Check your connection and try agai
 const ERROR_TEXT = "text-danger-soft";
 const ERROR_RING = "ring-3 ring-danger-soft";
 
+/** Marks a criterion with a guide for judges. */
+function GuideIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={`size-4 shrink-0 ${className}`} aria-hidden>
+      <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M10 9v4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="10" cy="6.4" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function WarningIcon() {
   return (
     <svg viewBox="0 0 20 20" className="mr-1.5 inline size-4 -translate-y-px" aria-hidden>
@@ -55,6 +71,20 @@ function myScoreText(value: number, activity: Activity): string {
 }
 
 /**
+ * A score the judge has confirmed, waiting out its undo window before it goes to the server. `typed`: what the keypad
+ * sends (the score, or each criterion's points). `sending`: the window is over and it's on its way.
+ */
+type PendingScore = { entry: Entry; typed: string | Record<string, string>; value: number; sending: boolean };
+/** What a keypad needs to hand over a confirmed score, and to know whether one is waiting or failed. */
+type Submission = {
+  submit: (entry: Entry, typed: PendingScore["typed"], value: number) => void;
+  /** A score for this entry is waiting out its undo window, or on its way. */
+  busy: boolean;
+  /** Why this entry's last score didn't save. */
+  error: string | null;
+};
+
+/**
  * The judge's screen. Nothing opens until the organizer approves this device. After that the organizer
  * decides which entry is judged and when: judges only ever see the entry on screen, and wait in between.
  */
@@ -63,7 +93,7 @@ function myScoreText(value: number, activity: Activity): string {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, round, serverNow, offPanel = false }: Props) {
+export function ScoringPanel({ activity, judge, entries, myScores, notes, gate, panel, round, serverNow, offPanel = false }: Props) {
   const pageant = activity.kind === "pageant";
   const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back.
@@ -82,7 +112,49 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
     savedTimer.current = setTimeout(() => setSaved(null), 3500);
   };
 
+  // A confirmed score waits SCORE_UNDO_MS before it's sent, so a slip can be undone. It lives here rather than in the
+  // keypad, so it's still sent (and a failure still shown) if the organizer moves on meanwhile.
+  const [pending, setPending] = useState<PendingScore | null>(null);
+  const [failed, setFailed] = useState<{ entry: Entry; error: string } | null>(null);
+  const send = useEffectEvent(async (score: PendingScore) => {
+    setPending({ ...score, sending: true });
+    const result = await submitScore(score.entry.id, score.typed).catch(() => ({ ok: false as const, error: NETWORK_ERROR }));
+    setPending(null);
+    if (result.ok) onSaved(score.entry, score.value);
+    else setFailed({ entry: score.entry, error: result.error });
+  });
+  useEffect(() => {
+    if (!pending || pending.sending) return;
+    const timer = setTimeout(() => send(pending), SCORE_UNDO_MS);
+    // Leaving the page now would drop the score: the browser asks first.
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [pending]);
+  const submission = (entry: Entry): Submission => ({
+    submit: (e, typed, value) => {
+      setFailed(null);
+      setPending({ entry: e, typed, value, sending: false });
+    },
+    busy: pending?.entry.id === entry.id,
+    error: failed?.entry.id === entry.id ? failed.error : null,
+  });
+
   const currentId = approved && (view.kind === "scoring" || view.kind === "scored") ? view.entry.id : null;
+
+  // Notes on the entry on screen: beside the keypad on a wide screen, under the entry's name otherwise. Notes saved here
+  // are remembered until the refreshed page has them.
+  const [savedNotes, setSavedNotes] = useState<Map<string, string>>(() => new Map());
+  const noteStore: NoteStore | null =
+    notes && approved && !offPanel
+      ? { get: (id) => savedNotes.get(id) ?? notes[id] ?? "", stored: (id, body) => setSavedNotes((m) => new Map(m).set(id, body)) }
+      : null;
+  const wide = useWideScreen();
+  const noteEntry = view.kind === "scoring" || view.kind === "scored" ? view.entry : null;
+  const inlineNotes = noteStore && noteEntry && !wide ? <NotesInline key={noteEntry.id} entry={noteEntry} notes={noteStore} /> : null;
   // A pageant sub-activity's timer: green while judges can score, yellow as it's about to close, red once it has.
   const timer = useScoringTimer(view.kind === "scoring" ? activity.scoringClosesAt : null, round?.timerSeconds ?? null, serverNow);
   const timerBar = timer && round?.timerSeconds && (
@@ -170,7 +242,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
           </aside>
         )}
 
-        <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-5 sm:px-8 md:justify-center">
+        <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-5 sm:px-8 md:justify-center-safe">
           {saved && (
             <p
               role="status"
@@ -185,6 +257,14 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
             </p>
           )}
 
+          {/* A score that didn't save after the organizer had moved on: its keypad is gone, so it's said here. */}
+          {failed && failed.entry.id !== currentId && (
+            <p role="alert" className={`mb-4 w-full max-w-md rounded-xl border border-danger-soft px-4 py-3 font-semibold lg:max-w-lg ${ERROR_TEXT}`}>
+              <WarningIcon />
+              Your score for {failed.entry.name} didn&apos;t save. {failed.error}
+            </p>
+          )}
+
           {!approved ? (
             <DeviceGateCard gate={gate} />
           ) : view.kind === "scoring" ? (
@@ -194,7 +274,8 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
                 activity={activity}
                 entry={view.entry}
                 number={view.number}
-                onSaved={onSaved}
+                notes={inlineNotes}
+                submission={submission(view.entry)}
                 timer={timerBar}
                 closed={timer?.phase === "closed"}
               />
@@ -204,7 +285,8 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
                 activity={activity}
                 entry={view.entry}
                 number={view.number}
-                onSaved={onSaved}
+                notes={inlineNotes}
+                submission={submission(view.entry)}
                 timer={timerBar}
                 closed={timer?.phase === "closed"}
               />
@@ -212,12 +294,57 @@ export function ScoringPanel({ activity, judge, entries, myScores, gate, panel, 
           ) : (
             <div className="my-auto flex w-full max-w-md flex-col items-center lg:max-w-lg">
               <WaitingCard view={view} judge={judge} activity={activity} round={round} scoredCount={scores.size} movesEntries={!!panel} offPanel={offPanel} />
+              {view.kind === "scored" && inlineNotes && <div className="mt-6 w-full">{inlineNotes}</div>}
               {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
                 <EntryControls activity={activity} entries={entries} panel={panel} />
               )}
             </div>
           )}
         </main>
+        {noteStore && wide && <NotesBeside entry={noteEntry} notes={noteStore} />}
+      </div>
+      {pending && <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />}
+    </div>
+  );
+}
+
+/**
+ * The few seconds after a judge submits, before the score goes in: a countdown, a draining bar and Undo, at the
+ * bottom where a thumb reaches. Undo takes focus, so a keyboard judge can take it back at once.
+ */
+function UndoBar({ pending, shown, onUndo }: { pending: PendingScore; shown: string; onUndo: () => void }) {
+  const seconds = SCORE_UNDO_MS / 1000;
+  const [left, setLeft] = useState(seconds);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    undoRef.current?.focus();
+    const started = Date.now();
+    const tick = setInterval(() => setLeft(Math.max(1, Math.ceil((SCORE_UNDO_MS - (Date.now() - started)) / 1000))), 200);
+    return () => clearInterval(tick);
+  }, []);
+  return (
+    <div className="toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
+      {/* Said once; the ticking seconds are only for the eye. */}
+      <p role="status" className="sr-only">
+        {pending.sending
+          ? `Submitting ${shown} for ${pending.entry.name}.`
+          : `Submitting ${shown} for ${pending.entry.name} in ${seconds} seconds. Press Undo to change it.`}
+      </p>
+      <div aria-hidden={pending.sending || undefined} className="flex items-center gap-3 px-4 py-3">
+        <p aria-hidden className="min-w-0 flex-1">
+          <span className="block font-semibold">{pending.sending ? "Submitting…" : `Submitting in ${left}…`}</span>
+          <span className="block truncate text-sm text-prussian/75">
+            <span className="tabular font-semibold text-prussian">{shown}</span> for {pending.entry.name}
+          </span>
+        </p>
+        {!pending.sending && (
+          <button ref={undoRef} type="button" onClick={onUndo} className="btn h-12 shrink-0 rounded-xl bg-prussian px-6 text-lg text-mint hover:bg-regal">
+            Undo
+          </button>
+        )}
+      </div>
+      <div aria-hidden className="h-1.5 bg-powder/40">
+        {!pending.sending && <div className="undo-drain h-full bg-regal" style={{ animationDuration: `${SCORE_UNDO_MS}ms` }} />}
       </div>
     </div>
   );
@@ -479,13 +606,11 @@ function useKeypadKeys(press: (key: Key) => void, enter: () => void, dialogRef: 
 function ConfirmScore({
   dialogRef,
   entry,
-  submitting,
   onConfirm,
   children,
 }: {
   dialogRef: React.RefObject<HTMLDialogElement | null>;
   entry: Entry;
-  submitting: boolean;
   onConfirm: () => void;
   children: React.ReactNode;
 }) {
@@ -500,20 +625,14 @@ function ConfirmScore({
           Submit this score for {entry.name}?
         </h2>
         {children}
-        <p className="mt-3 text-prussian/75">You can&apos;t change it after submitting.</p>
+        <p className="mt-3 text-prussian/75">After submitting you have {SCORE_UNDO_MS / 1000} seconds to undo. Then it&apos;s final.</p>
       </div>
       <div className="grid grid-cols-2 gap-3 px-6 pb-6">
-        <button
-          type="button"
-          className="btn btn-quiet h-14 rounded-xl text-lg"
-          onClick={() => dialogRef.current?.close()}
-          disabled={submitting}
-          autoFocus
-        >
+        <button type="button" className="btn btn-quiet h-14 rounded-xl text-lg" onClick={() => dialogRef.current?.close()} autoFocus>
           Go back
         </button>
-        <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm} disabled={submitting}>
-          {submitting ? "Submitting…" : "Submit"}
+        <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm}>
+          Submit
         </button>
       </div>
     </dialog>
@@ -524,7 +643,9 @@ type KeypadProps = {
   activity: Activity;
   entry: Entry;
   number: number;
-  onSaved: (entry: Entry, value: number) => void;
+  /** The judge's notes on this entry, under its name (phones and narrow tablets). */
+  notes?: React.ReactNode;
+  submission: Submission;
   /** A pageant sub-activity's timer bar, above the entry. */
   timer?: React.ReactNode;
   /** The timer has run out: no submitting until the organizer reopens scoring. */
@@ -534,20 +655,20 @@ type KeypadProps = {
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 
 /** Simple scoring: one score between min and max. */
-function Keypad({ activity, entry, number, onSaved, timer, closed = false }: KeypadProps) {
+function Keypad({ activity, entry, number, notes, submission, timer, closed = false }: KeypadProps) {
   const [buffer, setBuffer] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // True only while the score is on its way to the server, so taps right after "Saved" aren't dropped.
-  const [submitting, setSubmitting] = useState(false);
+  // While the score waits out its undo window (or is on its way), the keypad holds still; Undo brings it back as it was.
+  const { busy } = submission;
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const press = (key: Key) => {
-    if (submitting) return;
+    if (busy) return;
     setError(null);
     setBuffer((b) => applyKey(b, key, activity));
   };
   const review = () => {
-    if (submitting) return;
+    if (busy) return;
     if (closed) {
       setError(TIME_UP);
       return;
@@ -556,15 +677,12 @@ function Keypad({ activity, entry, number, onSaved, timer, closed = false }: Key
     if (!parsed.ok) setError(parsed.error);
     else dialogRef.current?.showModal();
   };
-  const confirm = async () => {
+  const confirm = () => {
     const parsed = parseScore(buffer, activity);
-    if (submitting || !parsed.ok) return;
-    setSubmitting(true);
-    const result = await submitScore(entry.id, buffer).catch(() => ({ ok: false as const, error: NETWORK_ERROR }));
-    setSubmitting(false);
+    if (busy || !parsed.ok) return;
     dialogRef.current?.close();
-    if (!result.ok) setError(result.error);
-    else onSaved(entry, parsed.value);
+    setError(null);
+    submission.submit(entry, buffer, parsed.value);
   };
   useKeypadKeys(press, review, dialogRef);
 
@@ -572,13 +690,14 @@ function Keypad({ activity, entry, number, onSaved, timer, closed = false }: Key
   const typed = parseScore(buffer, activity);
   // Told as soon as it happens: no more typing can bring a score back under the max.
   const tooHigh = overMax(buffer, activity);
-  const message = error ?? (tooHigh ? overMaxMessage(buffer, activity) : null);
+  const message = error ?? submission.error ?? (tooHigh ? overMaxMessage(buffer, activity) : null);
 
   return (
     <div className="flex w-full max-w-md flex-col lg:max-w-lg">
       {timer}
       <p className="text-powder">Now judging: No. {number}</p>
       <h1 className="text-[clamp(1.6rem,4vw,2.5rem)] leading-tight font-bold text-balance">{entry.name}</h1>
+      {notes}
 
       <div className={`mt-4 flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
         <output
@@ -616,13 +735,13 @@ function Keypad({ activity, entry, number, onSaved, timer, closed = false }: Key
       <button
         type="button"
         onClick={review}
-        disabled={!typed.ok || submitting || closed}
+        disabled={!typed.ok || busy || closed}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
         Submit score
       </button>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} submitting={submitting} onConfirm={confirm}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm}>
         <p className="tabular mt-3 text-7xl font-bold text-regal">{typed.ok ? formatScore(typed.value, activity.decimals) : buffer}</p>
       </ConfirmScore>
     </div>
@@ -630,13 +749,17 @@ function Keypad({ activity, entry, number, onSaved, timer, closed = false }: Key
 }
 
 /** Criteria scoring: points for each criterion on the same keypad, totalling up to 100. */
-function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = false }: KeypadProps) {
+function CriteriaKeypad({ activity, entry, number, notes, submission, timer, closed = false }: KeypadProps) {
   const { criteria, decimals } = activity;
   const [values, setValues] = useState<Record<string, string>>({});
   const [activeId, setActiveId] = useState(criteria[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const { busy } = submission;
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // Bumped each time the confirmation opens, so its criteria light up again.
+  const [reviews, setReviews] = useState(0);
+  // The active criterion's guide: open unless the judge closed it, remembered on this device.
+  const [guideOpen, setGuideOpen] = useDeviceSetting("livescoring:criterion-guide-open", true);
 
   const active = criteria.find((c) => c.id === activeId) ?? criteria[0];
   // From the criterion's lowest score (if the score sheet sets one) to its points.
@@ -650,17 +773,18 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   const all = parseBreakdown(values, criteria, decimals);
 
   const press = (key: Key) => {
-    if (submitting || !active) return;
+    if (busy || !active) return;
     setError(null);
     setValues((v) => ({ ...v, [active.id]: applyKey(v[active.id] ?? "", key, rulesFor(active)) }));
   };
   const primary = () => {
-    if (submitting) return;
+    if (busy) return;
     if (all.ok && closed) {
       setError(TIME_UP);
       return;
     }
     if (all.ok) {
+      setReviews((n) => n + 1);
       dialogRef.current?.showModal();
       return;
     }
@@ -668,14 +792,11 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
     if (!parsed.ok) setError(`${active.name}: ${parsed.error}`);
     else if (nextMissing) setActiveId(nextMissing.id);
   };
-  const confirm = async () => {
-    if (submitting || !all.ok) return;
-    setSubmitting(true);
-    const result = await submitScore(entry.id, values).catch(() => ({ ok: false as const, error: NETWORK_ERROR }));
-    setSubmitting(false);
+  const confirm = () => {
+    if (busy || !all.ok) return;
     dialogRef.current?.close();
-    if (!result.ok) setError(result.error);
-    else onSaved(entry, all.total);
+    setError(null);
+    submission.submit(entry, values, all.total);
   };
   useKeypadKeys(press, primary, dialogRef);
 
@@ -686,7 +807,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
   const typedActive = values[active?.id ?? ""] ?? "";
   const tooHigh = (c: { id: string; max: number }) => overMax(values[c.id] ?? "", c);
   const activeTooHigh = !!active && tooHigh(active);
-  const message = error ?? (active && activeTooHigh ? `${active.name}: ${overMaxMessage(typedActive, active)}` : null);
+  const message = error ?? submission.error ?? (active && activeTooHigh ? `${active.name}: ${overMaxMessage(typedActive, active)}` : null);
   const overCount = criteria.filter(tooHigh).length;
   // Under the score sheet's lowest score: not an error yet (another digit may bring it up), but the judge is told why
   // they can't move on.
@@ -697,6 +818,7 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
       {timer}
       <p className="text-powder">Now judging: No. {number}</p>
       <h1 className="text-[clamp(1.5rem,3.6vw,2.25rem)] leading-tight font-bold text-balance">{entry.name}</h1>
+      {notes}
 
       <ul className="mt-3 space-y-1.5" aria-label="Criteria">
         {criteria.map((c) => {
@@ -717,7 +839,11 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
                       : "bg-oxford hover:bg-regal/60"
                 }`}
               >
-                <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
+                <span className="min-w-0 flex-1 truncate font-semibold">
+                  {c.name}
+                  {c.guide && <span className="sr-only">, has a guide</span>}
+                </span>
+                {c.guide && <GuideIcon className={isActive ? "text-mint/80" : "text-powder"} />}
                 {over && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too high</span>}
                 {/* Light blue reads on the unselected rows; on the selected (brighter) one, the text colour does. */}
                 <span className={`tabular text-lg font-bold ${over ? ERROR_TEXT : ""}`}>
@@ -735,6 +861,29 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
           <span className="font-bold text-mint">{formatScore(runningTotal / 100, decimals)}</span> / 100
         </span>
       </p>
+
+      {active?.guide && (
+        <div className="mt-3 rounded-xl border border-oxford">
+          <button
+            type="button"
+            aria-expanded={guideOpen}
+            aria-controls="criterion-guide"
+            onClick={() => setGuideOpen(!guideOpen)}
+            className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left text-sm font-semibold text-powder hover:text-mint pointer-coarse:min-h-11"
+          >
+            <GuideIcon />
+            <span className="min-w-0 flex-1 truncate">Guide for {active.name}</span>
+            <svg viewBox="0 0 16 16" className={`size-4 shrink-0 transition-transform ${guideOpen ? "rotate-180" : ""}`} aria-hidden>
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {guideOpen && (
+            <p id="criterion-guide" className="max-h-40 overflow-y-auto px-4 pb-3 text-[15px] leading-relaxed whitespace-pre-line text-mint/90">
+              {active.guide}
+            </p>
+          )}
+        </div>
+      )}
 
       {active && (
         <div className={`mt-3 flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
@@ -781,25 +930,34 @@ function CriteriaKeypad({ activity, entry, number, onSaved, timer, closed = fals
       <button
         type="button"
         onClick={primary}
-        disabled={submitting || (all.ok && closed) || (!all.ok && !isValid(active?.id ?? ""))}
+        disabled={busy || (all.ok && closed) || (!all.ok && !isValid(active?.id ?? ""))}
         className="btn mt-4 h-[clamp(3.5rem,8vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100"
       >
         {all.ok ? "Submit score" : nextMissing ? `Next: ${nextMissing.name}` : "Submit score"}
       </button>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} submitting={submitting} onConfirm={confirm}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm}>
         {all.ok && (
           <>
-            <dl className="mt-4 space-y-1 text-left">
-              {criteria.map((c) => (
-                <div key={c.id} className="flex justify-between gap-4">
-                  <dt className="truncate">{c.name}</dt>
-                  <dd className="tabular font-semibold">
-                    {formatScore(all.breakdown[c.id], decimals)} / {formatBound(c.max)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <p className="mt-1 text-sm font-semibold text-prussian/80">Check each criterion before you submit.</p>
+            {/* Each criterion lights up in turn, so a slip in any one of them gets a look. */}
+            <ol key={reviews} aria-label="Points for each criterion" className="mt-3 max-h-[min(22rem,45dvh)] space-y-1.5 overflow-y-auto text-left">
+              {criteria.map((c, i) => {
+                const points = all.breakdown[c.id];
+                return (
+                  <li key={c.id} className="check-in rounded-xl bg-white px-3 py-2 ring-1 ring-powder/60" style={{ animationDelay: `${i * 150}ms` }}>
+                    <div className="flex items-baseline gap-3">
+                      <span className="min-w-0 flex-1 font-semibold">{c.name}</span>
+                      <span className="tabular text-2xl leading-none font-bold text-regal">{formatScore(points, decimals)}</span>
+                      <span className="tabular w-11 text-right text-sm text-prussian/70">/ {formatBound(c.max)}</span>
+                    </div>
+                    <span aria-hidden className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-powder/30">
+                      <span className="block h-full rounded-full bg-regal" style={{ width: `${(points / c.max) * 100}%` }} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
             <p className="tabular mt-3 text-5xl font-bold text-regal">{formatScore(all.total, decimals)}</p>
             <p className="text-sm text-prussian/75">out of 100</p>
           </>

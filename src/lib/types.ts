@@ -8,8 +8,11 @@ export type SessionState = "draft" | "live" | "ended";
 
 /** simple: one score per judge between min and max. criteria: judges score each criterion; totals are out of 100. */
 export type ScoringMode = "simple" | "criteria";
-/** min: the lowest score a judge can give, in points (a score sheet's "lowest possible score", e.g. 28 of 40); none when missing or 0. */
-export type Criterion = { id: string; name: string; max: number; min?: number };
+/**
+ * min: the lowest score a judge can give, in points (a score sheet's "lowest possible score", e.g. 28 of 40); none when
+ * missing or 0. guide: what judges should look for, such as guide questions, shown on their screen while they score it.
+ */
+export type Criterion = { id: string; name: string; max: number; min?: number; guide?: string };
 /** How criteria totals (out of 100) are shown: as a percentage, or scaled to 10. */
 export type CriteriaDisplay = "percent" | "ten";
 

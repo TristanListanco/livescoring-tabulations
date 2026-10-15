@@ -7,6 +7,7 @@ import { isUuid } from "@/lib/codes";
 import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
+import { cleanNote } from "@/lib/notes";
 import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
@@ -76,6 +77,34 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
   const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
   if (error) return { ok: false, error: error.message };
   changed();
+  return { ok: true };
+}
+
+/**
+ * A judge's note on an entry of their activity, saved as they type; an empty note is removed. Only from their approved
+ * device. The judge and the organizer read notes, never other judges.
+ */
+export async function saveNote(entryId: string, body: string): Promise<ActionResult> {
+  const session = await judgeSession();
+  const context = session ? await getJudgeContext(session.judgeId) : null;
+  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
+  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
+  const { data: entry } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", context.activityId).maybeSingle();
+  if (!entry) return { ok: false, error: "This entry was removed by the organizer." };
+
+  const text = cleanNote(body);
+  const notes = db().from("judge_notes");
+  const { error } = text
+    ? await notes.upsert(
+        { judge_id: context.judge.id, entry_id: entryId, activity_id: context.activityId, body: text, updated_at: new Date().toISOString() },
+        { onConflict: "judge_id,entry_id" },
+      )
+    : await notes.delete().eq("judge_id", context.judge.id).eq("entry_id", entryId);
+  if (error) {
+    console.error(error);
+    return { ok: false, error: "Your note didn't save. Check your connection." };
+  }
   return { ok: true };
 }
 

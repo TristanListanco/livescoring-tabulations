@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getBoard, getDevice, getJudgeContext } from "@/lib/data";
+import { getBoard, getDevice, getJudgeContext, getJudgeNotes } from "@/lib/data";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
 import { ScoringPanel, type DeviceGate } from "./scoring-panel";
@@ -12,11 +12,16 @@ export default async function ScorePage() {
   const context = session ? await getJudgeContext(session.judgeId) : null;
   if (!session || !context) redirect("/judge");
 
-  const board = await getBoard(context.activityId);
+  // The activity, this device and the judge's notes, read together. The notes reach the screen only once the device
+  // is approved (see below).
+  const [board, device, ownNotes] = await Promise.all([
+    getBoard(context.activityId),
+    session.deviceId ? getDevice(session.deviceId) : null,
+    getJudgeNotes(context.judge.id),
+  ]);
   if (!board) redirect("/judge");
 
   // Scoring opens only on the device the organizer approved for this judge.
-  const device = session.deviceId ? await getDevice(session.deviceId) : null;
   const gate: DeviceGate =
     device && device.judgeId === context.judge.id && device.status !== "revoked"
       ? device.status === "approved"
@@ -34,6 +39,9 @@ export default async function ScorePage() {
     gate.status === "approved"
       ? showing.scores.filter((s) => s.judgeId === context.judge.id).map((s) => ({ entryId: s.entryId, value: s.value }))
       : [];
+
+  // Their own notes on the entries, once the device is approved (null when notes aren't available: before migration 018).
+  const notes = gate.status === "approved" && !offPanel ? ownNotes : null;
 
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   const panel =
@@ -55,6 +63,7 @@ export default async function ScorePage() {
       judge={context.judge}
       entries={showing.entries}
       myScores={mine}
+      notes={notes}
       gate={gate}
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}

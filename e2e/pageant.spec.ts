@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, PHOTO, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, PHOTO, SAVED, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -40,10 +40,13 @@ async function openDesk(page: Page) {
 /** Show a candidate from the desk, have the board's judges score them, and wait for the desk to see every score. */
 async function judgeCandidate(page: Page, board: Page[], button: string, candidate: string, score: string, shown: string) {
   await page.getByRole("button", { name: button, exact: true }).click();
-  for (const judge of board) {
-    await expect(judge.getByRole("heading", { level: 1 })).toHaveText(candidate, REALTIME);
-    await submitScore(judge, candidate, score, shown);
-  }
+  // The board scores at the same time, as at a real event: each score waits out its 5-second undo.
+  await Promise.all(
+    board.map(async (judge) => {
+      await expect(judge.getByRole("heading", { level: 1 })).toHaveText(candidate, REALTIME);
+      await submitScore(judge, candidate, score, shown);
+    }),
+  );
   await expect(page.getByRole("status").filter({ hasText: `Every judge has scored ${candidate}.` })).toBeVisible(REALTIME);
 }
 
@@ -407,7 +410,7 @@ test.describe.serial("a pageant", () => {
     const confirmScore = ana.getByRole("dialog");
     await expect(confirmScore).toContainText("Submit this score for Ayla?");
     await confirmScore.getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(ana.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 9.00 for Ayla");
+    await expect(ana.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 9.00 for Ayla", SAVED);
 
     // The program is final, so the desk gives Ben and Cara more time instead: 15 seconds more each press.
     const more = page.getByRole("button", { name: "+15 s", exact: true });
@@ -449,7 +452,8 @@ test.describe.serial("a pageant", () => {
     await page.getByRole("button", { name: "Show next candidate: Cora", exact: true }).click();
     // Cora keeps her number from the full running order.
     await expect(ana.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
-    for (const judge of properBoard()) await submitScore(judge, "Cora", "10", "10.00");
+    // Q&A gives judges 5 seconds each, and every score then waits out its 5-second undo: the board scores together.
+    await Promise.all(properBoard().map((judge) => submitScore(judge, "Cora", "10", "10.00")));
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Cora." })).toBeVisible(REALTIME);
 
     await page.getByRole("button", { name: "Review the Top 2", exact: true }).click();

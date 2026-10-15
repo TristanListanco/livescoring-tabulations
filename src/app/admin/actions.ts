@@ -6,7 +6,7 @@ import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
 import { getActivity, getAdminBoard, getAdminCredentials, getBoard } from "@/lib/data";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { checkScoring, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
+import { checkScoring, cleanGuide, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
   checkSuperAdminPassword,
   currentAdmin,
@@ -723,6 +723,23 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   if (error) return dbErr(error);
   changed();
   return ok("Name saved.");
+}
+
+/**
+ * A criteria event's guides for judges, one per criterion (fields guide-<criterion id>). The scoring itself is fixed
+ * once the activity exists; the guides can change until judging starts, so every entry is judged against the same ones.
+ */
+export async function updateCriterionGuides(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity || activity.kind !== "event" || activity.scoringMode !== "criteria") return err("This activity isn't scored by criteria.");
+  if (activity.sessionState !== "draft") return err("The guides can't change once judging has started.");
+  // A blank guide is left out of the stored criteria (JSON drops undefined).
+  const criteria = activity.criteria.map((c) => ({ ...c, guide: cleanGuide(formData.get(`guide-${c.id}`)) || undefined }));
+  const { error } = await db().from("activities").update({ criteria }).eq("id", activityId);
+  if (error) return dbErr(error);
+  changed();
+  return ok(criteria.some((c) => c.guide) ? "Guides saved. Judges see each one while they score its criterion." : "Guides saved.");
 }
 
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {

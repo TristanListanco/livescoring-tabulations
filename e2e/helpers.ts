@@ -41,7 +41,10 @@ export async function tapScore(page: Page, score: string) {
   }
 }
 
-/** Type a score, confirm it in the dialog and wait for the saved message. */
+/** A submitted score waits out the judge's 5-second undo window before it's saved: allow for that and the network. */
+export const SAVED = { timeout: 15_000 };
+
+/** Type a score, confirm it in the dialog, let the undo window pass and wait for the saved message. */
 export async function submitScore(page: Page, entry: string, score: string, shown = score) {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(entry);
   await tapScore(page, score);
@@ -50,7 +53,8 @@ export async function submitScore(page: Page, entry: string, score: string, show
   await expect(dialog).toContainText(`Submit this score for ${entry}?`);
   await expect(dialog).toContainText(shown);
   await dialog.getByRole("button", { name: "Submit", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Saved" })).toHaveText(`Saved ${shown} for ${entry}`);
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Saved" })).toHaveText(`Saved ${shown} for ${entry}`, SAVED);
 }
 
 /** Entry names on a scoreboard, top to bottom. */

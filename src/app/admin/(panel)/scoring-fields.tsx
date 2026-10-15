@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
@@ -30,11 +32,11 @@ export function ResultDecimalsField({ value, onChange }: { value: ResultDecimals
   );
 }
 
-export const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "", min: "" }));
+export const blankCriteria = (from: number): CriterionDraft[] => [0, 1, 2].map((i) => ({ key: from + i, id: "", name: "", max: "", min: "", guide: "" }));
 
 /** Criteria rows as the create form sends them: blank rows dropped, each with its lowest score in points (0 for none). */
 export const criteriaJson = (criteria: CriterionDraft[]) =>
-  JSON.stringify(criteriaForCheck(criteria).map((r) => ({ id: r.id, name: r.name.trim(), max: Number(r.max), min: Number.isNaN(r.min) ? -1 : r.min })));
+  JSON.stringify(criteriaForCheck(criteria).map((r) => ({ id: r.id, name: r.name.trim(), max: Number(r.max), min: Number.isNaN(r.min) ? -1 : r.min, guide: r.guide })));
 
 /**
  * How judges score: simple (one score from min to max) or criteria (points per criterion, adding up to 100).
@@ -67,6 +69,8 @@ export function ScoringEditor({
   // With several on a page, screen readers hear whose field it is first: "Swimsuit: Min score".
   const whose = label ? <span className="sr-only">{label}: </span> : null;
   const prefix = label ? `${label}: ` : "";
+  // Criteria whose guide box was opened; one with a guide already shows it.
+  const [guideOpen, setGuideOpen] = useState<Set<number>>(() => new Set());
 
   return (
     <div className="space-y-6">
@@ -150,7 +154,7 @@ export function ScoringEditor({
            * From sm up, one row per criterion under the column headings. On a phone, the name has the row's first
            * line to itself (with remove), and max points and lowest score sit under it, each with its own label.
            */}
-          <ol className="space-y-4 sm:space-y-2">
+          <ol className="space-y-4 sm:space-y-3">
             {rows.map((r, i) => (
               <li key={r.key} className={`grid grid-cols-[1fr_1fr_auto] items-end gap-x-2 gap-y-2 ${columns}`}>
                 <div className="col-span-2 sm:col-span-1">
@@ -204,6 +208,38 @@ export function ScoringEditor({
                     </svg>
                   </button>
                 )}
+                {/* What judges should look for, shown on their screen while they score this criterion. */}
+                <div className="col-span-full">
+                  {r.guide !== "" || guideOpen.has(r.key) ? (
+                    // A rule down the left ties the guide to its criterion.
+                    <div className="border-l-2 border-line pl-3">
+                      <label htmlFor={`${idPrefix}criterion-${r.key}-guide`} className="label">
+                        <span className="sr-only">
+                          {prefix}Criterion {i + 1}{" "}
+                        </span>
+                        Guide for judges
+                      </label>
+                      <textarea
+                        id={`${idPrefix}criterion-${r.key}-guide`}
+                        value={r.guide}
+                        onChange={(e) => update(r.key, { guide: e.target.value })}
+                        maxLength={MAX_GUIDE}
+                        rows={3}
+                        placeholder="Guide questions or what to look for, e.g. Is the idea new? Does it solve a real problem?"
+                        aria-describedby={`${idPrefix}guide-hint`}
+                        className="field min-h-20 resize-y py-2 leading-relaxed sm:max-w-[42rem]"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="tap-target text-sm font-semibold text-regal underline-offset-2 hover:underline"
+                      onClick={() => setGuideOpen((open) => new Set(open).add(r.key))}
+                    >
+                      Add guide for judges<span className="sr-only"> to {prefix}criterion {i + 1}</span>
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
@@ -211,7 +247,7 @@ export function ScoringEditor({
             <button
               type="button"
               className="btn btn-quiet btn-sm"
-              onClick={() => set({ criteria: [...rows, { key: nextKey, id: "", name: "", max: "", min: "" }] })}
+              onClick={() => set({ criteria: [...rows, { key: nextKey, id: "", name: "", max: "", min: "", guide: "" }] })}
               disabled={rows.length >= 20}
             >
               Add criterion
@@ -226,6 +262,9 @@ export function ScoringEditor({
           </div>
           <p id={`${idPrefix}lowest-hint`} className="hint mt-3 max-w-[65ch]">
             Lowest score: the least a judge can give, like 28 for a criterion worth 40. Leave it blank for none.
+          </p>
+          <p id={`${idPrefix}guide-hint`} className="hint mt-1 max-w-[65ch]">
+            A guide shows on the judge&apos;s screen while they score that criterion. Up to {MAX_GUIDE} characters.
           </p>
         </fieldset>
       )}

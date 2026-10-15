@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAccessCodes, getAdminBoard, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
+import { getAccessCodes, getActivityNotes, getAdminBoard, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -16,6 +16,7 @@ import { DeveloperTab } from "./developer-tab";
 import { EntriesTab } from "./entries-tab";
 import { JudgesTab } from "./judges-tab";
 import { LedTab } from "./led-tab";
+import { NotesTab } from "./notes-tab";
 import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
 import { SettingsTab } from "./settings-tab";
@@ -25,7 +26,7 @@ import { SettingsTab } from "./settings-tab";
  * what's set up beforehand, then the rehearsal tools off to the side.
  */
 type Tab = {
-  id: "session" | "access" | "led" | "judges" | "entries" | "segments" | "settings" | "developer";
+  id: "session" | "access" | "led" | "notes" | "judges" | "entries" | "segments" | "settings" | "developer";
   label: string;
   group: "show" | "setup" | "tools";
 };
@@ -34,6 +35,7 @@ const TABS: Tab[] = [
   { id: "session", label: "Session", group: "show" },
   { id: "access", label: "Judge devices", group: "show" },
   { id: "led", label: "LED wall", group: "show" },
+  { id: "notes", label: "Notes", group: "show" },
   { id: "judges", label: "Judges", group: "setup" },
   { id: "entries", label: "Entries", group: "setup" },
   { id: "settings", label: "Settings", group: "setup" },
@@ -221,6 +223,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
+        {tab === "notes" && <NotesTab entries={entries} judges={judges} notes={await getActivityNotes(activity.id)} pageant={pageant} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}

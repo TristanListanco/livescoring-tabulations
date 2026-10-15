@@ -308,6 +308,27 @@ dialog::backdrop {
   animation: led-dot 1.2s ease-in-out infinite;
 }
 
+/* A judge's submitted score waiting out its undo window: the bar drains over the window (its length set inline). */
+@keyframes undo-drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+.undo-drain {
+  transform-origin: left;
+  animation: undo-drain linear forwards;
+}
+
+/* Before a criteria score goes in, each criterion's points light up in turn (staggered inline), so none is missed. */
+@keyframes check-in {
+  from {
+    background-color: var(--color-powder);
+  }
+}
+.check-in {
+  animation: check-in 0.8s ease-out both;
+}
+
 /* A plain fade, for what would otherwise slide in under reduced motion. */
 @keyframes fade-in {
   from {
@@ -327,5 +348,9 @@ dialog::backdrop {
   .led-dot {
     animation: none;
     opacity: 0.7;
+  }
+  /* The countdown's seconds still show; the bar stays full rather than moving. */
+  .undo-drain {
+    animation: none;
   }
 }

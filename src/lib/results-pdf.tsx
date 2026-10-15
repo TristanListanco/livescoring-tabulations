@@ -34,6 +34,10 @@ const s = StyleSheet.create({
   table: { marginTop: 22 },
   headRow: { flexDirection: "row", backgroundColor: C.prussian, color: C.mint, fontFamily: "Helvetica-Bold", fontSize: 9 },
   row: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.line, alignItems: "center" },
+  // A judge's score sheet row: the scores, with the judge's note on the entry under them.
+  sheetRow: { borderBottomWidth: 0.75, borderBottomColor: C.line },
+  sheetCells: { flexDirection: "row", alignItems: "center" },
+  note: { marginLeft: 46, marginRight: 6, marginTop: -3, marginBottom: 7, fontFamily: "Helvetica-Oblique", fontSize: 9, color: C.muted },
   podiumRow: { backgroundColor: C.podium, fontFamily: "Helvetica-Bold" },
   cell: { paddingVertical: 7, paddingHorizontal: 6 },
   rank: { width: 42 },
@@ -242,25 +246,31 @@ function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo
  * with criteria scoring the points for each criterion. Each sheet is signed by its judge and the signatories, and
  * carries the report ID of the results sheet it goes with. `part`: a pageant sub-activity's name.
  */
-function JudgeSheetsDocument({ board, info, part }: { board: Board; info: ReportInfo; part?: string }) {
+function JudgeSheetsDocument({ board, info, part, notes }: { board: Board; info: ReportInfo; part?: string; notes: Map<string, string> }) {
   const { activity, judges } = board;
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
   const noun = part ? "candidates" : "entries";
   const label = part ? `${activity.name}, ${part}` : activity.name;
   const total = criteria.length === 0 ? "Score" : activity.criteriaDisplay === "ten" ? "Total (of 10)" : "Total";
   const meta = `${rulesSummary(activity)} ${board.entries.length} ${noun}, in running order. Generated ${info.generatedAt}.`;
-  const row = (r: JudgeSheetRow) => (
-    <View key={r.entry.id} style={s.row} wrap={false}>
-      <Text style={[s.cell, s.number]}>{r.number}</Text>
-      <Text style={[s.cell, s.entry]}>{r.entry.name}</Text>
-      {r.points.map((v, i) => (
-        <Text key={criteria[i].id} style={[s.cell, s.judge]}>
-          {v === null ? "—" : formatScore(v, activity.decimals)}
-        </Text>
-      ))}
-      <Text style={[s.cell, s.average]}>{r.value === null ? "—" : scoreText(r.value, activity)}</Text>
-    </View>
-  );
+  const row = (judge: Judge, r: JudgeSheetRow) => {
+    const note = notes.get(`${judge.id}|${r.entry.id}`);
+    return (
+      <View key={r.entry.id} style={s.sheetRow} wrap={false}>
+        <View style={s.sheetCells}>
+          <Text style={[s.cell, s.number]}>{r.number}</Text>
+          <Text style={[s.cell, s.entry]}>{r.entry.name}</Text>
+          {r.points.map((v, i) => (
+            <Text key={criteria[i].id} style={[s.cell, s.judge]}>
+              {v === null ? "—" : formatScore(v, activity.decimals)}
+            </Text>
+          ))}
+          <Text style={[s.cell, s.average]}>{r.value === null ? "—" : scoreText(r.value, activity)}</Text>
+        </View>
+        {note && <Text style={s.note}>{`Note: ${note}`}</Text>}
+      </View>
+    );
+  };
 
   return (
     <Document title={`${label}, judges' score sheets`} author="LiveScoring" creator="LiveScoring">
@@ -295,9 +305,9 @@ function JudgeSheetsDocument({ board, info, part }: { board: Board; info: Report
                 ))}
                 <Text style={[s.cell, s.average]}>{total}</Text>
               </View>
-              {rows.slice(0, rows.length - kept.length).map(row)}
+              {rows.slice(0, rows.length - kept.length).map((r) => row(judge, r))}
               <View wrap={false}>
-                {kept.map(row)}
+                {kept.map((r) => row(judge, r))}
                 <SignOff
                   inline
                   judges={[judge]}
@@ -468,10 +478,21 @@ export function renderResultsPdf(
   return renderToBuffer(<ResultsDocument board={board} part={part} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
 }
 
-/** The judges' score sheets that go with a results sheet: an event's, or (with `part`) one pageant sub-activity's. */
+/**
+ * The judges' score sheets that go with a results sheet: an event's, or (with `part`) one pageant sub-activity's.
+ * `notes`: each judge's note on an entry, keyed "judgeId|entryId", printed under that entry on their sheet.
+ */
 export function renderJudgeSheetsPdf(
   board: Board,
-  { timeZone, reportId, organizer, part }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string },
+  {
+    timeZone,
+    reportId,
+    organizer,
+    part,
+    notes = new Map(),
+  }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string; notes?: Map<string, string> },
 ): Promise<Buffer> {
-  return renderToBuffer(<JudgeSheetsDocument board={board} part={part} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+  return renderToBuffer(
+    <JudgeSheetsDocument board={board} part={part} notes={notes} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />,
+  );
 }

@@ -309,15 +309,15 @@ describe("sub-activities with parts", () => {
 describe("lowest scores, in points", () => {
   // The closed-door interview from a real score sheet: Content 40 (lowest 28), Delivery 35 (24.5), Grace and Confidence 25 (17.5).
   const interviewCriteria = [
-    { key: 0, id: "", name: "Content", max: "40", min: "28" },
-    { key: 1, id: "", name: "Delivery", max: "35", min: "24.5" },
-    { key: 2, id: "", name: "Grace and Confidence", max: "25", min: "17.5" },
+    { key: 0, id: "", name: "Content", max: "40", min: "28", guide: "" },
+    { key: 1, id: "", name: "Delivery", max: "35", min: "24.5", guide: "" },
+    { key: 2, id: "", name: "Grace and Confidence", max: "25", min: "17.5", guide: "" },
   ];
 
   it("reads each criterion's lowest score, blank for none", () => {
     expect(criteriaForCheck(interviewCriteria).map((c) => c.min)).toEqual([28, 24.5, 17.5]);
-    expect(criteriaForCheck([{ key: 0, id: "", name: "Content", max: "40", min: "" }]).map((c) => c.min)).toEqual([0]);
-    expect(criteriaForCheck([{ key: 0, id: "", name: "Content", max: "40", min: "2.8.1" }])[0].min).toBeNaN();
+    expect(criteriaForCheck([{ key: 0, id: "", name: "Content", max: "40", min: "", guide: "" }]).map((c) => c.min)).toEqual([0]);
+    expect(criteriaForCheck([{ key: 0, id: "", name: "Content", max: "40", min: "2.8.1", guide: "" }])[0].min).toBeNaN();
   });
 
   it("keeps what's typed to a number with at most two decimal places", () => {
