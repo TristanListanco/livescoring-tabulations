@@ -1,5 +1,6 @@
 import "server-only";
 import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import type { CorrectionView } from "./corrections";
 import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
 import type { Board, Deduction, Judge, Round, Signatory } from "./types";
@@ -180,12 +181,41 @@ function Footer({ label, info, perSheet = false }: { label: string; info: Report
   );
 }
 
-const SIGN_NOTE =
-  "Each judge submitted every score above from their approved device with a personal access code, and submitted scores are final. " +
+/**
+ * The sign-off's note. `corrections`: the ones that changed a score on this sheet; null when they can't be known
+ * (before migration 019), when submitted scores were simply final.
+ */
+const signNote = (corrections: CorrectionView[] | null) =>
+  "Each judge submitted every score above from their approved device with a personal access code" +
+  (corrections === null
+    ? ", and submitted scores are final. "
+    : corrections.length === 0
+      ? ". No score was changed after it was submitted. "
+      : ". The corrections listed above changed a submitted score with the agreement of every other judge on the panel (or, for a judge alone on theirs, the organizer's approval). ") +
   "(Sgd.) marks each judge's verified sign-off.";
 
+/** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who agreed. */
+function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
+  if (corrections.length === 0) return null;
+  return (
+    <View>
+      <Text style={s.sectionTitle} minPresenceAhead={48}>
+        Score corrections
+      </Text>
+      <Text style={s.sectionNote}>Submitted scores that changed: each judge asked, saying why, and the others agreed.</Text>
+      {corrections.map((c) => (
+        <View key={c.id} style={s.deductionRow} wrap={false}>
+          <Text style={s.deductionWho}>{`${c.judgeName}, No. ${c.entryNumber} ${c.entryName}`}</Text>
+          <Text style={s.deductionWhy}>{`${c.from} to ${c.to}. ${c.reason}`}</Text>
+          <Text style={s.deductionPoints}>{c.decidedBy === "organizer" ? "Organizer approved" : "Every other judge agreed"}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** One activity's results, or one pageant sub-activity's (`part`: its name). */
-function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo; part?: string }) {
+function ResultsDocument({ board, info, part, corrections }: { board: Board; info: ReportInfo; part?: string; corrections: CorrectionView[] | null }) {
   const { activity, judges } = board;
   const rows = rankEntries(board.entries, judges, board.scores, activity);
   const noun = part ? "candidates" : "entries";
@@ -234,7 +264,8 @@ function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo
           ))}
         </View>
 
-        <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={SIGN_NOTE} />
+        <CorrectionsList corrections={corrections ?? []} />
+        <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={signNote(corrections)} />
         <Footer label={label} info={info} />
       </Page>
     </Document>
@@ -246,7 +277,19 @@ function ResultsDocument({ board, info, part }: { board: Board; info: ReportInfo
  * with criteria scoring the points for each criterion. Each sheet is signed by its judge and the signatories, and
  * carries the report ID of the results sheet it goes with. `part`: a pageant sub-activity's name.
  */
-function JudgeSheetsDocument({ board, info, part, notes }: { board: Board; info: ReportInfo; part?: string; notes: Map<string, string> }) {
+function JudgeSheetsDocument({
+  board,
+  info,
+  part,
+  notes,
+  corrected,
+}: {
+  board: Board;
+  info: ReportInfo;
+  part?: string;
+  notes: Map<string, string>;
+  corrected: Map<string, CorrectionView>;
+}) {
   const { activity, judges } = board;
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
   const noun = part ? "candidates" : "entries";
@@ -255,6 +298,7 @@ function JudgeSheetsDocument({ board, info, part, notes }: { board: Board; info:
   const meta = `${rulesSummary(activity)} ${board.entries.length} ${noun}, in running order. Generated ${info.generatedAt}.`;
   const row = (judge: Judge, r: JudgeSheetRow) => {
     const note = notes.get(`${judge.id}|${r.entry.id}`);
+    const fix = corrected.get(`${judge.id}|${r.entry.id}`);
     return (
       <View key={r.entry.id} style={s.sheetRow} wrap={false}>
         <View style={s.sheetCells}>
@@ -267,6 +311,11 @@ function JudgeSheetsDocument({ board, info, part, notes }: { board: Board; info:
           ))}
           <Text style={[s.cell, s.average]}>{r.value === null ? "—" : scoreText(r.value, activity)}</Text>
         </View>
+        {fix && (
+          <Text
+            style={s.note}
+          >{`Corrected from ${fix.from} (${fix.decidedBy === "organizer" ? "the organizer approved" : "every other judge agreed"}): ${fix.reason}`}</Text>
+        )}
         {note && <Text style={s.note}>{`Note: ${note}`}</Text>}
       </View>
     );
@@ -313,7 +362,10 @@ function JudgeSheetsDocument({ board, info, part, notes }: { board: Board; info:
                   judges={[judge]}
                   signatories={info.organizer?.signatories ?? []}
                   note={
-                    `${judge.name} submitted every score above from their approved device with a personal access code, and submitted scores are final. ` +
+                    `${judge.name} submitted every score above from their approved device with a personal access code` +
+                    ([...corrected.keys()].some((k) => k.startsWith(`${judge.id}|`))
+                      ? "; a corrected score changed only with the others' agreement, as marked. "
+                      : ", and submitted scores are final. ") +
                     "(Sgd.) marks the judge's verified sign-off."
                   }
                 />
@@ -471,16 +523,26 @@ export function renderStandingsPdf(
 }
 
 /** Results as a PDF: an event's, or (with `part`, its name) one pageant sub-activity's. */
+/** `corrections`: the applied corrections to this sheet's scores; null before migration 019. */
 export function renderResultsPdf(
   board: Board,
-  { timeZone, reportId, organizer, part }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string },
+  {
+    timeZone,
+    reportId,
+    organizer,
+    part,
+    corrections = null,
+  }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string; corrections?: CorrectionView[] | null },
 ): Promise<Buffer> {
-  return renderToBuffer(<ResultsDocument board={board} part={part} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+  return renderToBuffer(
+    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />,
+  );
 }
 
 /**
  * The judges' score sheets that go with a results sheet: an event's, or (with `part`) one pageant sub-activity's.
  * `notes`: each judge's note on an entry, keyed "judgeId|entryId", printed under that entry on their sheet.
+ * `corrections`: applied corrections to these scores; each corrected score says what it was and why.
  */
 export function renderJudgeSheetsPdf(
   board: Board,
@@ -490,9 +552,24 @@ export function renderJudgeSheetsPdf(
     organizer,
     part,
     notes = new Map(),
-  }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string; notes?: Map<string, string> },
+    corrections = [],
+  }: {
+    timeZone?: string;
+    reportId: string;
+    organizer: ReportOrganizer | null;
+    part?: string;
+    notes?: Map<string, string>;
+    corrections?: CorrectionView[];
+  },
 ): Promise<Buffer> {
+  const corrected = new Map(corrections.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
   return renderToBuffer(
-    <JudgeSheetsDocument board={board} part={part} notes={notes} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />,
+    <JudgeSheetsDocument
+      board={board}
+      part={part}
+      notes={notes}
+      corrected={corrected}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer }}
+    />,
   );
 }

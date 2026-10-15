@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getBoard, getDevice, getJudgeContext, getJudgeNotes } from "@/lib/data";
+import { correctionView, correctionVoters } from "@/lib/corrections";
+import { getBoard, getCorrections, getDevice, getJudgeContext, getJudgeNotes, getOwnBreakdown } from "@/lib/data";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
 import { ScoringPanel, type DeviceGate } from "./scoring-panel";
@@ -14,10 +15,11 @@ export default async function ScorePage() {
 
   // The activity, this device and the judge's notes, read together. The notes reach the screen only once the device
   // is approved (see below).
-  const [board, device, ownNotes] = await Promise.all([
+  const [board, device, ownNotes, allCorrections] = await Promise.all([
     getBoard(context.activityId),
     session.deviceId ? getDevice(session.deviceId) : null,
     getJudgeNotes(context.judge.id),
+    getCorrections(context.activityId),
   ]);
   if (!board) redirect("/judge");
 
@@ -43,6 +45,29 @@ export default async function ScorePage() {
   // Their own notes on the entries, once the device is approved (null when notes aren't available: before migration 018).
   const notes = gate.status === "approved" && !offPanel ? ownNotes : null;
 
+  // Score corrections (null before migration 019): the ones waiting for this judge's vote, which shows them the score
+  // being changed, and this judge's own latest one on the entry on screen.
+  const corrections =
+    gate.status === "approved" && allCorrections
+      ? {
+          toVote: allCorrections
+            .filter((c) => c.status === "open" && !c.votes.some((v) => v.judgeId === context.judge.id) && correctionVoters(board, c).some((j) => j.id === context.judge.id))
+            .map((c) => correctionView(board, c)),
+          mine:
+            allCorrections
+              .filter((c) => c.judgeId === context.judge.id && c.entryId === board.activity.currentEntryId && c.roundId === (round?.id ?? null) && c.status !== "withdrawn")
+              .map((c) => correctionView(board, c))
+              .at(-1) ?? null,
+          // Who decides this judge's corrections: the rest of their panel, or the organizer when they're alone on it.
+          othersVote: correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0,
+          // With criteria, a correction starts from the points they gave the entry on screen.
+          fromBreakdown:
+            showing.activity.scoringMode === "criteria" && board.activity.currentEntryId && mine.some((s) => s.entryId === board.activity.currentEntryId)
+              ? await getOwnBreakdown(context.judge.id, board.activity.currentEntryId, round?.id ?? null)
+              : null,
+        }
+      : null;
+
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   const panel =
     gate.status === "approved" && context.judge.isChair && !offPanel
@@ -64,6 +89,7 @@ export default async function ScorePage() {
       entries={showing.entries}
       myScores={mine}
       notes={notes}
+      corrections={corrections}
       gate={gate}
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}

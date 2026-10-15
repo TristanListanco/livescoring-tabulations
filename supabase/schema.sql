@@ -311,17 +311,33 @@ begin
 end;
 $$;
 
+-- On update too: a corrected score still has to fit its rules.
 drop trigger if exists scores_check on public.scores;
 create trigger scores_check
-  before insert on public.scores
+  before insert or update on public.scores
   for each row execute function public.check_score();
 
--- Submitted scores are final. Deleting (developer reset) is still allowed.
+-- Submitted scores are final. One changes only through a score correction every other judge agreed to (or the
+-- organizer approved, for a judge alone on their panel), applied by settle_score_correction (see Score corrections).
+-- Deleting (developer reset) is still allowed.
 create or replace function public.forbid_score_update()
 returns trigger
 language plpgsql
 as $$
+declare
+  correction text := nullif(current_setting('livescoring.correction', true), '');
 begin
+  if correction is not null
+     and new.activity_id = old.activity_id and new.judge_id = old.judge_id and new.entry_id = old.entry_id
+     and new.round_id is not distinct from old.round_id
+     and exists (
+       select 1 from public.score_corrections c
+       where c.id::text = correction and c.status = 'approved'
+         and c.judge_id = new.judge_id and c.entry_id = new.entry_id and c.round_id is not distinct from new.round_id
+         and c.new_value = new.value and c.new_breakdown is not distinct from new.breakdown
+     ) then
+    return new;
+  end if;
   raise exception 'Submitted scores cannot be changed';
 end;
 $$;
@@ -345,6 +361,83 @@ create table if not exists public.judge_notes (
 );
 create index if not exists judge_notes_activity_idx on public.judge_notes (activity_id);
 
+-- Score corrections ------------------------------------------------------------
+-- A judge who entered a wrong score asks to change it; it changes only if every other judge on their panel agrees
+-- (or, for a judge alone on their panel, the organizer approves). Server only.
+
+create table if not exists public.score_corrections (
+  id             uuid primary key default gen_random_uuid(),
+  activity_id    uuid not null references public.activities (id) on delete cascade,
+  judge_id       uuid not null references public.judges (id) on delete cascade,
+  entry_id       uuid not null references public.entries (id) on delete cascade,
+  round_id       uuid references public.rounds (id) on delete cascade,
+  old_value      numeric(7, 2) not null,
+  new_value      numeric(7, 2) not null,
+  old_breakdown  jsonb,
+  new_breakdown  jsonb,
+  reason         text not null check (char_length(reason) between 1 and 300),
+  status         text not null default 'open' check (status in ('open', 'approved', 'rejected', 'withdrawn')),
+  -- Who settled it: the judges' votes, or the organizer (a judge alone on their panel).
+  decided_by     text check (decided_by in ('judges', 'organizer')),
+  created_at     timestamptz not null default now(),
+  decided_at     timestamptz
+);
+create index if not exists score_corrections_activity_idx on public.score_corrections (activity_id, created_at);
+-- One open request per score at a time.
+create unique index if not exists score_corrections_one_open
+  on public.score_corrections (judge_id, entry_id, coalesce(round_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  where status = 'open';
+
+create table if not exists public.correction_votes (
+  correction_id  uuid not null references public.score_corrections (id) on delete cascade,
+  judge_id       uuid not null references public.judges (id) on delete cascade,
+  activity_id    uuid not null references public.activities (id) on delete cascade,
+  agree          boolean not null,
+  created_at     timestamptz not null default now(),
+  primary key (correction_id, judge_id)
+);
+
+-- Settles an open correction, once: turned down, or approved and the score changed, in one transaction (a score that
+-- won't fit its rules undoes the whole thing). The only way a submitted score changes (see forbid_score_update). False
+-- when it was no longer open, e.g. two last votes at once.
+create or replace function public.settle_score_correction(correction uuid, outcome text, decider text)
+returns boolean
+language plpgsql
+as $$
+declare
+  c public.score_corrections%rowtype;
+begin
+  if outcome not in ('approved', 'rejected') or decider not in ('judges', 'organizer') then
+    raise exception 'Unknown outcome % by %', outcome, decider;
+  end if;
+  update public.score_corrections set status = outcome, decided_by = decider, decided_at = now()
+    where id = correction and status = 'open'
+    returning * into c;
+  if not found then
+    return false;
+  end if;
+  if outcome = 'approved' then
+    perform set_config('livescoring.correction', correction::text, true);
+    update public.scores set value = c.new_value, breakdown = c.new_breakdown
+      where judge_id = c.judge_id and entry_id = c.entry_id and round_id is not distinct from c.round_id;
+    perform set_config('livescoring.correction', '', true);
+  end if;
+  return true;
+end;
+$$;
+-- Only the server settles corrections.
+revoke execute on function public.settle_score_correction(uuid, text, text) from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke execute on function public.settle_score_correction(uuid, text, text) from anon, authenticated;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.settle_score_correction(uuid, text, text) to service_role;
+  end if;
+end;
+$$;
+
 -- Row level security ---------------------------------------------------------
 -- None of these tables has a policy, so only the secret key (the server) can read or write them. The public key
 -- reads only activity_changes (see Realtime below).
@@ -356,6 +449,8 @@ alter table public.judge_access enable row level security;
 alter table public.judge_devices enable row level security;
 alter table public.sign_in_failures enable row level security;
 alter table public.judge_notes enable row level security;
+alter table public.score_corrections enable row level security;
+alter table public.correction_votes enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
@@ -403,7 +498,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.

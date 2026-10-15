@@ -6,6 +6,7 @@ import { LIVE_BOARD_TAG } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
+import type { Correction } from "./corrections";
 import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 type ActivityRow = {
@@ -395,6 +396,62 @@ export async function getActivityNotes(activityId: string): Promise<JudgeNote[] 
   const { data, error } = await db().from("judge_notes").select("judge_id, entry_id, body, updated_at").eq("activity_id", activityId).order("updated_at");
   if (error) return null;
   return (data as NoteRow[]).map((r) => ({ judgeId: r.judge_id, entryId: r.entry_id, body: r.body, updatedAt: r.updated_at }));
+}
+
+type CorrectionRow = {
+  id: string;
+  judge_id: string;
+  entry_id: string;
+  round_id: string | null;
+  old_value: number | string;
+  new_value: number | string;
+  old_breakdown: Record<string, number | string> | null;
+  new_breakdown: Record<string, number | string> | null;
+  reason: string;
+  status: string;
+  decided_by: string | null;
+  created_at: string;
+  decided_at: string | null;
+};
+const toBreakdown = (b: Record<string, number | string> | null) => (b ? Object.fromEntries(Object.entries(b).map(([id, v]) => [id, Number(v)])) : null);
+
+/** A judge's points per criterion for one entry (in a pageant, one sub-activity): where their correction starts from. */
+export async function getOwnBreakdown(judgeId: string, entryId: string, roundId: string | null): Promise<Record<string, number> | null> {
+  const query = db().from("scores").select("breakdown").eq("judge_id", judgeId).eq("entry_id", entryId);
+  const { data } = await (roundId ? query.eq("round_id", roundId) : query.is("round_id", null)).maybeSingle();
+  return toBreakdown((data as { breakdown: Record<string, number | string> | null } | null)?.breakdown ?? null);
+}
+
+/**
+ * An activity's score corrections, oldest first, each with its votes. Null when they can't be read (before migration
+ * 019), so judges aren't offered corrections.
+ */
+export async function getCorrections(activityId: string): Promise<Correction[] | null> {
+  const [corrections, votes] = await Promise.all([
+    db().from("score_corrections").select("*").eq("activity_id", activityId).order("created_at"),
+    db().from("correction_votes").select("correction_id, judge_id, agree").eq("activity_id", activityId),
+  ]);
+  if (corrections.error || votes.error) return null;
+  const votesOf = new Map<string, Correction["votes"]>();
+  for (const v of votes.data as { correction_id: string; judge_id: string; agree: boolean }[]) {
+    votesOf.set(v.correction_id, [...(votesOf.get(v.correction_id) ?? []), { judgeId: v.judge_id, agree: v.agree }]);
+  }
+  return (corrections.data as CorrectionRow[]).map((r) => ({
+    id: r.id,
+    judgeId: r.judge_id,
+    entryId: r.entry_id,
+    roundId: r.round_id,
+    oldValue: Number(r.old_value),
+    newValue: Number(r.new_value),
+    oldBreakdown: toBreakdown(r.old_breakdown),
+    newBreakdown: toBreakdown(r.new_breakdown),
+    reason: r.reason,
+    status: r.status === "approved" || r.status === "rejected" || r.status === "withdrawn" ? r.status : "open",
+    decidedBy: r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
+    createdAt: r.created_at,
+    decidedAt: r.decided_at,
+    votes: votesOf.get(r.id) ?? [],
+  }));
 }
 
 const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);

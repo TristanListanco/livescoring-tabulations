@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAccessCodes, getActivityNotes, getAdminBoard, getBoard, getSignatories, listAdmins, listDevices } from "@/lib/data";
+import { correctionView } from "@/lib/corrections";
+import { getAccessCodes, getActivityNotes, getAdminBoard, getBoard, getCorrections, getSignatories, listAdmins, listDevices } from "@/lib/data";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -208,6 +209,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             liveUrl={liveUrl}
             liveQr={await qrSvg(liveUrl)}
             ledUrl={ledUrl}
+            corrections={(await getCorrections(activity.id))?.map((c) => correctionView(board, c)) ?? []}
           />
         )}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} pageant={pageant} />}

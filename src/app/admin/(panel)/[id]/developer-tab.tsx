@@ -55,8 +55,8 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
             </ConfirmDialog>
           }
         >
-          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"} and puts the session back to not started. Judges, entries and
-          access codes stay as they are.
+          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"}, with any score corrections, and puts the session back to not
+          started. Judges, entries and access codes stay as they are.
         </Tool>
         <Tool
           title="Delete activity"
