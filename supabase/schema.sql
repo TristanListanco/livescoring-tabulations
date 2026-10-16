@@ -181,6 +181,30 @@ begin
   end if;
 end;
 $$;
+-- When the session last ended (the live results show it), and when the activity was archived. Only an ended session
+-- can be archived, it stays ended (no reopening, no reset), and archiving is for good.
+alter table public.activities add column if not exists session_ended_at timestamptz;
+alter table public.activities add column if not exists archived_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_archived_ended_check') then
+    alter table public.activities
+      add constraint activities_archived_ended_check check (archived_at is null or session_state = 'ended');
+  end if;
+end;
+$$;
+create or replace function public.forbid_unarchive() returns trigger
+language plpgsql
+as $$
+begin
+  if old.archived_at is not null and new.archived_at is distinct from old.archived_at then
+    raise exception 'An archived activity stays archived.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists forbid_unarchive on public.activities;
+create trigger forbid_unarchive before update on public.activities for each row execute function public.forbid_unarchive();
 
 -- Pageant sub-activities -----------------------------------------------------
 -- A pageant's sub-activities (rounds), in the preliminary or pageant proper segment, each with its own scoring.

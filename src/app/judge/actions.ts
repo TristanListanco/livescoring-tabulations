@@ -94,6 +94,9 @@ export async function saveNote(entryId: string, body: string): Promise<ActionRes
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
   const { data: entry } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", context.activityId).maybeSingle();
   if (!entry) return { ok: false, error: "This entry was removed by the organizer." };
+  // An archived activity is kept as it was (every column read, so this works before migration 020 too).
+  const { data: activity } = await db().from("activities").select("*").eq("id", context.activityId).maybeSingle();
+  if ((activity as { archived_at?: string | null } | null)?.archived_at) return { ok: false, error: "This activity is archived, so notes can't change." };
 
   const text = cleanNote(body);
   const notes = db().from("judge_notes");

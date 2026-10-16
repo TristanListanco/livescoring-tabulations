@@ -22,6 +22,9 @@ export default async function ScorePage() {
     getCorrections(context.activityId),
   ]);
   if (!board) redirect("/judge");
+  // The device is gone, not just unapproved: the organizer reset the activity, which signs every device out. Back to
+  // the sign-in, which says so.
+  if (session.deviceId && !device) redirect("/judge");
 
   // Scoring opens only on the device the organizer approved for this judge.
   const gate: DeviceGate =

@@ -26,6 +26,9 @@ type ActivityRow = {
   led_shape?: string;
   owner_id?: string | null;
   session_state?: string;
+  /** Migration 020. */
+  session_ended_at?: string | null;
+  archived_at?: string | null;
   current_entry_id?: string | null;
   scoring_mode?: string;
   criteria?: unknown;
@@ -129,6 +132,8 @@ function toActivity(row: ActivityRow): Activity {
     ledShape: toLedShape(row.led_shape),
     ownerId: row.owner_id ?? null,
     sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
+    sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
+    archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
     scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
     criteria: toCriteria(row.criteria),

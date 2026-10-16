@@ -20,7 +20,7 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
-import { testToolsAllowed } from "@/lib/environment";
+import { pageantsAvailable, testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
@@ -65,6 +65,7 @@ const dbErr = (error: { message: string }): ActionResult => {
   return err("That didn't save. Check the connection and try again.");
 };
 const NOT_FOUND = err("Activity not found.");
+const PAGEANTS_SOON = "Pageant mode is coming soon. It isn't available on this site yet.";
 
 function check(error: { message: string } | null) {
   if (error) throw new Error(error.message);
@@ -162,14 +163,20 @@ function readResultDecimals(formData: FormData): ResultDecimals | { error: strin
 /**
  * The signed-in admin, when they may manage this activity: an organizer their own activities, the super
  * admin only activities no organizer owns. Every action that touches an activity goes through here.
+ *
+ * An archived activity can't be changed: a page that still offers a change goes back to the activity's read-only view
+ * instead. Only deleting it lets `archived` through.
  */
-async function manage(activityId: string | null | undefined): Promise<AdminSession | null> {
+async function manage(activityId: string | null | undefined, { archived = false }: { archived?: boolean } = {}): Promise<AdminSession | null> {
   const session = await requireAdmin();
   if (!activityId || !isUuid(activityId)) return null;
-  const query = db().from("activities").select("id").eq("id", activityId);
+  // Every column, so archived_at comes back once the database has it (migration 020) and nothing breaks before.
+  const query = db().from("activities").select("*").eq("id", activityId);
   const { data, error } = await (session.kind === "organizer" ? query.eq("owner_id", session.admin.id) : query.is("owner_id", null)).maybeSingle();
   check(error);
-  return data ? session : null;
+  if (!data) return null;
+  if ((data as { archived_at?: string | null }).archived_at && !archived) redirect(`/admin/${activityId}`);
+  return session;
 }
 
 /** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */
@@ -576,6 +583,7 @@ export async function createPageant(formData: FormData): Promise<CreateResult> {
 async function createFromForm(formData: FormData): Promise<ActionResult | Created> {
   const session = await requireAdmin();
   const pageant = formData.get("kind") === "pageant";
+  if (pageant && !pageantsAvailable()) return err(PAGEANTS_SOON);
 
   const name = cleanName(formData.get("name"));
   if (!name) return err(pageant ? "Give the pageant a name." : "Give the activity a name.");
@@ -818,7 +826,14 @@ export async function setSessionState(activityId: string, state: "live" | "ended
 
   const update: Record<string, string | null> = { session_state: state };
   if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
-  const { error } = await db().from("activities").update(update).eq("id", activityId);
+  // When it ended, for the live results ("Ended" with the time); reopening clears it until it ends again.
+  update.session_ended_at = state === "ended" ? new Date().toISOString() : null;
+  let { error } = await db().from("activities").update(update).eq("id", activityId);
+  // Before migration 020 there's no end time to keep: the session changes all the same.
+  if (error && /session_ended_at/.test(error.message)) {
+    delete update.session_ended_at;
+    ({ error } = await db().from("activities").update(update).eq("id", activityId));
+  }
   if (error) return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   changed();
   if (state === "ended") return ok("The session has ended. Judges can no longer submit scores.");
@@ -1137,6 +1152,11 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (error) return dbErr(error);
   // The corrections were to those scores (votes go with them). Fails harmlessly before migration 019.
   await db().from("score_corrections").delete().eq("activity_id", activityId);
+  // Judges' notes go with the scores (fails harmlessly before migration 018).
+  await db().from("judge_notes").delete().eq("activity_id", activityId);
+  // Every judge's device is signed out, even one left signed in: judges enter their codes and pair again.
+  const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
+  if (judgeRows?.length) await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
@@ -1147,15 +1167,42 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
     await db().from("activities").update({ current_round_id: null, scoring_closes_at: null }).eq("id", activityId);
   }
   changed();
-  return ok("All scores were deleted and the session is back to not started.");
+  return ok("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
 }
 
 export async function deleteActivity(activityId: string): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
+  // An archived activity can still be deleted: it's the one change it allows.
+  if (!(await manage(activityId, { archived: true }))) return NOT_FOUND;
   // Not mid-show: the Settings tab hides the button while live, and this holds even if a stale page still shows it.
   const { data: live } = await db().from("activities").select("id").eq("id", activityId).eq("session_state", "live").maybeSingle();
   if (live) return err("The session is live. End it on the Session tab before deleting the activity.");
   return removeActivity(activityId);
+}
+
+const ARCHIVE_HINT = "Archiving needs a database update. Run supabase/migrations/020_session_end_and_archive.sql in the Supabase SQL editor.";
+
+/**
+ * Archive an activity once its session has ended: it moves from the list of activities to the archived ones, and
+ * from then on can't be reopened or changed, only read (its results and score sheets still download) and deleted.
+ * The database holds the same rules (migration 020).
+ */
+export async function archiveActivity(activityId: string): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity || activity.sessionState !== "ended") return err("Only an activity whose session has ended can be archived.");
+  // Its results wait on an open correction, so it's settled first.
+  if ((await getCorrections(activityId))?.some((c) => c.status === "open")) {
+    return err("A score correction is still waiting. Settle it on the Session tab before archiving.");
+  }
+  const { error } = await db()
+    .from("activities")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", activityId)
+    .eq("session_state", "ended")
+    .is("archived_at", null);
+  if (error) return /archived_at/.test(error.message) ? needsMigration(ARCHIVE_HINT) : dbErr(error);
+  changed();
+  return ok(`${activity.name} is archived. Find it under Archived activities.`);
 }
 
 /** Developer tool for rehearsals: delete the activity at any time, even mid-session. Refused on the live site and on previews. */
@@ -1196,6 +1243,7 @@ function ownDrafts<Q extends { eq: (column: string, value: string) => Q; is: (co
 export async function saveDraft(draftId: string | null, kind: "event" | "pageant", name: string, data: string): Promise<DraftResult> {
   const session = await requireAdmin();
   if (kind !== "event" && kind !== "pageant") return { ok: false, error: "That draft couldn't be read. Try again." };
+  if (kind === "pageant" && !pageantsAvailable()) return { ok: false, error: PAGEANTS_SOON };
   if (typeof data !== "string" || data.length > MAX_DRAFT_CHARS) return { ok: false, error: "That draft is too big to save. Remove some photos and try again." };
   let parsed: unknown;
   try {

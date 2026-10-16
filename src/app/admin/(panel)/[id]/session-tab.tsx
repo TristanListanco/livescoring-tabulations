@@ -188,6 +188,7 @@ export function SessionTab({
   liveQr,
   ledUrl,
   corrections,
+  archived = false,
 }: {
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -202,6 +203,8 @@ export function SessionTab({
   ledUrl: string;
   /** Score corrections, oldest first (empty before migration 019). */
   corrections: CorrectionView[];
+  /** Archived: its results to read and download, nothing to change (no reopening, no ranks switch). */
+  archived?: boolean;
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id);
@@ -766,17 +769,19 @@ export function SessionTab({
                   <h2 id="desk-heading" className="text-powder">
                     Judging has ended
                   </h2>
-                  {/* Ending took a password; reopening at least asks, because it reopens the official record. */}
-                  <ConfirmDialog
-                    triggerLabel="Reopen session"
-                    triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
-                    title="Reopen the session?"
-                    confirmLabel="Reopen session"
-                    onConfirm={() => changeState("live")}
-                  >
-                    Judges can score again, and entries can be changed. If a new score comes in, the report ID changes, so a results PDF you&apos;ve
-                    already downloaded or printed won&apos;t match anymore.
-                  </ConfirmDialog>
+                  {/* Ending took a password; reopening at least asks, because it reopens the official record. Never once archived. */}
+                  {!archived && (
+                    <ConfirmDialog
+                      triggerLabel="Reopen session"
+                      triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
+                      title="Reopen the session?"
+                      confirmLabel="Reopen session"
+                      onConfirm={() => changeState("live")}
+                    >
+                      Judges can score again, and entries can be changed. If a new score comes in, the report ID changes, so a results PDF you&apos;ve
+                      already downloaded or printed won&apos;t match anymore.
+                    </ConfirmDialog>
+                  )}
                 </div>
                 <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
                 {progress.complete && pageant ? (
@@ -802,9 +807,11 @@ export function SessionTab({
                       {missing} {missing === 1 ? "score is" : "scores are"} missing
                     </p>
                     <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                      {pageant
-                        ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
-                        : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
+                      {archived
+                        ? "It was archived with scores missing, so a results PDF can't be made."
+                        : pageant
+                          ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
+                          : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
                     </p>
                   </>
                 )}
@@ -842,10 +849,12 @@ export function SessionTab({
           <LinkField url={liveUrl} openLabel="live results" className="mt-3" />
           <div className="mt-5 flex flex-wrap items-start gap-x-10 gap-y-6">
             <Qr svg={liveQr} label="QR code for the live results page" />
-            <div className="min-w-60 flex-1 pt-1">
-              <RankingSwitch activity={activity} />
-              <p className="hint mt-2 max-w-sm">With ranks off, entries stay in running order, so you can hold the standings back until the reveal.</p>
-            </div>
+            {!archived && (
+              <div className="min-w-60 flex-1 pt-1">
+                <RankingSwitch activity={activity} />
+                <p className="hint mt-2 max-w-sm">With ranks off, entries stay in running order, so you can hold the standings back until the reveal.</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -857,9 +866,11 @@ export function SessionTab({
           <p className="hint mt-2">
             Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"}.
             {activity.ledAnonymous && " Judges stay anonymous."}{" "}
-            <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
-              Change the display
-            </Link>
+            {!archived && (
+              <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
+                Change the display
+              </Link>
+            )}
           </p>
         </section>
       </div>

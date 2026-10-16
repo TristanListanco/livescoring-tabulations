@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { showingBoard } from "@/lib/pageant";
 import { rulesSummary, scoreProgress } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
@@ -38,7 +39,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
               <span className="text-[1.4em] font-bold text-mint">{submitted}</span> of {possible} scores in
             </p>
           )}
-          <LiveStatusBadge status={status} className="text-mint" />
+          {activity.sessionState === "ended" ? <EndedBadge endedAt={activity.sessionEndedAt} /> : <LiveStatusBadge status={status} className="text-mint" />}
         </div>
       </header>
       {waiting ? (
@@ -47,5 +48,34 @@ export function LiveBoard({ board: full }: { board: Board }) {
         <Scoreboard board={board} ranked={ranked} />
       )}
     </section>
+  );
+}
+
+const endedFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+const noSubscription = () => () => {};
+
+/**
+ * Once judging has ended, the results are final: "Ended", with when, in place of the connection's "Live". The time is
+ * written on the viewer's device, in their time zone (the server's could differ), so the server render says "Ended".
+ */
+function EndedBadge({ endedAt }: { endedAt: string | null }) {
+  const onDevice = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+  return (
+    <p className="inline-flex items-center gap-2 text-sm font-semibold text-mint">
+      <span aria-hidden className="size-2.5 rounded-full bg-powder/60" />
+      <span>
+        Ended
+        {endedAt && onDevice && (
+          <>
+            {" "}
+            · <time dateTime={endedAt}>{endedFormat.format(new Date(endedAt))}</time>
+          </>
+        )}
+      </span>
+    </p>
   );
 }

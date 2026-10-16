@@ -11,6 +11,7 @@ import { expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
+import { DeleteArchivedButton } from "../archive-controls";
 import { SessionStatus } from "../session-status";
 import { AccessTab } from "./access-tab";
 import { DeveloperTab } from "./developer-tab";
@@ -57,6 +58,8 @@ const PAGEANT_TABS: Tab[] = TABS.flatMap((t): Tab[] =>
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
  * else is "not found", not "forbidden", so it doesn't even confirm the activity exists.
  */
+const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
+
 function canSee(session: AdminSession | null, board: Board | null): board is Board {
   return !!board && canManageActivity(session, board.activity.ownerId);
 }
@@ -78,7 +81,13 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // Developer tools are for rehearsals; the live site only offers deleting the activity, from Settings.
   const pageant = activity.kind === "pageant";
   const allTabs = pageant ? PAGEANT_TABS : TABS;
-  const tabs = testToolsAllowed() ? allTabs : allTabs.filter((t) => t.id !== "developer");
+  // Archived: read-only, so only its results (on the Session tab) and the judges' notes.
+  const archived = activity.archivedAt !== null;
+  const tabs = archived
+    ? allTabs.filter((t) => t.id === "session" || t.id === "notes").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
+    : testToolsAllowed()
+      ? allTabs
+      : allTabs.filter((t) => t.id !== "developer");
   const tab = tabs.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
   const started = activity.sessionState !== "draft";
   const devices = await listDevices(judges.map((j) => j.id));
@@ -109,14 +118,23 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-3xl font-bold tracking-tight text-balance wrap-anywhere">{activity.name}</h1>
-            <Link
-              href={`/admin/${activity.id}?tab=session`}
-              scroll={false}
-              className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
-            >
-              <SessionStatus state={activity.sessionState} pulse />
-            </Link>
-            {waitingDevices > 0 && (
+            {archived ? (
+              <span className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
+                <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                  <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                </svg>
+                Archived
+              </span>
+            ) : (
+              <Link
+                href={`/admin/${activity.id}?tab=session`}
+                scroll={false}
+                className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
+              >
+                <SessionStatus state={activity.sessionState} pulse />
+              </Link>
+            )}
+            {!archived && waitingDevices > 0 && (
               <Link
                 href={`/admin/${activity.id}?tab=access`}
                 scroll={false}
@@ -148,6 +166,16 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           </div>
         </div>
       </div>
+
+      {archived && (
+        <div role="note" className="note mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <p className="max-w-2xl">
+            Archived {dateFormat.format(new Date(activity.archivedAt!))}. It can&apos;t be reopened or changed. Its results and score sheets still download
+            below.
+          </p>
+          <DeleteArchivedButton activityId={activity.id} name={activity.name} className="btn btn-sm btn-danger-quiet" />
+        </div>
+      )}
 
       <nav
         aria-label="Activity sections"
@@ -210,6 +238,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             liveQr={await qrSvg(liveUrl)}
             ledUrl={ledUrl}
             corrections={(await getCorrections(activity.id))?.map((c) => correctionView(board, c)) ?? []}
+            archived={archived}
           />
         )}
         {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} pageant={pageant} />}

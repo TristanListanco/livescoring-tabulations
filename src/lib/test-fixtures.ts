@@ -23,6 +23,8 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     criteria: [],
     criteriaDisplay: "percent",
     sessionState: "draft",
+    sessionEndedAt: null,
+    archivedAt: null,
     currentEntryId: null,
     kind: "event",
     preliminaryWeight: 0,

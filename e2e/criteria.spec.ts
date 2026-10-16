@@ -232,8 +232,8 @@ test.describe.serial("criteria scoring", () => {
     dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill("RESET");
     await dialog.getByRole("button", { name: "Delete all scores" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "All scores were deleted" })).toHaveText(
-      "All scores were deleted and the session is back to not started.",
+    await expect(page.getByRole("status").filter({ hasText: "All scores and judges' notes were deleted" })).toHaveText(
+      "All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.",
     );
 
     await page.getByRole("button", { name: "Delete activity" }).click();
