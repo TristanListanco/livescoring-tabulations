@@ -14,21 +14,35 @@ const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
 export const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
 const RESULT_DECIMAL_OPTIONS: ResultDecimals[] = [0, 1, 2, 3, 4];
 
-/** How many decimal places averages and totals show. The same cards as the judges' decimals, with a rounded example. */
+/**
+ * How many decimal places averages and totals show. Rarely changed from 2, so it's under More options, which says the
+ * current choice and opens by itself when a draft chose another.
+ */
 export function ResultDecimalsField({ value, onChange }: { value: ResultDecimals; onChange: (value: ResultDecimals) => void }) {
+  const [open, setOpen] = useState(value !== DEFAULT_RESULT_DECIMALS);
+  const label = (n: ResultDecimals) => (n === 0 ? "whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   return (
-    <fieldset>
-      <legend className="label">Decimal places shown in results</legend>
-      <div className="flex flex-wrap gap-2">
-        {RESULT_DECIMAL_OPTIONS.map((n) => (
-          <label key={n} className="choice items-center">
-            <input type="radio" name="result_decimals" value={n} checked={value === n} onChange={() => onChange(n)} />
-            <span className="font-semibold">{n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`}</span>
-            <span className="tabular text-sm opacity-75">e.g. {(87.4567).toFixed(n)}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
+    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
+      <summary className="tap-target inline-flex cursor-pointer items-center gap-1.5 text-sm font-semibold text-regal select-none hover:underline">
+        <svg viewBox="0 0 16 16" className="size-3.5 transition-transform group-open:rotate-90" aria-hidden>
+          <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        More options
+        <span className="font-normal text-prussian/70">· results show {label(value)}</span>
+      </summary>
+      <fieldset className="mt-3">
+        <legend className="label">Decimal places shown in results</legend>
+        <div className="flex flex-wrap gap-2">
+          {RESULT_DECIMAL_OPTIONS.map((n) => (
+            <label key={n} className="choice items-center">
+              <input type="radio" name="result_decimals" value={n} checked={value === n} onChange={() => onChange(n)} />
+              <span className="font-semibold">{n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`}</span>
+              <span className="tabular text-sm opacity-75">e.g. {(87.4567).toFixed(n)}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </details>
   );
 }
 

@@ -313,27 +313,42 @@ export async function getAdminCredentials(idOrEmail: string): Promise<{ admin: A
   return { admin: toAdmin(row), passwordHash: row.password_hash };
 }
 
-async function loadBoard(activity: Activity): Promise<Board> {
-  // Only pageants read sub-activities and score rounds, so events load on databases without migration 011.
+type BoardRows = {
+  judges: { data: unknown; error: { message: string } | null };
+  entries: { data: unknown; error: { message: string } | null };
+  scores: { data: unknown; error: { message: string } | null };
+  rounds: { data: unknown; error: { message: string } | null } | null;
+};
+
+/** A board from its rows. A pageant's sub-activities only: an event has none (and a database before 011, no table). */
+function toBoard(activity: Activity, rows: BoardRows): Board {
+  fail(rows.judges.error);
+  fail(rows.entries.error);
+  fail(rows.scores.error);
   const pageant = activity.kind === "pageant";
-  const [judges, entries, scores, rounds] = await Promise.all([
-    // "*" so judges and entries load on databases without the newer columns (migrations 007 and 008).
-    db().from("judges").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
-    db().from("entries").select("*").eq("activity_id", activity.id).order("position").order("created_at"),
-    db().from("scores").select(pageant ? "entry_id, judge_id, value, round_id" : "entry_id, judge_id, value").eq("activity_id", activity.id),
-    pageant ? db().from("rounds").select("*").eq("activity_id", activity.id).order("position").order("created_at") : null,
-  ]);
-  fail(judges.error);
-  fail(entries.error);
-  fail(scores.error);
-  if (rounds) fail(rounds.error);
+  if (pageant && rows.rounds) fail(rows.rounds.error);
   return {
     activity,
-    judges: (judges.data as JudgeRow[]).map(toJudge),
-    entries: (entries.data as EntryRow[]).map(toEntry),
-    scores: (scores.data as unknown as ScoreRow[]).map(toScore),
-    rounds: rounds ? (rounds.data as RoundRow[]).map(toRound) : [],
+    judges: (rows.judges.data as JudgeRow[]).map(toJudge),
+    entries: (rows.entries.data as EntryRow[]).map(toEntry),
+    scores: (rows.scores.data as unknown as ScoreRow[]).map(toScore),
+    rounds: pageant && rows.rounds ? (rows.rounds.data as RoundRow[]).map(toRound) : [],
   };
+}
+
+/** An activity's judges, entries, scores and sub-activities, read together. */
+function boardRows(activityId: string) {
+  return Promise.all([
+    // "*" so judges, entries and scores load on databases without the newer columns (migrations 007, 008 and 011).
+    db().from("judges").select("*").eq("activity_id", activityId).order("position").order("created_at"),
+    db().from("entries").select("*").eq("activity_id", activityId).order("position").order("created_at"),
+    db().from("scores").select("*").eq("activity_id", activityId),
+    db().from("rounds").select("*").eq("activity_id", activityId).order("position").order("created_at"),
+  ]).then(([judges, entries, scores, rounds]) => ({ judges, entries, scores, rounds }));
+}
+
+async function loadBoard(activity: Activity): Promise<Board> {
+  return toBoard(activity, await boardRows(activity.id));
 }
 
 export async function getActivity(id: string): Promise<Activity | null> {
@@ -344,9 +359,16 @@ export async function getActivity(id: string): Promise<Activity | null> {
   return data ? toActivity(data as ActivityRow) : null;
 }
 
+/**
+ * An activity with its judges, entries and scores. The activity and the rest are read at once, one round trip to the
+ * database rather than two: every admin page, judge's screen and refresh reads a board.
+ */
 export const getBoard = cache(async (id: string): Promise<Board | null> => {
-  const activity = await getActivity(id);
-  return activity ? loadBoard(activity) : null;
+  await connection();
+  if (!isUuid(id)) return null;
+  const [activity, rows] = await Promise.all([db().from("activities").select(ACTIVITY_COLUMNS).eq("id", id).maybeSingle(), boardRows(id)]);
+  fail(activity.error);
+  return activity.data ? toBoard(toActivity(activity.data as ActivityRow), rows) : null;
 });
 
 /**
@@ -354,9 +376,13 @@ export const getBoard = cache(async (id: string): Promise<Board | null> => {
  * actions see. Judges' screens and the public pages use getBoard and getPublicBoard, without them.
  */
 export const getAdminBoard = cache(async (id: string): Promise<Board | null> => {
-  const board = await getBoard(id);
-  if (!board || board.activity.violations === null) return board;
-  const { data, error } = await db().from("deductions").select("id, entry_id, points, reason, created_at").eq("activity_id", id).order("created_at");
+  // The deductions are read alongside the board, not after it (an event has none; before migration 015, no table).
+  const [board, deductions] = await Promise.all([
+    getBoard(id),
+    isUuid(id) ? db().from("deductions").select("id, entry_id, points, reason, created_at").eq("activity_id", id).order("created_at") : null,
+  ]);
+  if (!board || board.activity.violations === null || !deductions) return board;
+  const { data, error } = deductions;
   fail(error);
   const toDeduction = (row: DeductionRow): Deduction => ({ id: row.id, entryId: row.entry_id, points: Number(row.points), reason: row.reason, createdAt: row.created_at });
   return { ...board, deductions: (data as DeductionRow[]).map(toDeduction) };
@@ -493,12 +519,12 @@ export async function getRounds(activityId: string): Promise<Round[]> {
   return (data as RoundRow[]).map(toRound);
 }
 
-/** judgeId → access code, for the admin's Access tab only. */
-export async function getAccessCodes(judgeIds: string[]): Promise<Map<string, string>> {
-  if (judgeIds.length === 0) return new Map();
-  const { data, error } = await db().from("judge_access").select("judge_id, code").in("judge_id", judgeIds);
-  fail(error);
-  return new Map((data as { judge_id: string; code: string }[]).map((r) => [r.judge_id, r.code]));
+/** judgeId → access code for an activity's judges, found through the activity so they're read alongside its board. */
+export async function getActivityAccessCodes(activityId: string): Promise<Map<string, string>> {
+  if (!isUuid(activityId)) return new Map();
+  const { data, error } = await db().from("judge_access").select("judge_id, code, judges!inner(activity_id)").eq("judges.activity_id", activityId);
+  if (error) return new Map();
+  return new Map((data as unknown as { judge_id: string; code: string }[]).map((r) => [r.judge_id, r.code]));
 }
 
 export async function findJudgeIdByCode(input: string): Promise<string | null> {
@@ -541,6 +567,22 @@ export async function getDevice(deviceId: string): Promise<JudgeDevice | null> {
 }
 
 /** These judges' devices, newest first: approved, waiting, and recently signed out (to explain an empty slot). */
+/**
+ * Every judge device of an activity, newest first, found through its judges: read alongside the board rather than
+ * after it, as listDevices would need the judges first.
+ */
+export async function listActivityDevices(activityId: string): Promise<JudgeDevice[]> {
+  if (!isUuid(activityId)) return [];
+  const { data, error } = await db()
+    .from("judge_devices")
+    .select(`${DEVICE_COLUMNS}, judges!inner(activity_id)`)
+    .eq("judges.activity_id", activityId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) return [];
+  return (data as unknown as DeviceRow[]).map(toDevice);
+}
+
 export async function listDevices(judgeIds: string[]): Promise<JudgeDevice[]> {
   if (judgeIds.length === 0) return [];
   const { data, error } = await db()
@@ -564,6 +606,18 @@ function toSignatories(value: unknown): Signatory[] {
 }
 
 /** The names and designations an organizer prints on their results PDFs. */
+/**
+ * The signature lines of an activity's organizer, found through the activity so they can be read alongside its board.
+ * Null for an activity no organizer owns (the super admin's own), which prints none.
+ */
+export async function getActivitySignatories(activityId: string): Promise<Signatory[] | null> {
+  if (!isUuid(activityId)) return null;
+  const { data, error } = await db().from("activities").select("owner:admins!activities_owner_id_fkey(signatories)").eq("id", activityId).maybeSingle();
+  if (error || !data) return null;
+  const owner = (data as unknown as { owner: { signatories: unknown } | null }).owner;
+  return owner ? toSignatories(owner.signatories) : null;
+}
+
 export async function getSignatories(adminId: string): Promise<Signatory[]> {
   if (!isUuid(adminId)) return [];
   const { data, error } = await db().from("admins").select("signatories").eq("id", adminId).maybeSingle();

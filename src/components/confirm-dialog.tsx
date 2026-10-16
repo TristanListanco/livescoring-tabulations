@@ -37,6 +37,7 @@ export function ConfirmDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const bodyId = useId();
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -78,14 +79,34 @@ export function ConfirmDialog({
         onClose={() => {
           if (ref.current?.contains(document.activeElement)) triggerRef.current?.focus();
         }}
-        aria-labelledby={titleId} className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl">
-        <div className="p-6">
-          <h2 id={titleId} className="text-xl font-bold wrap-anywhere">
-            {title}
-          </h2>
-          <div className="mt-2 text-[15px] leading-relaxed text-prussian/80 wrap-anywhere">{children}</div>
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+        // It sits beside its trigger, which can be in a right-aligned table cell or a dark panel: it sets its own text.
+        className="m-auto w-[min(30rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-left text-[15px] font-normal tracking-normal whitespace-normal text-prussian normal-case shadow-2xl"
+      >
+        <div className="px-6 pt-6 sm:px-7 sm:pt-7">
+          <div className="flex items-start gap-4">
+            {/* Something that can't be undone is marked, so it reads as a warning before a word of it. */}
+            {tone === "danger" && (
+              <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger/10 text-danger">
+                <svg viewBox="0 0 20 20" className="size-5">
+                  <path d="M10 3l7.5 13h-15L10 3z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                  <path d="M10 8.2v3.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <circle cx="10" cy="14.3" r="1" fill="currentColor" />
+                </svg>
+              </span>
+            )}
+            <div className="min-w-0 flex-1">
+              <h2 id={titleId} className="text-xl leading-snug font-bold text-balance wrap-anywhere">
+                {title}
+              </h2>
+              <div id={bodyId} className="mt-2 leading-relaxed text-prussian/75 wrap-anywhere [&_strong]:font-semibold [&_strong]:text-prussian">
+                {children}
+              </div>
+            </div>
+          </div>
           {requireText !== undefined && (
-            <label className="mt-4 block">
+            <label className="mt-5 block">
               <span className="label">
                 Type <span className="rounded bg-wash px-1.5 py-0.5 font-bold">{requireText}</span> to confirm
               </span>
@@ -100,7 +121,7 @@ export function ConfirmDialog({
             </label>
           )}
           {passwordLabel !== undefined && (
-            <label className="mt-4 block">
+            <label className="mt-5 block">
               <span className="label">{passwordLabel}</span>
               <input
                 type="password"
@@ -118,11 +139,17 @@ export function ConfirmDialog({
             </p>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-line bg-wash/60 px-6 py-4">
-          <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()} disabled={pending}>
+        {/* The answer last, on the right; on a phone the two share the width, in the same order. */}
+        <div className="mt-6 grid grid-cols-2 gap-2 px-6 pb-6 sm:flex sm:justify-end sm:gap-3 sm:px-7 sm:pb-7">
+          <button type="button" className="btn btn-quiet max-sm:h-12" onClick={() => ref.current?.close()} disabled={pending}>
             Cancel
           </button>
-          <button type="button" className={`btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`} onClick={confirm} disabled={blocked || pending}>
+          <button
+            type="button"
+            className={`btn max-sm:h-12 ${tone === "danger" ? "btn-danger" : "btn-primary"}`}
+            onClick={confirm}
+            disabled={blocked || pending}
+          >
             {pending ? "Working…" : confirmLabel}
           </button>
         </div>

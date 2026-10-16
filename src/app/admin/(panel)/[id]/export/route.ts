@@ -2,7 +2,7 @@ import { correctionView, type Correction, type CorrectionView } from "@/lib/corr
 import { getActivityNotes, getAdmin, getAdminBoard, getCorrections, getSignatories, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
-import { renderJudgeSheetsPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
+import { renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
 import { PRELIMINARY, type Board, type Deduction, type Round } from "@/lib/types";
@@ -25,6 +25,11 @@ function sheetsName(...parts: string[]): string {
   return `${parts.map(slug).filter(Boolean).join("-") || "activity"}-judges-score-sheets.pdf`;
 }
 
+/** The judges' notes, on their own: "finals-judges-notes.pdf". */
+function notesName(name: string): string {
+  return `${slug(name) || "activity"}-judges-notes.pdf`;
+}
+
 /** ?sheet=judges: each judge's score sheet rather than the results. */
 const wantsJudgeSheets = (search: URLSearchParams) => search.get("sheet") === "judges";
 
@@ -35,10 +40,6 @@ const appliedTo = (board: Board, corrections: Correction[] | null, roundId: stri
 const correctionOpen = () =>
   notYet("A score correction is waiting for the judges' votes. The results can be downloaded once it's settled, since it may change a score.");
 
-/** The judges' notes on an activity's entries, for their score sheets: "judgeId|entryId" to the note. */
-async function sheetNotes(activityId: string): Promise<Map<string, string>> {
-  return new Map((await getActivityNotes(activityId))?.map((n) => [`${n.judgeId}|${n.entryId}`, n.body]));
-}
 
 function pdfResponse(pdf: Buffer, name: string): Response {
   return new Response(new Uint8Array(pdf), {
@@ -90,7 +91,6 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
         reportId: id,
         organizer: await organizer(),
         part: label,
-        notes: await sheetNotes(activity.id),
         corrections: appliedTo(board, corrections, round.id) ?? [],
       });
       return pdfResponse(pdf, sheetsName(activity.name, label));
@@ -185,7 +185,7 @@ async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer 
 
 /**
  * Results sheet as a PDF, or with ?sheet=judges each judge's score sheet. Only once every judge has scored every
- * entry (for a pageant, see pageantPdf).
+ * entry (for a pageant, see pageantPdf). ?sheet=notes: the judges' notes, a PDF of their own, at any time.
  */
 export async function GET(request: Request, { params }: RouteContext<"/admin/[id]/export">) {
   const session = await currentAdmin();
@@ -200,6 +200,13 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
 
   const search = new URL(request.url).searchParams;
   const timeZone = search.get("tz") ?? undefined;
+  // The judges' notes aren't results: they download whenever there are any, whatever the scores.
+  if (search.get("sheet") === "notes") {
+    const notes = await getActivityNotes(board.activity.id);
+    if (!notes) return new Response("Judges' notes need a database update. Run supabase/migrations/018_judge_notes.sql.", { status: 409 });
+    const pdf = await renderNotesPdf(board, notes, { timeZone, organizer: await reportOrganizer(board.activity.ownerId) });
+    return pdfResponse(pdf, notesName(board.activity.name));
+  }
   // A correction still being voted on may change a score: nothing is printed until it's settled.
   const corrections = await getCorrections(board.activity.id);
   if (corrections?.some((c) => c.status === "open")) return correctionOpen();
@@ -216,7 +223,6 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
   if (wantsJudgeSheets(search)) {
     const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), {
       ...options,
-      notes: await sheetNotes(board.activity.id),
       corrections: appliedTo(board, corrections, null) ?? [],
     });
     return pdfResponse(pdf, sheetsName(board.activity.name));

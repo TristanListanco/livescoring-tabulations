@@ -87,9 +87,6 @@ export function NewActivity({
             Pageants, with a preliminary and pageant proper, sub-activities and cuts, aren&apos;t available here yet. For now, an event scores one round
             of judging.
           </p>
-          <button type="button" onClick={() => setKind("event")} className="btn btn-primary mt-6">
-            Set up an event instead
-          </button>
         </section>
       )}
       {guard.dialog}

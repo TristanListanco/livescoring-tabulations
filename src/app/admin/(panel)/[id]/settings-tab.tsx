@@ -232,8 +232,8 @@ export function SettingsTab({
               requireText={activity.name}
               onConfirm={() => deleteActivity(activity.id)}
             >
-              This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop
-              working.
+              This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results
+              link stop working.
             </ConfirmDialog>
           )}
         </Section>

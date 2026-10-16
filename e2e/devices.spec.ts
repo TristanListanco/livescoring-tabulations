@@ -48,7 +48,7 @@ test.describe.serial("judge devices without realtime", () => {
     await phone.goto(`/judge/join/${codes[0]}`);
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=access`);
+    await page.goto(`${adminPath}?tab=judges`);
     await page.getByRole("button", { name: `Approve Judge Alpha's device ${code}` }).click();
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", QUICKLY);
   });
@@ -61,7 +61,7 @@ test.describe.serial("judge devices without realtime", () => {
     await phone.getByRole("button", { name: "Switch judge" }).click();
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=access`);
+    await page.goto(`${adminPath}?tab=judges`);
     const row = (name: string) => page.getByRole("listitem").filter({ hasText: name }).first();
     await expect(row("Judge Alpha")).toContainText("No device approved. Last device signed out");
 

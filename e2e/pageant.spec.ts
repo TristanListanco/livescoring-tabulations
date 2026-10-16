@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, PHOTO, SAVED, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -281,9 +281,9 @@ test.describe.serial("a pageant", () => {
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("button", { name: "Remove photo of Ayla" })).toBeVisible();
     await page.goto(`${adminPath}?tab=session`);
-    const links = await page.locator("code").allTextContents();
-    livePath = new URL(links.find((l) => l.includes("/live/"))!).pathname;
-    ledPath = new URL(links.find((l) => l.includes("/led/"))!).pathname;
+    livePath = await screenPath(page, "Open live results");
+    await page.goto(`${adminPath}?tab=led`);
+    ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
 
   test("judges pair their devices and the session starts between sub-activities", async ({ page }) => {
@@ -296,7 +296,7 @@ test.describe.serial("a pageant", () => {
     ] as const) {
       await judge.goto(`/judge/join/${code}`);
       const pairing = await pairingCode(judge);
-      await page.goto(`${adminPath}?tab=access`);
+      await page.goto(`${adminPath}?tab=judges`);
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
@@ -395,7 +395,7 @@ test.describe.serial("a pageant", () => {
     await openDesk(page);
     await page.getByRole("button", { name: "Show first candidate", exact: true }).click();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Ayla", REALTIME);
-    await expect(ana.getByText("Now judging: No. 1")).toBeVisible();
+    await expect(ana.getByText("No. 1", { exact: true })).toBeVisible();
 
     // Q&A gives judges 5 seconds per candidate: red once it runs out, and the keypad can't submit.
     await expect(ana.getByRole("status").filter({ hasText: "Scoring closed" })).toBeVisible(REALTIME);
@@ -451,7 +451,7 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Ayla." })).toBeVisible(REALTIME);
     await page.getByRole("button", { name: "Show next candidate: Cora", exact: true }).click();
     // Cora keeps her number from the full running order.
-    await expect(ana.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
+    await expect(ana.getByText("No. 3", { exact: true })).toBeVisible(REALTIME);
     // Q&A gives judges 5 seconds each, and every score then waits out its 5-second undo: the board scores together.
     await Promise.all(properBoard().map((judge) => submitScore(judge, "Cora", "10", "10.00")));
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Cora." })).toBeVisible(REALTIME);

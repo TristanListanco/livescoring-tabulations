@@ -129,13 +129,13 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
   const scores = new Map([...justSaved, ...myScores.map((s) => [s.entryId, s.value] as const)]);
   // Off the panel of the sub-activity on screen: nothing to score until their part comes up.
   const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(activity, entries, scores);
-  // A short message at the top: a score saved, a vote cast.
-  const [toast, setToast] = useState<React.ReactNode>(null);
+  // A short message at the top: a score saved (`entryId`), a vote cast.
+  const [toast, setToast] = useState<{ content: React.ReactNode; entryId?: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const approved = gate.status === "approved";
 
-  const showToast = (content: React.ReactNode) => {
-    setToast(content);
+  const showToast = (content: React.ReactNode, entryId?: string) => {
+    setToast({ content, entryId });
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
@@ -147,6 +147,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
       <span className="block truncate">
         Saved <span className="tabular">{myScoreText(value, activity)}</span> for {entry.name}
       </span>,
+      entry.id,
     );
   };
 
@@ -190,6 +191,8 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
   // Correcting the score on screen: the keypad comes back, starting from what they gave.
   const [correctingFor, setCorrectingFor] = useState<string | null>(null);
   const correcting = corrections && view.kind === "scored" && correctingFor === view.entry.id;
+  // A saved score's card says it went in, so its toast is only heard. Seen once the organizer has moved on from it.
+  const toastQuiet = !!toast?.entryId && view.kind === "scored" && view.entry.id === toast.entryId && !correcting;
   const idle: Submission = { submit: () => {}, typing: () => {}, busy: false, error: null };
 
   // Another judge's correction can't be put off, but it waits while this judge is typing a score, inside its undo
@@ -267,7 +270,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
                 await leavePortal();
               }}
             >
-              This device stops scoring. To judge again you&apos;ll need your judge code, and the organizer has to approve a new pairing code.
+              To judge again, you&apos;ll need your judge code and the organizer&apos;s approval.
             </ConfirmDialog>
           ) : (
             <form action={leavePortal}>
@@ -282,12 +285,16 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
         {toast && (
           <p
             role="status"
-            className="toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
+            className={
+              toastQuiet
+                ? "sr-only"
+                : "toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
+            }
           >
             <svg viewBox="0 0 16 16" className="size-5 shrink-0 text-regal" aria-hidden>
               <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="min-w-0 text-balance">{toast}</span>
+            <span className="min-w-0 text-balance">{toast.content}</span>
           </p>
         )}
         {approved && !offPanel && (
@@ -380,7 +387,12 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
                 }
               />
               {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
-                <EntryControls activity={activity} entries={entries} panel={panel} />
+                <EntryControls
+                  activity={activity}
+                  entries={entries}
+                  // The chair's own score counts as soon as it's saved here, before the refreshed page has it.
+                  panel={view.kind === "scored" ? panel.map((j) => (j.id === judge.id ? { ...j, scored: true } : j)) : panel}
+                />
               )}
               {view.kind === "scored" && inlineNotes && <div className="mt-6 w-full">{inlineNotes}</div>}
             </div>
@@ -548,8 +560,7 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
           <p className="mt-0.5 whitespace-pre-line">{view.reason}</p>
         </blockquote>
         <p id="vote-rule" className="mt-3 text-sm text-prussian/75">
-          It changes only if every other judge agrees; one disagreeing keeps the score as it is. Your vote is final, and no one sees it by
-          name.
+          It changes only if every other judge agrees. Your vote is final and anonymous.
         </p>
         {error && (
           <p role="alert" className="mt-3 font-semibold text-danger">
@@ -587,7 +598,7 @@ function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | 
         </p>
         <p className="mt-1 text-sm text-powder">
           {othersVote
-            ? `${mine.agreed} of ${mine.voters} ${mine.voters === 1 ? "judge has" : "judges have"} agreed. It changes only if every one of them agrees.`
+            ? `${mine.agreed} of ${mine.voters} ${mine.voters === 1 ? "judge has" : "judges have"} agreed. It changes only if ${mine.voters === 1 ? "they agree" : "all of them do"}.`
             : "Waiting for the organizer to approve it."}
         </p>
         <button
@@ -618,13 +629,12 @@ function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | 
         <p className="mt-2 text-sm font-semibold">
           Corrected from <span className="tabular">{mine.from}</span>: {mine.decidedBy === "organizer" ? "the organizer approved it." : "every other judge agreed."}
         </p>
-      ) : mine?.status === "rejected" ? (
-        <p className="mt-2 text-sm text-balance">
-          Your correction to <span className="tabular">{mine.to}</span> wasn&apos;t accepted{mine.decidedBy === "organizer" ? " by the organizer" : ": a judge disagreed"}, so
-          this score stands. If it&apos;s still wrong, you can ask again and say more about why.
-        </p>
       ) : (
-        <p className="mt-2 text-sm text-powder">Submitted. If it&apos;s wrong, you can ask to correct it.</p>
+        mine?.status === "rejected" && (
+          <p className="mt-2 text-sm text-balance">
+            Your correction to <span className="tabular">{mine.to}</span> wasn&apos;t accepted{mine.decidedBy === "organizer" ? " by the organizer" : ": a judge disagreed"}.
+          </p>
+        )
       )}
       <button type="button" onClick={onAsk} className="btn mt-4 border border-regal text-mint hover:bg-regal">
         {mine?.status === "rejected" ? "Ask again" : "Ask to correct this score"}
@@ -691,9 +701,9 @@ function DeviceGateCard({ gate }: { gate: Exclude<DeviceGate, { status: "approve
     return (
       <div role="status" className="my-auto flex w-full max-w-md flex-col items-center pb-5 text-center">
         <WaitingDots />
-        <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">Waiting for the organizer to approve this device</h1>
-        <p className="mt-3 text-lg text-powder text-balance">
-          Show or read this code to the organizer. Scoring opens on this device once they approve it.
+        <h1 className="judge-title">Waiting for the organizer to approve this device</h1>
+        <p className="judge-lede mt-3">
+          Read this code to the organizer. Scoring opens once they approve it.
         </p>
         <p className="tabular mt-6 rounded-2xl bg-oxford px-8 py-4 text-6xl font-bold tracking-[0.25em]">
           <span className="sr-only">Pairing code </span>
@@ -705,10 +715,9 @@ function DeviceGateCard({ gate }: { gate: Exclude<DeviceGate, { status: "approve
   }
   return (
     <div role="status" className="my-auto flex w-full max-w-md flex-col items-center pb-5 text-center">
-      <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">This device isn&apos;t approved</h1>
-      <p className="mt-3 text-lg text-powder text-balance">
-        The organizer signed this device out or approved a different one for you. If this is the device you&apos;re judging on, ask for approval
-        again.
+      <h1 className="judge-title">This device isn&apos;t approved</h1>
+      <p className="judge-lede mt-3">
+        The organizer signed it out or approved another one for you. If you&apos;re judging on this one, ask again.
       </p>
       <form action={requestApproval} className="mt-6">
         <button className="btn h-14 rounded-xl bg-mint px-6 text-lg text-prussian hover:bg-white">Ask for approval again</button>
@@ -749,9 +758,9 @@ function WaitingCard({
     "not-started": { title: "Waiting for the organizer to start", body: "Your screen opens by itself when judging begins. Keep this page open." },
     waiting: {
       title: scoredCount ? "Waiting for the next entry" : "Waiting for the first entry",
-      body: "The organizer will show the entry to score. It appears here by itself.",
+      body: "It appears here when the organizer shows it.",
     },
-    scored: { title: "Waiting for the next entry", body: "Your score is in. The organizer will show the next entry when every judge is ready." },
+    scored: { title: "Waiting for the next entry", body: "The organizer shows it once every judge has scored." },
     ended: { title: "Judging has ended", body: `Thank you, ${firstName}. You scored ${scoredCount} of ${entryCount} ${entryCount === 1 ? "entry" : "entries"}.` },
   };
   const tabulatorCopy: Partial<typeof copy> = {
@@ -766,7 +775,7 @@ function WaitingCard({
   const { title, body } = offPanel
     ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
     : betweenRounds
-      ? { title: "Waiting for the next part of the pageant", body: "The organizer will start it. It appears here by itself." }
+      ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
       : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   const submitted = correction ?? <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>;
@@ -775,8 +784,8 @@ function WaitingCard({
   if (view.kind === "scored" && movesEntries && !offPanel) {
     return (
       <div role="status" className="w-full text-left">
-        <h1 className="text-2xl leading-tight font-bold">{title}</h1>
-        <div className="mt-4 rounded-2xl border-2 border-oxford px-5 py-4">
+        <h1 className="sr-only">{title}</h1>
+        <div className="rounded-2xl border-2 border-oxford px-5 py-4">
           {/* The score beside the name where there's room; under it, on the right, where there isn't. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {view.entry.photoUrl && <Avatar name={view.entry.name} src={view.entry.photoUrl} size={48} square className="rounded-lg" />}
@@ -798,7 +807,7 @@ function WaitingCard({
           <div className="flex items-center justify-center gap-3">
             {view.entry.photoUrl && <Avatar name={view.entry.name} src={view.entry.photoUrl} size={40} square className="rounded-lg" />}
             <p className="text-powder">
-              No. {view.number} {view.entry.name}
+              No. {view.number} <span className="font-semibold text-mint">{view.entry.name}</span>
             </p>
           </div>
           <ScoreFigure value={view.value} activity={activity} className="mt-2 block text-6xl" />
@@ -807,8 +816,8 @@ function WaitingCard({
         </div>
       )}
       {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
-      <h1 className="text-[clamp(1.6rem,4vw,2.25rem)] leading-tight font-bold text-balance">{title}</h1>
-      <p className="mt-3 text-lg text-powder text-balance">{body}</p>
+      <h1 className="judge-title">{title}</h1>
+      <p className="judge-lede mt-3">{body}</p>
     </div>
   );
 }
@@ -863,10 +872,10 @@ function EntryControls({ activity, entries, panel }: { activity: Activity; entri
 
   return (
     <section aria-labelledby="move-entries" className="mt-5 w-full rounded-2xl border-2 border-oxford p-5 text-left">
-      <h2 id="move-entries" className="font-semibold text-powder">
+      <h2 id="move-entries" className="text-lg font-bold">
         Chair of the board of judges
       </h2>
-      <p role="status" className="mt-2 font-semibold">
+      <p role="status" className="mt-1 text-powder">
         {!entry
           ? "No entry on screen yet."
           : allIn
@@ -935,7 +944,6 @@ function EntryControls({ activity, entries, panel }: { activity: Activity; entri
           ))}
         </ul>
       )}
-      <p className="mt-3 text-sm text-powder">The organizer can move entries too.</p>
     </section>
   );
 }
@@ -1016,7 +1024,7 @@ function ConfirmScore({
   entry,
   onConfirm,
   title = `Submit this score for ${entry.name}?`,
-  note = `You'll have ${SCORE_UNDO_MS / 1000} seconds to undo before it goes in. Then it's final.`,
+  note = `You can undo it for ${SCORE_UNDO_MS / 1000} seconds. Then it's final.`,
   confirmLabel = "Submit",
   confirmDisabled = false,
   children,
@@ -1037,7 +1045,7 @@ function ConfirmScore({
       className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-3xl bg-mint p-0 text-prussian shadow-2xl"
     >
       <div className="px-6 pt-7 pb-6 text-center">
-        <h2 id="confirm-title" className="text-lg font-semibold">
+        <h2 id="confirm-title" className="text-xl leading-snug font-bold text-balance">
           {title}
         </h2>
         {children}
@@ -1083,8 +1091,8 @@ function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, 
     ? {
         title: `Ask to change your score for ${entry.name}?`,
         note: correcting.othersVote
-          ? "Every other judge has to agree before it changes. They'll see your score, this one and your reason."
-          : "The organizer has to approve it before it changes.",
+          ? "It changes only if every other judge agrees. They see both scores and your reason."
+          : "It changes only if the organizer approves it.",
         confirmLabel: asking ? "Asking…" : correcting.othersVote ? "Ask the judges" : "Ask the organizer",
         confirmDisabled: asking || !reason.trim(),
       }
@@ -1108,7 +1116,7 @@ function ReasonField({ value, onChange, error }: { value: string; onChange: (val
         rows={2}
         required
         placeholder="e.g. I typed 59 instead of 95."
-        className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-[15px] leading-relaxed text-prussian placeholder:text-prussian/70"
+        className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-base leading-relaxed text-prussian placeholder:text-prussian/70"
       />
       {error && (
         <p role="alert" className="mt-2 text-sm font-semibold text-danger">
@@ -1128,28 +1136,34 @@ function FromTo({ from, to }: { from: string; to: string }) {
         →
       </span>
       <span className="sr-only">to</span>
-      <span className="text-5xl font-bold text-regal">{to}</span>
+      <span className="text-6xl font-bold text-regal">{to}</span>
     </p>
   );
 }
 
-/** The entry's photo, when it has one, beside its heading: the judge sees who's on stage, as the LED wall does. */
-function EntryTitle({ entry, children }: { entry: Entry; children: React.ReactNode }) {
+/**
+ * Above the keypad: the entry being judged, its number leading its name in the same line of type, and its photo when it
+ * has one: the judge sees who's on stage, as the LED wall does. The name runs on from the number, so a long one in a
+ * narrow column wraps at full width.
+ */
+function EntryTitle({ entry, number }: { entry: Entry; number: number }) {
   return (
     <div className="flex items-center gap-3 sm:gap-4">
       {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl" />}
-      <div className="min-w-0 flex-1">{children}</div>
+      {/* A div, not a p: a heading can't sit inside a paragraph. */}
+      <div className="judge-title min-w-0 flex-1 wrap-anywhere">
+        <span className="tabular font-semibold text-powder">No. {number}</span> <h1 className="inline">{entry.name}</h1>
+      </div>
     </div>
   );
 }
 
-/** Above the keypad: the entry being judged, or the one whose score is being corrected (with Cancel). */
-function KeypadHeading({ number, correcting }: { number: number; correcting?: Correcting }) {
-  if (!correcting) return <p className="text-powder">Now judging: No. {number}</p>;
+/** Over the keypad while a submitted score is being corrected: what this is, and the way back. */
+function CorrectingBar({ correcting }: { correcting: Correcting }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <p className="font-semibold text-powder">Correcting your score: No. {number}</p>
-      <button type="button" onClick={correcting.onDone} className="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint">
+    <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-oxford py-1.5 pr-1.5 pl-4">
+      <p className="font-semibold">Correcting your score</p>
+      <button type="button" onClick={correcting.onDone} className="btn btn-sm border border-regal text-mint hover:bg-regal">
         Cancel
       </button>
     </div>
@@ -1225,10 +1239,8 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
   return (
     <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:max-w-lg">
       {timer}
-      <EntryTitle entry={entry}>
-        <KeypadHeading number={number} correcting={correcting} />
-        <h1 className="text-[clamp(1.6rem,4vw,2.5rem)] leading-tight font-bold text-balance">{entry.name}</h1>
-      </EntryTitle>
+      {correcting && <CorrectingBar correcting={correcting} />}
+      <EntryTitle entry={entry} number={number} />
       {notes}
 
       <div className={DOCK}>
@@ -1283,7 +1295,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
           </>
         ) : (
           <>
-            <p className="tabular mt-3 text-7xl font-bold text-regal">{typed.ok ? formatScore(typed.value, activity.decimals) : buffer}</p>
+            <p className="tabular mt-3 text-6xl font-bold text-regal">{typed.ok ? formatScore(typed.value, activity.decimals) : buffer}</p>
             <p className="text-sm text-prussian/75">out of {formatBound(activity.max)}</p>
           </>
         )}
@@ -1307,8 +1319,6 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   const [error, setError] = useState<string | null>(null);
   const { busy } = submission;
   const dialogRef = useRef<HTMLDialogElement>(null);
-  // Bumped each time the confirmation opens, so its criteria light up again.
-  const [reviews, setReviews] = useState(0);
   // The active criterion's guide: remembered on this device once the judge opens or closes it. Until then it starts
   // open where there's room, and closed on a phone, where it would push the criteria away from the keypad.
   const [guideChoice, setGuideOpen] = useDeviceSetting<boolean | null>("livescoring:criterion-guide-open", null);
@@ -1342,7 +1352,6 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
       return;
     }
     if (all.ok) {
-      setReviews((n) => n + 1);
       dialogRef.current?.showModal();
       return;
     }
@@ -1382,10 +1391,8 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
     <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
       <div className="min-w-0">
         {timer}
-        <EntryTitle entry={entry}>
-          <KeypadHeading number={number} correcting={correcting} />
-          <h1 className="text-[clamp(1.5rem,3.6vw,2.25rem)] leading-tight font-bold text-balance">{entry.name}</h1>
-        </EntryTitle>
+        {correcting && <CorrectingBar correcting={correcting} />}
+        <EntryTitle entry={entry} number={number} />
         {notes}
 
         <ul className="mt-3 space-y-1.5" aria-label="Criteria">
@@ -1451,7 +1458,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
               </svg>
             </button>
             {guideOpen && (
-              <p id="criterion-guide" className="max-h-40 overflow-y-auto px-4 pb-3 text-[15px] leading-relaxed whitespace-pre-line text-mint/90">
+              <p id="criterion-guide" className="max-h-40 overflow-y-auto px-4 pb-3 text-base leading-relaxed whitespace-pre-line text-mint/90">
                 {active.guide}
               </p>
             )}
@@ -1542,26 +1549,17 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         )}
         {all.ok && !correcting && (
           <>
-            <p className="mt-1 text-sm font-semibold text-prussian/80">Check each criterion before you submit.</p>
-            {/* Each criterion lights up in turn, so a slip in any one of them gets a look. */}
-            <ol key={reviews} aria-label="Points for each criterion" className="mt-3 max-h-[min(22rem,45dvh)] space-y-1.5 overflow-y-auto text-left">
-              {criteria.map((c, i) => {
-                const points = all.breakdown[c.id];
-                return (
-                  <li key={c.id} className="check-in rounded-xl bg-white px-3 py-2 ring-1 ring-powder/60" style={{ animationDelay: `${i * 150}ms` }}>
-                    <div className="flex items-baseline gap-3">
-                      <span className="min-w-0 flex-1 font-semibold">{c.name}</span>
-                      <span className="tabular text-2xl leading-none font-bold text-regal">{formatScore(points, decimals)}</span>
-                      <span className="tabular w-11 text-right text-sm text-prussian/70">/ {formatBound(c.max)}</span>
-                    </div>
-                    <span aria-hidden className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-powder/30">
-                      <span className="block h-full rounded-full bg-regal" style={{ width: `${(points / c.max) * 100}%` }} />
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-            <p className="tabular mt-3 text-5xl font-bold text-regal">{formatScore(all.total, decimals)}</p>
+            <ul aria-label="Points for each criterion" className="mt-4 max-h-[min(22rem,45dvh)] space-y-1 overflow-y-auto text-left">
+              {criteria.map((c) => (
+                <li key={c.id} className="flex justify-between gap-4">
+                  <span className="min-w-0 truncate font-semibold">{c.name}</span>
+                  <span className="tabular shrink-0 font-bold">
+                    {formatScore(all.breakdown[c.id], decimals)} / {formatBound(c.max)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="tabular mt-3 text-6xl font-bold text-regal">{formatScore(all.total, decimals)}</p>
             <p className="text-sm text-prussian/75">out of 100</p>
           </>
         )}

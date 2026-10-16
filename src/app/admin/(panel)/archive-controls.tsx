@@ -16,12 +16,14 @@ export function ArchiveButton({ activityId, name }: { activityId: string; name: 
         </>
       }
       triggerClassName="btn btn-sm btn-quiet relative z-10"
-      title={`Archive ${name}?`}
+      title="Archive this activity?"
       confirmLabel="Archive"
       onConfirm={() => archiveActivity(activityId)}
     >
-      It moves to Archived activities and can&apos;t be reopened or changed after that, nor taken out of the archive. You can still open it to download
-      its results and score sheets, or delete it.
+      <p>
+        <strong>{name}</strong> moves to Archived activities for good. It can&apos;t be reopened or changed after this.
+      </p>
+      <p className="mt-2">You can still open it to download its results and score sheets, or delete it.</p>
     </ConfirmDialog>
   );
 }
@@ -42,8 +44,8 @@ export function DeleteArchivedButton({ activityId, name, className = "btn btn-da
       requireText={name}
       onConfirm={() => deleteActivity(activityId)}
     >
-      This permanently deletes {name} with its judges, entries, scores and photos. Its results can&apos;t be downloaded after this, and the live results
-      link stops working.
+      This permanently deletes <strong>{name}</strong> with its judges, entries, scores and photos. Its results can&apos;t be downloaded after this,
+      and the live results link stops working.
     </ConfirmDialog>
   );
 }
