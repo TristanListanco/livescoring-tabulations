@@ -27,10 +27,9 @@ export function RankingSwitch({ activity, compact = false }: { activity: Activit
     <div className="space-y-2">
       <div className={`flex items-center ${compact ? "gap-3" : "gap-4"}`}>
         <Switch checked={on} onChange={toggle} labelledBy="rank-label" disabled={pending} />
-        {/* The live desk's narrow column shows the short label; the switch's name stays the full sentence. */}
+        {/* The whole sentence shows, the live desk's narrow column included: it's also the switch's name. */}
         <p id="rank-label" className="font-semibold">
-          Show ranks
-          <span className={compact ? "sr-only" : undefined}> on the live results page</span>
+          Show ranks on the live results page
         </p>
       </div>
       <FormMessage state={result} small />

@@ -28,8 +28,8 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
       <div className="w-full max-w-md">
         {switching && context ? (
           <>
-            <h1 className="text-4xl font-bold tracking-tight">Switch judge?</h1>
-            <p className="mt-3 text-lg text-powder">
+            <h1 className="judge-title">Switch judge?</h1>
+            <p className="judge-lede mt-3">
               This device is judging as {context.judge.name}. Switching signs it out for them, and the organizer has to approve it again
               before it can score.
             </p>
@@ -41,13 +41,13 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
           </>
         ) : (
           <>
-            <h1 className="text-4xl font-bold tracking-tight">Judge sign-in</h1>
+            <h1 className="judge-title">Judge sign-in</h1>
             {signedOut && (
               <p role="status" className="mt-4 rounded-xl bg-oxford px-4 py-3 font-semibold">
                 You were signed out because the organizer reset the scores. Sign in again to judge.
               </p>
             )}
-            <p className="mt-3 text-lg text-powder">Enter the six-character code the organizer gave you.</p>
+            <p className="judge-lede mt-3">Enter the six-character code the organizer gave you.</p>
             <CodeForm
               initialCode={code}
               initialError={limited ? TOO_MANY : invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined}

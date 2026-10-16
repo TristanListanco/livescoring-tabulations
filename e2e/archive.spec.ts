@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, signInAsSuperAdmin } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, screenPath, signInAsSuperAdmin } from "./helpers";
 
 // Archiving an activity once its session has ended: it leaves the list of activities, opens read-only (its results
 // still there, nothing to change, no reopening), and can still be deleted.
@@ -44,7 +44,7 @@ test.describe.serial("archived activities", () => {
   test("the live results say it has ended, and when", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=session`);
-    const livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    const livePath = await screenPath(page, "Open live results");
     await page.goto(livePath);
     await expect(page.getByText(/^Ended · \w{3} \d{1,2}, \d{4}, \d{1,2}:\d{2}/).first()).toBeVisible();
     await expect(page.getByText("Live", { exact: true })).toHaveCount(0);
@@ -54,7 +54,7 @@ test.describe.serial("archived activities", () => {
     await signInAsSuperAdmin(page);
     await page.goto("/admin");
     await page.getByRole("button", { name: `Archive ${NAME}` }).first().click();
-    const dialog = page.getByRole("dialog", { name: `Archive ${NAME}?` });
+    const dialog = page.getByRole("dialog", { name: "Archive this activity?" });
     await expect(dialog).toContainText("can't be reopened or changed");
     await dialog.getByRole("button", { name: "Archive" }).click();
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0, REALTIME);

@@ -97,7 +97,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
       <Section
         title="Judges"
-        hint="Choose one judge as chair. The chair can move judging to the previous or next entry from their own screen, and can't be changed later."
+        hint="The chair moves judging between entries from their own screen. It can't be changed later."
       >
         <JudgesFields
           judges={judges}

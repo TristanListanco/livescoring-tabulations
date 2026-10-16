@@ -3,6 +3,7 @@ import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } f
 import type { CorrectionView } from "./corrections";
 import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
+import type { JudgeNote } from "./data";
 import type { Board, Deduction, Judge, Round, Signatory } from "./types";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
@@ -35,7 +36,7 @@ const s = StyleSheet.create({
   table: { marginTop: 22 },
   headRow: { flexDirection: "row", backgroundColor: C.prussian, color: C.mint, fontFamily: "Helvetica-Bold", fontSize: 9 },
   row: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.line, alignItems: "center" },
-  // A judge's score sheet row: the scores, with the judge's note on the entry under them.
+  // A judge's score sheet row: the scores, with a correction to one under them.
   sheetRow: { borderBottomWidth: 0.75, borderBottomColor: C.line },
   sheetCells: { flexDirection: "row", alignItems: "center" },
   note: { marginLeft: 46, marginRight: 6, marginTop: -3, marginBottom: 7, fontFamily: "Helvetica-Oblique", fontSize: 9, color: C.muted },
@@ -65,12 +66,20 @@ const s = StyleSheet.create({
   // A long label wraps rather than running into the page number.
   footerLabel: { flexShrink: 1, marginRight: 16 },
   footerPage: { flexShrink: 0 },
+  // The judges' notes: each entry, then each judge's note on it.
+  noteEntry: { marginTop: 18, paddingTop: 10, borderTopWidth: 0.75, borderTopColor: C.line },
+  noteEntryTitle: { fontFamily: "Helvetica-Bold", fontSize: 12 },
+  noteEntryNumber: { fontFamily: "Helvetica", color: C.muted },
+  noteRow: { flexDirection: "row", gap: 12, marginTop: 6 },
+  noteJudge: { width: 130, fontFamily: "Helvetica-Bold" },
+  noteBody: { flexGrow: 1, flexBasis: 0 },
 });
 
 /** The organizer as printed on the sheet: their name, photo (JPEG bytes) and the people who sign. */
 export type ReportOrganizer = { name: string; photo: Buffer | null; signatories: Signatory[] };
 
-type ReportInfo = { generatedAt: string; reportId: string; organizer: ReportOrganizer | null };
+/** `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes). */
+type ReportInfo = { generatedAt: string; reportId: string | null; organizer: ReportOrganizer | null };
 
 /**
  * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID, the title,
@@ -100,10 +109,12 @@ function Header({
       <View style={s.headerText}>
         <View style={s.topRow}>
           <Text style={s.eyebrow}>{eyebrow}</Text>
-          <Text style={s.reportId}>
-            <Text style={s.reportLabel}>Report ID </Text>
-            {reportId}
-          </Text>
+          {reportId && (
+            <Text style={s.reportId}>
+              <Text style={s.reportLabel}>Report ID </Text>
+              {reportId}
+            </Text>
+          )}
         </View>
         <Text style={s.title}>{title}</Text>
         {subtitle && <Text style={s.subtitle}>{subtitle}</Text>}
@@ -170,7 +181,7 @@ function SignOff({ judges, signatories, note, inline = false }: { judges: Board[
 function Footer({ label, info, perSheet = false }: { label: string; info: ReportInfo; perSheet?: boolean }) {
   return (
     <View style={s.footer} fixed>
-      <Text style={s.footerLabel}>{`${label}, report ${info.reportId}, generated ${info.generatedAt}`}</Text>
+      <Text style={s.footerLabel}>{`${label}${info.reportId ? `, report ${info.reportId}` : ""}, generated ${info.generatedAt}`}</Text>
       <Text
         style={s.footerPage}
         render={({ pageNumber, totalPages, subPageNumber, subPageTotalPages }) =>
@@ -277,19 +288,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
  * with criteria scoring the points for each criterion. Each sheet is signed by its judge and the signatories, and
  * carries the report ID of the results sheet it goes with. `part`: a pageant sub-activity's name.
  */
-function JudgeSheetsDocument({
-  board,
-  info,
-  part,
-  notes,
-  corrected,
-}: {
-  board: Board;
-  info: ReportInfo;
-  part?: string;
-  notes: Map<string, string>;
-  corrected: Map<string, CorrectionView>;
-}) {
+function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; info: ReportInfo; part?: string; corrected: Map<string, CorrectionView> }) {
   const { activity, judges } = board;
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
   const noun = part ? "candidates" : "entries";
@@ -297,7 +296,6 @@ function JudgeSheetsDocument({
   const total = criteria.length === 0 ? "Score" : activity.criteriaDisplay === "ten" ? "Total (of 10)" : "Total";
   const meta = `${rulesSummary(activity)} ${board.entries.length} ${noun}, in running order. Generated ${info.generatedAt}.`;
   const row = (judge: Judge, r: JudgeSheetRow) => {
-    const note = notes.get(`${judge.id}|${r.entry.id}`);
     const fix = corrected.get(`${judge.id}|${r.entry.id}`);
     return (
       <View key={r.entry.id} style={s.sheetRow} wrap={false}>
@@ -316,7 +314,6 @@ function JudgeSheetsDocument({
             style={s.note}
           >{`Corrected from ${fix.from} (${fix.decidedBy === "organizer" ? "the organizer approved" : "every other judge agreed"}): ${fix.reason}`}</Text>
         )}
-        {note && <Text style={s.note}>{`Note: ${note}`}</Text>}
       </View>
     );
   };
@@ -541,8 +538,8 @@ export function renderResultsPdf(
 
 /**
  * The judges' score sheets that go with a results sheet: an event's, or (with `part`) one pageant sub-activity's.
- * `notes`: each judge's note on an entry, keyed "judgeId|entryId", printed under that entry on their sheet.
- * `corrections`: applied corrections to these scores; each corrected score says what it was and why.
+ * `corrections`: applied corrections to these scores; each corrected score says what it was and why. The judges' notes
+ * are a PDF of their own (renderNotesPdf).
  */
 export function renderJudgeSheetsPdf(
   board: Board,
@@ -551,25 +548,71 @@ export function renderJudgeSheetsPdf(
     reportId,
     organizer,
     part,
-    notes = new Map(),
     corrections = [],
   }: {
     timeZone?: string;
     reportId: string;
     organizer: ReportOrganizer | null;
     part?: string;
-    notes?: Map<string, string>;
     corrections?: CorrectionView[];
   },
 ): Promise<Buffer> {
   const corrected = new Map(corrections.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
-  return renderToBuffer(
-    <JudgeSheetsDocument
-      board={board}
-      part={part}
-      notes={notes}
-      corrected={corrected}
-      info={{ generatedAt: generatedAt(timeZone), reportId, organizer }}
-    />,
+  return renderToBuffer(<JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+}
+
+/**
+ * The judges' notes, a PDF of their own: each entry in running order with every judge's note on it (entries no one
+ * noted are left out). For the organizer's reference, not part of the results, so it has no report ID or signatures.
+ */
+function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[]; info: ReportInfo }) {
+  const { activity, judges } = board;
+  const noun = activity.kind === "pageant" ? "candidate" : "entry";
+  const judgeOrder = new Map(judges.map((j, i) => [j.id, i]));
+  const nameOf = new Map(judges.map((j) => [j.id, j.name]));
+  const entries = [...board.entries]
+    .sort((a, b) => a.position - b.position)
+    .map((entry, i) => ({
+      entry,
+      number: entry.number ?? i + 1,
+      notes: notes.filter((n) => n.entryId === entry.id).sort((a, b) => (judgeOrder.get(a.judgeId) ?? 0) - (judgeOrder.get(b.judgeId) ?? 0)),
+    }))
+    .filter((e) => e.notes.length > 0);
+  const writers = new Set(notes.map((n) => n.judgeId)).size;
+  const meta =
+    `What the judges noted on each ${noun}, for the organizer's reference; not part of the results. ` +
+    `${notes.length} ${notes.length === 1 ? "note" : "notes"} from ${writers} ${writers === 1 ? "judge" : "judges"}, in running order. Generated ${info.generatedAt}.`;
+
+  return (
+    <Document title={`${activity.name}, judges' notes`} author="LiveScoring" creator="LiveScoring">
+      <Page size="A4" style={s.page}>
+        <Header info={info} eyebrow="Judges' notes" title={activity.name} meta={meta} />
+        {entries.length === 0 && <Text style={s.sectionNote}>{`No notes were written on any ${noun}.`}</Text>}
+        {entries.map(({ entry, number, notes: forEntry }) => (
+          <View key={entry.id} style={s.noteEntry}>
+            <Text style={s.noteEntryTitle} minPresenceAhead={40}>
+              <Text style={s.noteEntryNumber}>{`No. ${number}  `}</Text>
+              {entry.name}
+            </Text>
+            {forEntry.map((n) => (
+              <View key={n.judgeId} style={s.noteRow} wrap={false}>
+                <Text style={s.noteJudge}>{nameOf.get(n.judgeId) ?? "A judge no longer on the panel"}</Text>
+                <Text style={s.noteBody}>{n.body}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+        <Footer label={`${activity.name}, judges' notes`} info={info} />
+      </Page>
+    </Document>
   );
+}
+
+/** The judges' notes on an activity's entries as a PDF (see NotesDocument). */
+export function renderNotesPdf(
+  board: Board,
+  notes: JudgeNote[],
+  { timeZone, organizer }: { timeZone?: string; organizer: ReportOrganizer | null },
+): Promise<Buffer> {
+  return renderToBuffer(<NotesDocument board={board} notes={notes} info={{ generatedAt: generatedAt(timeZone), reportId: null, organizer }} />);
 }

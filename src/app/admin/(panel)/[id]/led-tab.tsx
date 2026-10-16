@@ -167,15 +167,21 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       </div>
 
       <DisplaySettings options={options} onChange={changeOptions} disabled={pending} />
-      <section aria-labelledby="led-look" className="space-y-4 border-t border-line pt-6">
-        <div>
-          <h3 id="led-look" className="text-lg font-bold">
-            Look
-          </h3>
-          <p className="hint mt-1">The wall&apos;s font, colours and corners, for the green screen and the full screen alike.</p>
+      {/* Set once for a show, so it's folded away. The preview below shows what's chosen and follows any change. */}
+      <details className="group border-t border-line pt-6">
+        <summary className="tap-target flex cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-1 select-none [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-2">
+            <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
+              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-lg font-bold">Look</span>
+          </span>
+        </summary>
+        <div className="mt-4 space-y-4">
+          <p className="hint">For the green screen and the full screen alike.</p>
+          <LookSettings options={options} onChange={changeOptions} disabled={pending} />
         </div>
-        <LookSettings options={options} onChange={changeOptions} disabled={pending} />
-      </section>
+      </details>
       <FormMessage state={error ? { ok: false, error } : null} small />
 
       <figure className="max-w-4xl">

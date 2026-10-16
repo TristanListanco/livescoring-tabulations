@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, SAVED, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -46,6 +46,8 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("group", { name: "Judges give points in" }).getByRole("radio", { name: /1 decimal place/ }).check();
     // Totals as a percentage with four decimal places: the widest numbers the LED wall has to fit.
     await page.getByRole("radio", { name: /As a percentage/ }).check();
+    // Results' decimal places are tucked under More options, which says what they are.
+    await page.getByText("More options").click();
     await page.getByRole("group", { name: "Decimal places shown in results" }).getByRole("radio", { name: /^4 decimal places/ }).check();
     await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByRole("button", { name: "Remove judge 2" }).click();
@@ -70,7 +72,7 @@ test.describe.serial("criteria scoring", () => {
     adminPath = new URL(page.url()).pathname;
     code = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).first().textContent())!.replace("Judge code ", "");
     await page.goto(`${adminPath}?tab=session`);
-    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    livePath = await screenPath(page, "Open live results");
     await page.goto(`${adminPath}?tab=led`);
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
@@ -80,7 +82,7 @@ test.describe.serial("criteria scoring", () => {
     const pairing = (await judge.locator("p").filter({ hasText: /^Pairing code [A-Z0-9]{4}$/ }).textContent())!.replace("Pairing code ", "");
 
     await signInAsSuperAdmin(page);
-    await page.goto(`${adminPath}?tab=access`);
+    await page.goto(`${adminPath}?tab=judges`);
     await page.getByRole("button", { name: `Approve Ana Cruz's device ${pairing}` }).click();
     await expect(page.getByText(/^Approved: /)).toBeVisible();
     await page.goto(`${adminPath}?tab=session`);
@@ -135,7 +137,6 @@ test.describe.serial("criteria scoring", () => {
     // Before it goes in, each criterion's points are laid out to check.
     await judge.getByRole("button", { name: "Submit score" }).click();
     const dialog = judge.getByRole("dialog");
-    await expect(dialog).toContainText("Check each criterion before you submit.");
     await expect(dialog.getByRole("list", { name: "Points for each criterion" }).getByRole("listitem")).toHaveText([/^Innovativeness\s*25\.0\s*\/ 30$/, /^Design\s*62\.5\s*\/ 70$/]);
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     // Five seconds to take it back: Undo returns the keypad as it was, and nothing was saved.
@@ -175,6 +176,10 @@ test.describe.serial("criteria scoring", () => {
     const agila = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /Agila$/ }) });
     await expect(agila).toContainText("Ana Cruz");
     await expect(agila).toContainText("Clever use of local materials.");
+    // They download as a PDF of their own, apart from the results and score sheets.
+    const [notesPdf] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' notes" }).click()]);
+    expect(notesPdf.suggestedFilename()).toMatch(/^e2e-criteria-[a-z0-9]+-judges-notes\.pdf$/);
+    expect(readFileSync(await notesPdf.path()).subarray(0, 5).toString()).toBe("%PDF-");
 
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);

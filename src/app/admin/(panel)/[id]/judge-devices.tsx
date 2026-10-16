@@ -33,7 +33,7 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
   const lastSignedOut = devices.find((d) => d.status === "revoked");
 
   return (
-    <div className="mt-3 space-y-2 sm:pl-14">
+    <div className="mt-3 space-y-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {approved ? (
           <>

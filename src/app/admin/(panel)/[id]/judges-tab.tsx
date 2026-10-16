@@ -52,7 +52,7 @@ const panelLabel = (panel: JudgePanel) => PANEL_OPTIONS.find((o) => o.value === 
 const boardOf = (judge: Judge) =>
   judge.panel === "preliminary" ? "the preliminary board" : judge.panel === "proper" ? "the pageant proper board" : "the board of judges";
 
-function ChairBadge({ judge }: { judge: Judge }) {
+export function ChairBadge({ judge }: { judge: Judge }) {
   return (
     <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">
       {judge.panel === "preliminary" ? "Preliminary chair" : judge.panel === "proper" ? "Pageant proper chair" : "Chair"}
@@ -62,7 +62,7 @@ function ChairBadge({ judge }: { judge: Judge }) {
 }
 
 /** A pageant's boards at a glance: one board, or the preliminary's and pageant proper's, each with its chair. */
-function BoardsSummary({ judges }: { judges: Judge[] }) {
+export function BoardsSummary({ judges }: { judges: Judge[] }) {
   const separate = judges.some((j) => j.panel !== "all");
   const board = (panel: "preliminary" | "proper") => judges.filter((j) => j.panel === "all" || j.panel === panel);
   const chair = (list: Judge[]) => list.find((j) => j.isChair)?.name;
@@ -84,7 +84,11 @@ function BoardsSummary({ judges }: { judges: Judge[] }) {
   );
 }
 
-function JudgeRow({ judge, scored, pageant }: { judge: Judge; scored: number; pageant: boolean }) {
+/**
+ * A judge's row before the session starts, on the Judges tab: their photo and name to change (Save appears once the
+ * name is edited), a pageant's segments, the chair, and Remove. `detail`: the line under the name (how far they've got).
+ */
+export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; scored: number; pageant: boolean; detail: string }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameJudge.bind(null, judge.id), null);
   // Save shows only once a name has been edited.
   const initial = nameParts(judge);
@@ -105,16 +109,10 @@ function JudgeRow({ judge, scored, pageant }: { judge: Judge; scored: number; pa
     });
 
   return (
-    <li className="flex flex-wrap items-start gap-x-5 gap-y-3 py-5">
+    <div className="flex items-start gap-4">
       <div className={photoPending ? "opacity-60" : undefined}>
-        <PhotoPicker
-          name={judge.name}
-          currentUrl={photoPending ? preview : judge.photoUrl}
-          size={60}
-          onPick={(photo, url) => changePhoto(photo, url)}
-        />
+        <PhotoPicker name={judge.name} currentUrl={photoPending ? preview : judge.photoUrl} size={48} onPick={(photo, url) => changePhoto(photo, url)} />
       </div>
-
       <div className="min-w-0 flex-1 space-y-2">
         <form action={rename} className="flex max-w-xl flex-wrap items-end gap-2">
           <NameFields idPrefix={judge.id} value={edited} onChange={setEdited} />
@@ -125,51 +123,64 @@ function JudgeRow({ judge, scored, pageant }: { judge: Judge; scored: number; pa
         <FormMessage state={state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {pageant && <PanelSelect judge={judge} />}
-        {judge.isChair && (
-          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
-            {pageant ? (
-              <ChairBadge judge={judge} />
-            ) : (
-              <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">
-                Chair<span className="sr-only"> of the board of judges</span>
-              </span>
-            )}
-            <span className="hint">Can move judging to the previous or next entry from their own screen.</span>
-          </p>
-        )}
-        <p className="hint tabular">
-          {scored} {scored === 1 ? "score" : "scores"} submitted
+        {/* A div, not a p: Remove's confirmation dialog can't sit inside a paragraph. */}
+        <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
+          {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
+          {detail}
           {judge.photoUrl && !photoPending && (
-            <>
-              {" "}
-              <button type="button" className="text-action ml-2" onClick={() => changePhoto(null, null)}>
-                Remove photo
-              </button>
-            </>
+            <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
+              Remove photo
+            </button>
           )}
+          <ConfirmDialog
+            triggerLabel={
+              <>
+                Remove<span className="sr-only"> {judge.name}</span>
+              </>
+            }
+            triggerClassName="text-sm font-semibold text-danger hover:underline disabled:opacity-40 disabled:no-underline"
+            // The chair is decided when the activity is created.
+            triggerDisabled={judge.isChair}
+            title={`Remove ${judge.name}?`}
+            tone="danger"
+            confirmLabel="Remove judge"
+            onConfirm={() => removeJudge(judge.id)}
+          >
+            {scored > 0
+              ? `Their ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted, so averages will change. `
+              : "They haven't submitted any scores. "}
+            Their access code will stop working.
+          </ConfirmDialog>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A judge's row once the session has started: the panel is locked, so their name, chair and segments only. */
+export function JudgeIdentity({ judge, pageant, detail }: { judge: Judge; pageant: boolean; detail: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <Avatar name={judge.name} src={judge.photoUrl} size={48} />
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className="truncate text-lg font-semibold">{judge.name}</span>
+          {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
+        </p>
+        <p className="hint tabular">
+          {pageant && `${panelLabel(judge.panel)} · `}
+          {detail}
         </p>
       </div>
+    </div>
+  );
+}
 
-      <ConfirmDialog
-        triggerLabel={
-          <>
-            Remove<span className="sr-only"> {judge.name}</span>
-          </>
-        }
-        triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
-        // The chair is decided when the activity is created.
-        triggerDisabled={judge.isChair}
-        title={`Remove ${judge.name}?`}
-        tone="danger"
-        confirmLabel="Remove judge"
-        onConfirm={() => removeJudge(judge.id)}
-      >
-        {scored > 0
-          ? `Their ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted, so averages will change. `
-          : "They haven't submitted any scores. "}
-        Their access code will stop working.
-      </ConfirmDialog>
-    </li>
+function PlainChairBadge() {
+  return (
+    <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold text-prussian">
+      Chair<span className="sr-only"> of the board of judges</span>
+    </span>
   );
 }
 
@@ -198,7 +209,7 @@ function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: N
   );
 }
 
-function AddJudgeForm({ activityId, pageant }: { activityId: string; pageant: boolean }) {
+export function AddJudgeForm({ activityId, pageant }: { activityId: string; pageant: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(addJudge.bind(null, activityId), null);
   return (
     <form action={action} className="mt-6 space-y-2">
@@ -225,80 +236,5 @@ function AddJudgeForm({ activityId, pageant }: { activityId: string; pageant: bo
       </fieldset>
       <FormMessage state={state} small />
     </form>
-  );
-}
-
-export function JudgesTab({
-  activityId,
-  judges,
-  scoredBy,
-  locked,
-  pageant = false,
-}: {
-  activityId: string;
-  judges: Judge[];
-  scoredBy: Record<string, number>;
-  /** Pageants: each judge judges both segments, or only the preliminary or pageant proper. */
-  pageant?: boolean;
-  /** Once the session has started the panel can't change. */
-  locked: boolean;
-}) {
-  // Once judging starts the panel is fixed, so it reads as a list rather than a page of disabled forms.
-  if (locked) {
-    return (
-      <div className="max-w-3xl">
-        <h2 className="text-xl font-bold">Judges</h2>
-        <p role="note" className="note mt-3">
-          The session has started, so the panel of judges is locked.
-        </p>
-        {pageant && <BoardsSummary judges={judges} />}
-        <ul className="mt-4 divide-y divide-line border-y border-line">
-          {judges.map((j) => {
-            const scored = scoredBy[j.id] ?? 0;
-            return (
-              <li key={j.id} className="flex items-center gap-4 py-4">
-                <Avatar name={j.name} src={j.photoUrl} size={48} />
-                <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                    <span className="truncate text-lg font-semibold">{j.name}</span>
-                    {j.isChair &&
-                      (pageant ? (
-                        <ChairBadge judge={j} />
-                      ) : (
-                        <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">
-                          Chair<span className="sr-only"> of the board of judges</span>
-                        </span>
-                      ))}
-                  </p>
-                  <p className="hint tabular">
-                    {pageant && `${panelLabel(j.panel)} · `}
-                    {scored} {scored === 1 ? "score" : "scores"} submitted
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-3xl">
-      <h2 className="text-xl font-bold">Judges</h2>
-      {pageant && <BoardsSummary judges={judges} />}
-      <fieldset className="min-w-0">
-        {judges.length === 0 ? (
-          <p className="mt-6 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-line border-y border-line">
-            {judges.map((j) => (
-              <JudgeRow key={j.id} judge={j} scored={scoredBy[j.id] ?? 0} pageant={pageant} />
-            ))}
-          </ul>
-        )}
-        <AddJudgeForm activityId={activityId} pageant={pageant} />
-      </fieldset>
-    </div>
   );
 }

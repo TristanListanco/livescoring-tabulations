@@ -149,7 +149,7 @@ function AddEntriesForm({ activityId, pageant }: { activityId: string; pageant: 
       <p id="new-entries-hint" className="hint">
         {pageant
           ? "A candidate's name on each line. They join the end of the running order, and every sub-activity before the first cut judges them."
-          : "For example, a contestant's name or number on each line. They join the end of the running order."}
+          : "One per line. They join the end of the running order."}
       </p>
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>

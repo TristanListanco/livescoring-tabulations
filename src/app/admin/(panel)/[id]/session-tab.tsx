@@ -16,7 +16,6 @@ import type { ActionResult, Board, Entry, Judge, JudgeDevice, Signatory } from "
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { FormMessage } from "../form-message";
-import { LinkField } from "../link-field";
 import { CorrectionsPanel } from "./corrections-panel";
 import { ApproveDeviceButton } from "./judge-devices";
 import { CutDialog, DeskTimer, HeldLink, JudgeRoundButton, nextUp, PdfHold, ProgramPanel } from "./pageant-desk";
@@ -65,10 +64,24 @@ function DeskConnection({ status, renderedAt, className }: { status: LiveStatus;
  * scores (and each criterion's points) and their sign-off. The time zone goes along so the sheet's printed time
  * matches the venue's clock.
  */
-function DownloadResults({ activityId, sheets = false, className }: { activityId: string; sheets?: boolean; className: string }) {
-  const held = useContext(PdfHold);
-  const href = `/admin/${activityId}/export${sheets ? "?sheet=judges" : ""}`;
-  const label = sheets ? "Download judges' score sheets" : "Download results PDF";
+export function DownloadResults({
+  activityId,
+  sheets = false,
+  notes = false,
+  className,
+}: {
+  activityId: string;
+  /** The judges' score sheets rather than the results. */
+  sheets?: boolean;
+  /** The judges' notes, a PDF of their own. They aren't results, so an open correction doesn't hold them. */
+  notes?: boolean;
+  className: string;
+}) {
+  const hold = useContext(PdfHold);
+  const held = notes ? null : hold;
+  const sheet = notes ? "notes" : sheets ? "judges" : null;
+  const href = `/admin/${activityId}/export${sheet ? `?sheet=${sheet}` : ""}`;
+  const label = notes ? "Download judges' notes" : sheets ? "Download judges' score sheets" : "Download results PDF";
   if (held) {
     return (
       <HeldLink reason={held} className={className}>
@@ -80,7 +93,7 @@ function DownloadResults({ activityId, sheets = false, className }: { activityId
     <a
       href={href}
       onClick={(e) => {
-        e.currentTarget.href = `${href}${sheets ? "&" : "?"}tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
+        e.currentTarget.href = `${href}${sheet ? "&" : "?"}tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
       }}
       className={className}
       download
@@ -186,9 +199,9 @@ export function SessionTab({
   signatories,
   liveUrl,
   liveQr,
-  ledUrl,
   corrections,
   archived = false,
+  hasNotes = false,
 }: {
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -200,11 +213,12 @@ export function SessionTab({
   signatories: Signatory[] | null;
   liveUrl: string;
   liveQr: string;
-  ledUrl: string;
   /** Score corrections, oldest first (empty before migration 019). */
   corrections: CorrectionView[];
   /** Archived: its results to read and download, nothing to change (no reopening, no ranks switch). */
   archived?: boolean;
+  /** The judges wrote notes: they download as a PDF of their own beside the results. */
+  hasNotes?: boolean;
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id);
@@ -223,6 +237,43 @@ export function SessionTab({
   const [result, setResult] = useState<ActionResult | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
+  const textAction =
+    "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
+
+  /**
+   * The audience's screen, one compact card wherever the desk is: show ranks, and the live results (copy, open, QR
+   * code). The LED wall's link is on its own tab. `extra`: what follows them (the results downloads, mid-show). An
+   * archived activity keeps only the link: nothing to put in front of an audience.
+   */
+  const screens = (extra?: React.ReactNode) => (
+    <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
+      <h2 id="screens" className="text-base font-bold">
+        Screens
+      </h2>
+      <div className="mt-1.5 space-y-1">
+        {!archived && <RankingSwitch activity={activity} compact />}
+        {/* Each row says what it is, and each button what it does; screen readers also hear which screen it's for. */}
+        <div className="flex flex-wrap items-center gap-x-1">
+          <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
+          <CopyButton value={liveUrl} label="Copy link" ariaLabel="Copy link to live results" className={textAction} />
+          <a href={liveUrl} target="_blank" rel="noreferrer" aria-label="Open live results" className={textAction}>
+            Open
+          </a>
+          {!archived && (
+            <button type="button" className={textAction} aria-expanded={showQr} aria-label="QR code for live results" onClick={() => setShowQr((v) => !v)}>
+              QR code
+            </button>
+          )}
+        </div>
+        {showQr && !archived && (
+          <div className="pb-1">
+            <Qr svg={liveQr} label="QR code for the live results page" />
+          </div>
+        )}
+        {extra}
+      </div>
+    </section>
+  );
 
   // Moving between entries and changing the session go through reach(): a request lost on venue Wi-Fi
   // comes back as a message beside the button instead of taking the desk down.
@@ -501,7 +552,6 @@ export function SessionTab({
    * right. Only the judge grid and the rundown scroll, inside themselves. Below lg it stacks as before.
    */
   if (live) {
-    const textAction = "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
     return (
       <PdfHold value={held}>
         <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
@@ -630,46 +680,7 @@ export function SessionTab({
             )}
             {runningOrder(true)}
 
-            <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
-              <h2 id="screens" className="text-base font-bold">
-                Screens
-              </h2>
-              <div className="mt-1.5 space-y-1">
-                <RankingSwitch activity={activity} compact />
-                <div className="flex items-center gap-1">
-                  <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
-                  <CopyButton value={liveUrl} className={textAction} />
-                  <a href={liveUrl} target="_blank" rel="noreferrer" className={textAction}>
-                    Open<span className="sr-only"> live results</span>
-                  </a>
-                  <button type="button" className={textAction} aria-expanded={showQr} onClick={() => setShowQr((v) => !v)}>
-                    QR<span className="sr-only"> code for live results</span>
-                  </button>
-                </div>
-                {showQr && (
-                  <div className="pb-1">
-                    <Qr svg={liveQr} label="QR code for the live results page" />
-                  </div>
-                )}
-                <div className="flex items-center gap-1">
-                  <Link
-                    href={`/admin/${activity.id}?tab=led`}
-                    scroll={false}
-                    className="tap-target min-w-0 flex-1 truncate hover:underline"
-                    title="Change the LED wall's display"
-                  >
-                    <span className="font-semibold">LED wall</span>{" "}
-                    <span className="text-prussian/70">
-                      {activity.ledFullscreen ? "full screen" : "lower third"}
-                      {activity.ledAnonymous && ", anonymous judges"}
-                    </span>
-                  </Link>
-                  <CopyButton value={ledUrl} className={textAction} />
-                  <a href={ledUrl} target="_blank" rel="noreferrer" className={textAction}>
-                    Open<span className="sr-only"> LED wall</span>
-                  </a>
-                </div>
-                {progress.complete && !pageant && (
+            {screens(progress.complete && !pageant && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
                     <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
                     <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
@@ -677,9 +688,7 @@ export function SessionTab({
                       Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
                     </p>
                   </div>
-                )}
-              </div>
-            </section>
+                ))}
           </aside>
           {cutDialog}
         </div>
@@ -735,8 +744,8 @@ export function SessionTab({
                   ) : (
                     <>
                       Judges&apos; codes and QR codes are on the{" "}
-                      <Link href={`/admin/${activity.id}?tab=access`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
-                        Judge devices
+                      <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
+                        Judges
                       </Link>{" "}
                       tab.
                     </>
@@ -821,6 +830,7 @@ export function SessionTab({
                   <div className="flex flex-wrap gap-3">
                     <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white max-sm:w-full" />
                     <DownloadResults activityId={activity.id} sheets className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
+                    {hasNotes && <DownloadResults activityId={activity.id} notes className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />}
                   </div>
                   {signatories && (
                     <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
@@ -842,37 +852,7 @@ export function SessionTab({
         {runningOrder(false)}
         {cutDialog}
 
-        <section aria-labelledby="live-results">
-          <h2 id="live-results" className="font-bold">
-            Public live results
-          </h2>
-          <LinkField url={liveUrl} openLabel="live results" className="mt-3" />
-          <div className="mt-5 flex flex-wrap items-start gap-x-10 gap-y-6">
-            <Qr svg={liveQr} label="QR code for the live results page" />
-            {!archived && (
-              <div className="min-w-60 flex-1 pt-1">
-                <RankingSwitch activity={activity} />
-                <p className="hint mt-2 max-w-sm">With ranks off, entries stay in running order, so you can hold the standings back until the reveal.</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section aria-labelledby="led-wall">
-          <h2 id="led-wall" className="font-bold">
-            LED wall
-          </h2>
-          <LinkField url={ledUrl} openLabel="LED wall" className="mt-3" />
-          <p className="hint mt-2">
-            Follows the entry being judged, as {activity.ledFullscreen ? "a full-screen scoresheet" : "a lower third on green"}.
-            {activity.ledAnonymous && " Judges stay anonymous."}{" "}
-            {!archived && (
-              <Link href={`/admin/${activity.id}?tab=led`} scroll={false} className="text-action">
-                Change the display
-              </Link>
-            )}
-          </p>
-        </section>
+        <div className="sm:max-w-md">{screens()}</div>
       </div>
     </PdfHold>
   );

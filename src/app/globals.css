@@ -253,6 +253,16 @@ html:has(.share-ledger) {
   .hint {
     @apply text-sm text-prussian/70;
   }
+  /*
+   * The judges' screens: one title for every state (the entry being judged, waiting, signing in), and the line under
+   * it. Light on navy, so the line under the title gets a little more leading than usual.
+   */
+  .judge-title {
+    @apply text-[1.75rem] leading-[1.15] font-bold tracking-[-0.01em] text-balance md:text-4xl;
+  }
+  .judge-lede {
+    @apply text-lg leading-relaxed text-powder text-balance;
+  }
   /* A small text link or text button in the accent colour: breadcrumbs, "Remove photo". */
   .text-action {
     @apply text-sm font-semibold text-regal hover:underline;
@@ -336,16 +346,6 @@ dialog::backdrop {
 .undo-drain {
   transform-origin: left;
   animation: undo-drain linear forwards;
-}
-
-/* Before a criteria score goes in, each criterion's points light up in turn (staggered inline), so none is missed. */
-@keyframes check-in {
-  from {
-    background-color: var(--color-powder);
-  }
-}
-.check-in {
-  animation: check-in 0.8s ease-out both;
 }
 
 /* A plain fade, for what would otherwise slide in under reduced motion. */

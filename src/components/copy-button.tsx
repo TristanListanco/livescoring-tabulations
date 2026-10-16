@@ -2,7 +2,18 @@
 
 import { useState } from "react";
 
-export function CopyButton({ value, label = "Copy", className = "btn btn-quiet btn-sm min-w-20" }: { value: string; label?: string; className?: string }) {
+/** `ariaLabel`: a fuller name for screen readers when the visible label alone doesn't say what's copied; it starts with the label. */
+export function CopyButton({
+  value,
+  label = "Copy",
+  ariaLabel,
+  className = "btn btn-quiet btn-sm min-w-20",
+}: {
+  value: string;
+  label?: string;
+  ariaLabel?: string;
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -16,7 +27,7 @@ export function CopyButton({ value, label = "Copy", className = "btn btn-quiet b
   };
 
   return (
-    <button type="button" onClick={copy} className={className} aria-live="polite">
+    <button type="button" onClick={copy} className={className} aria-live="polite" aria-label={copied ? undefined : ariaLabel}>
       {copied ? "Copied" : label}
     </button>
   );

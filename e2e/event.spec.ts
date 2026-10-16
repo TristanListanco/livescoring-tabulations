@@ -6,6 +6,7 @@ import {
   deleteActivityNamed,
   deleteOrganizerByEmail,
   expectAccessible,
+  screenPath,
   SAVED,
   signInAsOrganizer,
   signInAsSuperAdmin,
@@ -76,7 +77,7 @@ async function openSession(page: Page) {
 /** The organizer's Access tab, where judges' devices are approved. */
 async function openAccess(page: Page) {
   await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-  await page.goto(`${adminPath}?tab=access`);
+  await page.goto(`${adminPath}?tab=judges`);
 }
 
 test.describe.serial("a full event", () => {
@@ -159,9 +160,10 @@ test.describe.serial("a full event", () => {
     await expectAccessible(page);
     await page.goto(`${adminPath}?tab=led`);
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
-    // The public live results link and its QR code are in the Session tab.
+    // The public live results link and its QR code are on the Session tab's Screens card.
     await page.goto(`${adminPath}?tab=session`);
-    livePath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/live/"))!).pathname;
+    livePath = await screenPath(page, "Open live results");
+    await page.getByRole("button", { name: "QR code for live results" }).click();
     await expect(page.getByRole("img", { name: "QR code for the live results page" })).toBeVisible();
   });
 
@@ -359,7 +361,7 @@ test.describe.serial("a full event", () => {
     await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
     await tapScore(judge2, "8.75");
     await judge1.getByRole("button", { name: "Ask to correct this score" }).click();
-    await expect(judge1.getByText("Correcting your score: No. 2")).toBeVisible();
+    await expect(judge1.getByText("Correcting your score", { exact: true })).toBeVisible();
     await tapScore(judge1, "8.5");
     await judge1.getByRole("button", { name: "Review correction" }).click();
     const ask = judge1.getByRole("dialog", { name: "Ask to change your score for Bagwis?" });
@@ -428,7 +430,7 @@ test.describe.serial("a full event", () => {
     await vote2.getByRole("button", { name: /^Disagree/ }).click();
     await expect(vote2).toBeHidden();
     await expect(judge1.getByRole("status").filter({ hasText: "You disagreed" })).toHaveText("You disagreed, so Ben Torres's score stays 9.50.");
-    await expect(judge2.getByText("Your correction to 9.00 wasn't accepted: a judge disagreed, so this score stands. If it's still wrong, you can ask again and say more about why.")).toBeVisible(REALTIME);
+    await expect(judge2.getByText("Your correction to 9.00 wasn't accepted: a judge disagreed.")).toBeVisible(REALTIME);
     await expect(judge2.getByRole("button", { name: "Ask again" })).toBeVisible();
     await expect(live.locator("li[data-entry]", { hasText: "Kidlat" })).toContainText("9.50");
     // With the last entry fully scored, the desk's main button is End session, not a dead "No more entries".
@@ -470,7 +472,7 @@ test.describe.serial("a full event", () => {
 
   test("the admin panel has a dark mode, remembered in this browser", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-    await page.goto(`${adminPath}?tab=access`);
+    await page.goto(`${adminPath}?tab=judges`);
     const toggle = page.getByRole("button", { name: "Dark mode" });
     const panel = page.locator("[data-admin-theme]");
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -578,7 +580,7 @@ test.describe.serial("a full event", () => {
 
   test("resetting scores puts the session back to not started, then the activity is deleted", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-    await page.goto(`${adminPath}?tab=developer`);
+    await page.goto(`${adminPath}?tab=settings`);
 
     await page.getByRole("button", { name: "Reset scores" }).click();
     let dialog = page.getByRole("dialog");
@@ -586,7 +588,6 @@ test.describe.serial("a full event", () => {
     await dialog.getByRole("textbox").fill("RESET");
     await dialog.getByRole("button", { name: "Delete all scores" }).click();
     await expect(page.getByRole("status")).toHaveText("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
-    await expect(page.getByText("0 of 6 scores in")).toBeVisible();
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     // Every judge is signed out, even one who didn't sign out on their device: they sign in again for the next run.
     await expect(heading(judge1)).toHaveText("Judge sign-in", REALTIME);
@@ -594,10 +595,10 @@ test.describe.serial("a full event", () => {
       "You were signed out because the organizer reset the scores. Sign in again to judge.",
     );
     // Their devices are gone, not just signed out: neither judge has one now.
-    await page.goto(`${adminPath}?tab=access`);
+    await page.goto(`${adminPath}?tab=judges`);
     await expect(page.getByText("No device approved", { exact: true })).toHaveCount(2);
 
-    // Deleting the activity is in Settings; on the live site there's no Developer tab at all.
+    // Deleting the activity is in Settings too; on the live site it's the only test-free way, once the session has ended.
     await page.goto(`${adminPath}?tab=settings`);
     await page.getByRole("button", { name: "Delete activity" }).click();
     dialog = page.getByRole("dialog");

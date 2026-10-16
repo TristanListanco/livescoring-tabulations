@@ -111,3 +111,8 @@ export async function deleteDraftsNamed(name: string) {
   if (!api) return;
   await fetch(`${api.url}/rest/v1/activity_drafts?name=eq.${encodeURIComponent(name)}`, { method: "DELETE", headers: api.headers });
 }
+
+/** The address behind the Session tab's live results link, as a path. */
+export async function screenPath(page: Page, link: "Open live results"): Promise<string> {
+  return new URL((await page.getByRole("link", { name: link }).first().getAttribute("href"))!).pathname;
+}

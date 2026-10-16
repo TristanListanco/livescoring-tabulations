@@ -93,8 +93,8 @@ function NoteEditor({ entry, notes, rows, fill = false }: { entry: Entry; notes:
         onBlur={flush}
         maxLength={MAX_NOTE}
         rows={rows}
-        placeholder="What stood out, for your own reference. Only you and the organizer see it."
-        className={`w-full resize-none rounded-xl border border-regal bg-prussian px-3 py-2.5 text-[15px] leading-relaxed text-mint placeholder:text-powder/85 focus-visible:border-powder ${fill ? "min-h-32 flex-1" : ""}`}
+        placeholder="What stood out. Only you and the organizer see it."
+        className={`w-full resize-none rounded-xl border border-regal bg-prussian px-3 py-2.5 text-base leading-relaxed text-mint placeholder:text-powder/85 focus-visible:border-powder ${fill ? "min-h-32 flex-1" : ""}`}
       />
       {status === "error" ? (
         <p role="alert" className="mt-1.5 text-sm font-semibold text-danger-soft">

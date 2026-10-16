@@ -56,8 +56,8 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
             </ConfirmDialog>
           }
         >
-          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"}, with any score corrections and the judges&apos; notes, signs
-          every judge out, and puts the session back to not started. Judges, entries and access codes stay as they are.
+          Deletes all {scoreCount} {scoreCount === 1 ? "score" : "scores"} and the judges&apos; notes, signs every judge out, and puts the session back to
+          not started.
         </Tool>
         <Tool
           title="Delete activity"
@@ -65,32 +65,21 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
             <ConfirmDialog
               triggerLabel="Delete activity"
               triggerClassName="btn btn-danger-quiet"
-              title={`Delete ${activity.name}?`}
+              title="Delete this activity?"
               tone="danger"
               confirmLabel="Delete activity"
               requireText={activity.name}
               onConfirm={() => deleteActivityNow(activity.id)}
             >
-              This permanently deletes {activity.name} with its judges, entries, scores and photos. Judge codes and the live results link stop
+              This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results link stop
               working.
               {activity.sessionState === "live" && " Its session is live, so judges' screens and the LED wall stop working right away."}
             </ConfirmDialog>
           }
         >
-          Deletes the activity at any time, even while its session is live, so a test can start over. On the live site, the session has to end
-          first.
+          Deletes it at any time, even mid-session, so a test can start over.
         </Tool>
       </div>
     </>
-  );
-}
-
-export function DeveloperTab({ activity, scoreCount }: { activity: Activity; scoreCount: number }) {
-  return (
-    <div className="max-w-3xl">
-      <h2 className="text-xl font-bold">Developer tools</h2>
-      <p className="hint mt-1 mb-4">For testing and rehearsals. Not available on the live site. Settings has these too.</p>
-      <TestSiteTools activity={activity} scoreCount={scoreCount} />
-    </div>
   );
 }

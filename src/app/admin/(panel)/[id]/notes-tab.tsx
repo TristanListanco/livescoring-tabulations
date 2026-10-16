@@ -1,11 +1,24 @@
 import type { JudgeNote } from "@/lib/data";
 import type { Entry, Judge } from "@/lib/types";
+import { DownloadResults } from "./session-tab";
 
 /**
  * What the judges noted on each entry, in running order, for the organizer. Judges write them on their scoring
- * screens; each judge only ever sees their own. `notes`: null before migration 018.
+ * screens; each judge only ever sees their own. `notes`: null before migration 018. They download as a PDF of their own.
  */
-export function NotesTab({ entries, judges, notes, pageant }: { entries: Entry[]; judges: Judge[]; notes: JudgeNote[] | null; pageant: boolean }) {
+export function NotesTab({
+  activityId,
+  entries,
+  judges,
+  notes,
+  pageant,
+}: {
+  activityId: string;
+  entries: Entry[];
+  judges: Judge[];
+  notes: JudgeNote[] | null;
+  pageant: boolean;
+}) {
   const noun = pageant ? "candidate" : "entry";
   if (notes === null) {
     return (
@@ -29,16 +42,19 @@ export function NotesTab({ entries, judges, notes, pageant }: { entries: Entry[]
   if (rows.length === 0) {
     return (
       <p className="hint max-w-2xl">
-        No notes yet. Judges can keep a note on each {noun} from their scoring screen, and they show up here and on the judges&apos; score sheets.
+        No notes yet. Judges can keep a note on each {noun} from their scoring screen, and they show up here, ready to download as a PDF.
       </p>
     );
   }
   return (
     <div className="max-w-3xl">
-      <p className="hint">
-        {notes.length} {notes.length === 1 ? "note" : "notes"} from {writers} {writers === 1 ? "judge" : "judges"}, in running order. Each judge sees only
-        their own; the judges&apos; score sheets print them too.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <p className="hint">
+          {notes.length} {notes.length === 1 ? "note" : "notes"} from {writers} {writers === 1 ? "judge" : "judges"}, in running order. Each judge sees only
+          their own.
+        </p>
+        <DownloadResults activityId={activityId} notes className="btn btn-quiet btn-sm" />
+      </div>
       <ol className="mt-4 divide-y divide-line border-y border-line">
         {rows.map(({ entry, number, notes: forEntry }) => (
           <li key={entry.id} className="py-5">

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView } from "@/lib/corrections";
-import { getAccessCodes, getActivityNotes, getAdminBoard, getBoard, getCorrections, getSignatories, listAdmins, listDevices } from "@/lib/data";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, listActivityDevices, listAdmins } from "@/lib/data";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -13,10 +13,8 @@ import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from
 import type { Board } from "@/lib/types";
 import { DeleteArchivedButton } from "../archive-controls";
 import { SessionStatus } from "../session-status";
-import { AccessTab } from "./access-tab";
-import { DeveloperTab } from "./developer-tab";
+import { JudgesTab } from "./access-tab";
 import { EntriesTab } from "./entries-tab";
-import { JudgesTab } from "./judges-tab";
 import { LedTab } from "./led-tab";
 import { NotesTab } from "./notes-tab";
 import { SessionTab } from "./session-tab";
@@ -24,25 +22,26 @@ import { SegmentsTab } from "./segments-tab";
 import { SettingsTab } from "./settings-tab";
 
 /**
- * In the order of an event day: what runs the show (the session desk, judges' devices, the LED wall), then
- * what's set up beforehand, then the rehearsal tools off to the side.
+ * In the order of an event day: what runs the show (the session desk, the judges and their devices, the LED wall),
+ * then what's set up beforehand. The test site tools are in Settings.
  */
 type Tab = {
-  id: "session" | "access" | "led" | "notes" | "judges" | "entries" | "segments" | "settings" | "developer";
+  id: "session" | "judges" | "led" | "notes" | "entries" | "segments" | "settings";
   label: string;
-  group: "show" | "setup" | "tools";
+  group: "show" | "setup";
 };
 
 const TABS: Tab[] = [
   { id: "session", label: "Session", group: "show" },
-  { id: "access", label: "Judge devices", group: "show" },
+  { id: "judges", label: "Judges", group: "show" },
   { id: "led", label: "LED wall", group: "show" },
   { id: "notes", label: "Notes", group: "show" },
-  { id: "judges", label: "Judges", group: "setup" },
   { id: "entries", label: "Entries", group: "setup" },
   { id: "settings", label: "Settings", group: "setup" },
-  { id: "developer", label: "Developer", group: "tools" },
 ];
+
+/** Tabs that were merged into others, so old links still land somewhere sensible. */
+const MOVED: Record<string, Tab["id"]> = { access: "judges", developer: "settings" };
 
 /** A pageant's entries are its candidates, and its program (segments and sub-activities) has a tab of its own. */
 const PAGEANT_TABS: Tab[] = TABS.flatMap((t): Tab[] =>
@@ -70,27 +69,33 @@ export async function generateMetadata({ params }: PageProps<"/admin/[id]">): Pr
 }
 
 export default async function ActivityPage({ params, searchParams }: PageProps<"/admin/[id]">) {
-  const session = await requireAdmin();
-  // With a pageant's deductions, for the desk.
-  const board = await getAdminBoard((await params).id);
+  const id = (await params).id;
+  const requested = (await searchParams).tab;
+  const asked = typeof requested === "string" ? (MOVED[requested] ?? requested) : undefined;
+  // What the tab reads starts with the board rather than after it: each is a trip to the database, and the desk reloads
+  // all of this after every score. Which tab opens can depend on the board (with none asked for, Judges before the
+  // session and Session after), so both of those start then; one is left unused. Nothing is shown until the session
+  // has been checked below.
+  const early = {
+    codes: asked === undefined || asked === "judges" ? getActivityAccessCodes(id) : null,
+    desk: asked === undefined || asked === "session" ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id)]) : null,
+    notes: asked === "notes" ? getActivityNotes(id) : null,
+  };
+  // The session, the board (with a pageant's deductions, for the desk) and the judges' devices, at once.
+  const [session, board, devices, origin] = await Promise.all([requireAdmin(), getAdminBoard(id), listActivityDevices(id), siteOrigin()]);
   if (!canSee(session, board)) notFound();
 
-  const requested = (await searchParams).tab;
   const { activity, judges, entries, scores } = board;
-  // Before judging starts the organizer needs the codes; once it's live, the session controls.
-  // Developer tools are for rehearsals; the live site only offers deleting the activity, from Settings.
+  // Before judging starts the organizer needs the judges' codes; once it's live, the session controls.
   const pageant = activity.kind === "pageant";
   const allTabs = pageant ? PAGEANT_TABS : TABS;
   // Archived: read-only, so only its results (on the Session tab) and the judges' notes.
   const archived = activity.archivedAt !== null;
   const tabs = archived
     ? allTabs.filter((t) => t.id === "session" || t.id === "notes").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
-    : testToolsAllowed()
-      ? allTabs
-      : allTabs.filter((t) => t.id !== "developer");
-  const tab = tabs.find((t) => t.id === requested)?.id ?? (activity.sessionState === "draft" ? "access" : "session");
+    : allTabs;
+  const tab = tabs.find((t) => t.id === asked)?.id ?? (activity.sessionState === "draft" ? "judges" : "session");
   const started = activity.sessionState !== "draft";
-  const devices = await listDevices(judges.map((j) => j.id));
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
   // A pageant's progress counts every sub-activity: each judge scoring each candidate still in it.
   const progress = pageant ? programProgress(board) : scoreProgress(board);
@@ -98,9 +103,18 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // renders once per request, so the clock here is simply the request time.
   // eslint-disable-next-line react-hooks/purity
   const renderedAt = Date.now();
-  const origin = await siteOrigin();
   const liveUrl = `${origin}/live/${activity.publicId}`;
   const ledUrl = `${origin}/led/${activity.publicId}`;
+  // What the open tab needs: mostly started above, with the board.
+  const [codes, desk, tabNotes, liveQr, organizers] = await Promise.all([
+    tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
+    tab === "session" ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id)])) : null,
+    tab === "notes" ? (early.notes ?? getActivityNotes(id)) : null,
+    tab === "session" ? qrSvg(liveUrl) : "",
+    tab === "settings" && session.kind === "super" ? listAdmins() : null,
+  ]);
+  const [corrections, deskNotes, signatories] = desk ?? [null, null, null];
+  const notes = tab === "notes" ? tabNotes : deskNotes;
 
   const scoredBy = new Map<string, number>();
   const scoredFor = new Map<string, number>();
@@ -136,33 +150,13 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             )}
             {!archived && waitingDevices > 0 && (
               <Link
-                href={`/admin/${activity.id}?tab=access`}
+                href={`/admin/${activity.id}?tab=judges`}
                 scroll={false}
                 className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
               >
                 {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
               </Link>
             )}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-5">
-          <div className="w-44">
-            <p className="tabular text-sm">
-              <span className="font-bold">{progress.submitted}</span> of {progress.possible} scores in
-            </p>
-            <div
-              className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-wash"
-              role="progressbar"
-              aria-label="Scores in"
-              aria-valuemin={0}
-              aria-valuemax={progress.possible}
-              aria-valuenow={progress.submitted}
-            >
-              <div
-                className="h-full rounded-full bg-regal"
-                style={{ width: `${progress.possible ? (progress.submitted / progress.possible) * 100 : 0}%` }}
-              />
-            </div>
           </div>
         </div>
       </div>
@@ -189,20 +183,18 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               <li
                 key={t.id}
                 className={
-                  t.group === "tools"
-                    ? "pr-8 sm:ml-auto sm:pr-0 sm:pl-6"
-                    : startsGroup
-                      ? "relative ml-2 pl-2 before:absolute before:top-1/2 before:left-0 before:h-5 before:w-px before:-translate-y-1/2 before:bg-line"
-                      : undefined
+                  startsGroup
+                    ? "relative ml-2 pl-2 before:absolute before:top-1/2 before:left-0 before:h-5 before:w-px before:-translate-y-1/2 before:bg-line"
+                    : undefined
                 }
               >
                 <Link
                   href={`/admin/${activity.id}?tab=${t.id}`}
                   scroll={false}
                   aria-current={active ? "page" : undefined}
-                  className={`-mb-px block border-b-2 px-2.5 py-3 transition-colors sm:px-3 ${
-                    t.group === "tools" ? "text-sm font-semibold" : "text-[15px] font-semibold"
-                  } ${active ? "border-regal text-regal" : "border-transparent text-prussian/70 hover:text-prussian"}`}
+                  className={`-mb-px block border-b-2 px-2.5 py-3 text-[15px] font-semibold transition-colors sm:px-3 ${
+                    active ? "border-regal text-regal" : "border-transparent text-prussian/70 hover:text-prussian"
+                  }`}
                 >
                   {t.label}
                 </Link>
@@ -213,17 +205,19 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
       </nav>
 
       <div className="pt-6">
-        {tab === "access" && (
-          <AccessTab
+        {tab === "judges" && (
+          <JudgesTab
             activityId={activity.id}
             devices={devices}
             origin={origin}
             judges={judges}
-            codes={await getAccessCodes(judges.map((j) => j.id))}
+            codes={codes}
             scoredBy={scoredBy}
             entryCount={entries.length}
             // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
             expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
+            locked={started}
+            pageant={pageant}
           />
         )}
         {tab === "session" && (
@@ -233,15 +227,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             devices={devices}
             progress={progress}
             reportId={reportId(board)}
-            signatories={activity.ownerId ? await getSignatories(activity.ownerId) : null}
+            signatories={signatories}
             liveUrl={liveUrl}
-            liveQr={await qrSvg(liveUrl)}
-            ledUrl={ledUrl}
-            corrections={(await getCorrections(activity.id))?.map((c) => correctionView(board, c)) ?? []}
+            liveQr={liveQr}
+            corrections={corrections?.map((c) => correctionView(board, c)) ?? []}
             archived={archived}
+            hasNotes={(notes?.length ?? 0) > 0}
           />
         )}
-        {tab === "judges" && <JudgesTab activityId={activity.id} judges={judges} scoredBy={Object.fromEntries(scoredBy)} locked={started} pageant={pageant} />}
         {tab === "entries" && (
           <EntriesTab
             activityId={activity.id}
@@ -254,16 +247,15 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
-        {tab === "notes" && <NotesTab entries={entries} judges={judges} notes={await getActivityNotes(activity.id)} pageant={pageant} />}
+        {tab === "notes" && <NotesTab activityId={activity.id} entries={entries} judges={judges} notes={notes} pageant={pageant} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}
             developer={testToolsAllowed()}
             scoreCount={scores.length}
-            organizers={session.kind === "super" ? (await listAdmins()).map((a) => ({ id: a.id, name: a.name, email: a.email })) : null}
+            organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}
           />
         )}
-        {tab === "developer" && <DeveloperTab activity={activity} scoreCount={scores.length} />}
       </div>
     </>
   );
