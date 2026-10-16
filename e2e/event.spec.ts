@@ -6,6 +6,7 @@ import {
   deleteActivityNamed,
   deleteOrganizerByEmail,
   expectAccessible,
+  SAVED,
   signInAsOrganizer,
   signInAsSuperAdmin,
   snap,
@@ -268,26 +269,34 @@ test.describe.serial("a full event", () => {
     // The keypad itself, mid-score, meets WCAG 2.1 AA.
     await expectAccessible(judge1);
 
-    await submitScore(judge1, "Agila", "9.75");
-    await expect(heading(judge1)).toHaveText("Waiting for the next entry");
-    await expect(live.locator("li[data-entry]", { hasText: "Agila" })).toContainText("9.75", REALTIME);
+    await submitScore(judge2, "Agila", "9.25");
+    await expect(heading(judge2)).toHaveText("Your score is in");
+    await expect(live.locator("li[data-entry]", { hasText: "Agila" })).toContainText("9.25", REALTIME);
     // So does the public live results page, with scores on it.
     await expectAccessible(live);
     // The live results call judges by their first names.
-    await expect(live.getByText("Ana", { exact: true }).first()).toBeVisible();
-    await expect(live.getByText("Ana Cruz")).toHaveCount(0);
-    await expect(page.getByText("1 of 2 judges have scored. Waiting on Ben Torres.")).toBeVisible(REALTIME);
+    await expect(live.getByText("Ben", { exact: true }).first()).toBeVisible();
+    await expect(live.getByText("Ben Torres")).toHaveCount(0);
+    await expect(page.getByText("1 of 2 judges have scored. Waiting on Ana Cruz.")).toBeVisible(REALTIME);
 
-    // Moving on before Ben has scored asks first, and Cancel leaves Agila on every screen.
+    // Moving on before Ana has scored asks first, and Cancel leaves Agila on every screen.
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
     const moveOn = page.getByRole("dialog");
     await expect(moveOn.getByRole("heading")).toHaveText("Move on to Bagwis?");
-    await expect(moveOn).toContainText("Ben Torres hasn't scored Agila yet.");
+    await expect(moveOn).toContainText("Ana Cruz hasn't scored Agila yet.");
     await moveOn.getByRole("button", { name: "Cancel" }).click();
-    await expect(heading(judge2)).toHaveText("Agila");
-    await snap(judge1, "judge waiting for the next entry");
+    await expect(heading(judge1)).toHaveText("Agila");
+    // So does the chair's Next on his own screen.
+    const chair = judge2.getByRole("region", { name: "Chair of the board of judges" });
+    await expect(chair.getByRole("status")).toHaveText("1 of 2 judges have scored.");
+    await chair.getByRole("button", { name: "Next: Bagwis" }).click();
+    const chairMoveOn = judge2.getByRole("dialog", { name: "Move on to Bagwis?" });
+    await expect(chairMoveOn).toContainText("Ana Cruz hasn't scored Agila yet. Their screen will move to Bagwis, and you can come back to Agila later.");
+    await chairMoveOn.getByRole("button", { name: "Cancel" }).click();
+    await expect(heading(judge1)).toHaveText("Agila");
+    await snap(judge2, "chair waiting for the next entry");
     await snap(page, "session tab, one judge in");
-    await expectAccessible(judge1);
+    await expectAccessible(judge2);
   });
 
   test("the LED wall follows the display settings", async ({ page, browser }) => {
@@ -302,14 +311,14 @@ test.describe.serial("a full event", () => {
     await expect(led.getByText("Ana", { exact: true })).toBeVisible();
     await expect(led.getByText("Ben", { exact: true })).toBeVisible();
     await expect(led.getByText("Ana Cruz", { exact: true })).toHaveCount(0);
-    // Only Ana has scored, so her 9.75 is both her score and the running average.
-    await expect(led.getByText("9.75", { exact: true })).toHaveCount(2);
+    // Only Ben has scored, so his 9.25 is both his score and the running average.
+    await expect(led.getByText("9.25", { exact: true })).toHaveCount(2);
     // Agila's photo sits beside the name.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 
     await page.getByRole("switch", { name: "Show scores only when every judge has scored" }).click();
     await expect(led.getByText("Scored", { exact: true })).toBeVisible(REALTIME);
-    await expect(led.getByText("9.75", { exact: true })).toHaveCount(0);
+    await expect(led.getByText("9.25", { exact: true })).toHaveCount(0);
 
     await page.getByLabel("Full screen").check();
     await expect.poll(() => ledBackground(led), REALTIME).toBe("rgb(11, 37, 69)");
@@ -330,7 +339,7 @@ test.describe.serial("a full event", () => {
 
   test("the organizer moves through the entries as the judges finish", async ({ page, browser }) => {
     await openSession(page);
-    await submitScore(judge2, "Agila", "9.25");
+    await submitScore(judge1, "Agila", "9.75");
     await expect(page.getByText("Every judge has scored Agila.")).toBeVisible(REALTIME);
 
     // Agila is on the full-screen LED wall with scores held: now every judge is in, so all show.
@@ -345,8 +354,10 @@ test.describe.serial("a full event", () => {
     // Agila is fully scored, so the running order offers to show it again rather than to judge it.
     await expect(page.getByRole("region", { name: "Running order" }).getByRole("button", { name: "Show again Agila" })).toBeVisible();
     await expect(led.getByText("Bagwis", { exact: true })).toBeVisible(REALTIME);
-    // Ana slips: 5.8 for 8.5. The score is in, so she asks to correct it, saying why.
+    // Ana slips: 5.8 for 8.5. The score is in, so she asks to correct it, saying why. Ben is typing his own meanwhile.
     await submitScore(judge1, "Bagwis", "5.8", "5.80");
+    await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
+    await tapScore(judge2, "8.75");
     await judge1.getByRole("button", { name: "Ask to correct this score" }).click();
     await expect(judge1.getByText("Correcting your score: No. 2")).toBeVisible();
     await tapScore(judge1, "8.5");
@@ -362,20 +373,32 @@ test.describe.serial("a full event", () => {
     const corrections = page.getByRole("region", { name: "Score corrections" });
     await expect(corrections).toContainText("Ana Cruz asks to change their score for No. 2 Bagwis: 5.80 to 8.50", REALTIME);
     await expect(corrections).toContainText("0 of 1 judge has agreed");
-    // Ben's screen asks for his vote, with the score, the new one and the reason, and won't let it be put off.
+    // Ben's vote doesn't land on his keypad while he's typing: he's told it's waiting, and it opens once his score is in.
     const vote = judge2.getByRole("dialog", { name: "Ana Cruz asks to change their score for No. 2 Bagwis" });
-    await expect(vote).toBeVisible(REALTIME);
+    await expect(judge2.getByRole("status").filter({ hasText: "asks to correct" })).toHaveText(
+      "Ana Cruz asks to correct a score. You'll vote once your score is in.",
+      REALTIME,
+    );
+    await expect(vote).toHaveCount(0);
+    await judge2.getByRole("button", { name: "Submit score" }).click();
+    await judge2.getByRole("dialog").getByRole("button", { name: "Submit", exact: true }).click();
+    // Nor during his five seconds to undo it.
+    await expect(judge2.getByRole("button", { name: "Undo" })).toBeVisible();
+    await expect(vote).toHaveCount(0);
+    // Then it asks for his vote, with the score, the new one and the reason, and won't let it be put off.
+    await expect(vote).toBeVisible(SAVED);
+    await expect(judge2.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 8.75 for Bagwis");
     await expect(vote).toContainText("Typed 5.8 instead of 8.5.");
     await expectAccessible(judge2);
     await judge2.keyboard.press("Escape");
     await expect(vote).toBeVisible();
     await vote.getByRole("button", { name: /^Agree/ }).click();
-    await expect(vote).toBeHidden(REALTIME);
+    await expect(vote).toBeHidden();
+    await expect(judge2.getByRole("status").filter({ hasText: "You agreed" })).toHaveText("You agreed to change Ana Cruz's score to 8.50.");
     await expect(judge1.getByText("Corrected from 5.80: every other judge agreed.")).toBeVisible(REALTIME);
-    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.50", REALTIME);
+    // Bagwis: (8.50 + 8.75) / 2.
+    await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("8.63", REALTIME);
     await expect(corrections).toContainText("1 settled", REALTIME);
-    await expect(heading(judge2)).toHaveText("Bagwis", REALTIME);
-    await submitScore(judge2, "Bagwis", "8.75");
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
 
     // Ben, the chair, moves to the next entry from his own screen. Ana can't.
@@ -403,8 +426,10 @@ test.describe.serial("a full event", () => {
     await ask2.getByRole("button", { name: "Ask the judges" }).click();
     const vote2 = judge1.getByRole("dialog", { name: "Ben Torres asks to change their score for No. 3 Kidlat" });
     await vote2.getByRole("button", { name: /^Disagree/ }).click();
-    await expect(vote2).toBeHidden(REALTIME);
-    await expect(judge2.getByText("Your correction to 9.00 wasn't accepted: a judge disagreed, so this score stands.")).toBeVisible(REALTIME);
+    await expect(vote2).toBeHidden();
+    await expect(judge1.getByRole("status").filter({ hasText: "You disagreed" })).toHaveText("You disagreed, so Ben Torres's score stays 9.50.");
+    await expect(judge2.getByText("Your correction to 9.00 wasn't accepted: a judge disagreed, so this score stands. If it's still wrong, you can ask again and say more about why.")).toBeVisible(REALTIME);
+    await expect(judge2.getByRole("button", { name: "Ask again" })).toBeVisible();
     await expect(live.locator("li[data-entry]", { hasText: "Kidlat" })).toContainText("9.50");
     // With the last entry fully scored, the desk's main button is End session, not a dead "No more entries".
     const controls = page.getByRole("group", { name: "Show controls" });

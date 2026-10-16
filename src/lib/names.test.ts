@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullName, firstNames, isPersonName, nameParts, namesFromPaste, personNameProblem } from "./names";
+import { fullName, firstNames, isPersonName, listNames, nameParts, namesFromPaste, personNameProblem } from "./names";
 
 describe("person names", () => {
   it("accepts letters in any alphabet, with the punctuation names use", () => {
@@ -58,5 +58,15 @@ describe("names pasted as a list", () => {
   it("keeps numbers that are part of a name, and cuts long ones", () => {
     expect(namesFromPaste("Miss Barangay 7\nCandidate 12")).toEqual(["Miss Barangay 7", "Candidate 12"]);
     expect(namesFromPaste("A".repeat(200), 120)[0]).toHaveLength(120);
+  });
+});
+
+describe("listNames", () => {
+  const people = (...names: string[]) => names.map((name) => ({ name }));
+  it("names up to three people in full, and counts the rest", () => {
+    expect(listNames(people("Ana Cruz"))).toBe("Ana Cruz");
+    expect(listNames(people("Ana Cruz", "Ben Torres"))).toBe("Ana Cruz and Ben Torres");
+    expect(listNames(people("Ana Cruz", "Ben Torres", "Carla Reyes"))).toBe("Ana Cruz, Ben Torres, and Carla Reyes");
+    expect(listNames(people("Ana Cruz", "Ben Torres", "Carla Reyes", "Dan Lim", "Eve Go"))).toBe("Ana Cruz, Ben Torres and 3 others");
   });
 });

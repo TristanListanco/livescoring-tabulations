@@ -91,8 +91,10 @@ test.describe.serial("criteria scoring", () => {
     // The criteria keypad meets WCAG 2.1 AA too.
     await expectAccessible(judge);
 
-    // Innovativeness has a guide, open while it's being scored; Design has none.
-    await expect(judge.getByRole("button", { name: "Guide for Innovativeness" })).toHaveAttribute("aria-expanded", "true");
+    // Innovativeness has a guide; Design has none. On a phone it starts closed, so the criteria stay by the keypad.
+    const guide = judge.getByRole("button", { name: "Guide for Innovativeness" });
+    await expect(guide).toHaveAttribute("aria-expanded", "false");
+    await guide.click();
     await expect(judge.getByText(/^Is the idea new\?\s+Does it solve a real problem\?$/)).toBeVisible();
 
     // A note on the entry, kept for the judge (and the organizer): saved as it's typed.
@@ -116,6 +118,10 @@ test.describe.serial("criteria scoring", () => {
     await tapScore(judge, "20");
     await expect(judge.getByRole("status").filter({ hasText: "The lowest score for Innovativeness is 21." })).toBeVisible();
     await expect(judge.getByRole("button", { name: "Next: Design" })).toBeDisabled();
+    // Left that way, the criterion is marked, as one above its maximum is.
+    await judge.getByRole("button", { name: /^Design/ }).click();
+    await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toContainText("Too low");
+    await judge.getByRole("button", { name: /^Innovativeness/ }).click();
     await judge.getByRole("button", { name: "Delete last digit" }).click();
     await judge.getByRole("button", { name: "Delete last digit" }).click();
     await tapScore(judge, "25");
@@ -139,6 +145,23 @@ test.describe.serial("criteria scoring", () => {
     await judge.getByRole("button", { name: "Submit score" }).click();
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
+    // Asked for straight away, before the page has the saved score, a correction starts from the points just given.
+    await judge.getByRole("button", { name: "Ask to correct this score" }).click();
+    await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toContainText(/25\s*\/ 30/);
+    await expect(judge.getByRole("button", { name: /^Design/ })).toContainText(/62\.5\s*\/ 70/);
+    await judge.getByRole("button", { name: "Cancel" }).click();
+    await expect(judge.getByRole("button", { name: "Ask to correct this score" })).toBeVisible();
+    // Under the score, the points for each criterion, to compare the next entries by.
+    await expect(judge.getByRole("list", { name: "Your points for each criterion" }).getByRole("listitem")).toHaveText([
+      /^Innovativeness\s*25\.0\s*\/ 30$/,
+      /^Design\s*62\.5\s*\/ 70$/,
+    ]);
+    // On a phone the count in the header opens the judge's scores, as the list beside the keypad does on a wider screen.
+    await judge.getByRole("button", { name: /Show your scores/ }).click();
+    const sheet = judge.getByRole("dialog", { name: "Your scores" });
+    await expect(sheet.getByRole("listitem").first()).toContainText("87.5");
+    await sheet.getByRole("button", { name: "Close" }).click();
+    await expect(sheet).toBeHidden();
 
     // The judge's 87.5 and the average both show as percentages to four decimal places.
     const live = await (await browser.newContext()).newPage();

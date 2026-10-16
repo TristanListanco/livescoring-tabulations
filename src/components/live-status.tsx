@@ -12,8 +12,8 @@ const COPY: Record<LiveStatus, string> = {
  * the visible text can say more (`detail`, like "Updated 12 seconds ago") and change as often as it likes
  * without being read out again.
  *
- * `compact` shows only the dot on small screens. `labels` renames states where "Live" would mean something
- * else, like the admin's desk, where the session itself is live.
+ * `compact` shows only the dot on small screens, except when offline, which is said in words everywhere. `labels`
+ * renames states where "Live" would mean something else, like the admin's desk, where the session itself is live.
  */
 export function LiveStatusBadge({
   status,
@@ -45,7 +45,7 @@ export function LiveStatusBadge({
           }`}
         />
       </span>
-      <span aria-hidden className={compact ? "hidden sm:inline" : undefined}>
+      <span aria-hidden className={compact && status !== "offline" ? "hidden sm:inline" : undefined}>
         {detail ?? name}
       </span>
     </span>

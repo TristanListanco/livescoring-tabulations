@@ -268,6 +268,25 @@ html:has(.share-ledger) {
   .choice {
     @apply flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed has-disabled:opacity-60;
   }
+  /*
+   * A judge's readout, keypad and main button: held at the bottom of the screen while the entry and criteria above
+   * scroll, so the next tap is always in reach. Only where there's the height for it (a phone on its side scrolls it
+   * with the rest). Its top edge is see-through, fading in, so whatever scrolls under it shows there's more; over the
+   * page itself the fade is invisible.
+   */
+  .keypad-dock {
+    padding-top: 0.75rem;
+    padding-bottom: 1rem;
+  }
+  @media (min-height: 34rem) {
+    .keypad-dock {
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
+      padding-top: 1.25rem;
+      background: linear-gradient(to bottom, transparent, var(--color-prussian) 1.25rem);
+    }
+  }
 }
 
 dialog::backdrop {

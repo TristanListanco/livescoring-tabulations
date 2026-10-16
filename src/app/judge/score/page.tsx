@@ -45,6 +45,16 @@ export default async function ScorePage() {
   // Their own notes on the entries, once the device is approved (null when notes aren't available: before migration 018).
   const notes = gate.status === "approved" && !offPanel ? ownNotes : null;
 
+  // With criteria, the points this judge gave the entry on screen: listed under their score, and where a correction
+  // of it starts.
+  const breakdown =
+    gate.status === "approved" &&
+    showing.activity.scoringMode === "criteria" &&
+    board.activity.currentEntryId &&
+    mine.some((s) => s.entryId === board.activity.currentEntryId)
+      ? await getOwnBreakdown(context.judge.id, board.activity.currentEntryId, round?.id ?? null)
+      : null;
+
   // Score corrections (null before migration 019): the ones waiting for this judge's vote, which shows them the score
   // being changed, and this judge's own latest one on the entry on screen.
   const corrections =
@@ -60,11 +70,6 @@ export default async function ScorePage() {
               .at(-1) ?? null,
           // Who decides this judge's corrections: the rest of their panel, or the organizer when they're alone on it.
           othersVote: correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0,
-          // With criteria, a correction starts from the points they gave the entry on screen.
-          fromBreakdown:
-            showing.activity.scoringMode === "criteria" && board.activity.currentEntryId && mine.some((s) => s.entryId === board.activity.currentEntryId)
-              ? await getOwnBreakdown(context.judge.id, board.activity.currentEntryId, round?.id ?? null)
-              : null,
         }
       : null;
 
@@ -89,6 +94,7 @@ export default async function ScorePage() {
       entries={showing.entries}
       myScores={mine}
       notes={notes}
+      breakdown={breakdown}
       corrections={corrections}
       gate={gate}
       panel={panel}
