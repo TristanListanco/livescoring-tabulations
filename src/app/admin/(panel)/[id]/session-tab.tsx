@@ -9,6 +9,7 @@ import { Qr } from "@/components/qr";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { entryNeighbors } from "@/lib/judging";
+import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, Signatory } from "@/lib/types";
@@ -42,15 +43,6 @@ function useNow(active: boolean, everyMs = 5000): number | null {
     };
   }, [active, everyMs]);
   return active ? now : null;
-}
-
-/** "Ana Cruz", "Ana Cruz and Ben Torres", "Ana Cruz, Ben Torres and 3 others". */
-function names(people: { name: string }[]): string {
-  if (people.length <= 3) return list.format(people.map((p) => p.name));
-  return `${people
-    .slice(0, 2)
-    .map((p) => p.name)
-    .join(", ")} and ${people.length - 2} others`;
 }
 
 // On the desk the session itself is "Live", so the connection says whether this screen is keeping up. These names
@@ -298,7 +290,7 @@ export function SessionTab({
     const warnings: string[] = [];
     if (entry && stillScoring.length > 0) {
       warnings.push(
-        `${names(stillScoring)} ${stillScoring.length === 1 ? "hasn't" : "haven't"} scored ${entry.name} yet. Their screen will move to ${target.name}, and you can come back to ${entry.name} later.`,
+        `${listNames(stillScoring)} ${stillScoring.length === 1 ? "hasn't" : "haven't"} scored ${entry.name} yet. Their screen will move to ${target.name}, and you can come back to ${entry.name} later.`,
       );
     }
     if (kind === "jump") {
@@ -572,7 +564,7 @@ export function SessionTab({
                         ? next
                           ? `Every judge has scored ${entry.name}.`
                           : `Every judge has scored ${entry.name}. That was the last entry.`
-                        : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${names(stillScoring)}.`)}
+                        : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${listNames(stillScoring)}.`)}
                   </p>
                   {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
                   {previous ? (
@@ -759,7 +751,7 @@ export function SessionTab({
                     : "Judges' screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when you're ready."}
                   {judges.length > 0 && unpaired.length > 0 && (
                     <span className="mt-3 block font-semibold text-prussian">
-                      {names(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
+                      {listNames(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
                     </span>
                   )}
                 </ConfirmDialog>

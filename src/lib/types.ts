@@ -145,7 +145,7 @@ export type Judge = {
 export type Entry = {
   id: string;
   name: string;
-  /** Optional photo, shown on the LED wall. */
+  /** Optional photo, shown on the LED wall and beside the name on the judges' screens. */
   photoUrl: string | null;
   position: number;
   /**

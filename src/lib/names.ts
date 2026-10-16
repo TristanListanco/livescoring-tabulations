@@ -72,3 +72,14 @@ export function namesFromPaste(text: string, max = 120): string[] {
     )
     .filter(Boolean);
 }
+
+const nameList = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+
+/** People named in a sentence: "Ana Cruz", "Ana Cruz and Ben Torres", "Ana Cruz, Ben Torres and 3 others". */
+export function listNames(people: { name: string }[]): string {
+  if (people.length <= 3) return nameList.format(people.map((p) => p.name));
+  return `${people
+    .slice(0, 2)
+    .map((p) => p.name)
+    .join(", ")} and ${people.length - 2} others`;
+}

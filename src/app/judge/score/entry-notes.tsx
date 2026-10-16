@@ -8,26 +8,29 @@ import { saveNote } from "../actions";
 
 /**
  * A judge's notes on the entry on screen. Only that judge and the organizer read them. Phones and narrow tablets get
- * a collapsible section under the entry's name; from 1024px wide, a column beside the keypad that can pop out into a
- * window the judge drags anywhere (both remembered on the device).
+ * a collapsible section under the entry's name; from 1280px wide, a column beside the keypad that can pop out into a
+ * window the judge drags anywhere (both remembered on the device). Narrower, a column would squeeze the keypad.
  */
 
 /** Saved notes this screen knows about, by entry id, and how to record one just saved. */
 export type NoteStore = { get: (entryId: string) => string; stored: (entryId: string, body: string) => void };
 
-const WIDE = "(min-width: 1024px)";
-
-/** Whether notes go beside the keypad (1024px and up) rather than under the entry's name. */
-export function useWideScreen(): boolean {
+/** Whether the screen matches a media query, following it as it changes. The server render uses `fallback`. */
+export function useMediaQuery(query: string, fallback = false): boolean {
   return useSyncExternalStore(
     (onChange) => {
-      const query = window.matchMedia(WIDE);
-      query.addEventListener("change", onChange);
-      return () => query.removeEventListener("change", onChange);
+      const list = window.matchMedia(query);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
     },
-    () => window.matchMedia(WIDE).matches,
-    () => false,
+    () => window.matchMedia(query).matches,
+    () => fallback,
   );
+}
+
+/** Whether notes go beside the keypad (1280px and up) rather than under the entry's name. */
+export function useWideScreen(): boolean {
+  return useMediaQuery("(min-width: 1280px)");
 }
 
 type Status = "saved" | "editing" | "saving" | "error";
@@ -91,7 +94,7 @@ function NoteEditor({ entry, notes, rows, fill = false }: { entry: Entry; notes:
         maxLength={MAX_NOTE}
         rows={rows}
         placeholder="What stood out, for your own reference. Only you and the organizer see it."
-        className={`w-full resize-none rounded-xl border border-regal bg-prussian px-3 py-2.5 text-[15px] leading-relaxed text-mint placeholder:text-powder/60 focus-visible:border-powder ${fill ? "min-h-32 flex-1" : ""}`}
+        className={`w-full resize-none rounded-xl border border-regal bg-prussian px-3 py-2.5 text-[15px] leading-relaxed text-mint placeholder:text-powder/85 focus-visible:border-powder ${fill ? "min-h-32 flex-1" : ""}`}
       />
       {status === "error" ? (
         <p role="alert" className="mt-1.5 text-sm font-semibold text-danger-soft">
@@ -161,7 +164,7 @@ function useViewport(): { width: number; height: number } {
 }
 
 /**
- * 1024px and up: the notes beside the keypad. Docked as a column by default, using the room a wide screen has; popped
+ * 1280px and up: the notes beside the keypad. Docked as a column by default, using the room a wide screen has; popped
  * out, a window the judge drags by its title bar (or moves with the arrow keys on its handle) to wherever suits them.
  * `entry`: the entry on screen, or null between entries.
  */
@@ -200,7 +203,7 @@ function FloatingNotes({ title, body, onDock }: { title: React.ReactNode; body: 
   const [saved, setSaved] = useDeviceSetting<Point | null>("livescoring:notes-position", null);
   const [minimized, setMinimized] = useDeviceSetting("livescoring:notes-minimized", false);
   const viewport = useViewport();
-  const width = viewport.width >= 1280 ? 384 : 320;
+  const width = viewport.width >= 1536 ? 384 : 320;
   // Where it is while being dragged; saved on release.
   const [dragging, setDragging] = useState<Point | null>(null);
   const start = useRef<{ pointer: Point; at: Point } | null>(null);
@@ -210,7 +213,8 @@ function FloatingNotes({ title, body, onDock }: { title: React.ReactNode; body: 
     x: Math.min(Math.max(8, p.x), viewport.width - width - 8),
     y: Math.min(Math.max(80, p.y), viewport.height - 64),
   });
-  const at = keep(dragging ?? saved ?? { x: viewport.width - width - 24, y: 96 });
+  // It first opens at the bottom left, over the list of scores rather than the criteria or the keypad.
+  const at = keep(dragging ?? saved ?? { x: 16, y: viewport.height - 400 });
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target instanceof HTMLElement && e.target.closest("button:not([data-grip])"))) return;
