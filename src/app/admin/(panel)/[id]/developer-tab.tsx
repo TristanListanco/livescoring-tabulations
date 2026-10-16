@@ -50,13 +50,14 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
                 return result;
               }}
             >
-              This deletes all {scoreCount} submitted scores for {activity.name} and puts the session back to not started. Judges can score every
-              entry again, and the judges and running order can be changed.{activity.kind === "pageant" && " Every cut opens again."}
+              This deletes all {scoreCount} submitted scores and the judges&apos; notes for {activity.name}, signs every judge out of their device,
+              and puts the session back to not started. Judges sign in again with their codes and can score every entry again, and the judges and
+              running order can be changed.{activity.kind === "pageant" && " Every cut opens again."}
             </ConfirmDialog>
           }
         >
-          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"}, with any score corrections, and puts the session back to not
-          started. Judges, entries and access codes stay as they are.
+          Deletes all {scoreCount} submitted {scoreCount === 1 ? "score" : "scores"}, with any score corrections and the judges&apos; notes, signs
+          every judge out, and puts the session back to not started. Judges, entries and access codes stay as they are.
         </Tool>
         <Tool
           title="Delete activity"

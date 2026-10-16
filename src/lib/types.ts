@@ -100,6 +100,13 @@ export type Activity = {
   criteriaDisplay: CriteriaDisplay;
   /** draft: not started, judges wait. live: judging is open. ended: judging is closed. */
   sessionState: SessionState;
+  /** When the session last ended (ISO time), while it's ended; null before migration 020 or if it never has. */
+  sessionEndedAt: string | null;
+  /**
+   * When the activity was archived (ISO time), or null. Only an ended session can be, and for good: it can't be
+   * reopened or changed after that, only read and deleted.
+   */
+  archivedAt: string | null;
   /** The entry every judge is scoring right now, chosen by the organizer. */
   currentEntryId: string | null;
   /** Pageant: the preliminary segment's share of the overall score, in percent. Pageant proper gets the rest. */

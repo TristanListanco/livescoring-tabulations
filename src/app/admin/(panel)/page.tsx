@@ -4,6 +4,7 @@ import { listActivities, listDrafts, listOrganizerActivities } from "@/lib/data"
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 import type { Activity } from "@/lib/types";
+import { ArchiveButton, DeleteArchivedButton } from "./archive-controls";
 import { DraftsList } from "./drafts-list";
 import { SessionStatus } from "./session-status";
 
@@ -36,6 +37,9 @@ export default async function ActivitiesPage() {
     listDrafts(isSuper ? null : session.admin.id),
   ]);
   const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0;
+  // Archived activities leave the list for their own, below.
+  const archived = activities.filter((a) => a.archivedAt).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+  const current = activities.filter((a) => !a.archivedAt);
   // A show that's live right now goes to the top; otherwise newest first, as the queries return them.
   const liveFirst = <T extends { sessionState: string }>(list: T[]) => [...list].sort((a, b) => Number(b.sessionState === "live") - Number(a.sessionState === "live"));
 
@@ -58,6 +62,17 @@ export default async function ActivitiesPage() {
             Create an activity
           </Link>
         </div>
+      )}
+
+      {/* Everything's archived: the list is empty, and the archived ones are below. */}
+      {current.length === 0 && archived.length > 0 && drafts.length === 0 && organizerActivities.length === 0 && (
+        <p className="hint mt-8">
+          No current activities.{" "}
+          <Link href="/admin/new" className="text-action">
+            Create one
+          </Link>
+          , or open an archived one below.
+        </p>
       )}
 
       {drafts.length > 0 && (
@@ -118,7 +133,7 @@ export default async function ActivitiesPage() {
         </section>
       )}
 
-      {activities.length > 0 && (
+      {current.length > 0 && (
         <section aria-labelledby={isSuper ? "own-activities" : undefined} className={isSuper && organizerActivities.length > 0 ? "mt-12" : "mt-8"}>
           {isSuper && (
             <>
@@ -131,7 +146,7 @@ export default async function ActivitiesPage() {
 
           {/* Phones and tablets: each activity is one tappable row (seven columns don't fit until lg). */}
           <ul className={`divide-y divide-line border-y border-line lg:hidden ${isSuper ? "mt-4" : ""}`}>
-            {liveFirst(activities).map((a) => (
+            {liveFirst(current).map((a) => (
               <li key={a.id} className="group relative py-3">
                 <div className="flex items-start justify-between gap-3">
                   <Link href={`/admin/${a.id}`} className="min-w-0 font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover:underline">
@@ -146,6 +161,11 @@ export default async function ActivitiesPage() {
                 <p className="hint tabular">
                   {scoresIn(a)} in · {dateFormat.format(new Date(a.createdAt))}
                 </p>
+                {a.sessionState === "ended" && (
+                  <div className="mt-2">
+                    <ArchiveButton activityId={a.id} name={a.name} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -166,10 +186,13 @@ export default async function ActivitiesPage() {
                   <th className="px-3 py-3 text-right font-semibold">Entries</th>
                   <th className="px-3 py-3 text-right font-semibold">Scores in</th>
                   <th className="py-3 pl-3 text-right font-semibold">Created</th>
+                  <th className="py-3 pl-3">
+                    <span className="sr-only">Archive</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="tabular">
-                {liveFirst(activities).map((a) => (
+                {liveFirst(current).map((a) => (
                   <tr key={a.id} className="group relative border-b border-line hover:bg-white/70">
                     <td className="py-4 pr-3">
                       <Link href={`/admin/${a.id}`} className="font-semibold text-regal after:absolute after:inset-0 group-hover:underline">
@@ -184,12 +207,41 @@ export default async function ActivitiesPage() {
                     <td className="px-3 py-4 text-right">{a.entryCount}</td>
                     <td className="px-3 py-4 text-right">{scoresIn(a, false)}</td>
                     <td className="py-4 pl-3 text-right text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
+                    <td className="py-4 pl-3 text-right">{a.sessionState === "ended" && <ArchiveButton activityId={a.id} name={a.name} />}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </section>
+      )}
+
+      {archived.length > 0 && (
+        <details className="group mt-12">
+          <summary className="tap-target flex cursor-pointer list-none items-center gap-2 text-xl font-bold [&::-webkit-details-marker]:hidden">
+            <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
+              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Archived activities
+            <span className="text-base font-semibold text-prussian/60">{archived.length}</span>
+          </summary>
+          <p className="hint mt-1">Their sessions have ended for good: they can&apos;t be reopened or changed. Open one to download its results, or delete it.</p>
+          <ul className="mt-4 divide-y divide-line border-y border-line">
+            {archived.map((a) => (
+              <li key={a.id} className="group/row relative flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                <div className="min-w-0 flex-1">
+                  <Link href={`/admin/${a.id}`} className="font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover/row:underline">
+                    {a.name}
+                  </Link>
+                  <p className="hint tabular mt-0.5">
+                    {scoringOf(a, false)} · {scoresIn(a)} in · Archived {dateFormat.format(new Date(a.archivedAt!))}
+                  </p>
+                </div>
+                <DeleteArchivedButton activityId={a.id} name={a.name} className="btn btn-sm btn-danger-quiet relative z-10" />
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </>
   );

@@ -527,6 +527,8 @@ test.describe.serial("a full event", () => {
     await expect(desk.getByRole("link", { name: "Download results PDF" })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
+    // The live results say it's over, and when, in place of "Live".
+    await expect(live.getByText(/^Ended · \w{3} \d{1,2}, \d{4}/).first()).toBeVisible(REALTIME);
 
     // The running order says every entry was judged, with nothing left to judge.
     const order = page.getByRole("region", { name: "Running order" });
@@ -583,10 +585,17 @@ test.describe.serial("a full event", () => {
     await expect(dialog.getByRole("button", { name: "Delete all scores" })).toBeDisabled();
     await dialog.getByRole("textbox").fill("RESET");
     await dialog.getByRole("button", { name: "Delete all scores" }).click();
-    await expect(page.getByRole("status")).toHaveText("All scores were deleted and the session is back to not started.");
+    await expect(page.getByRole("status")).toHaveText("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
     await expect(page.getByText("0 of 6 scores in")).toBeVisible();
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
-    await expect(heading(judge1)).toHaveText("Waiting for the organizer to start", REALTIME);
+    // Every judge is signed out, even one who didn't sign out on their device: they sign in again for the next run.
+    await expect(heading(judge1)).toHaveText("Judge sign-in", REALTIME);
+    await expect(judge1.getByRole("status").filter({ hasText: "signed out" })).toHaveText(
+      "You were signed out because the organizer reset the scores. Sign in again to judge.",
+    );
+    // Their devices are gone, not just signed out: neither judge has one now.
+    await page.goto(`${adminPath}?tab=access`);
+    await expect(page.getByText("No device approved", { exact: true })).toHaveCount(2);
 
     // Deleting the activity is in Settings; on the live site there's no Developer tab at all.
     await page.goto(`${adminPath}?tab=settings`);

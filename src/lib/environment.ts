@@ -11,3 +11,11 @@ export function testToolsAllowed(): boolean {
   if (env === "preview") return process.env.TEST_TOOLS === "on";
   return true;
 }
+
+/**
+ * Pageant mode is still being finished: it's offered where the test tools are (locally, in CI and on a testing
+ * preview) and shows "Coming soon" on the live site, where pageants can't be created or saved as drafts yet.
+ */
+export function pageantsAvailable(): boolean {
+  return testToolsAllowed();
+}
