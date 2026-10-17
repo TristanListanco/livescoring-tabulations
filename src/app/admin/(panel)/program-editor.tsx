@@ -76,7 +76,7 @@ const problemBorder = (problems: ReadonlyMap<string, string>, fieldId: string) =
 /** "30%", "33.33%". */
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 
-const JUDGE_DECIMALS = ["whole numbers", "1 decimal place", "2 decimal places"] as const;
+const JUDGE_DECIMALS = ["whole numbers", "1 decimal place", "2 decimal places", "3 decimal places"] as const;
 
 /**
  * A sub-activity's (or part's) scoring and timer in one line, worded as Review words it: "Scores 1 to 10 · 2 decimal

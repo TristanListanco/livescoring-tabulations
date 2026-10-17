@@ -20,8 +20,9 @@ export function reportId(board: Board, scope?: string): string {
     ],
     judges: byId(board.judges).map((j) => [j.id, j.name]),
     entries: byId(board.entries).map((e) => [e.id, e.name]),
+    // Scores to two places, as before, so sheets printed before stay valid; to three when judges enter three.
     scores: board.scores
-      .map((s) => [s.entryId, s.judgeId, s.value.toFixed(2), ...(s.roundId ? [s.roundId] : [])])
+      .map((s) => [s.entryId, s.judgeId, s.value.toFixed(board.activity.decimals === 3 ? 3 : 2), ...(s.roundId ? [s.roundId] : [])])
       .sort((a, b) => (a[0] + a[1] + (a[3] ?? "")).localeCompare(b[0] + b[1] + (b[3] ?? ""))),
     // A pageant's sheets: which sub-activity, cut or segment the sheet is for. Event sheets have none, so their IDs stay the same.
     ...(scope ? { scope } : {}),

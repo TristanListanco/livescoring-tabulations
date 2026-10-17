@@ -24,7 +24,7 @@ import type { DraftJudge } from "./judges-fields";
 /** "30%", "33.33%". */
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 
-const JUDGE_DECIMALS = ["Whole numbers", "1 decimal place", "2 decimal places"] as const;
+const JUDGE_DECIMALS = ["Whole numbers", "1 decimal place", "2 decimal places", "3 decimal places"] as const;
 
 const RESULT_DECIMALS: { value: ResultDecimals; label: string }[] = [0, 1, 2, 3, 4].map((n) => ({
   value: n as ResultDecimals,

@@ -4,9 +4,11 @@ import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { settleCorrection } from "@/lib/correction-settle";
 import { cleanReason, correctionVoters } from "@/lib/corrections";
-import { findJudgeIdByCode, getActivity, getBoard, getCorrections, getJudgeContext, getRounds } from "@/lib/data";
+import { findJudgeIdByCode, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRounds, getSignatures } from "@/lib/data";
+import { cleanSignature } from "@/lib/deliberation";
+import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
-import { approvedDevice, signInJudgeDevice, touchJudge } from "@/lib/devices";
+import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
@@ -14,9 +16,25 @@ import { parseBreakdown, parseScore } from "@/lib/scoring";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db } from "@/lib/supabase/server";
-import type { ActionResult } from "@/lib/types";
+import type { ActionResult, Activity, Judge } from "@/lib/types";
 
 export type CodeState = { error?: string; code?: string };
+
+const NOT_APPROVED = "This device isn't approved. Ask the organizer.";
+
+/**
+ * The signed-in judge on their approved device, with their activity: what every judge action checks first, read in
+ * one trip to the database (see getJudgeSeat), since judges across every activity running at once pay for each trip
+ * on every tap. Or why not, as the action's result.
+ */
+async function seat(notApproved = NOT_APPROVED): Promise<{ judge: Judge; activity: Activity; activityId: string } | { ok: false; error: string }> {
+  const session = await judgeSession();
+  const found = session ? await getJudgeSeat(session.judgeId, session.deviceId) : null;
+  if (!session || !found) return { ok: false, error: "Your session has ended. Enter your code again." };
+  const { judge, activity, device } = found;
+  if (!device || device.judgeId !== judge.id || device.status !== "approved") return { ok: false, error: notApproved };
+  return { judge, activity, activityId: activity.id };
+}
 
 export async function enterCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
   const code = String(formData.get("code") ?? "").slice(0, 32);
@@ -57,12 +75,8 @@ export async function requestApproval() {
  * Session tab. The LED wall follows.
  */
 export async function moveToEntry(entryId: string): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) {
-    return { ok: false, error: "This device isn't approved. Ask the organizer." };
-  }
+  const context = await seat();
+  if ("error" in context) return context;
   if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can move entries." };
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
 
@@ -78,7 +92,7 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
 
   const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
   if (error) return { ok: false, error: error.message };
-  changed();
+  changed(context.activity.publicId);
   return { ok: true };
 }
 
@@ -87,16 +101,13 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
  * device. The judge and the organizer read notes, never other judges.
  */
 export async function saveNote(entryId: string, body: string): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  const context = await seat();
+  if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
   const { data: entry } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", context.activityId).maybeSingle();
   if (!entry) return { ok: false, error: "This entry was removed by the organizer." };
-  // An archived activity is kept as it was (every column read, so this works before migration 020 too).
-  const { data: activity } = await db().from("activities").select("*").eq("id", context.activityId).maybeSingle();
-  if ((activity as { archived_at?: string | null } | null)?.archived_at) return { ok: false, error: "This activity is archived, so notes can't change." };
+  // An archived activity is kept as it was.
+  if (context.activity.archivedAt) return { ok: false, error: "This activity is archived, so notes can't change." };
 
   const text = cleanNote(body);
   const notes = db().from("judge_notes");
@@ -115,16 +126,11 @@ export async function saveNote(entryId: string, body: string): Promise<ActionRes
 
 /** A score: one value for simple activities, or points per criterion (keyed by criterion id) for criteria activities. */
 export async function submitScore(entryId: string, typed: string | Record<string, string>): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) {
-    return { ok: false, error: "This device isn't approved to score. Ask the organizer." };
-  }
+  const context = await seat("This device isn't approved to score. Ask the organizer.");
+  if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Pick an entry first." };
 
-  const activity = await getActivity(context.activityId);
-  if (!activity) return { ok: false, error: "This activity no longer exists." };
+  const { activity } = context;
 
   // The organizer decides what is judged: only the entry on screen, and only while the session is live.
   if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
@@ -179,7 +185,7 @@ export async function submitScore(entryId: string, typed: string | Record<string
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }
 
-  changed();
+  changed(context.activity.publicId);
   return { ok: true };
 }
 
@@ -188,23 +194,25 @@ const sameBreakdown = (a: Record<string, number> | null, b: Record<string, numbe
   JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
 
 /**
- * A judge asks to correct their own score on the entry on screen, saying why. It changes only if every other judge on
- * their panel agrees (a judge alone on their panel waits for the organizer). Only while judging is open, and in a
- * pageant only in the sub-activity being judged.
+ * A judge asks to correct their own score, saying why: in an event without live scoring (with it, a submitted score is
+ * final). It changes only if every other judge on their panel agrees, voting on the reason without seeing the scores (a
+ * judge alone on their panel waits for the organizer). While judging is open, the entry on screen; during the
+ * deliberation, any entry. In a pageant (scored live, before migration 021), only in the sub-activity being judged.
  */
 export async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved to score. Ask the organizer." };
+  const context = await seat("This device isn't approved to score. Ask the organizer.");
+  if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
   const why = cleanReason(reason);
   if (!why) return { ok: false, error: "Say why the score needs correcting, so the other judges can decide." };
 
-  const activity = await getActivity(context.activityId);
-  if (!activity) return { ok: false, error: "This activity no longer exists." };
-  if (activity.sessionState !== "live") return { ok: false, error: "Corrections can only be asked for while judging is open." };
-  if (activity.currentEntryId !== entryId) return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
+  const { activity } = context;
+  if (activity.liveScoring && activity.kind === "event") return { ok: false, error: "This event scores live, so submitted scores are final." };
+  const deliberating = activity.sessionState === "deliberation";
+  if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
+  if (!deliberating && activity.currentEntryId !== entryId) {
+    return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
+  }
 
   let rules = activity;
   let roundId: string | null = null;
@@ -255,16 +263,14 @@ export async function requestCorrection(entryId: string, typed: string | Record<
     console.error(error);
     return { ok: false, error: error.code === "42P01" || error.code === "PGRST205" ? CORRECTIONS_UNAVAILABLE : "That didn't go through. Check your connection and try again." };
   }
-  changed();
+  changed(context.activity.publicId);
   return { ok: true };
 }
 
 /** Another judge's vote on a correction: final once cast. Any judge disagreeing turns it down; every judge agreeing changes the score. */
 export async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  const context = await seat();
+  if ("error" in context) return context;
   if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };
 
   const [board, corrections] = await Promise.all([getBoard(context.activityId), getCorrections(context.activityId)]);
@@ -280,16 +286,51 @@ export async function voteOnCorrection(correctionId: string, agree: boolean): Pr
     return { ok: false, error: "Your vote didn't go through. Check your connection and try again." };
   }
   if (!error) await settleCorrection(board, { ...correction, votes: [...correction.votes, { judgeId: context.judge.id, agree }] });
-  changed();
+  changed(context.activity.publicId);
+  return { ok: true };
+}
+
+/** The chair of the board of judges opens the deliberation from their own screen, as the organizer can from the desk. */
+export async function startDeliberation(): Promise<ActionResult> {
+  const context = await seat();
+  if ("error" in context) return context;
+  if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can start the deliberation." };
+  return beginDeliberation(context.activityId);
+}
+
+/**
+ * A judge signs off on their scores at the end of the deliberation: their drawn signature (SVG path data, from a
+ * touchscreen), or null for "(Sgd.)" ticked on a screen without touch. Not while a correction is open: they sign the
+ * scores as they'll stand. Once every judge has signed, the organizer can end the session.
+ */
+export async function signOff(drawing: string | null): Promise<ActionResult> {
+  const context = await seat();
+  if ("error" in context) return context;
+  const path = drawing === null ? null : cleanSignature(drawing);
+  if (drawing !== null && !path) return { ok: false, error: "Draw your signature in the box, then sign." };
+
+  const { activity } = context;
+  const [corrections, signatures] = await Promise.all([getCorrections(context.activityId), getSignatures(context.activityId)]);
+  if (activity.sessionState !== "deliberation") return { ok: false, error: "Signing opens during the deliberation." };
+  if (signatures === null) return { ok: false, error: DELIBERATION_HINT };
+  if (signatures.some((s) => s.judgeId === context.judge.id)) return { ok: true };
+  if (corrections?.some((c) => c.status === "open")) return { ok: false, error: "A score correction is still open. Sign once it's settled." };
+
+  const { error } = await db()
+    .from("judge_signatures")
+    .insert({ judge_id: context.judge.id, activity_id: activity.id, method: path ? "drawn" : "checked", drawing: path });
+  if (error && error.code !== "23505") {
+    console.error(error);
+    return { ok: false, error: "Your signature didn't save. Check your connection and try again." };
+  }
+  changed(context.activity.publicId);
   return { ok: true };
 }
 
 /** The judge who asked takes back a correction no one has settled yet. */
 export async function withdrawCorrection(correctionId: string): Promise<ActionResult> {
-  const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) return { ok: false, error: "Your session has ended. Enter your code again." };
-  if (!(await approvedDevice(context.judge.id, session.deviceId))) return { ok: false, error: "This device isn't approved. Ask the organizer." };
+  const context = await seat();
+  if ("error" in context) return context;
   if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };
   const { error } = await db()
     .from("score_corrections")
@@ -301,6 +342,6 @@ export async function withdrawCorrection(correctionId: string): Promise<ActionRe
     console.error(error);
     return { ok: false, error: "That didn't go through. Check your connection and try again." };
   }
-  changed();
+  changed(context.activity.publicId);
   return { ok: true };
 }

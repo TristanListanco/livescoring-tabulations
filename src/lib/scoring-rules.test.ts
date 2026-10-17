@@ -41,3 +41,12 @@ describe("cleanGuide", () => {
     expect(cleanGuide(undefined)).toBe("");
   });
 });
+
+describe("decimal places judges can use", () => {
+  const simple = (decimals: number) => ({ mode: "simple" as const, min: "1", max: "10", decimals, criteria: [], display: null });
+  it("goes to two places unless three are allowed (events)", () => {
+    expect(checkScoring(simple(3), () => "new")).toEqual({ error: "Choose how many decimal places judges can use." });
+    expect(checkScoring(simple(3), () => "new", { maxDecimals: 3 })).toMatchObject({ scoring: { rules: { min: 1, max: 10, decimals: 3 } } });
+    expect(checkScoring(simple(4), () => "new", { maxDecimals: 3 })).toEqual({ error: "Choose how many decimal places judges can use." });
+  });
+});

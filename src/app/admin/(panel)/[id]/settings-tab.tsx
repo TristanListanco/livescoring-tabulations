@@ -1,14 +1,17 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
-import type { Activity } from "@/lib/types";
+import { reach } from "@/lib/reach";
+import type { ActionResult, Activity } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOwner, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOwner, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
+import { Switch } from "../switch";
+import { LIVE_SCORING_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
@@ -117,6 +120,37 @@ function CriterionGuides({ activity }: { activity: Activity }) {
   );
 }
 
+/** An event's live scoring: a switch until judging starts, then fixed. */
+function LiveScoring({ activity }: { activity: Activity }) {
+  const [on, setOn] = useState(activity.liveScoring);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const editable = activity.sessionState === "draft";
+  const toggle = () => {
+    const next = !on;
+    setOn(next);
+    startTransition(async () => {
+      const r = await reach(() => setLiveScoring(activity.id, next));
+      setResult(r);
+      if (!r.ok) setOn(!next);
+    });
+  };
+  return (
+    <div className="max-w-2xl space-y-2">
+      <div className="flex items-start gap-4">
+        {editable && <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending} />}
+        <div>
+          <p id="live-scoring-label" className="font-semibold">
+            {editable ? "Show scores live" : on ? "Scores show live" : "Scores show after the judges sign"}
+          </p>
+          <p className="hint mt-1">{on ? LIVE_SCORING_HINT.on : LIVE_SCORING_HINT.off}</p>
+        </div>
+      </div>
+      <FormMessage state={result} small />
+    </div>
+  );
+}
+
 type OrganizerOption = { id: string; name: string; email: string };
 
 /**
@@ -193,6 +227,12 @@ export function SettingsTab({
         <ScoringSummary activity={activity} />
       </Section>
 
+      {activity.kind === "event" && (
+        <Section title="Live scoring" hint={activity.sessionState === "draft" ? undefined : "Fixed once judging started."}>
+          <LiveScoring activity={activity} />
+        </Section>
+      )}
+
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
         <Section
           title="Guides for judges"
@@ -218,9 +258,9 @@ export function SettingsTab({
         </Section>
       ) : (
         <Section title="Delete activity">
-          {activity.sessionState === "live" ? (
+          {activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
             <p role="note" className="note max-w-xl">
-              The session is live. End it on the Session tab before deleting the activity.
+              The session is running. End it on the Session tab before deleting the activity.
             </p>
           ) : (
             <ConfirmDialog

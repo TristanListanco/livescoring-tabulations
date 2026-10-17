@@ -12,7 +12,8 @@ import { entryNeighbors } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
-import type { ActionResult, Board, Entry, Judge, JudgeDevice, Signatory } from "@/lib/types";
+import { unsignedJudges } from "@/lib/deliberation";
+import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { FormMessage } from "../form-message";
@@ -202,6 +203,7 @@ export function SessionTab({
   corrections,
   archived = false,
   hasNotes = false,
+  signatures = null,
 }: {
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -219,6 +221,8 @@ export function SessionTab({
   archived?: boolean;
   /** The judges wrote notes: they download as a PDF of their own beside the results. */
   hasNotes?: boolean;
+  /** The judges' signatures, during and after a deliberation (null before migration 021). */
+  signatures?: JudgeSignature[] | null;
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id);
@@ -265,6 +269,9 @@ export function SessionTab({
             </button>
           )}
         </div>
+        {!activity.liveScoring && !activity.signedOffAt && !archived && (
+          <p className="text-[13px] text-prussian/70">Scores show there once every judge has signed and the session has ended.</p>
+        )}
         {showQr && !archived && (
           <div className="pb-1">
             <Qr svg={liveQr} label="QR code for the live results page" />
@@ -286,7 +293,7 @@ export function SessionTab({
     return r;
   };
   const show = (entryId: string | null) => startTransition(async () => void (await move(entryId)));
-  const changeState = async (state: "live" | "ended", password?: string) => {
+  const changeState = async (state: "live" | "deliberation" | "ended", password?: string) => {
     const r = await reach(() => setSessionState(activity.id, state, password));
     // A wrong password shows in the dialog, which stays open.
     if (r.ok || state !== "ended") setResult(r);
@@ -334,6 +341,8 @@ export function SessionTab({
       <JudgeRoundButton board={board} round={upNext.round} className={nextClass} label={`Next: ${upNext.round.name}`} onDone={setResult} />
     ) : null;
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
+  // Without live scoring, a fully scored session goes to the deliberation rather than straight to its end.
+  const deliberateNext = !pageant && !activity.liveScoring && progress.complete;
 
   /**
    * What moving to `target` would interrupt or skip, in the order the operator needs to hear it. Empty when the
@@ -409,6 +418,19 @@ export function SessionTab({
     );
   };
 
+  const startDeliberation = (triggerClassName: string) => (
+    <ConfirmDialog
+      triggerLabel="Start deliberation"
+      triggerClassName={triggerClassName}
+      title="Start the deliberation?"
+      confirmLabel="Start deliberation"
+      onConfirm={() => changeState("deliberation")}
+    >
+      Every entry is scored. Each judge reviews their scores and notes on their own screen, asks for any correction, then signs. You end the
+      session once every judge has signed, and the results show then.
+    </ConfirmDialog>
+  );
+
   const endSession = (triggerClassName: string) => (
     <ConfirmDialog
       triggerLabel="End session"
@@ -419,8 +441,9 @@ export function SessionTab({
       passwordLabel="Your password"
       onConfirm={(password) => changeState("ended", password)}
     >
-      Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can reopen
-      the session if you need to.
+      {state === "deliberation"
+        ? "Every judge has signed. Once it ends, the results show on the live results page and the LED wall. Enter your admin password to confirm. You can reopen the session if you need to, and the judges then sign again."
+        : "Judges won't be able to submit any more scores, and entries can't be changed. Enter your admin password to confirm. You can reopen the session if you need to."}
     </ConfirmDialog>
   );
 
@@ -516,7 +539,7 @@ export function SessionTab({
                     </>
                   )}
                 </span>
-                {state === "draft" || between ? null : state === "ended" ? (
+                {state === "draft" || between ? null : state === "ended" || state === "deliberation" ? (
                   // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                   <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
                     {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
@@ -575,7 +598,9 @@ export function SessionTab({
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
-                {(!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+                {deliberateNext
+                  ? !lastOneIn && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
+                  : (!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
               </div>
             </div>
             {round && <DeskTimer activity={activity} round={round} renderedAt={renderedAt} />}
@@ -641,7 +666,10 @@ export function SessionTab({
                     </button>
                   )}
                   {lastOneIn ? (
-                    (pageantNext ?? endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full"))
+                    (pageantNext ??
+                    (deliberateNext
+                      ? startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")
+                      : endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")))
                   ) : next ? (
                     moveControl({
                       target: next,
@@ -680,7 +708,7 @@ export function SessionTab({
             )}
             {runningOrder(true)}
 
-            {screens(progress.complete && !pageant && (
+            {screens(progress.complete && !pageant && activity.liveScoring && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
                     <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
                     <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
@@ -750,6 +778,7 @@ export function SessionTab({
                       tab.
                     </>
                   )}
+                  {!pageant && !activity.liveScoring && " Live scoring is off, so the judges deliberate and sign before the results show."}
                 </p>
                 <ConfirmDialog
                   triggerLabel="Start session"
@@ -771,6 +800,67 @@ export function SessionTab({
             </section>
           )}
 
+          {state === "deliberation" &&
+            (() => {
+              const signedIds = new Set((signatures ?? []).map((sig) => sig.judgeId));
+              const allSigned = signatures !== null && unsignedJudges(judges, signatures).length === 0;
+              const openCorrection = corrections.some((c) => c.status === "open");
+              return (
+                <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+                  {offline}
+                  <div className="px-6 pt-6 pb-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <h2 id="desk-heading" className="text-powder">
+                          Deliberation
+                        </h2>
+                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-bold text-balance">
+                          {allSigned ? "Every judge has signed" : `${signedIds.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} signed`}
+                        </p>
+                      </div>
+                      <DeskConnection status={connection} renderedAt={renderedAt} className="shrink-0 pt-1 text-powder" />
+                    </div>
+                    <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
+                    <ul aria-label="Who has signed" className="mt-5 grid gap-2 sm:grid-cols-2">
+                      {judges.map((j) => {
+                        const signed = signedIds.has(j.id);
+                        return (
+                          <li
+                            key={j.id}
+                            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${signed ? "bg-oxford/45 text-mint/75" : "bg-oxford ring-1 ring-powder/50"}`}
+                          >
+                            <Avatar name={j.name} src={j.photoUrl} size={36} />
+                            <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
+                            {j.isChair && <span className="text-xs font-semibold text-powder">Chair</span>}
+                            {signed ? (
+                              <span className="flex items-center gap-1.5 text-sm font-semibold text-powder">
+                                {check}
+                                Signed
+                              </span>
+                            ) : (
+                              <span className="text-sm font-bold text-mint">Reviewing</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
+                    <p className="min-w-56 flex-1 text-[15px] text-powder">
+                      {signatures === null
+                        ? "Signatures need a database update. Run supabase/migrations/021_deliberation.sql in the Supabase SQL editor."
+                        : allSigned
+                          ? "End the session to put the results on the live results page and the LED wall."
+                          : openCorrection
+                            ? "A score correction is open. The judges sign once it's settled."
+                            : "Each judge reviews their scores on their own screen, then signs. End session appears once they all have."}
+                    </p>
+                    {allSigned && endSession("btn shrink-0 bg-mint text-prussian hover:bg-white")}
+                  </div>
+                </section>
+              );
+            })()}
+
           {state === "ended" && (
             <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
               <div className="px-6 pt-6 pb-6">
@@ -789,6 +879,7 @@ export function SessionTab({
                     >
                       Judges can score again, and entries can be changed. If a new score comes in, the report ID changes, so a results PDF you&apos;ve
                       already downloaded or printed won&apos;t match anymore.
+                      {activity.signedOffAt && " The judges' signatures are taken back, and the results leave the live results page until they sign again."}
                     </ConfirmDialog>
                   )}
                 </div>
@@ -803,6 +894,7 @@ export function SessionTab({
                 ) : progress.complete ? (
                   <>
                     <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
+                    {activity.signedOffAt && <p className="mt-1 font-semibold text-powder">Signed by every judge after deliberating</p>}
                     <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
                     <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
                     <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">

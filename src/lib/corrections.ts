@@ -86,7 +86,17 @@ export type CorrectionView = {
   voters: number;
   createdAt: string;
   decidedAt: string | null;
+  /** The scores were left out (see withoutValues): the judges voting see only the reason. */
+  valuesHidden?: boolean;
 };
+
+/**
+ * A correction for the judges who vote on it, in an event without live scoring: who asks, for which entry and why, but
+ * not the scores. The values are dropped on the server, so they never reach another judge's screen.
+ */
+export function withoutValues(view: CorrectionView): CorrectionView {
+  return { ...view, from: "", to: "", fromNumber: "", toNumber: "", criteria: [], valuesHidden: true };
+}
 
 /** A score as the judge thinks of it: the score, or criteria points out of 100. */
 export function correctionScoreText(value: number, rules: Pick<Activity, "scoringMode" | "decimals">): string {

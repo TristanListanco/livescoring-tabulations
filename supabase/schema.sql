@@ -28,7 +28,7 @@ create table if not exists public.activities (
   public_id   text not null unique,
   min_score   numeric(7, 2) not null,
   max_score   numeric(7, 2) not null,
-  decimals    smallint not null default 0 check (decimals in (0, 1, 2)),
+  decimals    smallint not null default 0 check (decimals in (0, 1, 2, 3)),
   show_rank   boolean not null default true,
   created_at  timestamptz not null default now(),
   check (min_score >= 0),
@@ -147,7 +147,7 @@ $$;
 alter table public.activities add column if not exists scoring_mode text not null default 'simple';
 alter table public.activities add column if not exists criteria jsonb not null default '[]'::jsonb;
 alter table public.activities add column if not exists criteria_display text not null default 'percent';
--- Decimal places for averages and criteria totals in results (0 to 4); judges still enter 0 to 2.
+-- Decimal places for averages and criteria totals in results (0 to 4); judges enter 0 to 3.
 alter table public.activities add column if not exists result_decimals smallint not null default 2;
 do $$
 begin
@@ -169,18 +169,42 @@ end;
 $$;
 alter table public.activities add column if not exists preliminary_weight numeric(5, 2) not null default 0;
 alter table public.activities add column if not exists scoring_closes_at timestamptz;
--- Judging session: draft (not started), live, or ended; and the entry judges are scoring now.
+-- Judging session: draft (not started), live, deliberation (an event without live scoring, once every entry is
+-- scored) or ended; and the entry judges are scoring now.
 alter table public.activities add column if not exists session_state text not null default 'draft';
 alter table public.activities add column if not exists session_started_at timestamptz;
 alter table public.activities add column if not exists current_entry_id uuid references public.entries (id) on delete set null;
-do $$
+-- Dropped and added again, so a database set up before deliberation (and three decimal places) takes the new lists.
+alter table public.activities drop constraint if exists activities_session_state_check;
+alter table public.activities
+  add constraint activities_session_state_check check (session_state in ('draft', 'live', 'deliberation', 'ended'));
+alter table public.activities drop constraint if exists activities_decimals_check;
+alter table public.activities add constraint activities_decimals_check check (decimals in (0, 1, 2, 3));
+-- Live scoring (the default): the audience sees scores as they come in, and a submitted score is final. Without it the
+-- audience sees no scores until the judges have signed, a judge can ask to correct a score, and the judges deliberate
+-- once every entry is scored. signed_off_at: when the session ended with every judge's signature.
+alter table public.activities add column if not exists live_scoring boolean not null default true;
+alter table public.activities add column if not exists signed_off_at timestamptz;
+-- Only an event without live scoring deliberates, and its session ends from deliberation only once every judge has signed.
+create or replace function public.check_deliberation() returns trigger
+language plpgsql
+as $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'activities_session_state_check') then
-    alter table public.activities
-      add constraint activities_session_state_check check (session_state in ('draft', 'live', 'ended'));
+  if new.session_state = 'deliberation' and old.session_state is distinct from 'deliberation'
+     and (new.live_scoring or new.kind <> 'event') then
+    raise exception 'Only an event without live scoring has a deliberation.';
   end if;
+  if old.session_state = 'deliberation' and new.session_state = 'ended' and exists (
+    select 1 from public.judges j
+    where j.activity_id = new.id and not exists (select 1 from public.judge_signatures s where s.judge_id = j.id)
+  ) then
+    raise exception 'Every judge signs before the session ends.';
+  end if;
+  return new;
 end;
 $$;
+drop trigger if exists check_deliberation on public.activities;
+create trigger check_deliberation before update on public.activities for each row execute function public.check_deliberation();
 -- When the session last ended (the live results show it), and when the activity was archived. Only an ended session
 -- can be archived, it stays ended (no reopening, no reset), and archiving is for good.
 alter table public.activities add column if not exists session_ended_at timestamptz;
@@ -279,12 +303,14 @@ create table if not exists public.scores (
   activity_id  uuid not null references public.activities (id) on delete cascade,
   entry_id     uuid not null references public.entries (id) on delete cascade,
   judge_id     uuid not null references public.judges (id) on delete cascade,
-  value        numeric(7, 2) not null,
+  value        numeric(8, 3) not null,
   created_at   timestamptz not null default now()
 );
 -- Points per criterion, keyed by criterion id, for criteria-based activities.
 alter table public.scores add column if not exists breakdown jsonb;
 create index if not exists scores_activity_idx on public.scores (activity_id);
+-- Each judge's screen reads that judge's scores.
+create index if not exists scores_judge_idx on public.scores (judge_id);
 -- A pageant score belongs to a sub-activity. A judge scores an event's entry once, and a candidate once per sub-activity.
 alter table public.scores add column if not exists round_id uuid references public.rounds (id) on delete cascade;
 alter table public.scores drop constraint if exists scores_entry_id_judge_id_key;
@@ -385,6 +411,34 @@ create table if not exists public.judge_notes (
 );
 create index if not exists judge_notes_activity_idx on public.judge_notes (activity_id);
 
+-- Judges' signatures ---------------------------------------------------------
+-- Each judge's signature once they've deliberated (an event without live scoring). drawn: drawn on a touchscreen, kept
+-- as SVG path data; checked: they ticked "(Sgd.)" on a screen without touch. Server only.
+
+create table if not exists public.judge_signatures (
+  judge_id     uuid primary key references public.judges (id) on delete cascade,
+  activity_id  uuid not null references public.activities (id) on delete cascade,
+  method       text not null check (method in ('drawn', 'checked')),
+  drawing      text check (char_length(drawing) between 1 and 20000),
+  signed_at    timestamptz not null default now(),
+  check ((method = 'drawn') = (drawing is not null))
+);
+create index if not exists judge_signatures_activity_idx on public.judge_signatures (activity_id);
+
+-- The judges signed the scores as they were: a score that changes after that voids every signature.
+create or replace function public.void_signatures() returns trigger
+language plpgsql
+as $$
+begin
+  if new.value is distinct from old.value or new.breakdown is distinct from old.breakdown then
+    delete from public.judge_signatures where activity_id = new.activity_id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists void_signatures on public.scores;
+create trigger void_signatures after update on public.scores for each row execute function public.void_signatures();
+
 -- Score corrections ------------------------------------------------------------
 -- A judge who entered a wrong score asks to change it; it changes only if every other judge on their panel agrees
 -- (or, for a judge alone on their panel, the organizer approves). Server only.
@@ -395,8 +449,8 @@ create table if not exists public.score_corrections (
   judge_id       uuid not null references public.judges (id) on delete cascade,
   entry_id       uuid not null references public.entries (id) on delete cascade,
   round_id       uuid references public.rounds (id) on delete cascade,
-  old_value      numeric(7, 2) not null,
-  new_value      numeric(7, 2) not null,
+  old_value      numeric(8, 3) not null,
+  new_value      numeric(8, 3) not null,
   old_breakdown  jsonb,
   new_breakdown  jsonb,
   reason         text not null check (char_length(reason) between 1 and 300),
@@ -407,6 +461,10 @@ create table if not exists public.score_corrections (
   decided_at     timestamptz
 );
 create index if not exists score_corrections_activity_idx on public.score_corrections (activity_id, created_at);
+-- Three decimal places, on databases set up before them.
+alter table public.scores alter column value type numeric(8, 3);
+alter table public.score_corrections alter column old_value type numeric(8, 3);
+alter table public.score_corrections alter column new_value type numeric(8, 3);
 -- One open request per score at a time.
 create unique index if not exists score_corrections_one_open
   on public.score_corrections (judge_id, entry_id, coalesce(round_id, '00000000-0000-0000-0000-000000000000'::uuid))
@@ -420,6 +478,7 @@ create table if not exists public.correction_votes (
   created_at     timestamptz not null default now(),
   primary key (correction_id, judge_id)
 );
+create index if not exists correction_votes_activity_idx on public.correction_votes (activity_id);
 
 -- Settles an open correction, once: turned down, or approved and the score changed, in one transaction (a score that
 -- won't fit its rules undoes the whole thing). The only way a submitted score changes (see forbid_score_update). False
@@ -475,6 +534,7 @@ alter table public.sign_in_failures enable row level security;
 alter table public.judge_notes enable row level security;
 alter table public.score_corrections enable row level security;
 alter table public.correction_votes enable row level security;
+alter table public.judge_signatures enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
@@ -522,7 +582,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.

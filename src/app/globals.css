@@ -373,3 +373,36 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/*
+ * An activity's tab opening (see TabLink): a bar runs under the tab picked, and after a beat (so a quick switch doesn't
+ * flicker) the panel below dims and stops taking clicks until the new one arrives.
+ */
+.tab-pending:not([data-tab-pending]) {
+  visibility: hidden;
+}
+.tab-pending-run {
+  animation: tab-pending 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes tab-pending {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+.activity-tabs:has([data-tab-pending]) + .activity-panel {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 150ms ease-out 150ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-pending-run {
+    width: 100%;
+    animation: none;
+  }
+  .activity-tabs:has([data-tab-pending]) + .activity-panel {
+    transition: none;
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activityFixture } from "./test-fixtures";
-import { applyKey, averageText, judgeSheet, overMax, parseScore, rankEntries, scoreProgress, type Key, type ScoreRules } from "./scoring";
+import { applyKey, averageText, judgeSheet, overMax, parseBreakdown, parseScore, rankEntries, scoreProgress, typedTotal, type Key, type ScoreRules } from "./scoring";
 
 const press = (keys: Key[], rules: ScoreRules) => keys.reduce((buf, k) => applyKey(buf, k, rules), "");
 
@@ -255,5 +255,37 @@ describe("judgeSheet", () => {
     const pool = [{ id: "e3", name: "Three", photoUrl: null, position: 2, number: 3 }];
     const rows = judgeSheet({ activity: activityFixture(), judges, entries: pool, scores: [], rounds: [] }, "j1");
     expect(rows[0].number).toBe(3);
+  });
+});
+
+describe("three decimal places", () => {
+  const threeDp: ScoreRules = { min: 1, max: 10, decimals: 3 };
+
+  it("types and accepts a third decimal place, and no fourth", () => {
+    expect(press(["9", ".", "1", "2", "5", "7"], threeDp)).toBe("9.125");
+    expect(parseScore("9.125", threeDp)).toEqual({ ok: true, value: 9.125 });
+    expect(parseScore("9.1255", threeDp)).toEqual({ ok: false, error: "Use at most 3 decimal places." });
+    expect(parseScore("10.001", threeDp)).toEqual({ ok: false, error: "Enter a score from 1 to 10." });
+    expect(overMax("10.001", threeDp)).toBe(true);
+  });
+
+  it("averages exactly, rounding half up to the results' places", () => {
+    const activity = activityFixture({ decimals: 3, resultDecimals: 2 });
+    const judges = ["a", "b", "c"].map((id, i) => ({ id, name: id, photoUrl: null, position: i, firstName: null, lastName: null, isChair: false, panel: "all" as const }));
+    const entries = [{ id: "e1", name: "Agila", photoUrl: null, position: 0 }];
+    // 8.125 + 8.130 + 8.120 = 24.375, an average of exactly 8.125: shown as 8.13.
+    const scores = [8.125, 8.13, 8.12].map((value, i) => ({ entryId: "e1", judgeId: judges[i].id, value }));
+    const [row] = rankEntries(entries, judges, scores, activity);
+    expect(row.average).toBe(8.13);
+    expect(rankEntries(entries, judges, scores, { ...activity, resultDecimals: 3 })[0].average).toBe(8.125);
+  });
+
+  it("totals criteria points with three places", () => {
+    const criteria = [
+      { id: "a", name: "Poise", max: 40 },
+      { id: "b", name: "Wit", max: 60 },
+    ];
+    expect(parseBreakdown({ a: "33.125", b: "50.375" }, criteria, 3)).toEqual({ ok: true, total: 83.5, breakdown: { a: 33.125, b: 50.375 } });
+    expect(typedTotal({ a: "33.125", b: "" }, criteria, 3)).toBe(33.125);
   });
 });

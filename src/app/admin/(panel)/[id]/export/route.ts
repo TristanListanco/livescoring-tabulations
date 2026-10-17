@@ -1,5 +1,5 @@
 import { correctionView, type Correction, type CorrectionView } from "@/lib/corrections";
-import { getActivityNotes, getAdmin, getAdminBoard, getCorrections, getSignatories, withBreakdowns } from "@/lib/data";
+import { getActivityNotes, getAdmin, getAdminBoard, getCorrections, getSignatories, getSignatures, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
 import { renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
@@ -219,7 +219,12 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
     });
   }
 
-  const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId) };
+  // Without live scoring the results are official once every judge has signed, at the end of the deliberation.
+  if (!board.activity.liveScoring && !board.activity.signedOffAt) {
+    return new Response("The results PDF is ready once every judge has signed, at the end of the deliberation.", { status: 409 });
+  }
+  const signatures = board.activity.liveScoring ? null : await getSignatures(board.activity.id);
+  const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId), signatures };
   if (wantsJudgeSheets(search)) {
     const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), {
       ...options,

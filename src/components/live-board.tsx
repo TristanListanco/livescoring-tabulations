@@ -13,17 +13,21 @@ import { Scoreboard } from "./scoreboard";
  * setting. A pageant shows the sub-activity being judged, with only the candidates still in the running.
  */
 export function LiveBoard({ board: full }: { board: Board }) {
-  // The audience's page: one phone per person, so refreshes are spaced out (at most every 2 seconds). It reads a
-  // shared server cache, so a check every 15 seconds costs no database read, and puts right a refresh that came in
-  // just before a change cleared the cache.
-  const status = useLiveRefresh(full.activity.id, { pollMs: 15_000, safetyPollMs: 15_000, minGapMs: 2_000 });
+  // The audience's page: one phone per person, so it checks for changes rather than holding a realtime connection
+  // (with many activities at once, phones would be most of realtime's connections), at most one refresh every 2
+  // seconds. A check reads one row; a refresh reads the shared server cache, cleared only by this activity's changes.
+  const status = useLiveRefresh(full.activity.id, { pollMs: 4_000, minGapMs: 2_000, realtime: false });
   const { board, round } = showingBoard(full);
   const { activity } = board;
   const ranked = activity.showRank;
   const { submitted, possible } = scoreProgress(board);
   const waiting = activity.kind === "pageant" && !round;
+  // Without live scoring the scores stay with the judges (the server sends none) until they've deliberated and signed.
+  const held = !activity.liveScoring && !activity.signedOffAt;
 
-  const summary = `${ranked ? "Ranked by the average of the scores submitted so far." : "Averages of the scores submitted so far."} ${rulesSummary(activity)}`;
+  const summary = held
+    ? "The results show here once the judges have deliberated and signed."
+    : `${ranked ? "Ranked by the average of the scores submitted so far." : "Averages of the scores submitted so far."} ${rulesSummary(activity)}`;
 
   return (
     <section className="min-h-dvh bg-prussian pb-10 text-mint">
@@ -34,12 +38,21 @@ export function LiveBoard({ board: full }: { board: Board }) {
           {!waiting && <p className="mt-3 max-w-[65ch] text-[clamp(0.95rem,1.1vw,1.25rem)] text-powder">{summary}</p>}
         </div>
         <div className="flex items-center gap-6">
-          {!waiting && (
+          {!waiting && !held && (
             <p className="tabular text-[clamp(0.95rem,1.1vw,1.25rem)] text-powder">
               <span className="text-[1.4em] font-bold text-mint">{submitted}</span> of {possible} scores in
             </p>
           )}
-          {activity.sessionState === "ended" ? <EndedBadge endedAt={activity.sessionEndedAt} /> : <LiveStatusBadge status={status} className="text-mint" />}
+          {activity.sessionState === "ended" ? (
+            <EndedBadge endedAt={activity.sessionEndedAt} />
+          ) : activity.sessionState === "deliberation" ? (
+            <p className="inline-flex items-center gap-2 text-sm font-semibold text-mint">
+              <span aria-hidden className="size-2.5 rounded-full bg-powder" />
+              Judges deliberating
+            </p>
+          ) : (
+            <LiveStatusBadge status={status} className="text-mint" />
+          )}
         </div>
       </header>
       {waiting ? (
