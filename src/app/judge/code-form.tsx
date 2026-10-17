@@ -9,12 +9,15 @@ export function CodeForm({
   initialError,
   submitLabel = "Start judging",
   quiet = false,
+  autoFocus = !quiet,
 }: {
   initialCode: string;
   initialError?: string;
   submitLabel?: string;
   /** A secondary choice (switching judge): no autofocus, and a quieter button. */
   quiet?: boolean;
+  /** Focus the code field (and so open the keyboard) as the page opens. */
+  autoFocus?: boolean;
 }) {
   const [state, action] = useActionState<CodeState, FormData>(enterCode, { code: initialCode, error: initialError });
 
@@ -30,7 +33,7 @@ export function CodeForm({
         key={state.code}
         required
         maxLength={7}
-        autoFocus={!quiet}
+        autoFocus={autoFocus}
         autoComplete="off"
         autoCapitalize="characters"
         spellCheck={false}

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -294,7 +294,7 @@ test.describe.serial("a pageant", () => {
       [ben, codes[2], "Ben Torres"],
       [cara, codes[3], "Cara Diaz"],
     ] as const) {
-      await judge.goto(`/judge/join/${code}`);
+      await openJudgeLink(judge, code);
       const pairing = await pairingCode(judge);
       await page.goto(`${adminPath}?tab=judges`);
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();

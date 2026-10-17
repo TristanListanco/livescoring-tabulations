@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -78,7 +78,7 @@ test.describe.serial("criteria scoring", () => {
   });
 
   test("a judge scores each criterion on the keypad and the board shows the total", async ({ page, browser }) => {
-    await judge.goto(`/judge/join/${code}`);
+    await openJudgeLink(judge, code);
     const pairing = (await judge.locator("p").filter({ hasText: /^Pairing code [A-Z0-9]{4}$/ }).textContent())!.replace("Pairing code ", "");
 
     await signInAsSuperAdmin(page);

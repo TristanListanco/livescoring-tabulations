@@ -6,6 +6,7 @@ import {
   deleteActivityNamed,
   deleteOrganizerByEmail,
   expectAccessible,
+  openJudgeLink,
   screenPath,
   signInAsOrganizer,
   signInAsSuperAdmin,
@@ -167,8 +168,7 @@ test.describe.serial("a full event", () => {
   });
 
   test("only the device the organizer approves can judge", async ({ page }) => {
-    await judge1.goto(`/judge/join/${codes[0]}`);
-    await expect(judge1).toHaveURL(/\/judge\/score$/);
+    await openJudgeLink(judge1, codes[0]);
     await expect(heading(judge1)).toHaveText("Waiting for the organizer to approve this device");
     await expect(judge1.getByRole("button", { name: "5", exact: true })).toHaveCount(0);
     const code1 = await pairingCode(judge1);
@@ -182,7 +182,7 @@ test.describe.serial("a full event", () => {
     const code2 = await pairingCode(judge2);
 
     // Someone else scans Ana's QR code too: their request shows a different pairing code.
-    await intruder.goto(`/judge/join/${codes[0]}`);
+    await openJudgeLink(intruder, codes[0]);
     const intruderCode = await pairingCode(intruder);
     expect(intruderCode).not.toBe(code1);
 
