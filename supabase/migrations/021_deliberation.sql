@@ -5,7 +5,8 @@
 -- score (the others vote on it without seeing the values), and once every entry is scored the judges deliberate:
 -- each reviews their scores and notes, then signs, by drawing their signature on a touchscreen or ticking "(Sgd.)".
 -- The session ends only once every judge has signed, and a score corrected after that voids the signatures.
--- Judges can also enter scores with three decimal places. And two indexes, for many activities running at once.
+-- Judges can also enter scores with three decimal places. And two indexes, for many activities running at once, and a
+-- rule that a session with scores can't go back to not started.
 --
 -- Run in the Supabase SQL editor after 020. Safe to run again.
 -- The version of the app already deployed keeps working: every activity keeps live scoring until the new version
@@ -83,6 +84,22 @@ begin
   $fn$;
   drop trigger if exists check_deliberation on public.activities;
   create trigger check_deliberation before update on public.activities for each row execute function public.check_deliberation();
+
+  -- A session goes back to not started only once its scores are gone (Reset scores, on a test site, deletes them
+  -- first). Otherwise reopening its judges, running order and program would let the results be changed after scoring.
+  create or replace function public.check_session_restart() returns trigger
+  language plpgsql
+  as $fn$
+  begin
+    if new.session_state = 'draft' and old.session_state is distinct from 'draft'
+       and exists (select 1 from public.scores s where s.activity_id = new.id) then
+      raise exception 'A session with scores can''t go back to not started.';
+    end if;
+    return new;
+  end;
+  $fn$;
+  drop trigger if exists check_session_restart on public.activities;
+  create trigger check_session_restart before update on public.activities for each row execute function public.check_session_restart();
 
   -- Many activities at once (breakout sessions): every judge's screen reads that judge's scores, and every screen an
   -- activity's correction votes, after each change. Indexed, so those stay quick however many activities there are.

@@ -333,6 +333,10 @@ test.describe.serial("a full event", () => {
     await expect(led.getByText("Ben", { exact: true })).toHaveCount(0);
     await expect(led.locator("img:not([data-entry-photo])")).toHaveCount(0);
     await expect(led.getByText("Scored", { exact: true })).toBeVisible();
+    // Not just hidden: the wall's page doesn't carry their names at all.
+    await led.reload();
+    await expect(led.getByText("Scored", { exact: true })).toBeVisible();
+    expect(await led.content()).not.toMatch(/Ana|Cruz|Torres/);
     await anonymous.click();
     await expect(led.getByText("Ana", { exact: true })).toBeVisible(REALTIME);
     await led.context().close();

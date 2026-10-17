@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Nunito_Sans } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
 
 const nunito = Nunito_Sans({
@@ -16,7 +17,10 @@ export const viewport: Viewport = {
   themeColor: "#0b2545",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Every page renders for its request, so its scripts carry that request's nonce (see the policy in proxy.ts). A page
+  // built ahead of time would carry none, and the policy would stop its scripts.
+  await connection();
   return (
     <html lang="en" className={`${nunito.variable} h-full`}>
       <body className="min-h-full bg-mint text-prussian">{children}</body>

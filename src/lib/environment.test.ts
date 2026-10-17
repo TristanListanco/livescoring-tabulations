@@ -24,9 +24,20 @@ describe("where the test tools and pageant mode are offered", () => {
     expect(pageantsAvailable()).toBe(true);
   });
 
-  it("running locally and in CI has both", () => {
+  it("the dev server has both", () => {
     vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("TEST_TOOLS", "");
     expect(testToolsAllowed()).toBe(true);
     expect(pageantsAvailable()).toBe(true);
+  });
+
+  it("a production build on a laptop at the venue, on the live database, has neither unless it says it's a test one (CI)", () => {
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("TEST_TOOLS", "");
+    expect(testToolsAllowed()).toBe(false);
+    expect(pageantsAvailable()).toBe(false);
+    vi.stubEnv("TEST_TOOLS", "on");
+    expect(testToolsAllowed()).toBe(true);
   });
 });

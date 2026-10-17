@@ -205,6 +205,21 @@ end;
 $$;
 drop trigger if exists check_deliberation on public.activities;
 create trigger check_deliberation before update on public.activities for each row execute function public.check_deliberation();
+-- A session goes back to not started only once its scores are gone (Reset scores, on a test site, deletes them first).
+-- Otherwise reopening its judges, running order and program would let the results be changed after scoring.
+create or replace function public.check_session_restart() returns trigger
+language plpgsql
+as $$
+begin
+  if new.session_state = 'draft' and old.session_state is distinct from 'draft'
+     and exists (select 1 from public.scores s where s.activity_id = new.id) then
+    raise exception 'A session with scores can''t go back to not started.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists check_session_restart on public.activities;
+create trigger check_session_restart before update on public.activities for each row execute function public.check_session_restart();
 -- When the session last ended (the live results show it), and when the activity was archived. Only an ended session
 -- can be archived, it stays ended (no reopening, no reset), and archiving is for good.
 alter table public.activities add column if not exists session_ended_at timestamptz;

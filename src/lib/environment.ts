@@ -1,15 +1,16 @@
 import "server-only";
 
 /**
- * Where the test tools (Reset scores, deleting an activity mid-session) are offered. Never on the live site. Vercel
- * previews share the live site's database, so they're off there too unless TEST_TOOLS=on is set for a preview that
- * has a database of its own. Running locally (`vercel dev` included) and in CI, they're on.
+ * Where the test tools (Reset scores, deleting an activity mid-session) are offered. They can wipe an event's scores,
+ * so never where a real event runs: not on the live site, and not in any production build unless TEST_TOOLS=on says
+ * it's a test one. That includes the production build on an organizer's laptop at the venue, which uses the live
+ * database (`npm start`). Vercel previews need TEST_TOOLS=on too, set only for a preview with a database of its own.
+ * The dev server has them; CI's production build sets TEST_TOOLS=on.
  */
 export function testToolsAllowed(): boolean {
-  const env = process.env.VERCEL_ENV;
-  if (env === "production") return false;
-  if (env === "preview") return process.env.TEST_TOOLS === "on";
-  return true;
+  if (process.env.VERCEL_ENV === "production") return false;
+  if (process.env.TEST_TOOLS === "on") return true;
+  return process.env.NODE_ENV !== "production" && process.env.VERCEL_ENV !== "preview";
 }
 
 /**
