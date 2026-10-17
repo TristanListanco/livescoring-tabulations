@@ -2,6 +2,7 @@
 
 import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
 import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
@@ -34,7 +35,8 @@ import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, pan
 import { formatBound, scoreProgress } from "@/lib/scoring";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
-import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
+import { photoExtension, photoFile, PHOTOS_PER_REQUEST, type Photo } from "@/lib/photo-file";
+import { removeActivityPhotos } from "@/lib/photo-storage";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import {
   PRELIMINARY,
@@ -46,6 +48,8 @@ import {
   type ResultDecimals,
   type SessionState,
 } from "@/lib/types";
+import { traced } from "@/lib/observe";
+import { log, messageOf } from "@/lib/log";
 
 export type FormResult = ActionResult | null;
 
@@ -61,13 +65,13 @@ const err = (error: string): ActionResult => ({ ok: false, error });
  */
 async function needsMigration(hint: string): Promise<ActionResult> {
   if ((await currentAdmin())?.kind === "super") return err(hint);
-  console.error(hint);
+  log("error", "needs_migration", { hint });
   return err("This needs a database update. Ask your LiveScoring administrator to apply it, then try again.");
 }
 
 /** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
-const dbErr = (error: { message: string }): ActionResult => {
-  console.error(error);
+const dbErr = (error: { message: string; code?: string }): ActionResult => {
+  log("error", "db_failed", { code: error.code, error: error.message });
   return err("That didn't save. Check the connection and try again.");
 };
 const NOT_FOUND = err("Activity not found.");
@@ -250,9 +254,13 @@ async function uploadPhoto(activityId: string, ownerId: string, photo: Photo): P
   return path;
 }
 
-async function removeFiles(paths: (string | null | undefined)[]) {
+/** Photos no longer used go once the response has been sent: nothing waits for them, and one left behind only takes space. */
+function removeFiles(paths: (string | null | undefined)[]) {
   const list = paths.filter((p): p is string => Boolean(p));
-  if (list.length) await db().storage.from(PHOTO_BUCKET).remove(list);
+  if (!list.length) return;
+  after(async () => {
+    await db().storage.from(PHOTO_BUCKET).remove(list);
+  });
 }
 
 async function nextPosition(table: "judges" | "entries", activityId: string): Promise<number> {
@@ -266,7 +274,7 @@ async function nextPosition(table: "judges" | "entries", activityId: string): Pr
 // Checked when an email has no account, so a wrong email takes as long as a wrong password.
 let decoyHash: Promise<string> | undefined;
 
-export async function login(_prev: FormResult, formData: FormData): Promise<FormResult> {
+export const login = traced("login", async function login(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const password = String(formData.get("password") ?? "");
   // Guessing is limited per network address and per account (see sign-in-limits).
   const address = `admin-ip:${await clientAddress()}`;
@@ -299,12 +307,12 @@ export async function login(_prev: FormResult, formData: FormData): Promise<Form
   }
   await startOrganizerSession(account.admin.id, account.passwordHash);
   redirect("/admin");
-}
+});
 
-export async function logout() {
+export const logout = traced("logout", async function logout() {
   await endAdminSession();
   redirect("/admin/login");
-}
+});
 
 // Pageant programs ------------------------------------------------------------------
 
@@ -381,7 +389,7 @@ const PAGEANT_NOT_FOUND = err("Pageant not found.");
  * Save a pageant's program from the Segments tab: segment shares, sub-activities, their scoring, timers and cuts.
  * Only before the session starts, so the rules can't change once anyone has scored.
  */
-export async function savePageant(activityId: string, json: string): Promise<ActionResult> {
+export const savePageant = traced("savePageant", async function savePageant(activityId: string, json: string): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -421,13 +429,13 @@ export async function savePageant(activityId: string, json: string): Promise<Act
   if (error) return /violations/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
   changed();
   return ok("Program saved.");
-}
+});
 
 /**
  * Judge another sub-activity (or none, to have judges wait). Judges' screens wait for the first candidate.
  * Refused while an earlier cut is waiting to be confirmed, because it decides who is judged.
  */
-export async function setCurrentRound(activityId: string, roundId: string | null): Promise<ActionResult> {
+export const setCurrentRound = traced("setCurrentRound", async function setCurrentRound(activityId: string, roundId: string | null): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -452,10 +460,10 @@ export async function setCurrentRound(activityId: string, roundId: string | null
   if (error) return dbErr(error);
   changed();
   return ok();
-}
+});
 
 /** Restart the timer for the candidate on screen, or give judges 15 more seconds. Reopens scoring once it has closed. */
-export async function extendScoring(activityId: string, how: "restart" | "more"): Promise<ActionResult> {
+export const extendScoring = traced("extendScoring", async function extendScoring(activityId: string, how: "restart" | "more"): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { activity, rounds } = found.board;
@@ -469,14 +477,14 @@ export async function extendScoring(activityId: string, how: "restart" | "more")
   if (error) return dbErr(error);
   changed();
   return ok();
-}
+});
 
 /**
  * Confirm a cut once every score in its basis is in. `picks` breaks the ties the plan lists, in order (see
  * cutResult). The candidates who go through are the only ones judged from the next sub-activity on, and the
  * final cut's order is the final placement.
  */
-export async function confirmCut(activityId: string, roundId: string, picks: string[][]): Promise<ActionResult> {
+export const confirmCut = traced("confirmCut", async function confirmCut(activityId: string, roundId: string, picks: string[][]): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -494,7 +502,7 @@ export async function confirmCut(activityId: string, roundId: string, picks: str
   if (plan.final) return ok("Final results confirmed.");
   const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
   return ok(`Top ${result.entryIds.length} confirmed.${next ? ` ${next.name} judges these ${result.entryIds.length} candidates.` : ""}`);
-}
+});
 
 const MAX_DEDUCTIONS = 500;
 
@@ -509,7 +517,14 @@ function deductionsClosed(board: Board): string | null {
  * Take points off a candidate's preliminary score for a violation: one listed at setup (`violationId`, whose reason
  * and points are used), or another with its reason and points typed at the desk. Until pageant proper starts.
  */
-export async function addDeduction(activityId: string, entryId: string, violationId: string | null, reason: string, points: string): Promise<ActionResult> {
+export const addDeduction = traced("addDeduction", async function addDeduction(
+  activityId: string,
+  entryId: string,
+  violationId: string | null,
+  reason: string,
+  points: string,
+  deductionId: string,
+): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -517,7 +532,7 @@ export async function addDeduction(activityId: string, entryId: string, violatio
   if (closed) return err(closed);
   const entry = board.entries.find((e) => e.id === entryId);
   if (!entry) return err("Choose the candidate.");
-  if ((board.deductions?.length ?? 0) >= MAX_DEDUCTIONS) return err(`A pageant can have up to ${MAX_DEDUCTIONS} deductions.`);
+  if (!isUuid(deductionId)) return err("That deduction wasn't sent correctly. Try again.");
   let why: string;
   let off: number;
   if (violationId) {
@@ -532,14 +547,19 @@ export async function addDeduction(activityId: string, entryId: string, violatio
     off = deductionPoints(String(points ?? ""));
     if (Number.isNaN(off)) return err(`Give the points off the preliminary score, from 0.01 to ${MAX_DEDUCTION}.`);
   }
-  const { error } = await db().from("deductions").insert({ activity_id: activityId, entry_id: entry.id, points: off, reason: why });
+  const done = ok(`${formatBound(off)} ${off === 1 ? "point" : "points"} off ${entry.name}'s preliminary score: ${why}.`);
+  // Sent again (the reply to the first was lost, say): it's in already, and the points don't come off twice.
+  if (board.deductions?.some((d) => d.id === deductionId)) return done;
+  if ((board.deductions?.length ?? 0) >= MAX_DEDUCTIONS) return err(`A pageant can have up to ${MAX_DEDUCTIONS} deductions.`);
+  const { error } = await db().from("deductions").insert({ id: deductionId, activity_id: activityId, entry_id: entry.id, points: off, reason: why });
+  if (error?.code === "23505") return done;
   if (error) return /deductions/.test(error.message) ? needsMigration(DEDUCTIONS_HINT) : dbErr(error);
   changed();
-  return ok(`${formatBound(off)} ${off === 1 ? "point" : "points"} off ${entry.name}'s preliminary score: ${why}.`);
-}
+  return done;
+});
 
 /** Take back a deduction, until pageant proper starts. */
-export async function removeDeduction(activityId: string, deductionId: string): Promise<ActionResult> {
+export const removeDeduction = traced("removeDeduction", async function removeDeduction(activityId: string, deductionId: string): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -552,10 +572,10 @@ export async function removeDeduction(activityId: string, deductionId: string): 
   changed();
   const name = board.entries.find((e) => e.id === deduction.entryId)?.name ?? "The candidate";
   return ok(`Took back ${name}'s deduction for ${deduction.reason}.`);
-}
+});
 
 /** Take back a confirmed cut, as long as nobody has scored the sub-activities after it yet. */
-export async function undoCut(activityId: string, roundId: string): Promise<ActionResult> {
+export const undoCut = traced("undoCut", async function undoCut(activityId: string, roundId: string): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
@@ -574,7 +594,7 @@ export async function undoCut(activityId: string, roundId: string): Promise<Acti
   }
   changed();
   return ok("The cut is open again.");
-}
+});
 
 // Activities ------------------------------------------------------------------
 
@@ -582,11 +602,11 @@ export async function undoCut(activityId: string, roundId: string): Promise<Acti
  * Create an event, or (kind=pageant) a pageant: candidates, judges and a program of sub-activities from the
  * pageant setup, sent as JSON in `pageant`.
  */
-export async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
+export const createActivity = traced("createActivity", async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const result = await createFromForm(formData);
   if (!("activityId" in result)) return result;
   redirect(`/admin/${result.activityId}`);
-}
+});
 
 /** A new activity: where to find it, and its entries' ids in running order (for adding their photos next). */
 type Created = { activityId: string; entryIds: string[] };
@@ -596,11 +616,11 @@ export type CreateResult = ({ ok: true } & Created) | { ok: false; error: string
  * Create a pageant without leaving the page, so the setup can then upload each candidate's photo on its own:
  * together they can be more than one request may carry. The page goes to the pageant once they're up.
  */
-export async function createPageant(formData: FormData): Promise<CreateResult> {
+export const createPageant = traced("createPageant", async function createPageant(formData: FormData): Promise<CreateResult> {
   const result = await createFromForm(formData);
   if ("activityId" in result) return { ok: true, ...result };
   return result.ok ? { ok: false, error: "That didn't save. Try again." } : result;
-}
+});
 
 async function createFromForm(formData: FormData): Promise<ActionResult | Created> {
   const session = await requireAdmin();
@@ -672,11 +692,15 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   const panels = judges.some((j) => j.panel !== "all");
 
   const owner_id = session.kind === "organizer" ? session.admin.id : null;
+  // The form's id for this submission (see newRequestId) is the new activity's.
+  const requestId = String(formData.get("requestId") ?? "");
+  const id = isUuid(requestId) ? requestId : randomUUID();
   let activityId: string | null = null;
   for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
     const { data, error } = await db()
       .from("activities")
       .insert({
+        id,
         name,
         owner_id,
         public_id: newPublicId(),
@@ -692,6 +716,9 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
     // Before migration 021: no live_scoring column, and three decimal places break the old check.
     if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
+    // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
+    if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
+    // Otherwise its public link was taken: another try, with another.
     if (error && error.code !== "23505") return dbErr(error);
     activityId = (data as { id: string } | null)?.id ?? null;
   }
@@ -712,13 +739,19 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
     await assignCodes(rows.map((r) => r.id));
 
-    for (const row of rows) {
-      const photo = judges[row.position].photo;
-      if (!photo) continue;
-      const path = await uploadPhoto(activityId, row.id, photo);
-      uploaded.push(path);
-      check((await db().from("judges").update({ photo_path: path }).eq("id", row.id)).error);
-    }
+    // The judges' photos go up together. Every upload finishes before a failure is raised, so the clean-up below
+    // removes all that made it.
+    const photoUploads = await Promise.allSettled(
+      rows.map(async (row) => {
+        const photo = judges[row.position].photo;
+        if (!photo) return;
+        const path = await uploadPhoto(activityId, row.id, photo);
+        uploaded.push(path);
+        check((await db().from("judges").update({ photo_path: path }).eq("id", row.id)).error);
+      }),
+    );
+    const failedUpload = photoUploads.find((r) => r.status === "rejected");
+    if (failedUpload) throw failedUpload.reason;
 
     if (entries.length) {
       const { data: rows, error: entriesError } = await db()
@@ -730,14 +763,14 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     }
   } catch (e) {
     await db().from("activities").delete().eq("id", activityId);
-    await removeFiles(uploaded);
+    removeFiles(uploaded);
     const message = e instanceof Error ? e.message : "unknown error";
     if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
     // Before migration 013 an activity has one chair, so separate boards' two chairs break judges_one_chair_idx.
     if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
     if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
     if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
-    console.error(e);
+    log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
     return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
   }
 
@@ -747,11 +780,21 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   return { activityId, entryIds };
 }
 
+/** The activity an earlier send of the same form created: its entries' ids in running order, as when it was made. */
+async function createdBefore(activityId: string, ownerId: string | null): Promise<ActionResult | Created> {
+  const [{ data: activity }, { data: entries, error }] = await Promise.all([
+    db().from("activities").select("owner_id").eq("id", activityId).maybeSingle(),
+    db().from("entries").select("id").eq("activity_id", activityId).order("position").order("created_at"),
+  ]);
+  if (!activity || (activity as { owner_id: string | null }).owner_id !== ownerId || error) return err("Could not create the activity. Try again.");
+  return { activityId, entryIds: (entries as { id: string }[]).map((e) => e.id) };
+}
+
 /**
  * Only the name can change. Scoring (mode, range or criteria, decimal places, how totals and results show)
  * is fixed when the activity is created, so results can't be changed by changing the rules afterwards.
  */
-export async function updateSettings(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const updateSettings = traced("updateSettings", async function updateSettings(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
@@ -759,13 +802,13 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
   if (error) return dbErr(error);
   changed();
   return ok("Name saved.");
-}
+});
 
 /**
  * Live scoring on or off for an event, until judging starts (after that, judges and the audience would see the rules
  * change mid-show).
  */
-export async function setLiveScoring(activityId: string, on: boolean): Promise<ActionResult> {
+export const setLiveScoring = traced("setLiveScoring", async function setLiveScoring(activityId: string, on: boolean): Promise<ActionResult> {
   if (typeof on !== "boolean") return err("Choose whether scores show live.");
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
@@ -775,13 +818,13 @@ export async function setLiveScoring(activityId: string, on: boolean): Promise<A
   if (error) return /live_scoring/.test(error.message) ? needsMigration(DELIBERATION_HINT) : dbErr(error);
   changed();
   return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
-}
+});
 
 /**
  * A criteria event's guides for judges, one per criterion (fields guide-<criterion id>). The scoring itself is fixed
  * once the activity exists; the guides can change until judging starts, so every entry is judged against the same ones.
  */
-export async function updateCriterionGuides(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const updateCriterionGuides = traced("updateCriterionGuides", async function updateCriterionGuides(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event" || activity.scoringMode !== "criteria") return err("This activity isn't scored by criteria.");
@@ -792,13 +835,13 @@ export async function updateCriterionGuides(activityId: string, _prev: FormResul
   if (error) return dbErr(error);
   changed();
   return ok(criteria.some((c) => c.guide) ? "Guides saved. Judges see each one while they score its criterion." : "Guides saved.");
-}
+});
 
 /**
  * A score correction from a judge alone on their panel, who has no other judge to agree with them: the organizer
  * approves it (changing the score) or turns it down. Corrections other judges vote on are theirs alone to decide.
  */
-export async function decideCorrection(activityId: string, correctionId: string, approve: boolean): Promise<ActionResult> {
+export const decideCorrection = traced("decideCorrection", async function decideCorrection(activityId: string, correctionId: string, approve: boolean): Promise<ActionResult> {
   if (typeof approve !== "boolean") return err("Approve or turn down the correction.");
   if (!(await manage(activityId))) return NOT_FOUND;
   if (!isUuid(correctionId)) return err("That correction no longer exists.");
@@ -810,27 +853,27 @@ export async function decideCorrection(activityId: string, correctionId: string,
   try {
     await settleCorrection(board, correction, { outcome: approve ? "approved" : "rejected", by: "organizer" });
   } catch (e) {
-    console.error(e);
+    log("error", "correction_not_settled", { error: messageOf(e) });
     return err("The correction didn't go through. Try again.");
   }
   changed();
   return ok(approve ? "Correction approved. The score has changed." : "Correction turned down. The score stays as it was.");
-}
+});
 
-export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
+export const setShowRank = traced("setShowRank", async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
   if (typeof show !== "boolean") return err("Choose whether ranks show.");
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
   if (error) return dbErr(error);
   changed();
   return ok(show ? "Rankings are showing on the live results page." : "Rankings are hidden on the live results page.");
-}
+});
 
 /**
  * Hand one of the super admin's own activities to an organizer. From then on it is private to them: the
  * super admin can no longer open it, so this goes back to the activity list.
  */
-export async function setActivityOwner(activityId: string, ownerId: string): Promise<ActionResult> {
+export const setActivityOwner = traced("setActivityOwner", async function setActivityOwner(activityId: string, ownerId: string): Promise<ActionResult> {
   await requireSuperAdmin();
   if (!(await manage(activityId))) return NOT_FOUND;
   if (!isUuid(ownerId)) return err("Choose an organizer from the list.");
@@ -839,7 +882,7 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
   const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId).is("owner_id", null);
   if (error) return dbErr(error);
   redirect("/admin");
-}
+});
 
 // Judging session ------------------------------------------------------------------
 
@@ -848,7 +891,7 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
  * Starting locks the judges and the running order; judges' screens open as soon as it is live. An event without live
  * scoring deliberates once every entry is scored, and ends only once every judge has signed: then its results show.
  */
-export async function setSessionState(activityId: string, state: "live" | "deliberation" | "ended", password = ""): Promise<ActionResult> {
+export const setSessionState = traced("setSessionState", async function setSessionState(activityId: string, state: "live" | "deliberation" | "ended", password: string = ""): Promise<ActionResult> {
   // An action can be called with anything, not just what the desk sends: only these three. Above all never "draft", which
   // would reopen the judges, running order and program of a session with scores in it (only Reset scores, on a test
   // site, starts a session over, and only once its scores are gone; the database holds to that too).
@@ -911,14 +954,14 @@ export async function setSessionState(activityId: string, state: "live" | "delib
   changed();
   if (state === "ended") return ok(signedOff ? "The session has ended, signed by every judge. The results are out." : "The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
-}
+});
 
 /**
  * Show judges the entry to score next, or null to have them wait. Only while the session is live. The organizer does
  * this after every entry, so it's three trips to the database: the activity (with the admin's session), the entry (and
  * a pageant's program) together, then the change.
  */
-export async function setCurrentEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
+export const setCurrentEntry = traced("setCurrentEntry", async function setCurrentEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
   const { activity } = managed;
@@ -936,7 +979,7 @@ export async function setCurrentEntry(activityId: string, entryId: string | null
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   changed(activity.publicId);
   return ok();
-}
+});
 
 // Judge devices -----------------------------------------------------------------------
 
@@ -950,7 +993,7 @@ async function managedDevice(deviceId: string): Promise<{ judgeId: string } | nu
 }
 
 /** Let this device score for its judge. Every other device of that judge is signed out, so only one can record scores. */
-export async function approveDevice(deviceId: string): Promise<ActionResult> {
+export const approveDevice = traced("approveDevice", async function approveDevice(deviceId: string): Promise<ActionResult> {
   const device = await managedDevice(deviceId);
   if (!device) return err("That device request is gone. The judge may have signed in again.");
   const now = new Date().toISOString();
@@ -966,10 +1009,10 @@ export async function approveDevice(deviceId: string): Promise<ActionResult> {
   await touchJudge(device.judgeId);
   changed();
   return ok("Device approved.");
-}
+});
 
 /** Turn a request away, or sign out an approved device. The judge can ask for approval again. */
-export async function revokeDevice(deviceId: string): Promise<ActionResult> {
+export const revokeDevice = traced("revokeDevice", async function revokeDevice(deviceId: string): Promise<ActionResult> {
   const device = await managedDevice(deviceId);
   if (!device) return err("That device request is gone.");
   const { error } = await db().from("judge_devices").update({ status: "revoked", decided_at: new Date().toISOString() }).eq("id", deviceId);
@@ -977,7 +1020,7 @@ export async function revokeDevice(deviceId: string): Promise<ActionResult> {
   await touchJudge(device.judgeId);
   changed();
   return ok();
-}
+});
 
 // LED wall ----------------------------------------------------------------------
 
@@ -987,7 +1030,7 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
  * Full screen or green screen overlay, whether scores wait until every judge has scored, whether judges stay
  * anonymous, and the wall's look: font, colour theme and corners.
  */
-export async function setLedOptions(
+export const setLedOptions = traced("setLedOptions", async function setLedOptions(
   activityId: string,
   options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
 ): Promise<ActionResult> {
@@ -1011,11 +1054,11 @@ export async function setLedOptions(
   if (error) return /led_(fullscreen|hold_scores)/.test(error.message) ? needsMigration(MIGRATION_HINT) : dbErr(error);
   changed();
   return ok();
-}
+});
 
 // Judges ----------------------------------------------------------------------
 
-export async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const addJudge = traced("addJudge", async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   const judgeName = readJudgeName(formData, "", "the judge");
@@ -1041,9 +1084,9 @@ export async function addJudge(activityId: string, _prev: FormResult, formData: 
   }
   changed();
   return ok(`${judgeName.name} added.`);
-}
+});
 
-export async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const renameJudge = traced("renameJudge", async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
@@ -1053,10 +1096,10 @@ export async function renameJudge(judgeId: string, _prev: FormResult, formData: 
   if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   changed();
   return ok("Saved.");
-}
+});
 
 /** Pageants: which segments a judge judges. Only before the session starts, like the rest of the panel. */
-export async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise<ActionResult> {
+export const setJudgePanel = traced("setJudgePanel", async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
@@ -1067,9 +1110,9 @@ export async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise
   if (error) return /panel/.test(error.message) ? needsMigration(PANELS_HINT) : dbErr(error);
   changed();
   return ok(panel === "preliminary" ? "Judges the preliminary only." : panel === "proper" ? "Judges pageant proper only." : "Judges both segments.");
-}
+});
 
-export async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
+export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
@@ -1082,15 +1125,15 @@ export async function setJudgePhoto(judgeId: string, formData: FormData): Promis
   if (photo) path = await uploadPhoto(activityId, judgeId, photo);
   const { error } = await db().from("judges").update({ photo_path: path }).eq("id", judgeId);
   if (error) {
-    await removeFiles([path]);
+    removeFiles([path]);
     return dbErr(error);
   }
-  await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
+  removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   changed();
   return ok();
-}
+});
 
-export async function removeJudge(judgeId: string): Promise<ActionResult> {
+export const removeJudge = traced("removeJudge", async function removeJudge(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
@@ -1101,14 +1144,14 @@ export async function removeJudge(judgeId: string): Promise<ActionResult> {
   }
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return dbErr(error);
-  await removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
+  removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   changed();
   return ok();
-}
+});
 
 // Entries ---------------------------------------------------------------------
 
-export async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const addEntries = traced("addEntries", async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const names = entryNames(formData.get("names"));
@@ -1124,9 +1167,9 @@ export async function addEntries(activityId: string, _prev: FormResult, formData
   if (error) return dbErr(error);
   changed();
   return ok(names.length === 1 ? `${names[0]} added.` : `${names.length} entries added.`);
-}
+});
 
-export async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const renameEntry = traced("renameEntry", async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
@@ -1136,27 +1179,57 @@ export async function renameEntry(entryId: string, _prev: FormResult, formData: 
   if (error) return dbErr(error);
   changed();
   return ok("Saved.");
-}
+});
 
 /** An entry's photo for the LED wall, or null to remove it. Allowed at any time, even mid-session. */
-export async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
+export const setEntryPhoto = traced("setEntryPhoto", async function setEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const result = await storeEntryPhoto(entryId, formData);
   if (result.ok) changed();
   return result;
-}
+});
 
 /**
- * A candidate's photo from the pageant setup, sent one at a time just after the pageant is created. Nothing to
- * refresh: the setup goes on to the pageant's page once they're all up.
+ * Candidates' photos from the pageant setup, sent a few at a time just after the pageant is created (photoBatches):
+ * the pageant is checked once for them all, and they go up together. The form sends `entry` and `photo` in pairs.
+ * `missed`: the entries whose photo didn't go up, for the setup to name. Nothing to refresh: the setup goes on to the
+ * pageant's page once they're all sent.
  */
-export async function addCandidatePhoto(entryId: string, formData: FormData): Promise<ActionResult> {
-  return storeEntryPhoto(entryId, formData);
-}
+export const addCandidatePhotos = traced("addCandidatePhotos", async function addCandidatePhotos(activityId: string, formData: FormData): Promise<ActionResult & { missed?: string[] }> {
+  const managed = await manageActivity(activityId);
+  if (!managed) return err("Pageant not found.");
+  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
+  const entryIds = formData.getAll("entry").map(String);
+  const files = formData.getAll("photo");
+  if (!entryIds.length || entryIds.length !== files.length || entryIds.length > PHOTOS_PER_REQUEST || !entryIds.every(isUuid)) {
+    return err("Those photos weren't sent correctly. Add them on the Candidates tab.");
+  }
+
+  // Only this pageant's candidates, with the photo each had (none, on a new pageant).
+  const { data, error } = await db().from("entries").select("id, photo_path").eq("activity_id", activityId).in("id", entryIds);
+  if (error) return /photo_path/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
+  const before = new Map((data as { id: string; photo_path: string | null }[]).map((e) => [e.id, e.photo_path]));
+  const sent = await Promise.allSettled(
+    entryIds.map(async (entryId, i) => {
+      const photo = await photoFile(files[i]);
+      if (!before.has(entryId) || !photo || photo === "invalid") throw new Error("Not a photo for this pageant");
+      const path = await uploadPhoto(activityId, entryId, photo);
+      const { error } = await db().from("entries").update({ photo_path: path }).eq("id", entryId);
+      if (error) {
+        removeFiles([path]);
+        throw new Error(error.message);
+      }
+      removeFiles([before.get(entryId)]);
+    }),
+  );
+  return { ok: true, missed: entryIds.filter((_, i) => sent[i].status === "rejected") };
+});
 
 async function storeEntryPhoto(entryId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
-  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
+  // The check reads the activity, session state and all.
+  const managed = await manageActivity(activityId);
+  if (!activityId || !managed) return err("Entry not found.");
+  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
   const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
@@ -1166,14 +1239,14 @@ async function storeEntryPhoto(entryId: string, formData: FormData): Promise<Act
   if (photo) path = await uploadPhoto(activityId, entryId, photo);
   const { error } = await db().from("entries").update({ photo_path: path }).eq("id", entryId);
   if (error) {
-    await removeFiles([path]);
+    removeFiles([path]);
     return /photo_path/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
   }
-  await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
+  removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   return ok();
 }
 
-export async function removeEntry(entryId: string): Promise<ActionResult> {
+export const removeEntry = traced("removeEntry", async function removeEntry(entryId: string): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
   const { state } = await sessionOf(activityId);
@@ -1185,12 +1258,12 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
   const { data: entry } = await db().from("entries").select("*").eq("id", entryId).maybeSingle();
   const { error } = await db().from("entries").delete().eq("id", entryId);
   if (error) return dbErr(error);
-  await removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
+  removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   changed();
   return ok();
-}
+});
 
-export async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
+export const moveEntry = traced("moveEntry", async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
   if (direction !== -1 && direction !== 1) return err("Move an entry up or down one place.");
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
@@ -1219,12 +1292,12 @@ export async function moveEntry(entryId: string, direction: -1 | 1): Promise<Act
   );
   changed();
   return ok();
-}
+});
 
 // Developer -------------------------------------------------------------------
 
 /** Developer tool for rehearsals: refused on the live site and on previews (see testToolsAllowed). */
-export async function resetScores(activityId: string): Promise<ActionResult> {
+export const resetScores = traced("resetScores", async function resetScores(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if (!testToolsAllowed()) return err("Resetting scores is only available on a test site.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
@@ -1250,16 +1323,16 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   }
   changed();
   return ok("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
-}
+});
 
-export async function deleteActivity(activityId: string): Promise<ActionResult> {
+export const deleteActivity = traced("deleteActivity", async function deleteActivity(activityId: string): Promise<ActionResult> {
   // An archived activity can still be deleted: it's the one change it allows.
   if (!(await manage(activityId, { archived: true }))) return NOT_FOUND;
   // Not mid-show: the Settings tab hides the button while live or deliberating, and this holds even if a stale page still shows it.
   const { data: live } = await db().from("activities").select("id").eq("id", activityId).in("session_state", ["live", "deliberation"]).maybeSingle();
   if (live) return err("The session is running. End it on the Session tab before deleting the activity.");
   return removeActivity(activityId);
-}
+});
 
 const ARCHIVE_HINT = "Archiving needs a database update. Run supabase/migrations/020_session_end_and_archive.sql in the Supabase SQL editor.";
 
@@ -1268,7 +1341,7 @@ const ARCHIVE_HINT = "Archiving needs a database update. Run supabase/migrations
  * from then on can't be reopened or changed, only read (its results and score sheets still download) and deleted.
  * The database holds the same rules (migration 020).
  */
-export async function archiveActivity(activityId: string): Promise<ActionResult> {
+export const archiveActivity = traced("archiveActivity", async function archiveActivity(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.sessionState !== "ended") return err("Only an activity whose session has ended can be archived.");
@@ -1285,21 +1358,21 @@ export async function archiveActivity(activityId: string): Promise<ActionResult>
   if (error) return /archived_at/.test(error.message) ? needsMigration(ARCHIVE_HINT) : dbErr(error);
   changed();
   return ok(`${activity.name} is archived. Find it under Archived activities.`);
-}
+});
 
 /** Developer tool for rehearsals: delete the activity at any time, even mid-session. Refused on the live site and on previews. */
-export async function deleteActivityNow(activityId: string): Promise<ActionResult> {
+export const deleteActivityNow = traced("deleteActivityNow", async function deleteActivityNow(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   if (!testToolsAllowed()) return err("Deleting an activity mid-session is only available on a test site. End the session, then delete it from Settings.");
   return removeActivity(activityId);
-}
+});
 
 /** Delete an activity with everything in it (judges, entries, scores, sub-activities) and its photos. */
 async function removeActivity(activityId: string): Promise<ActionResult> {
-  const { data: files } = await db().storage.from(PHOTO_BUCKET).list(activityId, { limit: 1000 });
   const { error } = await db().from("activities").delete().eq("id", activityId);
   if (error) return dbErr(error);
-  await removeFiles((files ?? []).map((f) => `${activityId}/${f.name}`));
+  // Its photos go once the response has been sent.
+  after(() => removeActivityPhotos([activityId]));
   // Its live results page goes too, rather than showing the cached board until it expires.
   changed();
   redirect("/admin");
@@ -1322,7 +1395,7 @@ function ownDrafts<Q extends { eq: (column: string, value: string) => Q; is: (co
  * Save the create form as a draft: a new one, or over `draftId`. `data` is the form's own state as JSON; only its
  * owner can read it back. A draft that has gone (deleted elsewhere) is saved as a new one.
  */
-export async function saveDraft(draftId: string | null, kind: "event" | "pageant", name: string, data: string): Promise<DraftResult> {
+export const saveDraft = traced("saveDraft", async function saveDraft(draftId: string | null, kind: "event" | "pageant", name: string, data: string): Promise<DraftResult> {
   const session = await requireAdmin();
   if (kind !== "event" && kind !== "pageant") return { ok: false, error: "That draft couldn't be read. Try again." };
   if (kind === "pageant" && !pageantsAvailable()) return { ok: false, error: PAGEANTS_SOON };
@@ -1349,14 +1422,14 @@ export async function saveDraft(draftId: string | null, kind: "event" | "pageant
   const { data: created, error } = await db().from("activity_drafts").insert({ ...row, owner_id }).select("id").single();
   if (error) return failed(error);
   return { ok: true, id: (created as { id: string }).id, savedAt: row.updated_at };
-}
+});
 
 /** Delete one of the signed-in admin's drafts. */
-export async function deleteDraft(draftId: string): Promise<ActionResult> {
+export const deleteDraft = traced("deleteDraft", async function deleteDraft(draftId: string): Promise<ActionResult> {
   const session = await requireAdmin();
   if (!isUuid(draftId)) return err("Draft not found.");
   const { error } = await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
   if (error) return dbErr(error);
   changed();
   return ok("Draft deleted.");
-}
+});

@@ -6,9 +6,9 @@ export const JUDGE_COOKIE = "ls_judge";
 
 /**
  * sub: "super", an organizer's id, or a judge's id. pv: the password version (the organizer's, or the super admin's).
- * dev: the judge's device.
+ * dev: the judge's device. sid: an admin session's row in admin_sessions, which signing out deletes.
  */
-export type SessionPayload = { role: "admin" | "judge"; sub: string; pv?: string; dev?: string; exp: number };
+export type SessionPayload = { role: "admin" | "judge"; sub: string; pv?: string; dev?: string; sid?: string; exp: number };
 
 function secret(): string {
   const value = process.env.SESSION_SECRET;

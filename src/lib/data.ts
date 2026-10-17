@@ -5,6 +5,7 @@ import { cache } from "react";
 import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
+import { readAll } from "./read-all";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
@@ -256,34 +257,57 @@ export type OrganizerActivityStatus = {
   createdAt: string;
 };
 
+/** How many of organizers' activities the super admin's list shows at a time. */
+export const ORGANIZER_ACTIVITIES_PAGE = 50;
+
+/** A row's created_at as the database writes it, which a page of the list starts after. */
+const isTimestamp = (value: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:\d{2})?)$/.test(value);
+
 /**
- * Every organizer's activity for the super admin's list: its name, who runs it, whether judging has started
- * and how many scores are in. Only these columns and counts are read; judges, entries and scores stay private.
+ * Organizers' activities for the super admin's list: its name, who runs it, whether judging has started and how many
+ * scores are in. Only these columns and counts are read; judges, entries and scores stay private.
+ *
+ * Every live one, then the rest newest first, a page at a time: those created before `before` (the last one on the page
+ * before), or the newest. `older` is where the next page starts, if there is one. A page is read along an index in this
+ * order (migration 023), so the counts are read for its activities alone, however many there are.
  */
-export async function listOrganizerActivities(): Promise<OrganizerActivityStatus[]> {
+export async function listOrganizerActivities(
+  before?: string,
+): Promise<{ live: OrganizerActivityStatus[]; activities: OrganizerActivityStatus[]; older: string | null }> {
   await connection();
+  const after = before && isTimestamp(before) ? before : undefined;
   const counts =
     "session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
-  const query = (columns: string) => db().from("activities").select(columns).not("owner_id", "is", null).order("created_at", { ascending: false });
-  // With the activity's kind when the database has it (migration 011), so a pageant isn't counted like an event.
-  let { data, error } = await query(`id, name, kind, ${counts}`);
-  if (error && /kind/.test(error.message)) ({ data, error } = await query(`id, name, ${counts}`));
-  fail(error);
   type Row = { id: string; name: string; kind?: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
     "judges" | "entries" | "scores",
     { count: number }[]
   >;
-  return (data as unknown as Row[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    kind: row.kind === "pageant" ? "pageant" : "event",
-    organizer: row.owner?.name ?? "",
-    sessionState: toSessionState(row.session_state),
-    judgeCount: row.judges[0]?.count ?? 0,
-    entryCount: row.entries[0]?.count ?? 0,
-    scoreCount: row.scores[0]?.count ?? 0,
-    createdAt: row.created_at,
-  }));
+  const read = async (live: boolean): Promise<OrganizerActivityStatus[]> => {
+    const query = (columns: string) => {
+      const list = db().from("activities").select(columns).not("owner_id", "is", null).order("created_at", { ascending: false });
+      if (live) return list.eq("session_state", "live");
+      return (after ? list.lt("created_at", after) : list).neq("session_state", "live").limit(ORGANIZER_ACTIVITIES_PAGE + 1);
+    };
+    // With the activity's kind when the database has it (migration 011), so a pageant isn't counted like an event.
+    let { data, error } = await query(`id, name, kind, ${counts}`);
+    if (error && /kind/.test(error.message)) ({ data, error } = await query(`id, name, ${counts}`));
+    fail(error);
+    return (data as unknown as Row[]).map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind === "pageant" ? "pageant" : "event",
+      organizer: row.owner?.name ?? "",
+      sessionState: toSessionState(row.session_state),
+      judgeCount: row.judges[0]?.count ?? 0,
+      entryCount: row.entries[0]?.count ?? 0,
+      scoreCount: row.scores[0]?.count ?? 0,
+      createdAt: row.created_at,
+    }));
+  };
+  // Live ones lead the first page only.
+  const [live, page] = await Promise.all([after ? [] : read(true), read(false)]);
+  const activities = page.slice(0, ORGANIZER_ACTIVITIES_PAGE);
+  return { live, activities, older: page.length > ORGANIZER_ACTIVITIES_PAGE ? activities.at(-1)!.createdAt : null };
 }
 
 // Organizer accounts -------------------------------------------------------------
@@ -353,7 +377,8 @@ function boardRows(activityId: string) {
     // "*" so judges, entries and scores load on databases without the newer columns (migrations 007, 008 and 011).
     db().from("judges").select("*").eq("activity_id", activityId).order("position").order("created_at"),
     db().from("entries").select("*").eq("activity_id", activityId).order("position").order("created_at"),
-    db().from("scores").select("*").eq("activity_id", activityId),
+    // A big pageant has more scores than one read returns: they come a page at a time, oldest first.
+    readAll((from, to) => db().from("scores").select("*", { count: "exact" }).eq("activity_id", activityId).order("created_at").order("id").range(from, to)),
     db().from("rounds").select("*").eq("activity_id", activityId).order("position").order("created_at"),
   ]).then(([judges, entries, scores, rounds]) => ({ judges, entries, scores, rounds }));
 }
@@ -405,10 +430,15 @@ export const getAdminBoard = cache(async (id: string): Promise<Board | null> => 
  */
 export async function withBreakdowns(board: Board): Promise<Board> {
   const pageant = board.activity.kind === "pageant";
-  const { data, error } = await db()
-    .from("scores")
-    .select(pageant ? "entry_id, judge_id, round_id, breakdown" : "entry_id, judge_id, breakdown")
-    .eq("activity_id", board.activity.id);
+  const { data, error } = await readAll((from, to) =>
+    db()
+      .from("scores")
+      .select(pageant ? "entry_id, judge_id, round_id, breakdown" : "entry_id, judge_id, breakdown", { count: "exact" })
+      .eq("activity_id", board.activity.id)
+      .order("created_at")
+      .order("id")
+      .range(from, to),
+  );
   fail(error);
   const key = (entryId: string, judgeId: string, roundId: string | null | undefined) => `${entryId}|${judgeId}|${roundId ?? ""}`;
   const points = new Map<string, Record<string, number>>();
@@ -435,9 +465,20 @@ export async function getJudgeNotes(judgeId: string): Promise<Record<string, str
 
 /** Every judge's notes on an activity, for the organizer: null before migration 018. */
 export async function getActivityNotes(activityId: string): Promise<JudgeNote[] | null> {
-  const { data, error } = await db().from("judge_notes").select("judge_id, entry_id, body, updated_at").eq("activity_id", activityId).order("updated_at");
+  // A page at a time in the order of their key, which an edit doesn't move, then oldest edit first.
+  const { data, error } = await readAll((from, to) =>
+    db()
+      .from("judge_notes")
+      .select("judge_id, entry_id, body, updated_at", { count: "exact" })
+      .eq("activity_id", activityId)
+      .order("judge_id")
+      .order("entry_id")
+      .range(from, to),
+  );
   if (error) return null;
-  return (data as NoteRow[]).map((r) => ({ judgeId: r.judge_id, entryId: r.entry_id, body: r.body, updatedAt: r.updated_at }));
+  return (data as NoteRow[])
+    .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
+    .map((r) => ({ judgeId: r.judge_id, entryId: r.entry_id, body: r.body, updatedAt: r.updated_at }));
 }
 
 type CorrectionRow = {
@@ -560,16 +601,45 @@ export const getPublicBoard = cache(async (publicId: string): Promise<Board | nu
   return isPublicId(publicId) ? loadPublicBoard(publicId, { led: true }) : null;
 });
 
+/** The activity behind a public link. A link never changes activity, so it's cached for a long while (null: none). */
+const activityIdFor = (publicId: string) =>
+  unstable_cache(
+    async () => {
+      const { data, error } = await db().from("activities").select("id").eq("public_id", publicId).maybeSingle();
+      fail(error);
+      return (data as { id: string } | null)?.id ?? null;
+    },
+    ["public-activity", publicId],
+    { revalidate: 3600 },
+  )();
+
+/**
+ * When the activity behind a public link last changed (activity_changes, kept up to date by triggers on everything that
+ * shows), or "none" before its first change. One row, read by its key.
+ */
+async function liveBoardVersion(publicId: string): Promise<string> {
+  const activityId = await activityIdFor(publicId);
+  if (!activityId) return "none";
+  const { data } = await db().from("activity_changes").select("changed_at").eq("activity_id", activityId).maybeSingle();
+  return (data as { changed_at: string } | null)?.changed_at ?? "none";
+}
+
 /**
  * The public live results, cached and shared by everyone watching: a crowd of phones refreshing after a score costs
- * one database read, not one each. Every action that changes an activity clears its own (changed() in live-cache.ts),
- * so a refresh after a change reads it fresh, and other activities keep theirs; it also expires on its own after 15
- * seconds.
+ * one database read, not one each. The cache is keyed by when the activity last changed, so a page asked for after a
+ * change only ever comes from an entry made after it: never the board from before, even when the change reached the
+ * database before its action cleared the cache (an action that writes several times, or a slow reply), when a phone
+ * that noticed the change in between would otherwise have kept the old board until the next change. Each action also
+ * clears its activity's entries (changed() in live-cache.ts), and an entry expires on its own after 15 seconds.
  */
 export const getLiveBoard = cache(async (publicId: string): Promise<Board | null> => {
   await connection();
   if (!isPublicId(publicId)) return null;
-  return unstable_cache(() => loadPublicBoard(publicId), ["live-board", publicId], { tags: [LIVE_BOARD_TAG, liveBoardTag(publicId)], revalidate: 15 })();
+  const version = await liveBoardVersion(publicId);
+  return unstable_cache(() => loadPublicBoard(publicId), ["live-board", publicId, version], {
+    tags: [LIVE_BOARD_TAG, liveBoardTag(publicId)],
+    revalidate: 15,
+  })();
 });
 
 /** A pageant's sub-activities, in the order they were saved. Empty when there are none (or before migration 011). */

@@ -1,7 +1,11 @@
 "use client";
 
+import { unstable_rethrow } from "next/navigation";
 import { useActionState, useRef, useState, useTransition, type FormEvent } from "react";
 import { parseScoringDraft, type ScoringDraft } from "@/lib/pageant-setup";
+import { UNREACHABLE } from "@/lib/reach";
+import { reportProblem } from "@/lib/report-problem";
+import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
@@ -29,8 +33,20 @@ function opened(data: unknown) {
 }
 
 export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: DraftHostProps) {
-  const [state, dispatch] = useActionState<FormResult, FormData>(createActivity, null);
+  const [state, dispatch] = useActionState<FormResult, FormData>(async (previous, data) => {
+    try {
+      return await createActivity(previous, data);
+    } catch (error) {
+      // Going to the new activity arrives as a thrown signal: it carries on.
+      unstable_rethrow(error);
+      reportProblem("action_unreachable");
+      // The request was lost: the form stays as it is, to send again (as the same activity, see requestId).
+      return UNREACHABLE;
+    }
+  }, null);
   const [pending, startTransition] = useTransition();
+  // This form's id for creating its activity (see newRequestId).
+  const [requestId] = useState(newRequestId);
   const [start] = useState(() => opened(openedDraft?.data));
   const [name, setName] = useState(start.name);
   const [scoring, setScoring] = useState<ScoringDraft>(start.scoring);
@@ -79,6 +95,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     });
     // Creating the activity clears the draft it came from.
     if (draft.draftId) data.set("draftId", draft.draftId);
+    // The same id each time this form is sent, so a second send after a lost reply doesn't make a second activity.
+    data.set("requestId", requestId);
     startTransition(() => dispatch(data));
   };
 

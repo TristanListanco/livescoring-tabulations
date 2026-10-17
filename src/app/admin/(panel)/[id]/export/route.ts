@@ -2,10 +2,13 @@ import { correctionView, type Correction, type CorrectionView } from "@/lib/corr
 import { getActivityNotes, getAdmin, getAdminBoard, getCorrections, getSignatories, getSignatures, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
-import { renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, renderStandingsPdf, type ReportOrganizer, type StandingsSheet } from "@/lib/results-pdf";
+// Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
+import { pdfDrawnOn, renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, renderStandingsPdf } from "@/lib/pdf";
+import type { ReportOrganizer, StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
 import { PRELIMINARY, type Board, type Deduction, type Round } from "@/lib/types";
+import { traced } from "@/lib/observe";
 
 function slug(name: string): string {
   return name
@@ -47,6 +50,8 @@ function pdfResponse(pdf: Buffer, name: string): Response {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${name}"`,
       "Cache-Control": "no-store",
+      // Where it was drawn, for a browser's developer tools and the tests: on the worker, as it should be.
+      "Server-Timing": `pdf;desc=${pdfDrawnOn()}`,
     },
   });
 }
@@ -187,7 +192,7 @@ async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer 
  * Results sheet as a PDF, or with ?sheet=judges each judge's score sheet. Only once every judge has scored every
  * entry (for a pageant, see pageantPdf). ?sheet=notes: the judges' notes, a PDF of their own, at any time.
  */
-export async function GET(request: Request, { params }: RouteContext<"/admin/[id]/export">) {
+export const GET = traced("GET /admin/[id]/export", async function GET(request: Request, { params }: RouteContext<"/admin/[id]/export">) {
   const session = await currentAdmin();
   if (!session) return new Response("Sign in to the admin panel first.", { status: 401 });
 
@@ -233,4 +238,4 @@ export async function GET(request: Request, { params }: RouteContext<"/admin/[id
     return pdfResponse(pdf, sheetsName(board.activity.name));
   }
   return pdfResponse(await renderResultsPdf(board, { ...options, corrections: appliedTo(board, corrections, null) }), fileName(board.activity.name));
-}
+});

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { reportProblem } from "@/lib/report-problem";
 
 /**
  * The admin's safety net. If a screen fails (a request lost on venue Wi-Fi, a database hiccup), the header
@@ -10,6 +11,8 @@ import { useEffect } from "react";
 export default function AdminError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
     console.error(error);
+    // The digest leads to the server's own line about it (see instrumentation.ts).
+    reportProblem("screen_error", error.digest);
   }, [error]);
 
   return (

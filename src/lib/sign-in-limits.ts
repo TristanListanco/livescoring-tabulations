@@ -1,5 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { db } from "./supabase/server";
 
 /**
@@ -43,7 +44,9 @@ export async function recordFailure(keys: string[]): Promise<void> {
     .from("sign_in_failures")
     .insert(keys.map((key) => ({ key: key.slice(0, 300) })));
   if (error) return;
-  await db().from("sign_in_failures").delete().lt("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());
+  after(async () => {
+    await db().from("sign_in_failures").delete().lt("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());
+  });
 }
 
 export const TOO_MANY = "Too many tries. Wait 15 minutes, then try again.";

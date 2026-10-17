@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
+import { ACTION_TIMEOUT_MS } from "@/components/request-guard";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { LiveStatusBadge } from "@/components/live-status";
@@ -9,9 +10,10 @@ import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
+import { reportProblem } from "@/lib/report-problem";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
 import { cleanSignature, MAX_SIGNATURE_LENGTH, SIGNATURE_BOX } from "@/lib/deliberation";
-import type { Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
+import type { ActionResult, Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
@@ -69,6 +71,8 @@ export type Deliberation = {
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const NETWORK_ERROR = "The score didn't save. Check your connection and try again.";
+/** Waits before sending a score again after it didn't reach the server. */
+const RESEND_DELAYS_MS = [1_500, 4_000];
 /** Error red that stays readable on the navy panels. */
 const ERROR_TEXT = "text-danger-soft";
 const ERROR_RING = "ring-3 ring-danger-soft";
@@ -195,7 +199,19 @@ export function ScoringPanel({
   const [failed, setFailed] = useState<{ entry: Entry; error: string } | null>(null);
   const send = useEffectEvent(async (score: PendingScore) => {
     setPending({ ...score, sending: true });
-    const result = await submitScore(score.entry.id, score.typed).catch(() => ({ ok: false as const, error: NETWORK_ERROR }));
+    // A score that didn't reach the server goes again, a little later each time, before the judge is asked: the server
+    // knows a score sent twice. Not after one that waited out its whole time limit: the judge would wait too long.
+    let result: ActionResult | null = null;
+    for (let attempt = 0; !result; attempt++) {
+      const started = Date.now();
+      result = await submitScore(score.entry.id, score.typed).catch(() => null);
+      if (result || attempt >= RESEND_DELAYS_MS.length || Date.now() - started >= ACTION_TIMEOUT_MS - 1_000) break;
+      await new Promise((resolve) => setTimeout(resolve, RESEND_DELAYS_MS[attempt] * (0.8 + Math.random() * 0.4)));
+    }
+    if (!result) {
+      reportProblem("score_unreachable");
+      result = { ok: false, error: NETWORK_ERROR };
+    }
     setPending(null);
     if (result.ok) onSaved(score.entry, score.value, score.typed);
     else setFailed({ entry: score.entry, error: result.error });

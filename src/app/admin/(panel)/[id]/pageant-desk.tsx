@@ -20,6 +20,7 @@ import {
 } from "@/lib/pageant";
 import { MAX_REASON, segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
+import { newRequestId } from "@/lib/request-id";
 import { formatBound } from "@/lib/scoring";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
@@ -358,6 +359,8 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
   const [points, setPoints] = useState("");
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
+  // This deduction's id: sent again after a lost reply, it isn't given twice. A new one once it's in.
+  const [deductionId, setDeductionId] = useState(newRequestId);
 
   // Rendered only while open, so it opens once, on mount.
   useEffect(() => {
@@ -366,10 +369,11 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
 
   const add = () =>
     start(async () => {
-      const r = await reach(() => addDeduction(activity.id, entryId, choice === "other" ? null : choice, reason, points));
+      const r = await reach(() => addDeduction(activity.id, entryId, choice === "other" ? null : choice, reason, points, deductionId));
       setResult(r);
       // Ready for the next one; the candidate is chosen again, so the same deduction isn't given twice by accident.
       if (r.ok) {
+        setDeductionId(newRequestId());
         setEntryId("");
         setReason("");
         setPoints("");

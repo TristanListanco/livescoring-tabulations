@@ -2,22 +2,26 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { isUuid, newFileTag } from "@/lib/codes";
 import { hashPassword } from "@/lib/password";
 import { passwordProblem } from "@/lib/password-rules";
 import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
-import { requireAdmin, requireSuperAdmin } from "@/lib/session";
-import { db, ORGANIZER_BUCKET, PHOTO_BUCKET } from "@/lib/supabase/server";
+import { removeActivityPhotos } from "@/lib/photo-storage";
+import { endOtherAdminSessions, requireAdmin, requireSuperAdmin } from "@/lib/session";
+import { db, ORGANIZER_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Signatory } from "@/lib/types";
 import type { FormResult } from "./actions";
+import { traced } from "@/lib/observe";
+import { log } from "@/lib/log";
 
 // Organizer accounts. Only the super admin can create, change or delete them.
 
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
 /** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
-const dbErr = (error: { message: string }): ActionResult => {
-  console.error(error);
+const dbErr = (error: { message: string; code?: string }): ActionResult => {
+  log("error", "db_failed", { code: error.code, error: error.message });
   return err("That didn't save. Check the connection and try again.");
 };
 
@@ -46,13 +50,17 @@ async function uploadOrganizerPhoto(adminId: string, photo: Photo): Promise<stri
   return path;
 }
 
-async function removeOrganizerPhoto(path: string | null | undefined) {
-  if (path) await db().storage.from(ORGANIZER_BUCKET).remove([path]);
+/** A photo no longer used goes once the response has been sent. */
+function removeOrganizerPhoto(path: string | null | undefined) {
+  if (!path) return;
+  after(async () => {
+    await db().storage.from(ORGANIZER_BUCKET).remove([path]);
+  });
 }
 
 const duplicateEmail = (e: { code?: string } | null) => e?.code === "23505";
 
-export async function createOrganizer(_prev: FormResult, formData: FormData): Promise<FormResult> {
+export const createOrganizer = traced("createOrganizer", async function createOrganizer(_prev: FormResult, formData: FormData): Promise<FormResult> {
   await requireSuperAdmin();
   const profile = readProfile(formData);
   if ("error" in profile) return err(profile.error);
@@ -79,9 +87,9 @@ export async function createOrganizer(_prev: FormResult, formData: FormData): Pr
     }
   }
   redirect("/admin/organizers");
-}
+});
 
-export async function updateOrganizer(adminId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+export const updateOrganizer = traced("updateOrganizer", async function updateOrganizer(adminId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   await requireSuperAdmin();
   if (!isUuid(adminId)) return err("Organizer not found.");
   const profile = readProfile(formData);
@@ -95,11 +103,25 @@ export async function updateOrganizer(adminId: string, _prev: FormResult, formDa
   if (duplicateEmail(error)) return err("Another organizer already uses that email.");
   if (error) return dbErr(error);
   if (!count) return err("Organizer not found.");
+  // A new password signs them out everywhere (their sessions carry the old one); their session rows go too.
+  if (password) await db().from("admin_sessions").delete().eq("admin_id", adminId);
   refresh();
   return ok(password ? "Saved. The new password signs them out on their other devices." : "Saved.");
-}
+});
 
-export async function setOrganizerPhoto(adminId: string, formData: FormData): Promise<ActionResult> {
+/**
+ * Sign your own account out of another browser (`sessionId`, from the list on your profile), or of every other one
+ * (null). It ends there at once, wherever that browser is: its next click goes to the sign-in page.
+ */
+export const signOutOtherDevices = traced("signOutOtherDevices", async function signOutOtherDevices(sessionId: string | null): Promise<ActionResult> {
+  const session = await requireAdmin();
+  if (sessionId !== null && typeof sessionId !== "string") return err("That device isn't signed in.");
+  if (!(await endOtherAdminSessions(session, sessionId ?? undefined))) return err("That didn't go through. Try again.");
+  refresh();
+  return ok(sessionId ? "That device is signed out." : "Every other device is signed out.");
+});
+
+export const setOrganizerPhoto = traced("setOrganizerPhoto", async function setOrganizerPhoto(adminId: string, formData: FormData): Promise<ActionResult> {
   await requireSuperAdmin();
   if (!isUuid(adminId)) return err("Organizer not found.");
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
@@ -110,20 +132,20 @@ export async function setOrganizerPhoto(adminId: string, formData: FormData): Pr
   const path = photo ? await uploadOrganizerPhoto(adminId, photo) : null;
   const { error } = await db().from("admins").update({ photo_path: path, updated_at: new Date().toISOString() }).eq("id", adminId);
   if (error) {
-    await removeOrganizerPhoto(path);
+    removeOrganizerPhoto(path);
     return dbErr(error);
   }
-  await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
+  removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
   refresh();
   return ok();
-}
+});
 
 /** Deletes the account. Their activities stay, and only the super admin can manage them afterwards. */
 /**
  * Delete an organizer and their activities. Their activities are private to them, so they are deleted
  * rather than handed to the super admin.
  */
-export async function deleteOrganizer(adminId: string): Promise<ActionResult> {
+export const deleteOrganizer = traced("deleteOrganizer", async function deleteOrganizer(adminId: string): Promise<ActionResult> {
   await requireSuperAdmin();
   if (!isUuid(adminId)) return err("Organizer not found.");
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
@@ -132,23 +154,18 @@ export async function deleteOrganizer(adminId: string): Promise<ActionResult> {
   const { data: owned, error: listError } = await db().from("activities").select("id").eq("owner_id", adminId);
   if (listError) return err(listError.message);
   const activityIds = (owned as { id: string }[]).map((a) => a.id);
-  const photos: string[] = [];
-  for (const id of activityIds) {
-    const { data: files } = await db().storage.from(PHOTO_BUCKET).list(id, { limit: 1000 });
-    photos.push(...(files ?? []).map((f) => `${id}/${f.name}`));
-  }
   if (activityIds.length) {
-    // Judges, entries, scores and devices go with their activity.
+    // Judges, entries, scores and devices go with their activity; their photos once the response has been sent.
     const { error: deleteError } = await db().from("activities").delete().in("id", activityIds);
     if (deleteError) return err(deleteError.message);
-    if (photos.length) await db().storage.from(PHOTO_BUCKET).remove(photos);
+    after(() => removeActivityPhotos(activityIds));
   }
 
   const { error } = await db().from("admins").delete().eq("id", adminId);
   if (error) return dbErr(error);
-  await removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
+  removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
   redirect("/admin/organizers");
-}
+});
 
 // Report signatories ------------------------------------------------------------------
 
@@ -158,7 +175,7 @@ const MAX_SIGNATORIES = 12;
  * Names and designations printed as signature lines on an organizer's results PDFs. The super admin can
  * edit any organizer's; an organizer can edit their own (adminId null).
  */
-export async function saveSignatories(adminId: string | null, signatories: Signatory[]): Promise<ActionResult> {
+export const saveSignatories = traced("saveSignatories", async function saveSignatories(adminId: string | null, signatories: Signatory[]): Promise<ActionResult> {
   const session = await requireAdmin();
   const target = adminId ?? (session.kind === "organizer" ? session.admin.id : null);
   if (!target || !isUuid(target)) return err("Organizer not found.");
@@ -179,9 +196,9 @@ export async function saveSignatories(adminId: string | null, signatories: Signa
     // The super admin can run the migration; an organizer is told who can.
     const hint = "Signatories need a database update. Run supabase/migrations/006_devices_criteria_signatories.sql.";
     if (session.kind === "super") return err(hint);
-    console.error(hint);
+    log("error", "needs_migration", { hint });
     return err("This needs a database update. Ask your LiveScoring administrator to apply it, then try again.");
   }
   refresh();
   return ok(clean.length ? `Saved. ${clean.length} ${clean.length === 1 ? "signatory prints" : "signatories print"} on the results PDF.` : "Saved. No signatories will print.");
-}
+});

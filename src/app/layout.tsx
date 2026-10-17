@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Nunito_Sans } from "next/font/google";
 import { connection } from "next/server";
+import { RequestGuard } from "@/components/request-guard";
 import "./globals.css";
 
 const nunito = Nunito_Sans({
@@ -23,7 +24,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   await connection();
   return (
     <html lang="en" className={`${nunito.variable} h-full`}>
-      <body className="min-h-full bg-mint text-prussian">{children}</body>
+      <body className="min-h-full bg-mint text-prussian">
+        {children}
+        {/* Every request to the server: actions given up if they hang, refreshes asked again while the server fails
+            them, and a page open across a deploy reloaded into the new version. */}
+        <RequestGuard />
+      </body>
     </html>
   );
 }

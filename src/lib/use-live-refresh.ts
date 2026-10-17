@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createRefresher } from "./refresh-schedule";
+import { reportProblem } from "./report-problem";
+import { timeoutSignal } from "./timeout-signal";
 import { browserClient } from "./supabase/browser";
 
 /**
@@ -12,6 +14,10 @@ import { browserClient } from "./supabase/browser";
 export type LiveStatus = "connecting" | "live" | "polling" | "offline";
 
 const CONNECT_GRACE_MS = 8_000;
+/** A check still unanswered after this is given up on: the next one is the retry. */
+const CHECK_TIMEOUT_MS = 8_000;
+/** While checks keep failing, the gap between them doubles, up to this. */
+const MAX_BACKOFF_MS = 30_000;
 
 type Options = {
   /** How often the page checks whether its activity changed (a judge waiting for approval checks more often). */
@@ -38,6 +44,11 @@ type Options = {
  *
  * The page never learns what changed: the results tables are private, so it reloads its data from the server. Before
  * migration 016 there's no activity_changes: realtime reports an error, and the checks fall back to refreshing.
+ *
+ * It only reloads once a check has just reached the server. A reload that can't reach it (the venue Wi-Fi dropped)
+ * would leave the screen on an error page that never comes back by itself; instead it waits, checking less often the
+ * longer checks fail (with a little randomness, so a room of screens doesn't retry in step), and catches up as soon
+ * as one gets through.
  */
 export function useLiveRefresh(activityId: string, { pollMs = 5_000, minGapMs = 0, realtime = true }: Options = {}): LiveStatus {
   const router = useRouter();
@@ -52,39 +63,62 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, minGapMs = 
     const refresh = refresher.request;
     const supabase = browserClient();
 
-    const check = async () => {
-      const { data, error } = await supabase.from("activity_changes").select("changed_at").eq("activity_id", activityId).maybeSingle();
-      if (stopped) return;
+    // Checks that failed in a row: the gap to the next one grows with them.
+    let failures = 0;
+    /** Check for a change, and reload if there was one (or, with `catchUp`, anyway). False: the server wasn't reached. */
+    const check = async (catchUp = false): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from("activity_changes")
+        .select("changed_at")
+        .eq("activity_id", activityId)
+        .abortSignal(timeoutSignal(CHECK_TIMEOUT_MS))
+        // The next check is the retry; retrying this one as well would only add to the load on a struggling server.
+        .retry(false)
+        .maybeSingle();
+      if (stopped) return false;
       if (error) {
-        // Unreadable (before migration 016, or the request failed): without realtime, refresh instead.
+        // The server answered that it can't read it (before migration 016): reloading is the fallback, and safe.
+        const answered = typeof error.code === "string" && error.code.length > 0;
+        if (answered) failures = 0;
+        else failures++;
         if (!subscribed) {
           setStatus(navigator.onLine ? "polling" : "offline");
-          refresh();
+          if (answered) refresh();
         }
-        return;
+        return answered;
       }
+      failures = 0;
       const at = (data as { changed_at: string } | null)?.changed_at ?? null;
       // The first check can't tell whether a change came between the server rendering this page and now (the time it
       // took to load and start up), so it catches up once; after that, only a change does.
-      if (seen === undefined || at !== seen) refresh();
+      if (catchUp || seen === undefined || at !== seen) refresh();
       seen = at;
       if (!realtime) setStatus("live");
+      return true;
     };
     // Not while the page is hidden (a phone locked in a pocket, a tab in the background): it refreshes as it comes back
     // into view anyway, and a crowd of idle phones would otherwise keep the database busy for nothing.
     let checkTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleCheck = () => {
       clearTimeout(checkTimer);
+      const gap = Math.min(pollMs * 2 ** failures, Math.max(pollMs, MAX_BACKOFF_MS)) * (0.8 + Math.random() * 0.4);
       checkTimer = setTimeout(async () => {
         if (document.visibilityState !== "hidden") await check();
         if (!stopped) scheduleCheck();
-      }, pollMs);
+      }, gap);
     };
     void check();
     scheduleCheck();
 
+    // Realtime failing (not the device being offline) is told to the server, once for this page.
+    let reported = false;
     const fallback = () => {
-      if (!stopped) setStatus(navigator.onLine ? "polling" : "offline");
+      if (stopped) return;
+      setStatus(navigator.onLine ? "polling" : "offline");
+      if (navigator.onLine && !reported) {
+        reported = true;
+        reportProblem("realtime_down");
+      }
     };
     // A notice of a change: refresh at once, and remember it, so the next check doesn't refresh for it again.
     const heard = (payload: { new?: { changed_at?: string } }) => {
@@ -107,23 +141,26 @@ export function useLiveRefresh(activityId: string, { pollMs = 5_000, minGapMs = 
       } else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT" || state === "CLOSED") {
         subscribed = false;
         fallback();
-        refresh(); // anything missed while it was failing
+        void check(true); // anything missed while it was failing, once the server can be reached
       }
     });
     const grace = setTimeout(() => {
       if (realtime && !subscribed) fallback();
     }, CONNECT_GRACE_MS);
 
+    // Back in view, or back online: catch up, through a check, so a reload only happens once the server answers.
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void check(true);
     };
     // A page restored from the back/forward cache, or a window brought back to the front.
-    const onShow = () => refresh();
+    const onShow = () => void check(true);
     const onNetwork = () => {
       if (!navigator.onLine) setStatus("offline");
       else {
         setStatus(subscribed || !realtime ? "live" : "polling");
-        refresh();
+        failures = 0;
+        void check(true);
+        scheduleCheck();
       }
     };
     document.addEventListener("visibilitychange", onVisible);

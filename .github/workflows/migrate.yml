@@ -1,0 +1,56 @@
+name: Database migrations
+
+# New files in supabase/migrations/ reach the databases from here, not by pasting them into the SQL editor: the testing
+# project as soon as they're merged, then the live one once you approve it (the "live" environment's required
+# reviewer). Each project records what it has run (supabase_migrations.schema_migrations), so each migration runs once
+# per project; they're all safe to run again, so one that was applied by hand first does no harm. Setup is in the
+# README (Releasing).
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/migrations/**"]
+  # To run it by hand, e.g. the first time after recording what a project had already run.
+  workflow_dispatch:
+
+# One at a time, and never cut short: a migration half-applied is worse than one waiting.
+concurrency:
+  group: database-migrations
+  cancel-in-progress: false
+
+jobs:
+  testing:
+    name: Testing database
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testing
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.119.0
+      - run: supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+      # What will run, in the log, before it does.
+      - run: supabase migration list
+      - run: supabase db push
+
+  live:
+    name: Live database
+    needs: testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Waits here for your approval: set a required reviewer on the "live" environment.
+    environment: live
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.119.0
+      - run: supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+      - run: supabase migration list
+      - run: supabase db push
