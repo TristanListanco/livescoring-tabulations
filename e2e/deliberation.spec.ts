@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // An event without live scoring, scored to three decimal places. The audience sees no scores until the judges have
 // deliberated and signed; a judge can ask to correct a score, and the others vote on the reason without seeing the values.
@@ -66,7 +66,7 @@ test.describe.serial("deliberation", () => {
       [ana, codes[0], "Ana Cruz"],
       [ben, codes[1], "Ben Torres"],
     ] as const) {
-      await judge.goto(`/judge/join/${code}`);
+      await openJudgeLink(judge, code);
       const pairing = await pairingCode(judge);
       await page.goto(`${adminPath}?tab=judges`);
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();

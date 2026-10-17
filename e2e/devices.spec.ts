@@ -1,5 +1,5 @@
 import { devices, expect, test, type Page } from "@playwright/test";
-import { deleteActivityNamed, signInAsSuperAdmin } from "./helpers";
+import { deleteActivityNamed, openJudgeLink, signInAsSuperAdmin } from "./helpers";
 
 // A judge's phone whose realtime connection is down (venue Wi-Fi, or the browser was in the background
 // while the camera scanned a QR code) must still open within seconds of the organizer's approval.
@@ -44,11 +44,24 @@ test.describe.serial("judge devices without realtime", () => {
     codes = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Judge code ", ""));
   });
 
-  test("approval reaches a phone with no realtime connection within seconds", async ({ page }) => {
-    await phone.goto(`/judge/join/${codes[0]}`);
+  test("approval reaches a phone with no realtime connection within seconds", async ({ page, playwright }) => {
+    // A messaging app building a preview of Judge Alpha's link (iMessage's fetcher passes for Safari on a Mac). The
+    // link only opens the sign-in page with the code filled in, so the fetch asks the organizer for nothing.
+    const preview = await playwright.request.newContext({
+      baseURL: test.info().project.use.baseURL,
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0",
+    });
+    const fetched = await preview.get(`/judge/join/${codes[0]}`, { maxRedirects: 0 });
+    expect(fetched.headers().location).toBe(`/judge?code=${codes[0]}&link=1`);
+    await preview.dispose();
+
+    await openJudgeLink(phone, codes[0]);
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=judges`);
+    // Only the phone's request is waiting.
+    await expect(page.getByRole("button", { name: /^Approve Judge Alpha's device / })).toHaveCount(1);
     await page.getByRole("button", { name: `Approve Judge Alpha's device ${code}` }).click();
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", QUICKLY);
   });

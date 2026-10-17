@@ -18,7 +18,10 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
   const signedOut = !!context && !!session?.deviceId && !(await getDevice(session.deviceId));
   // A judge link for someone else, opened on a device that's judging: it asks before switching (see the join route).
   const switching = query.switch === "1" && !!context && !!session && (await approvedDevice(session.judgeId, session.deviceId));
-  if (context && !switching && !signedOut) redirect("/judge/score");
+  // A judge link opened: its code is filled in, for the judge to tap Start judging (the link signs nothing in itself),
+  // even on a browser still waiting as another judge.
+  const fromLink = query.link === "1" && !!code;
+  if (context && !switching && !signedOut && !fromLink) redirect("/judge/score");
 
   const invalid = query.invalid === "1";
   const limited = query.limited === "1";
@@ -47,9 +50,13 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
                 You were signed out because the organizer reset the scores. Sign in again to judge.
               </p>
             )}
-            <p className="judge-lede mt-3">Enter the six-character code the organizer gave you.</p>
+            <p className="judge-lede mt-3">
+              {fromLink ? "Your judge code is filled in. Tap Start judging." : "Enter the six-character code the organizer gave you."}
+            </p>
             <CodeForm
               initialCode={code}
+              // Filled in from a link, the keyboard would only cover the button.
+              autoFocus={!fromLink}
               initialError={limited ? TOO_MANY : invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined}
             />
           </>

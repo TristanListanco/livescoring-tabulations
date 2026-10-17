@@ -34,6 +34,17 @@ export async function signInAsOrganizer(page: Page, email: string, password: str
   await expect(page).toHaveURL(/\/admin$/);
 }
 
+/**
+ * Open a judge's link, as scanning their QR code does, and sign in from the page it opens: the link fills in the code,
+ * and the judge taps Start judging.
+ */
+export async function openJudgeLink(page: Page, code: string) {
+  await page.goto(`/judge/join/${code}`);
+  await expect(page.getByLabel("Judge code")).toHaveValue(code);
+  await page.getByRole("button", { name: "Start judging" }).click();
+  await expect(page).toHaveURL(/\/judge\/score$/);
+}
+
 /** Tap a score into the judge keypad. */
 export async function tapScore(page: Page, score: string) {
   for (const ch of score) {
