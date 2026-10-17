@@ -30,7 +30,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
                 </div>
               </Link>
             ) : (
-              <span className="hidden text-sm font-semibold text-powder sm:inline">Super admin</span>
+              <Link href="/admin/profile" className="tap-target rounded-lg px-1.5 py-1 text-sm font-semibold text-powder hover:bg-oxford hover:text-mint" title="Your profile">
+                Super admin
+              </Link>
             )}
             <ThemeToggle initial={theme} />
             <form action={logout}>

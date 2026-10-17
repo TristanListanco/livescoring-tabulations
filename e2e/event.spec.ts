@@ -452,6 +452,8 @@ test.describe.serial("a full event", () => {
     ]);
     expect(download.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.pdf$/);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
+    // Drawn on the server's PDF worker, so it doesn't hold up the server's other requests.
+    expect((await page.request.get(`${adminPath}/export`)).headers()["server-timing"]).toBe("pdf;desc=worker");
 
     // The second PDF: each judge's own score sheet, with their sign-off and the signatories.
     const [sheets] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' score sheets" }).click()]);

@@ -96,7 +96,7 @@ export async function snap(page: Page, name: string) {
   await test.info().attach(name, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 }
 
-function supabaseAdmin() {
+export function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SECRET_KEY;
   return url && key ? { url, headers: { apikey: key, Authorization: `Bearer ${key}` } } : null;

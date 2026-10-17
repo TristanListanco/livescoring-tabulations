@@ -20,6 +20,17 @@ create table if not exists public.admins (
 -- Names and designations printed as signature lines on the results PDF.
 alter table public.admins add column if not exists signatories jsonb not null default '[]'::jsonb;
 
+-- Admin sessions: one row per sign-in, its id carried in the session cookie. Signing out deletes it, ending the session
+-- wherever the cookie is. admin_id null: the super admin, who has no account row. Server only.
+create table if not exists public.admin_sessions (
+  id          uuid primary key default gen_random_uuid(),
+  admin_id    uuid references public.admins (id) on delete cascade,
+  label       text not null default '' check (char_length(label) <= 80),
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null
+);
+create index if not exists admin_sessions_admin_idx on public.admin_sessions (admin_id);
+
 -- Activities ---------------------------------------------------------------
 
 create table if not exists public.activities (
@@ -117,6 +128,8 @@ alter table public.activities add column if not exists led_entry_id uuid referen
 -- The organizer who owns the activity; null means only the super admin manages it.
 alter table public.activities add column if not exists owner_id uuid references public.admins (id) on delete set null;
 create index if not exists activities_owner_idx on public.activities (owner_id);
+-- The super admin's list of organizers' activities, read newest first a page at a time.
+create index if not exists activities_listed_idx on public.activities (created_at desc) where owner_id is not null;
 -- LED wall: full-screen scoresheet instead of the green overlay; hold scores until every judge has scored.
 alter table public.activities add column if not exists led_fullscreen boolean not null default false;
 alter table public.activities add column if not exists led_hold_scores boolean not null default false;
@@ -326,6 +339,8 @@ alter table public.scores add column if not exists breakdown jsonb;
 create index if not exists scores_activity_idx on public.scores (activity_id);
 -- Each judge's screen reads that judge's scores.
 create index if not exists scores_judge_idx on public.scores (judge_id);
+-- Deleting an entry deletes its scores (the unique indexes below each cover only some of them).
+create index if not exists scores_entry_idx on public.scores (entry_id);
 -- A pageant score belongs to a sub-activity. A judge scores an event's entry once, and a candidate once per sub-activity.
 alter table public.scores add column if not exists round_id uuid references public.rounds (id) on delete cascade;
 alter table public.scores drop constraint if exists scores_entry_id_judge_id_key;
@@ -425,6 +440,8 @@ create table if not exists public.judge_notes (
   primary key (judge_id, entry_id)
 );
 create index if not exists judge_notes_activity_idx on public.judge_notes (activity_id);
+-- Deleting an entry deletes its notes.
+create index if not exists judge_notes_entry_idx on public.judge_notes (entry_id);
 
 -- Judges' signatures ---------------------------------------------------------
 -- Each judge's signature once they've deliberated (an event without live scoring). drawn: drawn on a touchscreen, kept
@@ -541,6 +558,7 @@ $$;
 -- reads only activity_changes (see Realtime below).
 
 alter table public.admins       enable row level security;
+alter table public.admin_sessions enable row level security;
 alter table public.activities   enable row level security;
 alter table public.judges       enable row level security;
 alter table public.judge_access enable row level security;

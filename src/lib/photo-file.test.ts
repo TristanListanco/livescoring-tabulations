@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PHOTO_BYTES, photoFile, photoType } from "./photo-file";
+import { MAX_PHOTO_BYTES, photoBatches, photoFile, photoType, PHOTOS_PER_REQUEST } from "./photo-file";
 
 const bytes = (...parts: (number[] | string)[]) =>
   new Uint8Array(parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)));
@@ -36,5 +36,25 @@ describe("photoFile", () => {
     expect(await photoFile(null)).toBeNull();
     expect(await photoFile(new File([], "photo.jpg"))).toBeNull();
     expect(await photoFile("text")).toBeNull();
+  });
+});
+
+describe("photoBatches", () => {
+  const photo = (kb: number) => ({ photo: new Blob([new Uint8Array(kb * 1024)]) });
+
+  it("sends small photos ten at a time, in order", () => {
+    const photos = Array.from({ length: 23 }, () => photo(30));
+    const batches = photoBatches(photos);
+    expect(batches.map((b) => b.length)).toEqual([PHOTOS_PER_REQUEST, PHOTOS_PER_REQUEST, 3]);
+    expect(batches.flat()).toEqual(photos);
+  });
+
+  it("starts a new request before one gets too big", () => {
+    const big = Array.from({ length: 5 }, () => photo(1900));
+    expect(photoBatches(big).map((b) => b.length)).toEqual([2, 2, 1]);
+  });
+
+  it("sends nothing when there are no photos", () => {
+    expect(photoBatches([])).toEqual([]);
   });
 });

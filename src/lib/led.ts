@@ -7,6 +7,8 @@ export const STAGE_W = 1920;
 export const STAGE_H = 1080;
 /** Pure chroma green: the video switcher keys this out. Nothing in the graphic uses it. */
 export const KEY_GREEN = "#00ff00";
+/** Session storage: which kind of wall this tab last showed ("full" or "key"), for its error screen to match. */
+export const LED_MODE = "livescoring:led-mode";
 
 /**
  * waiting: the judge hasn't scored yet. submitted: they have, but scores are held back until

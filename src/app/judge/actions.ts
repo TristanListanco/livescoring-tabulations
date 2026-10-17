@@ -17,6 +17,8 @@ import { endJudgeSession, judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db } from "@/lib/supabase/server";
 import type { ActionResult, Activity, Judge } from "@/lib/types";
+import { traced } from "@/lib/observe";
+import { log } from "@/lib/log";
 
 export type CodeState = { error?: string; code?: string };
 
@@ -36,7 +38,7 @@ async function seat(notApproved = NOT_APPROVED): Promise<{ judge: Judge; activit
   return { judge, activity, activityId: activity.id };
 }
 
-export async function enterCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
+export const enterCode = traced("enterCode", async function enterCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
   const code = String(formData.get("code") ?? "").slice(0, 32);
   // Guessing codes is limited per network address (see sign-in-limits).
   const address = `judge-ip:${await clientAddress()}`;
@@ -49,10 +51,10 @@ export async function enterCode(_prev: CodeState, formData: FormData): Promise<C
   const failed = await signInJudgeDevice(judgeId);
   if (failed) return { error: failed.error, code };
   redirect("/judge/score");
-}
+});
 
 /** Signing out also signs this device out for good: signing in again asks the organizer for approval again. */
-export async function leavePortal() {
+export const leavePortal = traced("leavePortal", async function leavePortal() {
   const session = await judgeSession();
   if (session?.deviceId && isUuid(session.deviceId)) {
     await db().from("judge_devices").update({ status: "revoked", decided_at: new Date().toISOString() }).eq("id", session.deviceId).eq("judge_id", session.judgeId);
@@ -60,21 +62,21 @@ export async function leavePortal() {
   }
   await endJudgeSession();
   redirect("/judge");
-}
+});
 
 /** For a device the organizer turned away or signed out: ask for approval again with a new pairing code. */
-export async function requestApproval() {
+export const requestApproval = traced("requestApproval", async function requestApproval() {
   const session = await judgeSession();
   if (!session || !(await getJudgeContext(session.judgeId))) redirect("/judge");
   await signInJudgeDevice(session.judgeId);
   changed();
-}
+});
 
 /**
  * The chair of the board of judges shows judges the previous or next entry, as the organizer can from the
  * Session tab. The LED wall follows.
  */
-export async function moveToEntry(entryId: string): Promise<ActionResult> {
+export const moveToEntry = traced("moveToEntry", async function moveToEntry(entryId: string): Promise<ActionResult> {
   const context = await seat();
   if ("error" in context) return context;
   if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can move entries." };
@@ -92,18 +94,18 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
 
   const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
   if (error) {
-    console.error(error);
+    log("error", "entry_not_shown", { code: error.code, error: error.message });
     return { ok: false, error: "That didn't go through. Check your connection and try again." };
   }
   changed(context.activity.publicId);
   return { ok: true };
-}
+});
 
 /**
  * A judge's note on an entry of their activity, saved as they type; an empty note is removed. Only from their approved
  * device. The judge and the organizer read notes, never other judges.
  */
-export async function saveNote(entryId: string, body: string): Promise<ActionResult> {
+export const saveNote = traced("saveNote", async function saveNote(entryId: string, body: string): Promise<ActionResult> {
   const context = await seat();
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
@@ -121,14 +123,14 @@ export async function saveNote(entryId: string, body: string): Promise<ActionRes
       )
     : await notes.delete().eq("judge_id", context.judge.id).eq("entry_id", entryId);
   if (error) {
-    console.error(error);
+    log("error", "note_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your note didn't save. Check your connection." };
   }
   return { ok: true };
-}
+});
 
 /** A score: one value for simple activities, or points per criterion (keyed by criterion id) for criteria activities. */
-export async function submitScore(entryId: string, typed: string | Record<string, string>): Promise<ActionResult> {
+export const submitScore = traced("submitScore", async function submitScore(entryId: string, typed: string | Record<string, string>): Promise<ActionResult> {
   const context = await seat("This device isn't approved to score. Ask the organizer.");
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Pick an entry first." };
@@ -182,15 +184,22 @@ export async function submitScore(entryId: string, typed: string | Record<string
 
   if (error) {
     if (error.code === "23505") {
+      // Already in. The same score is this one sent again (its reply was lost on the way, say): it's saved.
+      const saved = db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId);
+      const { data } = await (roundId ? saved.eq("round_id", roundId) : saved.is("round_id", null)).maybeSingle();
+      const row = data as { value: number | string; breakdown: Record<string, number> | null } | null;
+      if (row && Number(row.value) === value && sameBreakdown(row.breakdown, breakdown)) return { ok: true };
       return { ok: false, error: `You already scored this ${roundId ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
     }
     if (error.code === "23503") return { ok: false, error: "This entry was removed by the organizer." };
+    // The one write that matters most: why it failed goes to the log, beside the judge's own message.
+    log("error", "score_not_saved", { activity: activity.id, entry: entryId, judge: context.judge.id, code: error.code, error: error.message });
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }
 
   changed(context.activity.publicId);
   return { ok: true };
-}
+});
 
 const CORRECTIONS_UNAVAILABLE = "Score corrections need an update to the database. Ask the organizer.";
 const sameBreakdown = (a: Record<string, number> | null, b: Record<string, number> | null) =>
@@ -202,7 +211,7 @@ const sameBreakdown = (a: Record<string, number> | null, b: Record<string, numbe
  * judge alone on their panel waits for the organizer). While judging is open, the entry on screen; during the
  * deliberation, any entry. In a pageant (scored live, before migration 021), only in the sub-activity being judged.
  */
-export async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
+export const requestCorrection = traced("requestCorrection", async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
   const context = await seat("This device isn't approved to score. Ask the organizer.");
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
@@ -263,15 +272,15 @@ export async function requestCorrection(entryId: string, typed: string | Record<
     });
   if (error) {
     if (error.code === "23505") return { ok: false, error: "You've already asked to correct this score. Wait for the other judges, or withdraw it." };
-    console.error(error);
+    log("error", "correction_not_requested", { code: error.code, error: error.message });
     return { ok: false, error: error.code === "42P01" || error.code === "PGRST205" ? CORRECTIONS_UNAVAILABLE : "That didn't go through. Check your connection and try again." };
   }
   changed(context.activity.publicId);
   return { ok: true };
-}
+});
 
 /** Another judge's vote on a correction: final once cast. Any judge disagreeing turns it down; every judge agreeing changes the score. */
-export async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
+export const voteOnCorrection = traced("voteOnCorrection", async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
   // Exactly true or false: anything else (the text "false", say) could be stored one way and counted the other.
   if (typeof agree !== "boolean") return { ok: false, error: "Agree or disagree." };
   const context = await seat();
@@ -287,28 +296,28 @@ export async function voteOnCorrection(correctionId: string, agree: boolean): Pr
 
   const { error } = await db().from("correction_votes").insert({ correction_id: correction.id, judge_id: context.judge.id, activity_id: board.activity.id, agree });
   if (error && error.code !== "23505") {
-    console.error(error);
+    log("error", "vote_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your vote didn't go through. Check your connection and try again." };
   }
   if (!error) await settleCorrection(board, { ...correction, votes: [...correction.votes, { judgeId: context.judge.id, agree }] });
   changed(context.activity.publicId);
   return { ok: true };
-}
+});
 
 /** The chair of the board of judges opens the deliberation from their own screen, as the organizer can from the desk. */
-export async function startDeliberation(): Promise<ActionResult> {
+export const startDeliberation = traced("startDeliberation", async function startDeliberation(): Promise<ActionResult> {
   const context = await seat();
   if ("error" in context) return context;
   if (!context.judge.isChair) return { ok: false, error: "Only the organizer and the chair of the board of judges can start the deliberation." };
   return beginDeliberation(context.activityId);
-}
+});
 
 /**
  * A judge signs off on their scores at the end of the deliberation: their drawn signature (SVG path data, from a
  * touchscreen), or null for "(Sgd.)" ticked on a screen without touch. Not while a correction is open: they sign the
  * scores as they'll stand. Once every judge has signed, the organizer can end the session.
  */
-export async function signOff(drawing: string | null): Promise<ActionResult> {
+export const signOff = traced("signOff", async function signOff(drawing: string | null): Promise<ActionResult> {
   const context = await seat();
   if ("error" in context) return context;
   const path = drawing === null ? null : cleanSignature(drawing);
@@ -325,15 +334,15 @@ export async function signOff(drawing: string | null): Promise<ActionResult> {
     .from("judge_signatures")
     .insert({ judge_id: context.judge.id, activity_id: activity.id, method: path ? "drawn" : "checked", drawing: path });
   if (error && error.code !== "23505") {
-    console.error(error);
+    log("error", "signature_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your signature didn't save. Check your connection and try again." };
   }
   changed(context.activity.publicId);
   return { ok: true };
-}
+});
 
 /** The judge who asked takes back a correction no one has settled yet. */
-export async function withdrawCorrection(correctionId: string): Promise<ActionResult> {
+export const withdrawCorrection = traced("withdrawCorrection", async function withdrawCorrection(correctionId: string): Promise<ActionResult> {
   const context = await seat();
   if ("error" in context) return context;
   if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };
@@ -344,9 +353,9 @@ export async function withdrawCorrection(correctionId: string): Promise<ActionRe
     .eq("judge_id", context.judge.id)
     .eq("status", "open");
   if (error) {
-    console.error(error);
+    log("error", "correction_not_withdrawn", { code: error.code, error: error.message });
     return { ok: false, error: "That didn't go through. Check your connection and try again." };
   }
   changed(context.activity.publicId);
   return { ok: true };
-}
+});

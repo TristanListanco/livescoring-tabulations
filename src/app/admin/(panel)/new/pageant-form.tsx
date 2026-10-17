@@ -5,7 +5,10 @@ import { useEffect, useRef, useState, useTransition, type FormEvent } from "reac
 import { blankScoring, checkPageant, MIN_PROPER_JUDGES, parsePageantDraft, type PageantDraft, type ProgramTarget } from "@/lib/pageant-setup";
 import { isPersonName } from "@/lib/names";
 import type { JudgePanel, ResultDecimals } from "@/lib/types";
-import { addCandidatePhoto, createPageant, type CreateResult } from "../../actions";
+import { photoBatches } from "@/lib/photo-file";
+import { reportProblem } from "@/lib/report-problem";
+import { newRequestId } from "@/lib/request-id";
+import { addCandidatePhotos, createPageant, type CreateResult } from "../../actions";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
 import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
@@ -144,6 +147,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [serverError, setServerError] = useState<string | null>(null);
+  // This form's id for creating its pageant (see newRequestId).
+  const [requestId] = useState(newRequestId);
   // While creating: "Uploading candidate photos, 3 of 12…". Once created with photos that didn't upload: whose.
   const [progress, setProgress] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; missed: string[] } | null>(null);
@@ -342,6 +347,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     data.set("chair", [chairPositions.preliminary, chairPositions.proper].filter((n) => n !== null).join(","));
     // Creating the pageant clears the draft it came from.
     if (saved.draftId) data.set("draftId", saved.draftId);
+    // The same id each time this form is sent, so a second send after a lost reply doesn't make a second pageant.
+    data.set("requestId", requestId);
     setServerError(null);
     startTransition(() => create(data));
   };
@@ -352,6 +359,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     try {
       result = await createPageant(data);
     } catch {
+      reportProblem("action_unreachable");
       result = { ok: false, error: OFFLINE };
     }
     if (!result.ok) {
@@ -363,12 +371,19 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     const { activityId, entryIds } = result;
     const photos = candidates.flatMap((c, i) => (c.photo && entryIds[i] ? [{ name: cleanName(c.name), photo: c.photo, entryId: entryIds[i] }] : []));
     const missed: string[] = [];
-    for (const [n, c] of photos.entries()) {
-      setProgress(`Uploading candidate photos, ${n + 1} of ${photos.length}…`);
+    let sent = 0;
+    // A few to a request: each request checks the pageant once and uploads its photos together.
+    for (const batch of photoBatches(photos)) {
+      sent += batch.length;
+      setProgress(`Uploading candidate photos, ${sent} of ${photos.length}…`);
       const body = new FormData();
-      body.set("photo", c.photo, "photo.jpg");
-      const uploaded = await addCandidatePhoto(c.entryId, body).catch(() => null);
-      if (!uploaded?.ok) missed.push(c.name);
+      for (const c of batch) {
+        body.append("entry", c.entryId);
+        body.append("photo", c.photo, "photo.jpg");
+      }
+      const uploaded = await addCandidatePhotos(activityId, body).catch(() => null);
+      const failed = new Set(uploaded?.ok ? uploaded.missed : batch.map((c) => c.entryId));
+      missed.push(...batch.filter((c) => failed.has(c.entryId)).map((c) => c.name));
     }
     setProgress(null);
     if (missed.length) setCreated({ id: activityId, missed });

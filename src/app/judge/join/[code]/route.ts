@@ -3,6 +3,7 @@ import { findJudgeIdByCode, getDevice } from "@/lib/data";
 import { approvedDevice } from "@/lib/devices";
 import { judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, tooManyFailures } from "@/lib/sign-in-limits";
+import { traced } from "@/lib/observe";
 
 /**
  * The per-judge link (and QR code). It opens the sign-in page with the judge's code filled in, and the judge taps
@@ -11,7 +12,7 @@ import { clientAddress, LIMITS, recordFailure, tooManyFailures } from "@/lib/sig
  * organizer to approve a device that wasn't a judge's: a second request, often "Mac · Safari", beside the real one.
  * A browser already signed in as this judge goes straight to its screen.
  */
-export async function GET(_request: Request, { params }: RouteContext<"/judge/join/[code]">) {
+export const GET = traced("GET /judge/join/[code]", async function GET(_request: Request, { params }: RouteContext<"/judge/join/[code]">) {
   const code = (await params).code.slice(0, 32);
   // Relative redirects: building absolute URLs from request.url yields the server's bind
   // address (e.g. 0.0.0.0), which phones on the venue Wi-Fi can't reach.
@@ -32,4 +33,4 @@ export async function GET(_request: Request, { params }: RouteContext<"/judge/jo
   // judging until the organizer approved it again. It asks first, on the sign-in page, where switching is a form.
   const switching = !!current && current.judgeId !== judgeId && (await approvedDevice(current.judgeId, current.deviceId));
   redirect(`/judge?code=${encodeURIComponent(code)}&${switching ? "switch" : "link"}=1`);
-}
+});

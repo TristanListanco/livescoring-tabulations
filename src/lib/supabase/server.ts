@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { timedFetch } from "../observe";
 
 export const PHOTO_BUCKET = "judge-photos";
 export const ORGANIZER_BUCKET = "organizer-photos";
@@ -16,7 +17,8 @@ export function db(): SupabaseClient {
   client ??= createClient(
     required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL),
     required("SUPABASE_SECRET_KEY", process.env.SUPABASE_SECRET_KEY),
-    { auth: { persistSession: false, autoRefreshToken: false } },
+    // Every call timed, and a slow or failed one logged (see observe.ts).
+    { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: timedFetch } },
   );
   return client;
 }

@@ -28,15 +28,20 @@ function scoresIn(a: { kind?: Activity["kind"]; scoreCount: number; judgeCount: 
   return `${a.scoreCount} of ${a.judgeCount * a.entryCount}${unit ? " scores" : ""}`;
 }
 
-export default async function ActivitiesPage() {
+export default async function ActivitiesPage({ searchParams }: PageProps<"/admin">) {
   const session = await requireAdmin();
   const isSuper = session.kind === "super";
-  const [activities, organizerActivities, drafts] = await Promise.all([
+  // A later page of organizers' activities: those created before this.
+  const before = isSuper ? (await searchParams).before : undefined;
+  const later = typeof before === "string";
+  const [activities, organizers, drafts] = await Promise.all([
     listActivities(isSuper ? null : session.admin.id),
-    isSuper ? listOrganizerActivities() : Promise.resolve([]),
+    isSuper ? listOrganizerActivities(later ? before : undefined) : { live: [], activities: [], older: null },
     listDrafts(isSuper ? null : session.admin.id),
   ]);
-  const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0;
+  // Live shows first, then the newest (or the next page of older ones).
+  const organizerActivities = [...organizers.live, ...organizers.activities];
+  const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0 && !later;
   // Archived activities leave the list for their own, below.
   const archived = activities.filter((a) => a.archivedAt).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
   const current = activities.filter((a) => !a.archivedAt);
@@ -80,16 +85,18 @@ export default async function ActivitiesPage() {
       )}
 
       {/* The super admin watches organizers' shows: whether judging has started and how far it has got. */}
-      {organizerActivities.length > 0 && (
+      {(organizerActivities.length > 0 || later) && (
         <section aria-labelledby="organizer-activities" className="mt-8">
-          <h2 id="organizer-activities" className="text-xl font-bold">
+          <h2 id="organizer-activities" className="scroll-mt-6 text-xl font-bold">
             Organizers&apos; activities
           </h2>
-          <p className="hint mt-1">Only the organizer who runs an activity can open it.</p>
+          <p className="hint mt-1">
+            {later && organizerActivities.length === 0 ? "No older activities." : "Only the organizer who runs an activity can open it."}
+          </p>
 
           {/* Phones: one stacked row per activity, so nothing scrolls sideways. */}
-          <ul className="mt-4 divide-y divide-line border-y border-line md:hidden">
-            {liveFirst(organizerActivities).map((a) => (
+          <ul className={`mt-4 divide-y divide-line border-y border-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
+            {organizerActivities.map((a) => (
               <li key={a.id} className="py-3">
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 font-medium wrap-anywhere">{a.name}</p>
@@ -103,7 +110,12 @@ export default async function ActivitiesPage() {
           </ul>
 
           {/* Wider screens: a table. If large text makes it overflow, the scroll area can be reached by keyboard. */}
-          <div tabIndex={0} role="region" aria-label="Organizers' activities table" className="mt-4 hidden overflow-x-auto md:block">
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Organizers' activities table"
+            className={`mt-4 hidden overflow-x-auto ${organizerActivities.length === 0 ? "" : "md:block"}`}
+          >
             <table className="w-full min-w-[40rem] text-left">
               <thead className="border-b border-line text-sm text-prussian/70">
                 <tr>
@@ -115,7 +127,7 @@ export default async function ActivitiesPage() {
                 </tr>
               </thead>
               <tbody className="tabular">
-                {liveFirst(organizerActivities).map((a) => (
+                {organizerActivities.map((a) => (
                   <tr key={a.id} className="border-b border-line">
                     {/* Not a link, so not styled like one: only the organizer can open it. */}
                     <td className="py-3.5 pr-4 font-medium">{a.name}</td>
@@ -130,6 +142,21 @@ export default async function ActivitiesPage() {
               </tbody>
             </table>
           </div>
+
+          {(organizers.older || later) && (
+            <nav aria-label="Pages of organizers' activities" className="mt-4 flex flex-wrap gap-3">
+              {later && (
+                <Link href="/admin#organizer-activities" className="btn btn-quiet btn-sm">
+                  Newest activities
+                </Link>
+              )}
+              {organizers.older && (
+                <Link href={{ pathname: "/admin", query: { before: organizers.older }, hash: "organizer-activities" }} className="btn btn-quiet btn-sm">
+                  Older activities
+                </Link>
+              )}
+            </nav>
+          )}
         </section>
       )}
 

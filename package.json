@@ -9,7 +9,11 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:migrations": "node scripts/check-migrations.mjs"
+  },
+  "engines": {
+    "node": "22.x"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",
@@ -22,6 +26,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@electric-sql/pglite": "^0.5.10",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22.20.5",

@@ -29,3 +29,25 @@ export async function photoFile(value: FormDataEntryValue | null): Promise<Photo
   const type = photoType(new Uint8Array(await value.slice(0, 12).arrayBuffer()));
   return type ? { file: value, type } : "invalid";
 }
+
+/** How many photos the pageant setup sends in one request, just after the pageant is created. */
+export const PHOTOS_PER_REQUEST = 10;
+/** Well under the 8 MB a request may carry (next.config.ts), whatever size the photos are. */
+const BYTES_PER_REQUEST = 4 * 1024 * 1024;
+
+/** Photos grouped into requests: up to PHOTOS_PER_REQUEST each, and no request too big to send. */
+export function photoBatches<T extends { photo: Blob }>(items: T[]): T[][] {
+  const batches: T[][] = [];
+  let bytes = 0;
+  for (const item of items) {
+    const last = batches.at(-1);
+    if (last && last.length < PHOTOS_PER_REQUEST && bytes + item.photo.size <= BYTES_PER_REQUEST) {
+      last.push(item);
+      bytes += item.photo.size;
+    } else {
+      batches.push([item]);
+      bytes = item.photo.size;
+    }
+  }
+  return batches;
+}

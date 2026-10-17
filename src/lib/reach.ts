@@ -1,3 +1,4 @@
+import { reportProblem } from "./report-problem";
 import type { ActionResult } from "./types";
 
 export const UNREACHABLE: ActionResult = {
@@ -15,6 +16,7 @@ export async function reach(call: () => Promise<ActionResult>): Promise<ActionRe
   try {
     return await call();
   } catch {
+    reportProblem("action_unreachable");
     return UNREACHABLE;
   }
 }
