@@ -52,3 +52,29 @@ test("sign-in pages meet WCAG 2.1 AA", async ({ page }) => {
     await expectAccessible(page);
   }
 });
+
+test("pages run only their own scripts, and talk only to this site and the database", async ({ page }) => {
+  const blocked: string[] = [];
+  page.on("console", (m) => {
+    if (/Content Security Policy|Refused to/i.test(m.text())) blocked.push(m.text());
+  });
+  const response = await page.goto("/judge");
+  const policy = response?.headers()["content-security-policy"] ?? "";
+  // A nonce of its own on every page, so a script slipped into a page doesn't run.
+  expect(policy).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic'/);
+  expect(policy).toContain("frame-ancestors 'none'");
+  // Every script the server sent carries it (the ones those load later run by 'strict-dynamic').
+  const nonce = policy.match(/'nonce-([^']+)'/)![1];
+  const html = (await response?.text()) ?? "";
+  const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+  expect(scripts.length).toBeGreaterThan(0);
+  expect(scripts.filter((tag) => !tag.includes(`nonce="${nonce}"`))).toEqual([]);
+  // A second visit gets a new nonce.
+  const again = (await page.reload())?.headers()["content-security-policy"] ?? "";
+  expect(again).not.toContain(nonce);
+  // The page works under it: the form takes a code.
+  await page.getByLabel("Judge code").fill("000000");
+  await page.getByRole("button", { name: "Start judging" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "doesn't match any judge" })).toBeVisible();
+  expect(blocked).toEqual([]);
+});

@@ -34,6 +34,8 @@ jobs:
       E2E_PORT: 3100
       # Throwaway values for the throwaway stack below; nothing here is a real secret.
       ADMIN_PASSWORD: e2e-admin-password
+      # The tests reset scores and delete activities: a production build only offers that when told it's a test one.
+      TEST_TOOLS: "on"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

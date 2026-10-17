@@ -11,6 +11,7 @@ import { listNames } from "@/lib/names";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { MAX_PASSWORD_LENGTH } from "@/lib/password-rules";
 import { checkScoring, cleanGuide, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
   canManageActivity,
@@ -289,7 +290,9 @@ export async function login(_prev: FormResult, formData: FormData): Promise<Form
   if (await tooManyFailures([[address, LIMITS.adminAddress], [accountKey, LIMITS.adminAccount]])) return err(TOO_MANY);
   const account = email ? await getAdminCredentials(email) : null;
   decoyHash ??= hashPassword("decoy password");
-  const valid = await verifyPassword(password, account?.passwordHash ?? (await decoyHash));
+  // No organizer's password is longer than MAX_PASSWORD_LENGTH (see password-rules), so a longer one is wrong: only
+  // that much is hashed, as hashing megabytes on every try would slow the server for everyone.
+  const valid = await verifyPassword(password.slice(0, MAX_PASSWORD_LENGTH + 1), account?.passwordHash ?? (await decoyHash));
   if (!account || !valid) {
     await recordFailure([address, accountKey]);
     return err("That email and password don't match an organizer account.");
@@ -763,6 +766,7 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
  * change mid-show).
  */
 export async function setLiveScoring(activityId: string, on: boolean): Promise<ActionResult> {
+  if (typeof on !== "boolean") return err("Choose whether scores show live.");
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event") return err("Only an event's live scoring can change.");
@@ -795,6 +799,7 @@ export async function updateCriterionGuides(activityId: string, _prev: FormResul
  * approves it (changing the score) or turns it down. Corrections other judges vote on are theirs alone to decide.
  */
 export async function decideCorrection(activityId: string, correctionId: string, approve: boolean): Promise<ActionResult> {
+  if (typeof approve !== "boolean") return err("Approve or turn down the correction.");
   if (!(await manage(activityId))) return NOT_FOUND;
   if (!isUuid(correctionId)) return err("That correction no longer exists.");
   const [board, corrections] = await Promise.all([getBoard(activityId), getCorrections(activityId)]);
@@ -813,6 +818,7 @@ export async function decideCorrection(activityId: string, correctionId: string,
 }
 
 export async function setShowRank(activityId: string, show: boolean): Promise<ActionResult> {
+  if (typeof show !== "boolean") return err("Choose whether ranks show.");
   if (!(await manage(activityId))) return NOT_FOUND;
   const { error } = await db().from("activities").update({ show_rank: show }).eq("id", activityId);
   if (error) return dbErr(error);
@@ -843,6 +849,10 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
  * scoring deliberates once every entry is scored, and ends only once every judge has signed: then its results show.
  */
 export async function setSessionState(activityId: string, state: "live" | "deliberation" | "ended", password = ""): Promise<ActionResult> {
+  // An action can be called with anything, not just what the desk sends: only these three. Above all never "draft", which
+  // would reopen the judges, running order and program of a session with scores in it (only Reset scores, on a test
+  // site, starts a session over, and only once its scores are gone; the database holds to that too).
+  if (state !== "live" && state !== "deliberation" && state !== "ended") return err("That isn't a change the session can make.");
   const session = await manage(activityId);
   if (!session) return NOT_FOUND;
   if (state === "deliberation") return beginDeliberation(activityId);
@@ -1181,6 +1191,7 @@ export async function removeEntry(entryId: string): Promise<ActionResult> {
 }
 
 export async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
+  if (direction !== -1 && direction !== 1) return err("Move an entry up or down one place.");
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
   if ((await sessionOf(activityId)).state !== "draft") return err("The running order is locked once the session has started.");

@@ -91,7 +91,10 @@ export async function moveToEntry(entryId: string): Promise<ActionResult> {
   if ("error" in show) return { ok: false, error: show.error };
 
   const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error(error);
+    return { ok: false, error: "That didn't go through. Check your connection and try again." };
+  }
   changed(context.activity.publicId);
   return { ok: true };
 }
@@ -269,6 +272,8 @@ export async function requestCorrection(entryId: string, typed: string | Record<
 
 /** Another judge's vote on a correction: final once cast. Any judge disagreeing turns it down; every judge agreeing changes the score. */
 export async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
+  // Exactly true or false: anything else (the text "false", say) could be stored one way and counted the other.
+  if (typeof agree !== "boolean") return { ok: false, error: "Agree or disagree." };
   const context = await seat();
   if ("error" in context) return context;
   if (!isUuid(correctionId)) return { ok: false, error: "That correction no longer exists." };

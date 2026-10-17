@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
+import { nameParts } from "./names";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
@@ -525,19 +526,38 @@ const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);
  */
 export const resultsReleased = (activity: Pick<Activity, "liveScoring" | "signedOffAt">) => activity.liveScoring || activity.signedOffAt !== null;
 
-async function loadPublicBoard(publicId: string): Promise<Board | null> {
+/**
+ * Judges as the public pages show them, and no more: a first name with a last initial (the avatar's initials, and
+ * telling two Marias apart) and a photo. Full names stay with the organizer, the judges and the PDFs. On an LED wall
+ * that keeps judges anonymous, not even that: the wall draws a "?" for each, so its page carries nothing to read
+ * around it.
+ */
+function publicJudges(judges: Judge[], anonymous: boolean): Judge[] {
+  return judges.map((j) => {
+    if (anonymous) return { ...j, name: "", firstName: null, lastName: null, photoUrl: null };
+    const { first, last } = nameParts(j);
+    const initial = last.trim().charAt(0);
+    return { ...j, name: initial ? `${first} ${initial}` : first, firstName: first || null, lastName: initial || null };
+  });
+}
+
+/** An activity by its public link, for the audience (`led`: the LED wall). */
+async function loadPublicBoard(publicId: string, { led = false }: { led?: boolean } = {}): Promise<Board | null> {
   const { data, error } = await db().from("activities").select(ACTIVITY_COLUMNS).eq("public_id", publicId).maybeSingle();
   fail(error);
   if (!data) return null;
   const board = await loadBoard(toActivity(data as ActivityRow));
-  // Held back on the server, so they never reach the audience's screens before they're released.
-  return resultsReleased(board.activity) ? board : { ...board, scores: [] };
+  const judges = publicJudges(board.judges, led && board.activity.ledAnonymous);
+  // Who runs it and a pageant's list of violations are the organizer's business, never on screen for the audience.
+  const activity = { ...board.activity, ownerId: null, violations: null };
+  // Scores are held back on the server, so they never reach the audience's screens before they're released.
+  return { ...board, activity, judges, scores: resultsReleased(board.activity) ? board.scores : [] };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
 export const getPublicBoard = cache(async (publicId: string): Promise<Board | null> => {
   await connection();
-  return isPublicId(publicId) ? loadPublicBoard(publicId) : null;
+  return isPublicId(publicId) ? loadPublicBoard(publicId, { led: true }) : null;
 });
 
 /**
