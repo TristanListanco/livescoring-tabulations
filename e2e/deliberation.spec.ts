@@ -118,6 +118,8 @@ test.describe.serial("deliberation", () => {
     await expect(vote).toContainText("Scores stay private, so you see only the reason.");
     // (Her reason can say what she meant; her score itself never reaches his screen.)
     await expect(vote.getByText("8.125")).toHaveCount(0);
+    // The answers wake a moment after it opens (so a tap meant for the keypad can't vote): scanned once they have.
+    await expect(vote.getByRole("button", { name: /^Agree/ })).toBeEnabled();
     await expectAccessible(ben);
     await snap(ben, "vote without the scores");
     // It can't be put off.
