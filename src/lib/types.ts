@@ -210,7 +210,17 @@ export type Board = {
    * judges' screens and the public results, which never list them.
    */
   deductions?: Deduction[];
+  /**
+   * The public pages while the scores are held back (an event without live scoring, before its judges sign): which judge
+   * has scored which entry, without the scores. The audience can follow progress; the values stay with the judges.
+   */
+  scored?: ScoredMark[];
+  /** The public pages: the organizer's name and logo (the photo on their account), when they've added one. */
+  organizer?: { name: string; logoUrl: string } | null;
 };
+
+/** A score that's in, without its value (see Board.scored). */
+export type ScoredMark = { entryId: string; judgeId: string; roundId: string | null };
 
 /**
  * A judge's signature after deliberating. drawn: drawn on a touchscreen, kept as SVG path data in a 600 × 200 box;

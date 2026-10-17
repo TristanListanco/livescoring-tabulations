@@ -209,6 +209,8 @@ test.describe.serial("a full event", () => {
 
     await live.goto(livePath);
     await expect(live.getByRole("status")).toHaveText("Live", { timeout: 30_000 });
+    // The organizer's logo (the photo on their account) heads their activity's results.
+    await expect(live.getByRole("img", { name: ORGANIZER.name })).toBeVisible();
   });
 
   test("starting the session opens the judges' screens and locks the panel", async ({ page }) => {
