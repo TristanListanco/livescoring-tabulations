@@ -5,10 +5,18 @@ import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
+/** What live scoring on or off means, said the same way wherever it's chosen. */
+export const LIVE_SCORING_HINT = {
+  on: "The audience sees each score as it's submitted, and a submitted score is final.",
+  off: "The audience sees no scores until the judges have deliberated and signed. A judge can ask to correct a score, and the other judges vote on it without seeing the values.",
+};
+
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 0, label: "Whole numbers", example: "9" },
   { value: 1, label: "1 decimal place", example: "9.5" },
   { value: 2, label: "2 decimal places", example: "9.75" },
+  // Events only: a pageant's sub-activities go to two.
+  { value: 3, label: "3 decimal places", example: "9.125" },
 ];
 
 export const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
@@ -73,6 +81,7 @@ export function ScoringEditor({
 }) {
   const { mode, decimals: places, criteria: rows, display } = value;
   const set = (patch: Partial<ScoringDraft>) => onChange({ ...value, ...patch });
+  // The range itself goes to two places at most, whatever places judges score with.
   const step = places === 0 ? 1 : places === 1 ? 0.1 : 0.01;
   const nextKey = rows.reduce((max, r) => Math.max(max, r.key), -1) + 1;
   const total = rows.reduce((sum, r) => sum + (Number(r.max) || 0), 0);
@@ -289,7 +298,7 @@ export function ScoringEditor({
           {mode === "criteria" ? "Judges give points in" : "Judges score with"}
         </legend>
         <div className="flex flex-wrap gap-2">
-          {DECIMAL_OPTIONS.map((o) => (
+          {DECIMAL_OPTIONS.filter((o) => formNames || o.value < 3).map((o) => (
             <label key={o.value} className="choice items-center">
               <input
                 type="radio"

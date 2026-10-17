@@ -1,10 +1,11 @@
 import type { SessionState } from "@/lib/types";
 
-export const SESSION_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", ended: "Ended" };
+export const SESSION_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", deliberation: "Deliberation", ended: "Ended" };
 
 /**
- * The session's state as a dot: hollow before judging, tally-light red while live (like a camera on air),
- * grey once it has ended. `pulse` is for the one place on a screen that should draw the eye.
+ * The session's state as a dot: hollow before judging, tally-light red while live (like a camera on air), the accent
+ * while the judges deliberate (off air, still working), grey once it has ended. `pulse` is for the one place on a
+ * screen that should draw the eye.
  */
 export function SessionDot({ state, pulse = false }: { state: SessionState; pulse?: boolean }) {
   if (state === "live") {
@@ -15,7 +16,8 @@ export function SessionDot({ state, pulse = false }: { state: SessionState; puls
       </span>
     );
   }
-  return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${state === "ended" ? "bg-prussian/40" : "border-2 border-field"}`} />;
+  const look = state === "ended" ? "bg-prussian/40" : state === "deliberation" ? "bg-regal" : "border-2 border-field";
+  return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${look}`} />;
 }
 
 export function SessionStatus({ state, pulse, className = "" }: { state: SessionState; pulse?: boolean; className?: string }) {

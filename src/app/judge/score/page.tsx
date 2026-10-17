@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { correctionView, correctionVoters } from "@/lib/corrections";
-import { getBoard, getCorrections, getDevice, getJudgeContext, getJudgeNotes, getOwnBreakdown } from "@/lib/data";
+import { correctionView, correctionVoters, withoutValues } from "@/lib/corrections";
+import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getSignatures } from "@/lib/data";
+import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
 import { ScoringPanel, type DeviceGate } from "./scoring-panel";
@@ -9,17 +10,23 @@ import { ScoringPanel, type DeviceGate } from "./scoring-panel";
 export const metadata: Metadata = { title: "Scoring" };
 
 export default async function ScorePage() {
+  // Two trips to the database for the whole screen, not four in a row: every judge's screen in every activity running
+  // at once reloads it after each change. First the judge, their activity and this device (and the judge's notes);
+  // then the board, corrections, and (with criteria) the points behind the score on screen, all together. The notes
+  // reach the screen only once the device is approved (see below).
   const session = await judgeSession();
-  const context = session ? await getJudgeContext(session.judgeId) : null;
-  if (!session || !context) redirect("/judge");
-
-  // The activity, this device and the judge's notes, read together. The notes reach the screen only once the device
-  // is approved (see below).
-  const [board, device, ownNotes, allCorrections] = await Promise.all([
+  const [found, ownNotes] = session ? await Promise.all([getJudgeSeat(session.judgeId, session.deviceId), getJudgeNotes(session.judgeId)]) : [null, null];
+  if (!session || !found) redirect("/judge");
+  const context = { judge: found.judge, activityId: found.activity.id };
+  const { device } = found;
+  const onScreen = found.activity.currentEntryId;
+  const deliberating = found.activity.sessionState === "deliberation";
+  const [board, allCorrections, givenOnScreen, breakdowns, signatures] = await Promise.all([
     getBoard(context.activityId),
-    session.deviceId ? getDevice(session.deviceId) : null,
-    getJudgeNotes(context.judge.id),
     getCorrections(context.activityId),
+    onScreen ? getOwnBreakdown(context.judge.id, onScreen, found.activity.currentRoundId) : null,
+    deliberating && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
+    deliberating ? getSignatures(context.activityId) : null,
   ]);
   if (!board) redirect("/judge");
   // The device is gone, not just unapproved: the organizer reset the activity, which signs every device out. Back to
@@ -53,19 +60,22 @@ export default async function ScorePage() {
   const breakdown =
     gate.status === "approved" &&
     showing.activity.scoringMode === "criteria" &&
-    board.activity.currentEntryId &&
-    mine.some((s) => s.entryId === board.activity.currentEntryId)
-      ? await getOwnBreakdown(context.judge.id, board.activity.currentEntryId, round?.id ?? null)
+    board.activity.currentEntryId === onScreen &&
+    mine.some((s) => s.entryId === onScreen)
+      ? givenOnScreen
       : null;
 
-  // Score corrections (null before migration 019): the ones waiting for this judge's vote, which shows them the score
-  // being changed, and this judge's own latest one on the entry on screen.
+  // Score corrections (null before migration 019): the ones waiting for this judge's vote, and this judge's own latest
+  // one on the entry on screen. An event with live scoring has none: a submitted score is final. Without it, the judges
+  // who vote see only the reason, never the scores.
+  const { activity } = board;
+  const correctable = activity.kind === "pageant" || !activity.liveScoring;
   const corrections =
-    gate.status === "approved" && allCorrections
+    gate.status === "approved" && allCorrections && correctable
       ? {
           toVote: allCorrections
             .filter((c) => c.status === "open" && !c.votes.some((v) => v.judgeId === context.judge.id) && correctionVoters(board, c).some((j) => j.id === context.judge.id))
-            .map((c) => correctionView(board, c)),
+            .map((c) => (activity.liveScoring ? correctionView(board, c) : withoutValues(correctionView(board, c)))),
           mine:
             allCorrections
               .filter((c) => c.judgeId === context.judge.id && c.entryId === board.activity.currentEntryId && c.roundId === (round?.id ?? null) && c.status !== "withdrawn")
@@ -75,6 +85,29 @@ export default async function ScorePage() {
           othersVote: correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0,
         }
       : null;
+
+  // The deliberation: every entry with this judge's score (and points per criterion), their latest correction on each,
+  // whether any correction is still open (no one signs until it's settled), and who has signed.
+  const deliberation =
+    deliberating && gate.status === "approved"
+      ? {
+          breakdowns: breakdowns ?? {},
+          mineByEntry: Object.fromEntries(
+            (allCorrections ?? [])
+              .filter((c) => c.judgeId === context.judge.id && c.status !== "withdrawn")
+              .map((c) => [c.entryId, correctionView(board, c)] as const),
+          ),
+          anyOpen: (allCorrections ?? []).some((c) => c.status === "open"),
+          signature: signatures?.find((s) => s.judgeId === context.judge.id) ?? null,
+          signed: signatures?.length ?? 0,
+          judgeCount: board.judges.length,
+          // Before migration 021 there's nowhere to keep a signature.
+          canSign: signatures !== null,
+        }
+      : null;
+
+  // The chair can open the deliberation once every judge has scored every entry (an event without live scoring).
+  const deliberationReady = gate.status === "approved" && context.judge.isChair && deliberationGap(board) === null;
 
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   const panel =
@@ -99,6 +132,8 @@ export default async function ScorePage() {
       notes={notes}
       breakdown={breakdown}
       corrections={corrections}
+      deliberation={deliberation}
+      deliberationReady={deliberationReady}
       gate={gate}
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}

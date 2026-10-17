@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, listActivityDevices, listAdmins } from "@/lib/data";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins } from "@/lib/data";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -20,6 +20,7 @@ import { NotesTab } from "./notes-tab";
 import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
 import { SettingsTab } from "./settings-tab";
+import { TabLink } from "./tab-link";
 
 /**
  * In the order of an event day: what runs the show (the session desk, the judges and their devices, the LED wall),
@@ -78,7 +79,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // has been checked below.
   const early = {
     codes: asked === undefined || asked === "judges" ? getActivityAccessCodes(id) : null,
-    desk: asked === undefined || asked === "session" ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id)]) : null,
+    desk: asked === undefined || asked === "session" ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id)]) : null,
     notes: asked === "notes" ? getActivityNotes(id) : null,
   };
   // The session, the board (with a pageant's deductions, for the desk) and the judges' devices, at once.
@@ -108,12 +109,12 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // What the open tab needs: mostly started above, with the board.
   const [codes, desk, tabNotes, liveQr, organizers] = await Promise.all([
     tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
-    tab === "session" ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id)])) : null,
+    tab === "session" ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id)])) : null,
     tab === "notes" ? (early.notes ?? getActivityNotes(id)) : null,
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
   ]);
-  const [corrections, deskNotes, signatories] = desk ?? [null, null, null];
+  const [corrections, deskNotes, signatories, signatures] = desk ?? [null, null, null, null];
   const notes = tab === "notes" ? tabNotes : deskNotes;
 
   const scoredBy = new Map<string, number>();
@@ -173,7 +174,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
       <nav
         aria-label="Activity sections"
-        className="mt-6 -mr-4 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:mr-0 sm:[mask-image:none]"
+        className="activity-tabs mt-6 -mr-4 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:mr-0 sm:[mask-image:none]"
       >
         <ul className="flex min-w-max gap-1">
           {tabs.map((t, i) => {
@@ -188,23 +189,16 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
                     : undefined
                 }
               >
-                <Link
-                  href={`/admin/${activity.id}?tab=${t.id}`}
-                  scroll={false}
-                  aria-current={active ? "page" : undefined}
-                  className={`-mb-px block border-b-2 px-2.5 py-3 text-[15px] font-semibold transition-colors sm:px-3 ${
-                    active ? "border-regal text-regal" : "border-transparent text-prussian/70 hover:text-prussian"
-                  }`}
-                >
+                <TabLink href={`/admin/${activity.id}?tab=${t.id}`} active={active}>
                   {t.label}
-                </Link>
+                </TabLink>
               </li>
             );
           })}
         </ul>
       </nav>
 
-      <div className="pt-6">
+      <div className="activity-panel pt-6">
         {tab === "judges" && (
           <JudgesTab
             activityId={activity.id}
@@ -233,6 +227,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             corrections={corrections?.map((c) => correctionView(board, c)) ?? []}
             archived={archived}
             hasNotes={(notes?.length ?? 0) > 0}
+            signatures={signatures}
           />
         )}
         {tab === "entries" && (

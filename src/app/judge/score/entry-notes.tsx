@@ -116,9 +116,14 @@ const noteIcon = (
   </svg>
 );
 
-/** Phones and narrow tablets: a button under the entry's name that opens the note, open or shut as the judge last left it. */
-export function NotesInline({ entry, notes }: { entry: Entry; notes: NoteStore }) {
-  const [open, setOpen] = useDeviceSetting("livescoring:notes-open", false);
+/**
+ * Phones and narrow tablets: a button under the entry's name that opens the note, open or shut as the judge last left
+ * it. In a list of entries (the deliberation) each opens on its own, starting shut (`remember` false).
+ */
+export function NotesInline({ entry, notes, remember = true }: { entry: Entry; notes: NoteStore; remember?: boolean }) {
+  const [rememberedOpen, setRememberedOpen] = useDeviceSetting("livescoring:notes-open", false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const [open, setOpen] = remember ? [rememberedOpen, setRememberedOpen] : [ownOpen, setOwnOpen];
   const id = useId();
   const saved = notes.get(entry.id);
   return (
@@ -131,7 +136,10 @@ export function NotesInline({ entry, notes }: { entry: Entry; notes: NoteStore }
         className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-oxford px-4 py-2 text-left text-sm font-semibold text-powder hover:text-mint"
       >
         {noteIcon}
-        <span className="shrink-0">{saved ? "Your notes" : "Add notes"}</span>
+        <span className="shrink-0">
+          {saved ? "Your notes" : "Add notes"}
+          {!remember && <span className="sr-only"> on {entry.name}</span>}
+        </span>
         {!open && saved && <span className="min-w-0 flex-1 truncate font-normal text-powder/80">{saved.split("\n")[0]}</span>}
         <svg viewBox="0 0 16 16" className={`ml-auto size-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden>
           <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

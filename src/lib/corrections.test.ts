@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanReason, correctionOutcome, correctionView, correctionVoters, MAX_CORRECTION_REASON, type Correction } from "./corrections";
+import { cleanReason, correctionOutcome, correctionView, correctionVoters, MAX_CORRECTION_REASON, withoutValues, type Correction } from "./corrections";
 import { activityFixture, roundFixture } from "./test-fixtures";
 import type { Board, Judge, JudgePanel } from "./types";
 
@@ -93,5 +93,15 @@ describe("cleanReason", () => {
     expect(cleanReason("  Typed 59\n instead of 95  ")).toBe("Typed 59 instead of 95");
     expect(cleanReason("x".repeat(MAX_CORRECTION_REASON + 5))).toHaveLength(MAX_CORRECTION_REASON);
     expect(cleanReason(undefined)).toBe("");
+  });
+});
+
+describe("withoutValues", () => {
+  it("keeps who asks, for which entry and why, and drops the scores", () => {
+    const b: Board = { activity: activityFixture({ scoringMode: "criteria", criteria: [{ id: "x", name: "Poise", max: 100 }] }), judges: [judge("ana"), judge("ben")], entries, scores: [], rounds: [] };
+    const view = withoutValues(correctionView(b, correction({ oldBreakdown: { x: 7.5 }, newBreakdown: { x: 8.5 } })));
+    expect(view).toMatchObject({ judgeName: "ANA", entryName: "Bea", entryNumber: 2, reason: "Typed 7.5 instead of 8.5", valuesHidden: true });
+    expect([view.from, view.to, view.fromNumber, view.toNumber]).toEqual(["", "", "", ""]);
+    expect(view.criteria).toEqual([]);
   });
 });

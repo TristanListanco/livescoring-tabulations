@@ -2,14 +2,14 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { connection } from "next/server";
 import { cache } from "react";
-import { LIVE_BOARD_TAG } from "./live-cache";
+import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
-type ActivityRow = {
+export type ActivityRow = {
   id: string;
   name: string;
   public_id: string;
@@ -29,6 +29,9 @@ type ActivityRow = {
   /** Migration 020. */
   session_ended_at?: string | null;
   archived_at?: string | null;
+  /** Migration 021. */
+  live_scoring?: boolean;
+  signed_off_at?: string | null;
   current_entry_id?: string | null;
   scoring_mode?: string;
   criteria?: unknown;
@@ -106,13 +109,17 @@ function toViolations(value: unknown): Violation[] | null {
     .filter((v) => v.id && v.reason && Number.isFinite(v.points) && v.points > 0);
 }
 
+/** A session state as stored; anything unknown reads as not started. */
+export const toSessionState = (value: string | undefined): SessionState =>
+  value === "live" || value === "deliberation" || value === "ended" ? value : "draft";
+
 /** 2 on databases without migration 007. */
 function toResultDecimals(value: number | undefined): ResultDecimals {
   const places = Number(value ?? 2);
   return (Number.isInteger(places) && places >= 0 && places <= 4 ? places : 2) as ResultDecimals;
 }
 
-function toActivity(row: ActivityRow): Activity {
+export function toActivity(row: ActivityRow): Activity {
   return {
     id: row.id,
     name: row.name,
@@ -131,8 +138,11 @@ function toActivity(row: ActivityRow): Activity {
     ledTheme: toLedTheme(row.led_theme),
     ledShape: toLedShape(row.led_shape),
     ownerId: row.owner_id ?? null,
-    sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
+    // Pageants always score live; databases without migration 021 do too.
+    liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
+    sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
+    signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,
     archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
     scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
@@ -267,7 +277,7 @@ export async function listOrganizerActivities(): Promise<OrganizerActivityStatus
     name: row.name,
     kind: row.kind === "pageant" ? "pageant" : "event",
     organizer: row.owner?.name ?? "",
-    sessionState: row.session_state === "live" || row.session_state === "ended" ? row.session_state : "draft",
+    sessionState: toSessionState(row.session_state),
     judgeCount: row.judges[0]?.count ?? 0,
     entryCount: row.entries[0]?.count ?? 0,
     scoreCount: row.scores[0]?.count ?? 0,
@@ -446,6 +456,28 @@ type CorrectionRow = {
 };
 const toBreakdown = (b: Record<string, number | string> | null) => (b ? Object.fromEntries(Object.entries(b).map(([id, v]) => [id, Number(v)])) : null);
 
+/**
+ * A judge's points per criterion for every entry they've scored (events), by entry id: what they review in
+ * deliberation, and where a correction there starts from.
+ */
+export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, Record<string, number>>> {
+  const { data } = await db().from("scores").select("entry_id, breakdown").eq("judge_id", judgeId).is("round_id", null);
+  const rows = (data ?? []) as { entry_id: string; breakdown: Record<string, number | string> | null }[];
+  return Object.fromEntries(rows.flatMap((r) => (r.breakdown ? [[r.entry_id, toBreakdown(r.breakdown)!]] : [])));
+}
+
+/** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */
+export async function getSignatures(activityId: string): Promise<JudgeSignature[] | null> {
+  const { data, error } = await db().from("judge_signatures").select("judge_id, method, drawing, signed_at").eq("activity_id", activityId);
+  if (error) return null;
+  return (data as { judge_id: string; method: string; drawing: string | null; signed_at: string }[]).map((r) => ({
+    judgeId: r.judge_id,
+    method: r.method === "drawn" && r.drawing ? "drawn" : "checked",
+    drawing: r.method === "drawn" ? r.drawing : null,
+    signedAt: r.signed_at,
+  }));
+}
+
 /** A judge's points per criterion for one entry (in a pageant, one sub-activity): where their correction starts from. */
 export async function getOwnBreakdown(judgeId: string, entryId: string, roundId: string | null): Promise<Record<string, number> | null> {
   const query = db().from("scores").select("breakdown").eq("judge_id", judgeId).eq("entry_id", entryId);
@@ -487,10 +519,19 @@ export async function getCorrections(activityId: string): Promise<Correction[] |
 
 const isPublicId = (publicId: string) => /^[a-z0-9]{6,32}$/.test(publicId);
 
+/**
+ * Whether the audience sees an activity's scores yet: always with live scoring; without it, only once the session has
+ * ended with every judge's signature.
+ */
+export const resultsReleased = (activity: Pick<Activity, "liveScoring" | "signedOffAt">) => activity.liveScoring || activity.signedOffAt !== null;
+
 async function loadPublicBoard(publicId: string): Promise<Board | null> {
   const { data, error } = await db().from("activities").select(ACTIVITY_COLUMNS).eq("public_id", publicId).maybeSingle();
   fail(error);
-  return data ? loadBoard(toActivity(data as ActivityRow)) : null;
+  if (!data) return null;
+  const board = await loadBoard(toActivity(data as ActivityRow));
+  // Held back on the server, so they never reach the audience's screens before they're released.
+  return resultsReleased(board.activity) ? board : { ...board, scores: [] };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
@@ -501,14 +542,14 @@ export const getPublicBoard = cache(async (publicId: string): Promise<Board | nu
 
 /**
  * The public live results, cached and shared by everyone watching: a crowd of phones refreshing after a score costs
- * one database read, not one each. Every action that changes an activity clears it (changed() in live-cache.ts), so
- * a refresh after a change reads it fresh; it also expires on its own after 15 seconds.
+ * one database read, not one each. Every action that changes an activity clears its own (changed() in live-cache.ts),
+ * so a refresh after a change reads it fresh, and other activities keep theirs; it also expires on its own after 15
+ * seconds.
  */
-const cachedLiveBoard = unstable_cache(loadPublicBoard, ["live-board"], { tags: [LIVE_BOARD_TAG], revalidate: 15 });
-
 export const getLiveBoard = cache(async (publicId: string): Promise<Board | null> => {
   await connection();
-  return isPublicId(publicId) ? cachedLiveBoard(publicId) : null;
+  if (!isPublicId(publicId)) return null;
+  return unstable_cache(() => loadPublicBoard(publicId), ["live-board", publicId], { tags: [LIVE_BOARD_TAG, liveBoardTag(publicId)], revalidate: 15 })();
 });
 
 /** A pageant's sub-activities, in the order they were saved. Empty when there are none (or before migration 011). */
@@ -544,6 +585,24 @@ export async function getJudgeContext(judgeId: string): Promise<{ judge: Judge; 
   if (!data) return null;
   const row = data as JudgeRow & { activity_id: string };
   return { judge: toJudge(row), activityId: row.activity_id };
+}
+
+/**
+ * What every judge action checks first, read at once: the judge, their activity, and the device this browser signed
+ * in as (null without one). Null when the judge is gone. One trip to the database rather than three in a row: with
+ * many activities running at once, every judge's every tap pays for each trip.
+ */
+export async function getJudgeSeat(judgeId: string, deviceId: string | null): Promise<{ judge: Judge; activity: Activity; device: JudgeDevice | null } | null> {
+  await connection();
+  if (!isUuid(judgeId)) return null;
+  const [{ data, error }, device] = await Promise.all([
+    db().from("judges").select("*, activity:activities(*)").eq("id", judgeId).maybeSingle(),
+    deviceId ? getDevice(deviceId) : null,
+  ]);
+  fail(error);
+  const row = data as (JudgeRow & { activity: ActivityRow | null }) | null;
+  if (!row?.activity) return null;
+  return { judge: toJudge(row), activity: toActivity(row.activity), device };
 }
 
 // Judge devices ---------------------------------------------------------------------

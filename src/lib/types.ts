@@ -1,10 +1,15 @@
 import type { LedFont, LedShape, LedTheme } from "./led-style";
 
-export type Decimals = 0 | 1 | 2;
+/** Decimal places judges enter scores with. Three only for events; a pageant's sub-activities use 0 to 2. */
+export type Decimals = 0 | 1 | 2 | 3;
 /** Decimal places shown for averages and criteria totals in results. */
 export type ResultDecimals = 0 | 1 | 2 | 3 | 4;
 
-export type SessionState = "draft" | "live" | "ended";
+/**
+ * draft: not started. live: judging is open. deliberation: an event without live scoring, once every entry is scored:
+ * the judges review their scores and sign. ended: judging is closed.
+ */
+export type SessionState = "draft" | "live" | "deliberation" | "ended";
 
 /** simple: one score per judge between min and max. criteria: judges score each criterion; totals are out of 100. */
 export type ScoringMode = "simple" | "criteria";
@@ -98,8 +103,16 @@ export type Activity = {
   /** Criteria mode only; their max points add up to 100. */
   criteria: Criterion[];
   criteriaDisplay: CriteriaDisplay;
-  /** draft: not started, judges wait. live: judging is open. ended: judging is closed. */
+  /**
+   * Live scoring (the default): the audience sees scores as they come in, and a submitted score is final. Without it the
+   * audience sees no scores until the judges have signed, a judge can ask to correct a score (the others vote without
+   * seeing the values), and the judges deliberate once every entry is scored. Events only; always true for pageants.
+   */
+  liveScoring: boolean;
+  /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */
   sessionState: SessionState;
+  /** When the session ended with every judge's signature (an event without live scoring), or null. Its results show from then on. */
+  signedOffAt: string | null;
   /** When the session last ended (ISO time), while it's ended; null before migration 020 or if it never has. */
   sessionEndedAt: string | null;
   /**
@@ -198,5 +211,11 @@ export type Board = {
    */
   deductions?: Deduction[];
 };
+
+/**
+ * A judge's signature after deliberating. drawn: drawn on a touchscreen, kept as SVG path data in a 600 × 200 box;
+ * checked: they ticked "(Sgd.)" on a screen without touch.
+ */
+export type JudgeSignature = { judgeId: string; method: "drawn" | "checked"; drawing: string | null; signedAt: string };
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };

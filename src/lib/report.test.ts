@@ -45,3 +45,10 @@ describe("reportId", () => {
     expect(reportId({ ...board, deductions: [{ ...deduction, points: 2 }] })).not.toBe(deducted);
   });
 });
+
+describe("reportId with three decimal places", () => {
+  const three = (value: number): Board => ({ ...board, activity: activityFixture({ id: "a1", decimals: 3 }), scores: [{ entryId: "e1", judgeId: "j1", value }] });
+  it("tells apart scores that differ only in the third place", () => {
+    expect(reportId(three(8.125))).not.toBe(reportId(three(8.13)));
+  });
+});

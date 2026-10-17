@@ -11,9 +11,16 @@ export function formatScore(value: number, decimals: number): string {
   return value.toFixed(decimals);
 }
 
+/**
+ * Scores are added and compared in thousandths, as whole numbers: judges enter up to three decimal places, and whole
+ * numbers keep sums and averages exact whatever the float error.
+ */
+const THOUSANDTHS = 1000;
+const thousandths = (value: number) => Math.round(value * THOUSANDTHS);
+
 /** Show a range bound without trailing zeros, e.g. 1 or 9.5. */
 export function formatBound(value: number): string {
-  return String(Number(value.toFixed(2)));
+  return String(Number(value.toFixed(3)));
 }
 
 function integerDigits(max: number): number {
@@ -46,7 +53,7 @@ export type ParsedScore = { ok: true; value: number } | { ok: false; error: stri
  */
 export function overMax(input: string, rules: Pick<ScoreRules, "max">): boolean {
   const text = input.trim();
-  return /^\d+(\.\d*)?$/.test(text) && Math.round(Number(text) * 100) > Math.round(rules.max * 100);
+  return /^\d+(\.\d*)?$/.test(text) && thousandths(Number(text)) > thousandths(rules.max);
 }
 
 export function overMaxMessage(input: string, rules: Pick<ScoreRules, "max">): string {
@@ -71,11 +78,11 @@ export function parseScore(input: string, rules: ScoreRules): ParsedScore {
     };
   }
 
-  const hundredths = Math.round(Number(text) * 100);
-  if (hundredths < Math.round(rules.min * 100) || hundredths > Math.round(rules.max * 100)) {
+  const units = thousandths(Number(text));
+  if (units < thousandths(rules.min) || units > thousandths(rules.max)) {
     return { ok: false, error: `Enter a score from ${rangeLabel(rules)}.` };
   }
-  return { ok: true, value: hundredths / 100 };
+  return { ok: true, value: units / THOUSANDTHS };
 }
 
 export type RankedRow = {
@@ -98,7 +105,7 @@ function shownDivisor(rules: DisplayRules): number {
 
 /**
  * numerator ÷ denominator rounded half up to `places` decimals. Called with whole numbers (sums of scores in
- * hundredths), so a value exactly halfway between two results always rounds up, whatever the float error.
+ * thousandths), so a value exactly halfway between two results always rounds up, whatever the float error.
  */
 function roundShown(numerator: number, denominator: number, places: number): number {
   return Math.round((numerator * 10 ** places) / denominator) / 10 ** places;
@@ -119,7 +126,7 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
     for (const s of scores) {
       if (s.entryId !== entry.id || !judgeIds.has(s.judgeId)) continue;
       mine.set(s.judgeId, s.value);
-      sum += Math.round(s.value * 100);
+      sum += thousandths(s.value);
     }
     const count = mine.size;
     return {
@@ -127,7 +134,7 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
       number: entry.number ?? index + 1,
       scores: mine,
       count,
-      average: count ? roundShown(sum, 100 * count * divisor, rules.resultDecimals) : null,
+      average: count ? roundShown(sum, THOUSANDTHS * count * divisor, rules.resultDecimals) : null,
       rank: null,
     };
   });
@@ -190,7 +197,7 @@ const percentSign = (rules: DisplayRules) => (rules.scoringMode === "criteria" &
  */
 export function scoreText(value: number, rules: DisplayRules): string {
   if (rules.scoringMode !== "criteria") return formatScore(value, rules.decimals);
-  const shown = roundShown(Math.round(value * 100), 100 * shownDivisor(rules), rules.resultDecimals);
+  const shown = roundShown(thousandths(value), THOUSANDTHS * shownDivisor(rules), rules.resultDecimals);
   return `${shown.toFixed(rules.resultDecimals)}${percentSign(rules)}`;
 }
 
@@ -220,12 +227,22 @@ export function parseBreakdown(
   decimals: Decimals,
 ): { ok: true; total: number; breakdown: Record<string, number> } | { ok: false; error: string } {
   const breakdown: Record<string, number> = {};
-  let hundredths = 0;
+  let units = 0;
   for (const c of criteria) {
     const parsed = parseScore(typed[c.id] ?? "", criterionRules(c, decimals));
     if (!parsed.ok) return { ok: false, error: `${c.name}: ${parsed.error}` };
     breakdown[c.id] = parsed.value;
-    hundredths += Math.round(parsed.value * 100);
+    units += thousandths(parsed.value);
   }
-  return { ok: true, total: hundredths / 100, breakdown };
+  return { ok: true, total: units / THOUSANDTHS, breakdown };
+}
+
+/** A running total of typed criteria points, ignoring any that don't parse yet: what the keypad shows as judges type. */
+export function typedTotal(typed: Record<string, string>, criteria: Criterion[], decimals: Decimals): number {
+  let units = 0;
+  for (const c of criteria) {
+    const parsed = parseScore(typed[c.id] ?? "", criterionRules(c, decimals));
+    if (parsed.ok) units += thousandths(parsed.value);
+  }
+  return units / THOUSANDTHS;
 }

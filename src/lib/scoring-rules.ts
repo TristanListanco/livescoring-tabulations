@@ -33,6 +33,7 @@ export function cleanGuide(value: unknown): string {
     .trim();
 }
 
+/** The score range: whole numbers or up to two decimal places, whatever places judges enter scores with. */
 function checkRange(minText: string, maxText: string, decimals: Decimals): { rules: ScoreRules } | { error: string } {
   const number = /^\d{1,4}(\.\d{1,2})?$/;
   if (!number.test(minText.trim()) || !number.test(maxText.trim())) return { error: "Min and max must be numbers from 0 to 9999." };
@@ -56,11 +57,11 @@ function checkRange(minText: string, maxText: string, decimals: Decimals): { rul
  * of 100). Criteria keep their ids across edits so stored breakdowns still line up; new ones get `newId()`.
  * Shared by the server, which decides, and the create forms, which check before sending.
  */
-export function checkScoring(input: ScoringInput, newId: () => string): { scoring: Scoring } | { error: string } {
+export function checkScoring(input: ScoringInput, newId: () => string, { maxDecimals = 2 }: { maxDecimals?: 2 | 3 } = {}): { scoring: Scoring } | { error: string } {
   const decimals = input.decimals;
-  if (decimals !== 0 && decimals !== 1 && decimals !== 2) return { error: "Choose how many decimal places judges can use." };
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > maxDecimals) return { error: "Choose how many decimal places judges can use." };
   if (input.mode !== "criteria") {
-    const parsed = checkRange(input.min, input.max, decimals);
+    const parsed = checkRange(input.min, input.max, decimals as Decimals);
     return "error" in parsed ? parsed : { scoring: { mode: "simple", rules: parsed.rules, criteria: [], display: input.display } };
   }
 
@@ -90,5 +91,5 @@ export function checkScoring(input: ScoringInput, newId: () => string): { scorin
   }
   const total = criteria.reduce((sum, c) => sum + c.max, 0);
   if (total !== 100) return { error: `The criteria add up to ${total} points. They must add up to 100.` };
-  return { scoring: { mode: "criteria", rules: { min: 0, max: 100, decimals }, criteria, display: input.display } };
+  return { scoring: { mode: "criteria", rules: { min: 0, max: 100, decimals: decimals as Decimals }, criteria, display: input.display } };
 }

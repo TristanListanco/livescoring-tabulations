@@ -28,6 +28,7 @@ describe("judgeView", () => {
 
   it("closes when the session ends", () => {
     expect(judgeView({ sessionState: "ended", currentEntryId: "e1" }, entries, none)).toEqual({ kind: "ended" });
+    expect(judgeView({ sessionState: "deliberation", currentEntryId: null }, entries, none)).toEqual({ kind: "deliberation" });
   });
 });
 

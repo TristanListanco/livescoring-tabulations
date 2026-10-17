@@ -5,10 +5,12 @@ import type { Activity, Board, Entry } from "./types";
  * What a judge's screen shows. The organizer drives judging: judges never pick entries themselves.
  * not-started / ended: no keypad. waiting: live, but no entry shown yet. scoring: the current entry,
  * not yet scored. scored: they've submitted the current entry and wait for the organizer's next one.
+ * deliberation: every entry is scored; they review their scores and sign.
  */
 export type JudgeView =
   | { kind: "not-started" }
   | { kind: "ended" }
+  | { kind: "deliberation" }
   | { kind: "waiting" }
   | { kind: "scoring"; entry: Entry; number: number }
   | { kind: "scored"; entry: Entry; number: number; value: number };
@@ -16,6 +18,7 @@ export type JudgeView =
 export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntryId">, entries: Entry[], myScores: Map<string, number>): JudgeView {
   if (activity.sessionState === "draft") return { kind: "not-started" };
   if (activity.sessionState === "ended") return { kind: "ended" };
+  if (activity.sessionState === "deliberation") return { kind: "deliberation" };
   const index = entries.findIndex((e) => e.id === activity.currentEntryId);
   if (index < 0) return { kind: "waiting" };
   const entry = entries[index];

@@ -522,7 +522,10 @@ export function checkPageant(
 const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "");
 const record = (v: unknown) => (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
 
-/** A scoring from JSON (a saved draft, or the browser) in the form's shape. Decimals that aren't 0, 1 or 2 become -1, which checkScoring refuses. */
+/**
+ * A scoring from JSON (a saved draft, or the browser) in the form's shape. Decimals that aren't 0 to 3 become -1, which
+ * checkScoring refuses (and three is for events: a pageant's sub-activities are checked to two).
+ */
 export function parseScoringDraft(value: unknown): ScoringDraft {
   const sc = record(value);
   const decimals = Number(sc.decimals);
@@ -530,7 +533,7 @@ export function parseScoringDraft(value: unknown): ScoringDraft {
     mode: sc.mode === "criteria" ? "criteria" : "simple",
     min: text(sc.min),
     max: text(sc.max),
-    decimals: (decimals === 0 || decimals === 1 || decimals === 2 ? decimals : -1) as Decimals,
+    decimals: (decimals === 0 || decimals === 1 || decimals === 2 || decimals === 3 ? decimals : -1) as Decimals,
     criteria: (Array.isArray(sc.criteria) ? sc.criteria : []).slice(0, 40).map((c: unknown, k) => {
       const row = record(c);
       return { key: k, id: text(row.id), name: text(row.name), max: text(row.max), min: text(row.min), guide: text(row.guide) };

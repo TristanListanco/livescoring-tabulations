@@ -146,12 +146,8 @@ test.describe.serial("criteria scoring", () => {
     await judge.getByRole("button", { name: "Submit score" }).click();
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
-    // Asked for straight away, before the page has the saved score, a correction starts from the points just given.
-    await judge.getByRole("button", { name: "Ask to correct this score" }).click();
-    await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toContainText(/25\s*\/ 30/);
-    await expect(judge.getByRole("button", { name: /^Design/ })).toContainText(/62\.5\s*\/ 70/);
-    await judge.getByRole("button", { name: "Cancel" }).click();
-    await expect(judge.getByRole("button", { name: "Ask to correct this score" })).toBeVisible();
+    // The event scores live, so a submitted score is final: nothing to ask to correct.
+    await expect(judge.getByRole("button", { name: "Ask to correct this score" })).toHaveCount(0);
     // Under the score, the points for each criterion, to compare the next entries by.
     await expect(judge.getByRole("list", { name: "Your points for each criterion" }).getByRole("listitem")).toHaveText([
       /^Innovativeness\s*25\.0\s*\/ 30$/,

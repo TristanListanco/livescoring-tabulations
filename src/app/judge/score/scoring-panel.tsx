@@ -9,11 +9,12 @@ import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
-import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, type Key } from "@/lib/scoring";
-import type { Activity, Criterion, Entry, Judge } from "@/lib/types";
+import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
+import { cleanSignature, MAX_SIGNATURE_LENGTH, SIGNATURE_BOX } from "@/lib/deliberation";
+import type { Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { leavePortal, moveToEntry, requestApproval, requestCorrection, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
+import { leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
 import { NotesBeside, NotesInline, useMediaQuery, useWideScreen, type NoteStore } from "./entry-notes";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
@@ -31,8 +32,15 @@ type Props = {
   notes: Record<string, string> | null;
   /** With criteria, the points this judge gave the entry on screen, once it's scored (null otherwise). */
   breakdown: Record<string, number> | null;
-  /** Score corrections; null when judges can't ask for them (not approved yet, or before migration 019). */
+  /**
+   * Score corrections; null when judges can't ask for them (not approved yet, an event with live scoring, or before
+   * migration 019).
+   */
   corrections: Corrections | null;
+  /** The deliberation, while the judges are in it (an event without live scoring); null otherwise. */
+  deliberation: Deliberation | null;
+  /** The chair: every judge has scored every entry, so they can open the deliberation from here. */
+  deliberationReady: boolean;
   gate: DeviceGate;
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
@@ -42,6 +50,21 @@ type Props = {
   serverNow: number;
   /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
   offPanel?: boolean;
+};
+
+/**
+ * The deliberation on this judge's screen: their points per criterion and latest correction for each entry, whether
+ * any correction is still open (no one signs until it's settled), their signature, and how many have signed.
+ */
+export type Deliberation = {
+  breakdowns: Record<string, Record<string, number>>;
+  mineByEntry: Record<string, CorrectionView>;
+  anyOpen: boolean;
+  signature: JudgeSignature | null;
+  signed: number;
+  judgeCount: number;
+  /** False before migration 021, which keeps signatures. */
+  canSign: boolean;
 };
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -118,7 +141,22 @@ type Submission = {
 const PENDING_POLL_MS = 2_500;
 const JUDGE_POLL_MS = 5_000;
 
-export function ScoringPanel({ activity, judge, entries, myScores, notes, breakdown, corrections, gate, panel, round, serverNow, offPanel = false }: Props) {
+export function ScoringPanel({
+  activity,
+  judge,
+  entries,
+  myScores,
+  notes,
+  breakdown,
+  corrections,
+  deliberation,
+  deliberationReady,
+  gate,
+  panel,
+  round,
+  serverNow,
+  offPanel = false,
+}: Props) {
   const pageant = activity.kind === "pageant";
   const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back. Once the page
@@ -188,9 +226,19 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
   const currentId = approved && (view.kind === "scoring" || view.kind === "scored") ? view.entry.id : null;
   // The points behind the score on screen (criteria): the page's, or, until it has them, the ones just saved here.
   const pointsOnScreen = view.kind === "scored" ? (breakdown ?? justSavedPoints.get(view.entry.id) ?? null) : null;
-  // Correcting the score on screen: the keypad comes back, starting from what they gave.
+  // Correcting a score: the keypad comes back, starting from what they gave. While judging, the entry on screen; in the
+  // deliberation, any entry they choose.
   const [correctingFor, setCorrectingFor] = useState<string | null>(null);
-  const correcting = corrections && view.kind === "scored" && correctingFor === view.entry.id;
+  const deliberating = view.kind === "deliberation" && !!deliberation;
+  const correctingEntry = (() => {
+    if (!corrections || !correctingFor) return null;
+    if (view.kind === "scored" && correctingFor === view.entry.id) return { entry: view.entry, number: view.number, value: view.value, points: pointsOnScreen };
+    const index = entries.findIndex((e) => e.id === correctingFor);
+    const value = scores.get(correctingFor);
+    if (!deliberating || index < 0 || value === undefined) return null;
+    return { entry: entries[index], number: entries[index].number ?? index + 1, value, points: deliberation.breakdowns[correctingFor] ?? null };
+  })();
+  const correcting = !!correctingEntry;
   // A saved score's card says it went in, so its toast is only heard. Seen once the organizer has moved on from it.
   const toastQuiet = !!toast?.entryId && view.kind === "scored" && view.entry.id === toast.entryId && !correcting;
   const idle: Submission = { submit: () => {}, typing: () => {}, busy: false, error: null };
@@ -203,7 +251,13 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
   const onVoted = (c: CorrectionView, agree: boolean) => {
     setVotedIds((ids) => new Set(ids).add(c.id));
     showToast(
-      agree ? (
+      c.valuesHidden ? (
+        agree ? (
+          <>You agreed to {c.judgeName}&apos;s correction.</>
+        ) : (
+          <>You disagreed, so {c.judgeName}&apos;s score stays as it was.</>
+        )
+      ) : agree ? (
         <>
           You agreed to change {c.judgeName}&apos;s score to <span className="tabular whitespace-nowrap">{c.to}</span>.
         </>
@@ -245,7 +299,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
           </p>
         </div>
         <div className="ml-auto flex items-center gap-4 sm:gap-6">
-          {approved && !offPanel && (
+          {approved && !offPanel && !deliberating && (
             <>
               <p className="tabular hidden text-powder md:block">
                 <span className="font-bold text-mint">{scores.size}</span> of {entries.length} scored
@@ -297,7 +351,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
             <span className="min-w-0 text-balance">{toast.content}</span>
           </p>
         )}
-        {approved && !offPanel && (
+        {approved && !offPanel && !deliberating && (
           <aside aria-label="Your scores" className="hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
             <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
             <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} />
@@ -326,20 +380,32 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
 
           {!approved ? (
             <DeviceGateCard gate={gate} />
-          ) : correcting ? (
+          ) : correctingEntry && corrections ? (
             (() => {
+              const { entry, number } = correctingEntry;
               const fix: Correcting = {
-                from: view.value,
-                fromBreakdown: pointsOnScreen,
+                from: correctingEntry.value,
+                fromBreakdown: correctingEntry.points,
                 othersVote: corrections.othersVote,
                 onDone: () => setCorrectingFor(null),
               };
               return activity.scoringMode === "criteria" ? (
-                <CriteriaKeypad key={`${view.entry.id}-fix`} activity={activity} entry={view.entry} number={view.number} submission={idle} correcting={fix} />
+                <CriteriaKeypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} />
               ) : (
-                <Keypad key={`${view.entry.id}-fix`} activity={activity} entry={view.entry} number={view.number} submission={idle} correcting={fix} />
+                <Keypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} />
               );
             })()
+          ) : deliberating ? (
+            <DeliberationView
+              activity={activity}
+              entries={entries}
+              scores={scores}
+              deliberation={deliberation}
+              othersVote={corrections?.othersVote ?? true}
+              canCorrect={!!corrections}
+              notes={noteStore}
+              onCorrect={setCorrectingFor}
+            />
           ) : view.kind === "scoring" ? (
             activity.scoringMode === "criteria" ? (
               <CriteriaKeypad
@@ -390,6 +456,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
                 <EntryControls
                   activity={activity}
                   entries={entries}
+                  deliberationReady={deliberationReady}
                   // The chair's own score counts as soon as it's saved here, before the refreshed page has it.
                   panel={view.kind === "scored" ? panel.map((j) => (j.id === judge.id ? { ...j, scored: true } : j)) : panel}
                 />
@@ -398,7 +465,7 @@ export function ScoringPanel({ activity, judge, entries, myScores, notes, breakd
             </div>
           )}
         </main>
-        {noteStore && wide && <NotesBeside entry={noteEntry} notes={noteStore} />}
+        {noteStore && wide && !deliberating && <NotesBeside entry={noteEntry} notes={noteStore} />}
       </div>
       {pending && <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />}
       {/* Another judge's correction waits for this judge's vote: it can't be put off, only held while they score. */}
@@ -534,8 +601,8 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
           {view.judgeName} asks to change their score for No. {view.entryNumber} {view.entryName}
           {where}
         </h2>
-        <FromTo from={view.fromNumber} to={view.toNumber} />
-        {view.outOf100 && <p className="text-center text-sm text-prussian/75">out of 100</p>}
+        {!view.valuesHidden && <FromTo from={view.fromNumber} to={view.toNumber} />}
+        {!view.valuesHidden && view.outOf100 && <p className="text-center text-sm text-prussian/75">out of 100</p>}
         {view.criteria.length > 0 && (
           <ol aria-label="Points for each criterion, before and after" className="mt-4 space-y-1 text-left">
             {view.criteria.map((c) => (
@@ -560,6 +627,7 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
           <p className="mt-0.5 whitespace-pre-line">{view.reason}</p>
         </blockquote>
         <p id="vote-rule" className="mt-3 text-sm text-prussian/75">
+          {view.valuesHidden && "Scores stay private, so you see only the reason. "}
           It changes only if every other judge agrees. Your vote is final and anonymous.
         </p>
         {error && (
@@ -572,11 +640,11 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
       <div className="grid grid-cols-2 gap-3 px-6 pb-6">
         <button type="button" disabled={!armed || pending} onClick={() => vote(false)} className={answer}>
           Disagree
-          <span className="tabular text-sm font-normal">Keep {view.from}</span>
+          <span className="tabular text-sm font-normal">{view.valuesHidden ? "Keep their score" : `Keep ${view.from}`}</span>
         </button>
         <button type="button" disabled={!armed || pending} onClick={() => vote(true)} className={answer}>
           Agree
-          <span className="tabular text-sm font-normal">Change to {view.to}</span>
+          <span className="tabular text-sm font-normal">{view.valuesHidden ? "Let them change it" : `Change to ${view.to}`}</span>
         </button>
       </div>
     </dialog>
@@ -587,7 +655,20 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
  * Under a judge's submitted score: what they can do about it, their correction waiting for votes (with Withdraw), or
  * how their last one ended and what's left to do.
  */
-function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | null; othersVote: boolean; onAsk: () => void }) {
+function CorrectionStatus({
+  mine,
+  othersVote,
+  onAsk,
+  entryName,
+  compact = false,
+}: {
+  mine: CorrectionView | null;
+  othersVote: boolean;
+  onAsk: () => void;
+  /** In a list of entries (the deliberation): which one, for screen readers. */
+  entryName?: string;
+  compact?: boolean;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   if (mine?.status === "open") {
@@ -614,6 +695,7 @@ function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | 
           className="btn btn-sm mt-3 border border-regal text-mint hover:bg-regal"
         >
           Withdraw correction
+          {entryName && <span className="sr-only"> for {entryName}</span>}
         </button>
         {error && (
           <p role="alert" className={`mt-2 text-sm font-semibold ${ERROR_TEXT}`}>
@@ -636,8 +718,9 @@ function CorrectionStatus({ mine, othersVote, onAsk }: { mine: CorrectionView | 
           </p>
         )
       )}
-      <button type="button" onClick={onAsk} className="btn mt-4 border border-regal text-mint hover:bg-regal">
+      <button type="button" onClick={onAsk} className={`btn border border-regal text-mint hover:bg-regal ${compact ? "btn-sm mt-3" : "mt-4"}`}>
         {mine?.status === "rejected" ? "Ask again" : "Ask to correct this score"}
+        {entryName && <span className="sr-only"> for {entryName}</span>}
       </button>
     </>
   );
@@ -761,6 +844,7 @@ function WaitingCard({
       body: "It appears here when the organizer shows it.",
     },
     scored: { title: "Waiting for the next entry", body: "The organizer shows it once every judge has scored." },
+    deliberation: { title: "The judges are deliberating", body: "Your scores appear here to review and sign." },
     ended: { title: "Judging has ended", body: `Thank you, ${firstName}. You scored ${scoredCount} of ${entryCount} ${entryCount === 1 ? "entry" : "entries"}.` },
   };
   const tabulatorCopy: Partial<typeof copy> = {
@@ -851,11 +935,232 @@ function PointsList({ points, decimals, centered = false }: { points: CriterionP
 }
 
 /**
+ * The deliberation on a judge's screen: every entry in running order with their score (and points per criterion), what
+ * became of any correction they asked for, and their notes; then their signature. Corrections still go to the other
+ * judges' vote, who see only the reason.
+ */
+function DeliberationView({
+  activity,
+  entries,
+  scores,
+  deliberation,
+  othersVote,
+  canCorrect,
+  notes,
+  onCorrect,
+}: {
+  activity: Activity;
+  entries: Entry[];
+  scores: Map<string, number>;
+  deliberation: Deliberation;
+  othersVote: boolean;
+  canCorrect: boolean;
+  notes: NoteStore | null;
+  onCorrect: (entryId: string) => void;
+}) {
+  const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
+  return (
+    <div className="w-full max-w-md pb-8 lg:max-w-2xl">
+      <h1 className="judge-title">Deliberation</h1>
+      <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, ask the other judges to correct it. Then sign.</p>
+      <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
+        {entries.map((entry, i) => {
+          const value = scores.get(entry.id);
+          const given = deliberation.breakdowns[entry.id];
+          const points = given ? criteria.flatMap((c) => (given[c.id] === undefined ? [] : [{ id: c.id, name: c.name, points: given[c.id], max: c.max }])) : null;
+          return (
+            <li key={entry.id} className="py-4">
+              <div className="flex items-center gap-3">
+                {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={40} square className="rounded-lg" />}
+                <p className="min-w-0 flex-1 text-powder">
+                  No. {entry.number ?? i + 1} <span className="font-semibold text-mint">{entry.name}</span>
+                </p>
+                {value === undefined ? (
+                  <span className="text-sm text-powder">Not scored</span>
+                ) : (
+                  <ScoreFigure value={value} activity={activity} className="text-3xl" />
+                )}
+              </div>
+              {points && points.length > 0 && <PointsList points={points} decimals={activity.decimals} />}
+              {canCorrect && value !== undefined && (
+                <CorrectionStatus
+                  mine={deliberation.mineByEntry[entry.id] ?? null}
+                  othersVote={othersVote}
+                  onAsk={() => onCorrect(entry.id)}
+                  entryName={entry.name}
+                  compact
+                />
+              )}
+              {notes && <NotesInline entry={entry} notes={notes} remember={false} />}
+            </li>
+          );
+        })}
+      </ol>
+      <SignOffPanel deliberation={deliberation} />
+    </div>
+  );
+}
+
+/**
+ * Signing off at the end of the deliberation. On a touchscreen the judge draws their signature; without one they tick
+ * "(Sgd.)". It waits while any correction is open, so the judges sign the scores as they'll stand.
+ */
+function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
+  const { signature, signed, judgeCount, anyOpen, canSign } = deliberation;
+  // A touchscreen anywhere on the device (a tablet with a keyboard still has one) draws; otherwise the checkbox.
+  const touch = useMediaQuery("(any-pointer: coarse)");
+  const [drawing, setDrawing] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const ready = touch ? cleanSignature(drawing) !== null : agreed;
+  const count = `${signed} of ${judgeCount} ${judgeCount === 1 ? "judge has" : "judges have"} signed.`;
+
+  const sign = () =>
+    startTransition(async () => {
+      setError(null);
+      const result = await signOff(touch ? drawing : null).catch(() => ({ ok: false as const, error: "Your signature didn't save. Check your connection and try again." }));
+      if (!result.ok) setError(result.error);
+    });
+
+  return (
+    <section aria-labelledby="sign-off" className="mt-8 rounded-2xl bg-oxford px-5 py-5">
+      <h2 id="sign-off" className="text-lg font-bold">
+        Your signature
+      </h2>
+      {signature ? (
+        <>
+          <SignatureMark signature={signature} />
+          <p role="status" className="mt-3 text-powder">
+            You&apos;ve signed. {count} The organizer ends the session once everyone has.
+          </p>
+        </>
+      ) : !canSign ? (
+        <p className="mt-1 text-powder">Signing needs a database update. Ask the organizer.</p>
+      ) : anyOpen ? (
+        <p role="status" className="mt-1 text-powder">
+          A score correction is still open. You can sign once it&apos;s settled. {count}
+        </p>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready && !pending) sign();
+          }}
+        >
+          {touch ? (
+            <SignaturePad value={drawing} onChange={setDrawing} />
+          ) : (
+            <label className="mt-3 flex items-start gap-3 text-[15px]">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-mint" />
+              <span>
+                I&apos;ve reviewed my scores and sign off on them. Your score sheet shows <span className="font-semibold">(Sgd.)</span> beside your name.
+              </span>
+            </label>
+          )}
+          {error && (
+            <p role="alert" className={`mt-3 text-sm font-semibold ${ERROR_TEXT}`}>
+              <WarningIcon />
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!ready || pending}
+            className="btn mt-4 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white disabled:bg-prussian disabled:text-powder disabled:opacity-100"
+          >
+            {pending ? "Signing…" : "Sign"}
+          </button>
+          <p className="mt-2 text-sm text-powder">{count}</p>
+        </form>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Where a judge draws their signature with a finger or stylus: strokes kept as SVG path data in a 600 × 200 box, as
+ * whole-number points. The page doesn't scroll while drawing in it.
+ */
+function SignaturePad({ value, onChange }: { value: string; onChange: (update: (path: string) => string) => void }) {
+  const ref = useRef<SVGSVGElement>(null);
+  const down = useRef(false);
+  const last = useRef("");
+  const hintId = useId();
+  const at = (e: React.PointerEvent<SVGSVGElement>) => {
+    const box = ref.current!.getBoundingClientRect();
+    const clamp = (n: number) => Math.min(Math.max(n, 0), 1);
+    return `${Math.round(clamp((e.clientX - box.left) / box.width) * SIGNATURE_BOX.width)} ${Math.round(clamp((e.clientY - box.top) / box.height) * SIGNATURE_BOX.height)}`;
+  };
+  const add = (part: string) => onChange((path) => (path.length + part.length > MAX_SIGNATURE_LENGTH ? path : path + part));
+  return (
+    <div className="mt-3">
+      <p id={hintId} className="text-sm text-powder">
+        Draw your signature in the box.
+      </p>
+      <svg
+        ref={ref}
+        viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`}
+        role="img"
+        aria-label="Signature box"
+        aria-describedby={hintId}
+        className="mt-2 block aspect-[3/1] w-full cursor-crosshair touch-none rounded-xl bg-white select-none"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          down.current = true;
+          last.current = at(e);
+          add(`M${last.current}`);
+        }}
+        onPointerMove={(e) => {
+          if (!down.current) return;
+          const point = at(e);
+          if (point === last.current) return;
+          last.current = point;
+          add(`L${point}`);
+        }}
+        onPointerUp={() => (down.current = false)}
+        onPointerCancel={() => (down.current = false)}
+      >
+        {/* The line to sign on. */}
+        <line x1="30" y1="160" x2="570" y2="160" className="stroke-powder" strokeWidth="2" strokeDasharray="8 10" />
+        {value && <path d={value} fill="none" className="stroke-prussian" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />}
+      </svg>
+      <button type="button" onClick={() => onChange(() => "")} disabled={!value} className="btn btn-sm mt-2 text-powder hover:bg-prussian hover:text-mint">
+        Clear
+      </button>
+    </div>
+  );
+}
+
+/** A signature once given: the drawing, or "(Sgd.)". */
+function SignatureMark({ signature }: { signature: JudgeSignature }) {
+  if (signature.method === "drawn" && signature.drawing) {
+    return (
+      <svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} role="img" aria-label="Your signature" className="mt-3 block aspect-[3/1] w-full rounded-xl bg-white">
+        <path d={signature.drawing} fill="none" className="stroke-prussian" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return <p className="mt-2 text-2xl font-bold">(Sgd.)</p>;
+}
+
+/**
  * The chair of the board of judges gets the organizer's Previous and Next entry controls on their own screen, right
  * under their score: how many have scored, the buttons, then who has. Shown once they've scored the entry on screen (or
  * before the first entry).
  */
-function EntryControls({ activity, entries, panel }: { activity: Activity; entries: Entry[]; panel: PanelJudge[] }) {
+function EntryControls({
+  activity,
+  entries,
+  panel,
+  deliberationReady,
+}: {
+  activity: Activity;
+  entries: Entry[];
+  panel: PanelJudge[];
+  /** Every judge has scored every entry of an event without live scoring: next is the deliberation. */
+  deliberationReady: boolean;
+}) {
   const { entry, previous, next } = entryNeighbors(entries, activity.currentEntryId);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -893,7 +1198,20 @@ function EntryControls({ activity, entries, panel }: { activity: Activity; entri
         >
           Previous
         </button>
-        {entry && next && waiting.length > 0 ? (
+        {entry && !next && allIn && deliberationReady ? (
+          // The last entry is in: the chair can open the deliberation, as the organizer can from the desk.
+          <ConfirmDialog
+            triggerLabel="Start deliberation"
+            triggerClassName="btn h-14 min-w-0 rounded-xl bg-mint text-lg text-prussian hover:bg-white"
+            triggerDisabled={pending}
+            title="Start the deliberation?"
+            confirmLabel="Start deliberation"
+            onConfirm={() => startDeliberation().catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }))}
+          >
+            Every entry is scored. Each judge reviews their scores and notes, asks for any correction, then signs. The results show once every
+            judge has signed.
+          </ConfirmDialog>
+        ) : entry && next && waiting.length > 0 ? (
           // As on the organizer's desk: moving on with judges still scoring asks first.
           <ConfirmDialog
             triggerLabel={<span className="truncate">Next: {next.name}</span>}
@@ -1372,10 +1690,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   };
   useKeypadKeys(press, primary);
 
-  const runningTotal = criteria.reduce((sum, c) => {
-    const parsed = parseScore(values[c.id] ?? "", rulesFor(c));
-    return parsed.ok ? sum + Math.round(parsed.value * 100) : sum;
-  }, 0);
+  const runningTotal = typedTotal(values, criteria, decimals);
   const typedActive = values[active?.id ?? ""] ?? "";
   const tooHigh = (c: { id: string; max: number }) => overMax(values[c.id] ?? "", c);
   const activeTooHigh = !!active && tooHigh(active);
@@ -1436,7 +1751,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         <p className="tabular mt-2 flex justify-between text-sm text-powder">
           <span>Total</span>
           <span>
-            <span className="font-bold text-mint">{formatScore(runningTotal / 100, decimals)}</span> / 100
+            <span className="font-bold text-mint">{formatScore(runningTotal, decimals)}</span> / 100
           </span>
         </p>
       </div>

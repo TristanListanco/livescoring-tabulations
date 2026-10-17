@@ -1,10 +1,11 @@
 import "server-only";
-import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Font, Image, Page, Path, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { CorrectionView } from "./corrections";
 import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
-import type { Board, Deduction, Judge, Round, Signatory } from "./types";
+import { SIGNATURE_BOX } from "./deliberation";
+import type { Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
@@ -56,6 +57,8 @@ const s = StyleSheet.create({
   signName: { fontFamily: "Helvetica-Bold", marginTop: 5 },
   signed: { fontFamily: "Helvetica-Oblique", marginTop: 3 },
   signRole: { color: C.muted, marginTop: 2 },
+  // A judge's drawn signature, at the width of a short signature line (600 × 200, scaled).
+  drawn: { width: 105, height: 35, marginBottom: -10 },
   // Narrower than the total: "−12.50" at two decimal places.
   deducted: { width: 64, textAlign: "right" },
   deductionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
@@ -78,8 +81,11 @@ const s = StyleSheet.create({
 /** The organizer as printed on the sheet: their name, photo (JPEG bytes) and the people who sign. */
 export type ReportOrganizer = { name: string; photo: Buffer | null; signatories: Signatory[] };
 
-/** `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes). */
-type ReportInfo = { generatedAt: string; reportId: string | null; organizer: ReportOrganizer | null };
+/**
+ * `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes).
+ * `signatures`: the judges' signatures from the deliberation (an event without live scoring); absent otherwise.
+ */
+type ReportInfo = { generatedAt: string; reportId: string | null; organizer: ReportOrganizer | null; signatures?: JudgeSignature[] | null };
 
 /**
  * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID, the title,
@@ -132,16 +138,38 @@ const roleOf = (judge: Judge) => (judge.isChair ? "Chair, Board of Judges" : "Ju
  * The judges' sign-offs and the signatories' signature lines. `inline`: all in one row, the judge's name level with
  * the signatories' (a judge's score sheet, which one judge signs); otherwise the judges, then the signatories.
  */
-function SignOff({ judges, signatories, note, inline = false }: { judges: Board["judges"]; signatories: Signatory[]; note: string; inline?: boolean }) {
-  const signed = judges.map((j) => (
-    <View key={j.id} style={s.signature}>
-      {/* Level with the signatories' names, under their signature lines. */}
-      {inline && <View style={{ height: s.signLine.height }} />}
-      <Text style={s.signName}>{j.name}</Text>
-      <Text style={s.signed}>(Sgd.)</Text>
-      <Text style={s.signRole}>{roleOf(j)}</Text>
-    </View>
-  ));
+function SignOff({
+  judges,
+  signatories,
+  note,
+  inline = false,
+  signatures,
+}: {
+  judges: Board["judges"];
+  signatories: Signatory[];
+  note: string;
+  inline?: boolean;
+  /** From the deliberation: a judge who drew their signature has it above their name rather than "(Sgd.)". */
+  signatures?: JudgeSignature[] | null;
+}) {
+  const signed = judges.map((j) => {
+    const drawing = signatures?.find((sig) => sig.judgeId === j.id && sig.method === "drawn")?.drawing;
+    return (
+      <View key={j.id} style={s.signature}>
+        {drawing ? (
+          <Svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} style={s.drawn}>
+            <Path d={drawing} stroke={C.prussian} strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        ) : (
+          // Level with the signatories' names, under their signature lines.
+          inline && <View style={{ height: s.signLine.height }} />
+        )}
+        <Text style={s.signName}>{j.name}</Text>
+        {!drawing && <Text style={s.signed}>(Sgd.)</Text>}
+        <Text style={s.signRole}>{roleOf(j)}</Text>
+      </View>
+    );
+  });
   const lines =
     signatories.length > 0 ? (
       signatories.map((p, i) => (
@@ -196,14 +224,18 @@ function Footer({ label, info, perSheet = false }: { label: string; info: Report
  * The sign-off's note. `corrections`: the ones that changed a score on this sheet; null when they can't be known
  * (before migration 019), when submitted scores were simply final.
  */
-const signNote = (corrections: CorrectionView[] | null) =>
+const signNote = (corrections: CorrectionView[] | null, signatures?: JudgeSignature[] | null) =>
   "Each judge submitted every score above from their approved device with a personal access code" +
   (corrections === null
     ? ", and submitted scores are final. "
     : corrections.length === 0
       ? ". No score was changed after it was submitted. "
       : ". The corrections listed above changed a submitted score with the agreement of every other judge on the panel (or, for a judge alone on theirs, the organizer's approval). ") +
-  "(Sgd.) marks each judge's verified sign-off.";
+  (signatures?.length ? SIGNED_IN_DELIBERATION : "(Sgd.) marks each judge's verified sign-off.");
+
+/** How the judges signed, after deliberating (an event without live scoring). */
+const SIGNED_IN_DELIBERATION =
+  "Each judge then reviewed their scores in deliberation and signed on their approved device: drawn by hand, or (Sgd.) where they signed off without a touchscreen.";
 
 /** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who agreed. */
 function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
@@ -276,7 +308,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
         </View>
 
         <CorrectionsList corrections={corrections ?? []} />
-        <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={signNote(corrections)} />
+        <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={signNote(corrections, info.signatures)} signatures={info.signatures} />
         <Footer label={label} info={info} />
       </Page>
     </Document>
@@ -358,12 +390,15 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
                   inline
                   judges={[judge]}
                   signatories={info.organizer?.signatories ?? []}
+                  signatures={info.signatures}
                   note={
                     `${judge.name} submitted every score above from their approved device with a personal access code` +
                     ([...corrected.keys()].some((k) => k.startsWith(`${judge.id}|`))
                       ? "; a corrected score changed only with the others' agreement, as marked. "
                       : ", and submitted scores are final. ") +
-                    "(Sgd.) marks the judge's verified sign-off."
+                    (info.signatures?.length
+                      ? "They then reviewed these scores in deliberation and signed on their approved device: drawn by hand, or (Sgd.) without a touchscreen."
+                      : "(Sgd.) marks the judge's verified sign-off.")
                   }
                 />
               </View>
@@ -529,10 +564,18 @@ export function renderResultsPdf(
     organizer,
     part,
     corrections = null,
-  }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; part?: string; corrections?: CorrectionView[] | null },
+    signatures = null,
+  }: {
+    timeZone?: string;
+    reportId: string;
+    organizer: ReportOrganizer | null;
+    part?: string;
+    corrections?: CorrectionView[] | null;
+    signatures?: JudgeSignature[] | null;
+  },
 ): Promise<Buffer> {
   return renderToBuffer(
-    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />,
+    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures }} />,
   );
 }
 
@@ -549,16 +592,20 @@ export function renderJudgeSheetsPdf(
     organizer,
     part,
     corrections = [],
+    signatures = null,
   }: {
     timeZone?: string;
     reportId: string;
     organizer: ReportOrganizer | null;
     part?: string;
     corrections?: CorrectionView[];
+    signatures?: JudgeSignature[] | null;
   },
 ): Promise<Buffer> {
   const corrected = new Map(corrections.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
-  return renderToBuffer(<JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+  return renderToBuffer(
+    <JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures }} />,
+  );
 }
 
 /**

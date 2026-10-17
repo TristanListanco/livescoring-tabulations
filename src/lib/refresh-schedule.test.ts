@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRefresher, pollEvery } from "./refresh-schedule";
+import { createRefresher } from "./refresh-schedule";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -57,20 +57,9 @@ describe("refreshes", () => {
   });
 
   it("cut an audience phone's page renders during judging", () => {
-    // One candidate: ten judges' scores over 12 seconds, in a minute with realtime up.
+    // One candidate: ten judges' scores over 12 seconds, each one a change the phone's checks find.
     const scores = Array.from({ length: 10 }, (_, i) => i * 1_200);
-    const before = simulate(scores, { minGapMs: 0 }).length + 60_000 / 15_000; // every score, plus a poll every 15 s
-    const after = simulate(scores, { minGapMs: 2_000 }).length + 60_000 / pollEvery(15_000, true);
-    expect(before).toBe(14);
-    expect(after).toBe(8);
-  });
-});
-
-describe("polling", () => {
-  it("is frequent while realtime is down, and a slow safety net while it's up", () => {
-    expect(pollEvery(5_000, false)).toBe(5_000);
-    expect(pollEvery(5_000, true)).toBe(20_000);
-    expect(pollEvery(2_500, true)).toBe(15_000);
-    expect(pollEvery(15_000, true)).toBe(60_000);
+    expect(simulate(scores, { minGapMs: 0 })).toHaveLength(10);
+    expect(simulate(scores, { minGapMs: 2_000 })).toHaveLength(7);
   });
 });

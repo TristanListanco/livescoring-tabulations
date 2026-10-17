@@ -4,12 +4,16 @@ import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
-import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections } from "@/lib/data";
+import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
+import { unsignedJudges } from "@/lib/deliberation";
+import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
+import { listNames } from "@/lib/names";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { checkScoring, cleanGuide, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
+  canManageActivity,
   checkSuperAdminPassword,
   currentAdmin,
   endAdminSession,
@@ -26,7 +30,7 @@ import { showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
-import { formatBound } from "@/lib/scoring";
+import { formatBound, scoreProgress } from "@/lib/scoring";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
@@ -34,6 +38,7 @@ import { newFileTag as newCriterionId } from "@/lib/codes";
 import {
   PRELIMINARY,
   type ActionResult,
+  type Activity,
   type Board,
   type CriteriaDisplay,
   type JudgePanel,
@@ -112,6 +117,7 @@ function readScoring(formData: FormData): { scoring: Scoring } | { error: string
       display,
     },
     newCriterionId,
+    { maxDecimals: 3 },
   );
 }
 
@@ -167,16 +173,30 @@ function readResultDecimals(formData: FormData): ResultDecimals | { error: strin
  * An archived activity can't be changed: a page that still offers a change goes back to the activity's read-only view
  * instead. Only deleting it lets `archived` through.
  */
-async function manage(activityId: string | null | undefined, { archived = false }: { archived?: boolean } = {}): Promise<AdminSession | null> {
-  const session = await requireAdmin();
-  if (!activityId || !isUuid(activityId)) return null;
+async function manage(activityId: string | null | undefined, options: { archived?: boolean } = {}): Promise<AdminSession | null> {
+  return (await manageActivity(activityId, options))?.session ?? null;
+}
+
+/**
+ * manage(), with the activity it read: actions the organizer repeats all show long (showing the next entry) use it
+ * rather than reading the activity again. The admin's session and the activity are read at once, then the activity
+ * checked against who may manage it: one trip to the database before the action rather than two.
+ */
+async function manageActivity(
+  activityId: string | null | undefined,
+  { archived = false }: { archived?: boolean } = {},
+): Promise<{ session: AdminSession; activity: Activity } | null> {
+  if (!activityId || !isUuid(activityId)) {
+    await requireAdmin();
+    return null;
+  }
   // Every column, so archived_at comes back once the database has it (migration 020) and nothing breaks before.
-  const query = db().from("activities").select("*").eq("id", activityId);
-  const { data, error } = await (session.kind === "organizer" ? query.eq("owner_id", session.admin.id) : query.is("owner_id", null)).maybeSingle();
+  const [session, { data, error }] = await Promise.all([requireAdmin(), db().from("activities").select("*").eq("id", activityId).maybeSingle()]);
   check(error);
-  if (!data) return null;
-  if ((data as { archived_at?: string | null }).archived_at && !archived) redirect(`/admin/${activityId}`);
-  return session;
+  const row = data as ActivityRow | null;
+  if (!row || !canManageActivity(session, row.owner_id ?? null)) return null;
+  if (row.archived_at && !archived) redirect(`/admin/${activityId}`);
+  return { session, activity: toActivity(row) };
 }
 
 /** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */
@@ -204,8 +224,7 @@ async function sessionOf(activityId: string): Promise<{ state: SessionState; cur
   const { data, error } = await db().from("activities").select("session_state, current_entry_id").eq("id", activityId).maybeSingle();
   if (error) return { state: "draft", currentEntryId: null };
   const row = data as { session_state: string; current_entry_id: string | null } | null;
-  const state = row?.session_state === "live" || row?.session_state === "ended" ? row.session_state : "draft";
-  return { state, currentEntryId: row?.current_entry_id ?? null };
+  return { state: toSessionState(row?.session_state), currentEntryId: row?.current_entry_id ?? null };
 }
 
 /** Insert judges' access codes, regenerating on the (rare) collision. */
@@ -616,6 +635,8 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     const parsed = readScoring(formData);
     if ("error" in parsed) return err(parsed.error);
     columns = scoringColumns(parsed.scoring);
+    // Live scoring is on unless the form says off; written only then, so events with it create without migration 021.
+    if (formData.get("live_scoring") === "off") columns.live_scoring = false;
   }
 
   const judgeCount = Number(formData.get("judgeCount"));
@@ -666,6 +687,8 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /violations/.test(error.message)) return needsMigration(DEDUCTIONS_HINT);
     if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
     if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
+    // Before migration 021: no live_scoring column, and three decimal places break the old check.
+    if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
     if (error && error.code !== "23505") return dbErr(error);
     activityId = (data as { id: string } | null)?.id ?? null;
   }
@@ -736,6 +759,21 @@ export async function updateSettings(activityId: string, _prev: FormResult, form
 }
 
 /**
+ * Live scoring on or off for an event, until judging starts (after that, judges and the audience would see the rules
+ * change mid-show).
+ */
+export async function setLiveScoring(activityId: string, on: boolean): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity || activity.kind !== "event") return err("Only an event's live scoring can change.");
+  if (activity.sessionState !== "draft") return err("Live scoring can't change once judging has started.");
+  const { error } = await db().from("activities").update({ live_scoring: on }).eq("id", activityId).eq("session_state", "draft");
+  if (error) return /live_scoring/.test(error.message) ? needsMigration(DELIBERATION_HINT) : dbErr(error);
+  changed();
+  return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
+}
+
+/**
  * A criteria event's guides for judges, one per criterion (fields guide-<criterion id>). The scoring itself is fixed
  * once the activity exists; the guides can change until judging starts, so every entry is judged against the same ones.
  */
@@ -800,15 +838,18 @@ export async function setActivityOwner(activityId: string, ownerId: string): Pro
 // Judging session ------------------------------------------------------------------
 
 /**
- * Start (draft or ended → live) or end (live → ended) judging. Starting locks the judges and the
- * running order; judges' screens open as soon as it is live.
+ * Start (draft or ended → live), deliberate (live → deliberation) or end (live or deliberation → ended) judging.
+ * Starting locks the judges and the running order; judges' screens open as soon as it is live. An event without live
+ * scoring deliberates once every entry is scored, and ends only once every judge has signed: then its results show.
  */
-export async function setSessionState(activityId: string, state: "live" | "ended", password = ""): Promise<ActionResult> {
+export async function setSessionState(activityId: string, state: "live" | "deliberation" | "ended", password = ""): Promise<ActionResult> {
   const session = await manage(activityId);
   if (!session) return NOT_FOUND;
+  if (state === "deliberation") return beginDeliberation(activityId);
   // Ending judging is final for the judges, so it takes the signed-in admin's password.
   if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
   const current = await sessionOf(activityId);
+  if (state === "live" && current.state === "deliberation") return err("The judges are deliberating. The session ends once they've all signed.");
   if (state === "live" && current.state === "draft") {
     const [judges, entries] = await Promise.all([
       db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
@@ -822,12 +863,34 @@ export async function setSessionState(activityId: string, state: "live" | "ended
       if (gap) return err(gap);
     }
   }
-  if (state === "ended" && current.state !== "live") return err("The session isn't running.");
+  if (state === "ended" && current.state !== "live" && current.state !== "deliberation") return err("The session isn't running.");
+  // Without live scoring, a fully scored session ends through the deliberation, once every judge has signed.
+  let signedOff = false;
+  if (state === "ended") {
+    const board = await getBoard(activityId);
+    if (board && !board.activity.liveScoring && current.state === "live" && scoreProgress(board).complete) {
+      return err("Every entry is scored, so the judges deliberate first. Start the deliberation.");
+    }
+    if (board && current.state === "deliberation") {
+      const signatures = await getSignatures(activityId);
+      const waiting = unsignedJudges(board.judges, signatures ?? []);
+      if (waiting.length) return err(`${listNames(waiting)} ${waiting.length === 1 ? "hasn't" : "haven't"} signed yet.`);
+      signedOff = true;
+    }
+  }
 
   const update: Record<string, string | null> = { session_state: state };
   if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
   // When it ended, for the live results ("Ended" with the time); reopening clears it until it ends again.
   update.session_ended_at = state === "ended" ? new Date().toISOString() : null;
+  // Signed off: the audience sees the results from now on. Reopening takes it back, and the judges sign again later.
+  if (signedOff) update.signed_off_at = update.session_ended_at;
+  const reopening = state === "live" && current.state === "ended";
+  if (reopening) {
+    const { error: unsign } = await db().from("judge_signatures").delete().eq("activity_id", activityId);
+    // Before migration 021 there's nothing to take back.
+    if (!unsign) update.signed_off_at = null;
+  }
   let { error } = await db().from("activities").update(update).eq("id", activityId);
   // Before migration 020 there's no end time to keep: the session changes all the same.
   if (error && /session_ended_at/.test(error.message)) {
@@ -836,27 +899,32 @@ export async function setSessionState(activityId: string, state: "live" | "ended
   }
   if (error) return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   changed();
-  if (state === "ended") return ok("The session has ended. Judges can no longer submit scores.");
+  if (state === "ended") return ok(signedOff ? "The session has ended, signed by every judge. The results are out." : "The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
 }
 
-/** Show judges the entry to score next, or null to have them wait. Only while the session is live. */
+/**
+ * Show judges the entry to score next, or null to have them wait. Only while the session is live. The organizer does
+ * this after every entry, so it's three trips to the database: the activity (with the admin's session), the entry (and
+ * a pageant's program) together, then the change.
+ */
 export async function setCurrentEntry(activityId: string, entryId: string | null): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  if ((await sessionOf(activityId)).state !== "live") return err("Start the session first.");
-  if (entryId !== null) {
-    if (!isUuid(entryId)) return err("Entry not found.");
-    const { data } = await db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle();
-    if (!data) return err("That entry isn't part of this activity.");
-  }
+  const managed = await manageActivity(activityId);
+  if (!managed) return NOT_FOUND;
+  const { activity } = managed;
+  if (activity.sessionState !== "live") return err("Start the session first.");
+  if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
   // A pageant shows only candidates in the sub-activity being judged, and starts its timer.
-  const activity = await getActivity(activityId);
-  const board = activity?.kind === "pageant" ? await getBoard(activityId) : null;
+  const [entry, board] = await Promise.all([
+    entryId === null ? null : db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle(),
+    activity.kind === "pageant" ? getBoard(activityId) : null,
+  ]);
+  if (entryId !== null && !entry?.data) return err("That entry isn't part of this activity.");
   const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };
   if ("error" in show) return err(show.error);
   const { error } = await db().from("activities").update(show.columns).eq("id", activityId);
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
-  changed();
+  changed(activity.publicId);
   return ok();
 }
 
@@ -1152,13 +1220,16 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
   if (error) return dbErr(error);
   // The corrections were to those scores (votes go with them). Fails harmlessly before migration 019.
   await db().from("score_corrections").delete().eq("activity_id", activityId);
-  // Judges' notes go with the scores (fails harmlessly before migration 018).
+  // Judges' notes go with the scores (fails harmlessly before migration 018), and so do their signatures (021).
   await db().from("judge_notes").delete().eq("activity_id", activityId);
+  await db().from("judge_signatures").delete().eq("activity_id", activityId);
   // Every judge's device is signed out, even one left signed in: judges enter their codes and pair again.
   const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
   if (judgeRows?.length) await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
   // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
   await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
+  // Fails harmlessly before migration 021.
+  await db().from("activities").update({ signed_off_at: null }).eq("id", activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
   if ((await getActivity(activityId))?.kind === "pageant") {
     await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
@@ -1173,9 +1244,9 @@ export async function resetScores(activityId: string): Promise<ActionResult> {
 export async function deleteActivity(activityId: string): Promise<ActionResult> {
   // An archived activity can still be deleted: it's the one change it allows.
   if (!(await manage(activityId, { archived: true }))) return NOT_FOUND;
-  // Not mid-show: the Settings tab hides the button while live, and this holds even if a stale page still shows it.
-  const { data: live } = await db().from("activities").select("id").eq("id", activityId).eq("session_state", "live").maybeSingle();
-  if (live) return err("The session is live. End it on the Session tab before deleting the activity.");
+  // Not mid-show: the Settings tab hides the button while live or deliberating, and this holds even if a stale page still shows it.
+  const { data: live } = await db().from("activities").select("id").eq("id", activityId).in("session_state", ["live", "deliberation"]).maybeSingle();
+  if (live) return err("The session is running. End it on the Session tab before deleting the activity.");
   return removeActivity(activityId);
 }
 
