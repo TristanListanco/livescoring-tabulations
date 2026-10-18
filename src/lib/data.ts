@@ -630,7 +630,7 @@ export async function getCorrections(activityId: string): Promise<Correction[] |
     newBreakdown: toBreakdown(r.new_breakdown),
     reason: r.reason,
     status: r.status === "approved" || r.status === "rejected" || r.status === "withdrawn" ? r.status : "open",
-    decidedBy: r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
+    decidedBy: r.decided_by === "judge" || r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
     createdAt: r.created_at,
     decidedAt: r.decided_at,
     votes: votesOf.get(r.id) ?? [],
