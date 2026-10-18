@@ -7,15 +7,16 @@ import { openTally, type FormResult } from "../../../actions";
 import { FormMessage } from "../../form-message";
 
 /** The private tally, locked: the admin's own password opens it on this browser for 10 minutes. */
-export function TallyLock({ activityId, name, superAdmin }: { activityId: string; name: string; superAdmin: boolean }) {
+export function TallyLock({ activityId, name, superAdmin, official }: { activityId: string; name: string; superAdmin: boolean; official: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(openTally.bind(null, activityId), null);
   return (
     <div className="mt-6 max-w-xl rounded-2xl border border-line bg-white px-6 py-8">
-      <p className="text-sm font-bold tracking-wide text-danger uppercase">Partial and unofficial</p>
+      <p className={`text-sm font-bold tracking-wide uppercase ${official ? "text-regal" : "text-danger"}`}>{official ? "Official" : "Partial and unofficial"}</p>
       <h1 className="mt-1 text-2xl font-bold">Private tally: {name}</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
-        Every score the judges have submitted so far, judge by judge and criterion by criterion, to tabulate by hand if something fails during
-        judging. It isn&apos;t the results: only the results the judges sign are official.
+        {official
+          ? "Every score as the judges signed it, judge by judge and criterion by criterion: the official results."
+          : "Every score the judges have submitted so far, judge by judge and criterion by criterion, to tabulate by hand if something fails during judging. It isn't the results: only the results the judges sign are official."}
       </p>
       <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
         Your password opens it on this device for 10 minutes. The link opens it for no one else, and every opening is recorded.

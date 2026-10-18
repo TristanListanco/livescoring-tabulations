@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
-import { LiveStatusBadge } from "@/components/live-status";
+import { ShowStatus } from "@/components/show-status";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreProgress, scoreText } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
@@ -36,9 +36,11 @@ function watermark(text: string): string {
 
 /**
  * The private tally, open: every score as submitted (by entry, and for criteria scoring each judge's points per
- * criterion), kept current. Marked partial and unofficial throughout, and made hard to leak: it can't be selected,
- * copied or printed, it blurs when the page is out of view, and it carries the viewer's name and the time. A browser
- * can't stop a screenshot outright; the watermark makes one traceable. It locks itself when the unlock runs out.
+ * criterion), kept current, with where the show stands as on the live results (judging, the judges deliberating, or
+ * ended). Partial and unofficial until every judge has signed and the session has ended; official from then on. Made
+ * hard to leak: it can't be selected, copied or printed, it blurs when the page is out of view, and it carries the
+ * viewer's name and the time. A browser can't stop a screenshot outright; the watermark makes one traceable. It locks
+ * itself when the unlock runs out.
  */
 export function TallyView({ board, viewer, until }: { board: Board; viewer: string; until: number }) {
   const router = useRouter();
@@ -54,7 +56,14 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
   const rows = [...rankEntries(board.entries, judges, board.scores, activity)].sort((a, b) => a.number - b.number);
   const { submitted, possible } = scoreProgress(board);
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
-  const mark = watermark(`Unofficial · ${viewer}${minute === null ? "" : ` · ${stampFormat.format(new Date(minute * 60_000))}`}`);
+  // Official once the judges have signed (which ends the session); a correction after that voids their signatures.
+  const official = activity.signedOffAt !== null;
+  const mark = watermark(`${official ? "Official" : "Unofficial"} · ${viewer}${minute === null ? "" : ` · ${stampFormat.format(new Date(minute * 60_000))}`}`);
+  const about = official
+    ? "Every score as the judges signed it, after deliberating: the official results, the same as on the results PDF."
+    : activity.sessionState === "deliberation"
+      ? "Every score so far. The judges are deliberating: a score can still be corrected, and these become the official results only once every judge has signed."
+      : "Every score as the judges submitted it, before they've deliberated and signed: for tabulating by hand if something fails during judging. A score can still be corrected, and only the results the judges sign are official.";
   const refuse = (e: React.SyntheticEvent) => e.preventDefault();
   const empty = <span className="text-prussian/40">—</span>;
 
@@ -64,18 +73,19 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
       <div className="select-none print:hidden" onCopy={refuse} onCut={refuse} onContextMenu={refuse} onDragStart={refuse}>
         <header className="mt-2 flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
           <div className="min-w-0">
-            <p className="inline-flex rounded-full bg-danger/10 px-3 py-1 text-sm font-bold text-danger">Partial and unofficial tally</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight wrap-anywhere">{activity.name}</h1>
-            <p className="hint mt-1 max-w-2xl">
-              Every score as the judges submitted it, before they&apos;ve deliberated and signed: for tabulating by hand if something fails
-              during judging. A score can still be corrected, and only the results the judges sign are official.
+            <p
+              className={`inline-flex rounded-full px-3 py-1 text-sm font-bold ${official ? "bg-regal/10 text-regal" : "bg-danger/10 text-danger"}`}
+            >
+              {official ? "Official tally" : "Partial and unofficial tally"}
             </p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight wrap-anywhere">{activity.name}</h1>
+            <p className="hint mt-1 max-w-2xl">{about}</p>
           </div>
           <div className="space-y-1 text-sm sm:text-right">
             <p className="tabular">
               <span className="text-xl font-bold">{submitted}</span> of {possible} scores in
             </p>
-            <LiveStatusBadge status={status} />
+            <ShowStatus activity={activity} connection={status} />
             {minute !== null && <p className="hint">Locks at {lockFormat.format(new Date(until))}</p>}
           </div>
         </header>
@@ -96,7 +106,7 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
                         {j.name}
                       </th>
                     ))}
-                    <th className="px-3 py-2 text-right font-semibold">Average so far</th>
+                    <th className="px-3 py-2 text-right font-semibold">{official ? "Average" : "Average so far"}</th>
                     <th className="py-2 pl-3 text-right font-semibold">Scored</th>
                   </tr>
                 </thead>
