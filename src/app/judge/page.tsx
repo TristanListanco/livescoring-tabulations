@@ -51,7 +51,7 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
               </p>
             )}
             <p className="judge-lede mt-3">
-              {fromLink ? "Your judge code is filled in. Tap Start judging." : "Enter the six-character code the organizer gave you."}
+              {fromLink ? "Your judge code is filled in. Tap Start judging." : "Enter the judge code the organizer gave you."}
             </p>
             <CodeForm
               initialCode={code}

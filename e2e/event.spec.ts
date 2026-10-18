@@ -208,7 +208,8 @@ test.describe.serial("a full event", () => {
     await snap(page, "access tab, judge devices");
 
     await live.goto(livePath);
-    await expect(live.getByRole("status")).toHaveText("Live", { timeout: 30_000 });
+    // Before the session, the audience's page doesn't claim to be live.
+    await expect(live.getByText("Judging hasn't started")).toBeVisible({ timeout: 30_000 });
     // The organizer's logo (the photo on their account) heads their activity's results.
     await expect(live.getByRole("img", { name: ORGANIZER.name })).toBeVisible();
   });
@@ -234,17 +235,18 @@ test.describe.serial("a full event", () => {
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);
-    await expect(page.getByRole("button", { name: "Move Agila down" })).toBeDisabled();
+    // The order is locked: no arrows to move entries (the note says why), and Agila, scored, can't be removed.
+    await expect(page.getByRole("button", { name: "Move Agila down" })).toHaveCount(0);
     // Photos can still change: they're only for the LED wall.
     await choosePhoto(page, "Photo for Agila");
     await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
     await page.getByLabel("Add entries, one per line").fill("Dalisay");
     await page.getByRole("button", { name: "Add entries" }).click();
     await expect(page.getByText("Dalisay added.")).toBeVisible();
-    const dalisay = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Move Dalisay up" }) });
-    await dalisay.getByRole("button", { name: "Remove" }).click();
+    // Not scored yet, so it can still go.
+    await page.getByRole("button", { name: "Remove Dalisay" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Remove entry" }).click();
-    await expect(page.getByRole("button", { name: "Move Dalisay up" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Remove Dalisay" })).toHaveCount(0);
   });
 
   test("judges score the entry the organizer shows, and nothing else", async ({ page }) => {

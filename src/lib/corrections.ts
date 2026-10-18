@@ -3,9 +3,11 @@ import { formatBound, formatScore } from "./scoring";
 import type { Activity, Board, Judge } from "./types";
 
 /**
- * Score corrections. A judge who entered a wrong score asks to change it, with a reason; it changes only if every other
- * judge on their panel agrees (any one disagreeing turns it down). A judge alone on their panel has no one to ask, so
- * the organizer approves or turns it down instead. The database refuses any other change to a submitted score.
+ * Score corrections: the only way a submitted score changes, each recorded with its reason. In an event without live
+ * scoring a judge corrects their own score, until they've signed (the scores stay with the judges until each has
+ * reviewed and signed theirs). In a pageant a judge asks, and it changes only if every other judge on their panel
+ * agrees (any one disagreeing turns it down); a judge alone on their panel has no one to ask, so the organizer approves
+ * or turns it down instead. The database refuses any other change to a submitted score.
  */
 
 export type CorrectionStatus = "open" | "approved" | "rejected" | "withdrawn";
@@ -23,7 +25,8 @@ export type Correction = {
   newBreakdown: Record<string, number> | null;
   reason: string;
   status: CorrectionStatus;
-  decidedBy: "judges" | "organizer" | null;
+  /** The judge themself (an event without live scoring), the other judges' votes, or the organizer. */
+  decidedBy: "judge" | "judges" | "organizer" | null;
   createdAt: string;
   decidedAt: string | null;
   votes: { judgeId: string; agree: boolean }[];

@@ -229,6 +229,84 @@ export async function listActivities(ownerId: string | null): Promise<ActivitySu
   }));
 }
 
+/**
+ * Something a running activity is waiting on its organizer for, on the list of activities: judges' devices to approve,
+ * the first entry to show, an entry every judge has scored (show the next), every entry scored (end the session, or
+ * start the deliberation), or every judge signed (end the session).
+ */
+export type Attention =
+  | { kind: "devices"; count: number }
+  | { kind: "first" }
+  | { kind: "next" }
+  | { kind: "end" }
+  | { kind: "deliberate" }
+  | { kind: "signed" };
+
+/**
+ * What each of these activities is waiting on its organizer for (see Attention), in three small reads for the whole
+ * list however many rooms are running. A read that fails leaves its signal out rather than the list.
+ */
+export async function listAttention(activities: ActivitySummary[]): Promise<Map<string, Attention[]>> {
+  const running = activities.filter((a) => !a.archivedAt && a.sessionState !== "ended");
+  // Events only past the devices: a pageant's desk moves through sub-activities, not one running order.
+  const live = running.filter((a) => a.kind !== "pageant" && a.sessionState === "live");
+  const deliberating = running.filter((a) => a.sessionState === "deliberation");
+  const onScreen = live.flatMap((a) => (a.currentEntryId ? [a.currentEntryId] : []));
+  const read = async <T>(run: () => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> => {
+    try {
+      const { data, error } = await run();
+      return error ? [] : ((data ?? []) as T[]);
+    } catch {
+      return [];
+    }
+  };
+  const [devices, scores, signatures] = await Promise.all([
+    running.length
+      ? read<{ judges: { activity_id: string } }>(() =>
+          db()
+            .from("judge_devices")
+            .select("judges!inner(activity_id)")
+            .eq("status", "pending")
+            .in(
+              "judges.activity_id",
+              running.map((a) => a.id),
+            ),
+        )
+      : [],
+    onScreen.length ? read<{ activity_id: string; entry_id: string }>(() => db().from("scores").select("activity_id, entry_id").in("entry_id", onScreen)) : [],
+    deliberating.length
+      ? read<{ activity_id: string }>(() =>
+          db()
+            .from("judge_signatures")
+            .select("activity_id")
+            .in(
+              "activity_id",
+              deliberating.map((a) => a.id),
+            ),
+        )
+      : [],
+  ]);
+  const count = (ids: string[]) => ids.reduce((map, id) => map.set(id, (map.get(id) ?? 0) + 1), new Map<string, number>());
+  const pending = count(devices.map((d) => d.judges.activity_id));
+  const scoredOnScreen = count(scores.map((s) => s.activity_id));
+  const signed = count(signatures.map((s) => s.activity_id));
+
+  const attention = new Map<string, Attention[]>();
+  for (const a of running) {
+    const items: Attention[] = [];
+    const devicesWaiting = pending.get(a.id) ?? 0;
+    if (devicesWaiting) items.push({ kind: "devices", count: devicesWaiting });
+    if (live.includes(a) && a.judgeCount > 0 && a.entryCount > 0) {
+      if (a.scoreCount >= a.judgeCount * a.entryCount) items.push({ kind: a.liveScoring ? "end" : "deliberate" });
+      else if (!a.currentEntryId) items.push({ kind: "first" });
+      else if ((scoredOnScreen.get(a.id) ?? 0) >= a.judgeCount) items.push({ kind: "next" });
+    }
+    if (a.sessionState === "deliberation" && a.judgeCount > 0 && (signed.get(a.id) ?? 0) >= a.judgeCount) items.push({ kind: "signed" });
+    if (items.length) attention.set(a.id, items);
+  }
+  return attention;
+}
+
 /** An organizer's activities by name, for their account page. Only these columns are read. */
 export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string }[]> {
   await connection();
@@ -552,7 +630,7 @@ export async function getCorrections(activityId: string): Promise<Correction[] |
     newBreakdown: toBreakdown(r.new_breakdown),
     reason: r.reason,
     status: r.status === "approved" || r.status === "rejected" || r.status === "withdrawn" ? r.status : "open",
-    decidedBy: r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
+    decidedBy: r.decided_by === "judge" || r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
     createdAt: r.created_at,
     decidedAt: r.decided_at,
     votes: votesOf.get(r.id) ?? [],
@@ -569,9 +647,9 @@ export const resultsReleased = (activity: Pick<Activity, "liveScoring" | "signed
 
 /**
  * Judges as the public pages show them, and no more: a first name with a last initial (the avatar's initials, and
- * telling two Marias apart) and a photo. Full names stay with the organizer, the judges and the PDFs. On an LED wall
- * that keeps judges anonymous, not even that: the wall draws a "?" for each, so its page carries nothing to read
- * around it.
+ * telling two Marias apart) and a photo. Full names stay with the organizer, the judges and the PDFs. When the
+ * organizer keeps judges anonymous, not even that: the LED wall draws a "?" for each and the live results number them,
+ * so neither page carries anything to read around it.
  */
 function publicJudges(judges: Judge[], anonymous: boolean): Judge[] {
   return judges.map((j) => {
@@ -582,8 +660,8 @@ function publicJudges(judges: Judge[], anonymous: boolean): Judge[] {
   });
 }
 
-/** An activity by its public link, for the audience (`led`: the LED wall). */
-async function loadPublicBoard(publicId: string, { led = false }: { led?: boolean } = {}): Promise<Board | null> {
+/** An activity by its public link, for the audience: the live results and the LED wall. */
+async function loadPublicBoard(publicId: string): Promise<Board | null> {
   const { data, error } = await db()
     .from("activities")
     .select(`${ACTIVITY_COLUMNS}, owner:admins!activities_owner_id_fkey(name, photo_path)`)
@@ -593,7 +671,7 @@ async function loadPublicBoard(publicId: string, { led = false }: { led?: boolea
   if (!data) return null;
   const row = data as ActivityRow & { owner: { name: string; photo_path: string | null } | null };
   const board = await loadBoard(toActivity(row));
-  const judges = publicJudges(board.judges, led && board.activity.ledAnonymous);
+  const judges = publicJudges(board.judges, board.activity.ledAnonymous);
   // A pageant's list of violations is the organizer's business, never on screen for the audience; of the organizer,
   // only the logo heads their activity's results.
   const activity = { ...board.activity, ownerId: null, violations: null };
@@ -609,7 +687,7 @@ async function loadPublicBoard(publicId: string, { led = false }: { led?: boolea
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
 export const getPublicBoard = cache(async (publicId: string): Promise<Board | null> => {
   await connection();
-  return isPublicId(publicId) ? loadPublicBoard(publicId, { led: true }) : null;
+  return isPublicId(publicId) ? loadPublicBoard(publicId) : null;
 });
 
 /** The activity behind a public link. A link never changes activity, so it's cached for a long while (null: none). */

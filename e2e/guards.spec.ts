@@ -4,7 +4,7 @@ import { expectAccessible } from "./helpers";
 test("admin pages send visitors to sign in", async ({ page }) => {
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/admin\/login$/);
-  await expect(page.getByRole("heading", { name: "Admin sign-in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Organizer sign-in" })).toBeVisible();
   await page.goto("/admin/organizers");
   await expect(page).toHaveURL(/\/admin\/login$/);
 });

@@ -77,7 +77,8 @@ test.describe.serial("drafts", () => {
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
     await page.goto("/admin");
     await expect(page.getByRole("link", { name: `Continue ${EDITED}` })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: EDITED })).toBeVisible();
+    // Exactly its name: a "Needs you" link names it too.
+    await expect(page.getByRole("link", { name: EDITED, exact: true })).toBeVisible();
   });
 
   test("a pageant draft opens on the step it was saved on", async ({ page }) => {

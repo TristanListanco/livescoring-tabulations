@@ -78,10 +78,15 @@ export function EditOrganizer({
           <PasswordField label="New password" optional />
         </Section>
 
-        {/* Full width with its own rule, so it reads as saving the whole account (name, email and password), not just the password. */}
-        <div className="flex flex-wrap items-center gap-4 border-t border-line py-6">
-          <SubmitButton>Save account details</SubmitButton>
-          <FormMessage state={state} />
+        {/*
+          Its own rule, so it reads as saving the whole account (name, email and password), not just the password, and in
+          the fields' column, under what it saves (a Section's grid).
+        */}
+        <div className="grid border-t border-line py-6 md:grid-cols-[14rem_1fr] md:gap-10">
+          <div className="flex flex-wrap items-center gap-4 md:col-start-2">
+            <SubmitButton>Save account details</SubmitButton>
+            <FormMessage state={state} />
+          </div>
         </div>
       </form>
 

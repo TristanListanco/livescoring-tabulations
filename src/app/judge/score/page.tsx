@@ -5,7 +5,7 @@ import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown,
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
-import { ScoringPanel, type DeviceGate } from "./scoring-panel";
+import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
 
@@ -70,6 +70,10 @@ export default async function ScorePage() {
   // who vote see only the reason, never the scores.
   const { activity } = board;
   const correctable = activity.kind === "pageant" || !activity.liveScoring;
+  // Who decides this judge's corrections: the judge themself in an event (live scoring off: theirs to make, with a
+  // reason); in a pageant the rest of their panel, or the organizer when they're alone on it.
+  const decides: CorrectionDecider =
+    activity.kind === "event" ? "self" : correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0 ? "judges" : "organizer";
   const corrections =
     gate.status === "approved" && allCorrections && correctable
       ? {
@@ -81,8 +85,7 @@ export default async function ScorePage() {
               .filter((c) => c.judgeId === context.judge.id && c.entryId === board.activity.currentEntryId && c.roundId === (round?.id ?? null) && c.status !== "withdrawn")
               .map((c) => correctionView(board, c))
               .at(-1) ?? null,
-          // Who decides this judge's corrections: the rest of their panel, or the organizer when they're alone on it.
-          othersVote: correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0,
+          decides,
         }
       : null;
 

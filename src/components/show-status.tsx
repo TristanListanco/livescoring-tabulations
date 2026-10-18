@@ -6,8 +6,9 @@ import type { LiveStatus } from "@/lib/use-live-refresh";
 import { LiveStatusBadge } from "./live-status";
 
 /**
- * Where a show stands, for the screens that follow it (the live results, the private tally): the connection while
- * judging is on, "Judges deliberating" while they deliberate, and "Ended", with when, once judging has ended.
+ * Where a show stands, for the screens that follow it (the live results, the private tally): "Judging hasn't started"
+ * before the session, the connection while judging is on, "Judges deliberating" while they deliberate, and "Ended",
+ * with when, once judging has ended. A screen that has lost its connection says so whatever the show is doing.
  * `className` sets the text colour for the screen's theme.
  */
 export function ShowStatus({
@@ -20,6 +21,15 @@ export function ShowStatus({
   className?: string;
 }) {
   if (activity.sessionState === "ended") return <EndedBadge endedAt={activity.sessionEndedAt} className={className} />;
+  // Before the session, "Live" would promise scores that aren't coming yet.
+  if (activity.sessionState === "draft" && connection !== "offline") {
+    return (
+      <p className={`inline-flex items-center gap-2 text-sm font-semibold ${className}`}>
+        <span aria-hidden className="size-2.5 rounded-full border-2 border-powder" />
+        Judging hasn&apos;t started
+      </p>
+    );
+  }
   if (activity.sessionState === "deliberation") {
     return (
       <p className={`inline-flex items-center gap-2 text-sm font-semibold ${className}`}>

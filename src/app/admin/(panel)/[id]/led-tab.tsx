@@ -58,7 +58,9 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
           <p id="anonymous-label" className="font-semibold">
             Keep judges anonymous
           </p>
-          <p className="hint">Each judge&apos;s name and photo on the wall becomes a ?.</p>
+          <p className="hint">
+            On the wall each judge&apos;s name and photo becomes a ?, and on the live results page they&apos;re Judge 1, Judge 2 and so on.
+          </p>
         </div>
       </div>
     </div>
@@ -68,7 +70,7 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
 /** Corner radius for the small shape on each corner choice, in pixels. */
 const SHAPE_SAMPLE: Record<LedShape, number> = { square: 0, soft: 6, round: 14 };
 
-/** The wall's look: font, colour theme and corners. Each choice shows what it looks like, and the preview below follows. */
+/** The wall's look: font, colour theme and corners. Each choice shows what it looks like, and the preview follows. */
 function LookSettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
   return (
     <div className="space-y-5">
@@ -159,6 +161,19 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     },
   };
 
+  // An event without live scoring has no LED wall: its scores stay with the judges until they've signed.
+  if (activity.kind === "event" && !activity.liveScoring) {
+    return (
+      <div className="max-w-2xl">
+        <h2 className="text-xl font-bold">LED wall</h2>
+        <p role="note" className="note mt-3">
+          The LED wall is off for this event. Without live scoring, the scores stay with the judges until they&apos;ve deliberated and signed, so
+          there&apos;s nothing to put on the wall. The live results page shows them once they&apos;re signed.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -166,43 +181,48 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
         <LinkField url={ledUrl} openLabel="LED wall" className="mt-4" />
       </div>
 
-      <DisplaySettings options={options} onChange={changeOptions} disabled={pending} />
-      {/* Set once for a show, so it's folded away. The preview below shows what's chosen and follows any change. */}
-      <details className="group border-t border-line pt-6">
-        <summary className="tap-target flex cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-1 select-none [&::-webkit-details-marker]:hidden">
-          <span className="flex items-center gap-2">
-            <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
-              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span className="text-lg font-bold">Look</span>
-          </span>
-        </summary>
-        <div className="mt-4 space-y-4">
-          <p className="hint">For the green screen and the full screen alike.</p>
-          <LookSettings options={options} onChange={changeOptions} disabled={pending} />
+      {/* Wide enough, the preview stands beside the settings (and stays in view) so each change shows next to its control. */}
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start lg:gap-10">
+        <div className="space-y-8">
+          <DisplaySettings options={options} onChange={changeOptions} disabled={pending} />
+          {/* Set once for a show, so it's folded away. The preview shows what's chosen and follows any change. */}
+          <details className="group border-t border-line pt-6">
+            <summary className="tap-target flex cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-1 select-none [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
+                  <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span className="text-lg font-bold">Look</span>
+              </span>
+            </summary>
+            <div className="mt-4 space-y-4">
+              <p className="hint">For the green screen and the full screen alike.</p>
+              <LookSettings options={options} onChange={changeOptions} disabled={pending} />
+            </div>
+          </details>
+          <FormMessage state={error ? { ok: false, error } : null} small />
         </div>
-      </details>
-      <FormMessage state={error ? { ok: false, error } : null} small />
 
-      <figure className="max-w-4xl">
-        {/*
-          The preview keeps the wall's own colours in dark mode. It's a picture of the wall, so screen readers hear the
-          caption rather than every name and score on it again.
-        */}
-        <div aria-hidden>
-          <LedOutput board={preview} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
-        </div>
-        <figcaption className="hint mt-2">
-          <span className="sr-only">Preview of the LED wall: </span>
-          {current ? (
-            <>
-              Showing <span className="tabular">No. {index + 1}</span> {current.name}
-            </>
-          ) : (
-            "No entry yet"
-          )}
-        </figcaption>
-      </figure>
+        <figure className="max-w-4xl lg:sticky lg:top-6">
+          {/*
+            The preview keeps the wall's own colours in dark mode. It's a picture of the wall, so screen readers hear the
+            caption rather than every name and score on it again.
+          */}
+          <div aria-hidden>
+            <LedOutput board={preview} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
+          </div>
+          <figcaption className="hint mt-2">
+            <span className="sr-only">Preview of the LED wall: </span>
+            {current ? (
+              <>
+                Showing <span className="tabular">No. {index + 1}</span> {current.name}
+              </>
+            ) : (
+              "No entry yet"
+            )}
+          </figcaption>
+        </figure>
+      </div>
     </div>
   );
 }

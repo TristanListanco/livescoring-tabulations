@@ -68,7 +68,7 @@ test("a score sent again after its reply was lost is saved once", async ({ brows
   await phone.getByRole("dialog").getByRole("button", { name: "Submit", exact: true }).click();
   const request = await lost;
   // The screen catches up from the database: the score is in.
-  await expect(phone.getByText("Submitted. Scores can't be changed after submitting.")).toBeVisible(SAVED);
+  await expect(phone.getByText("Your score is in, and it's final.")).toBeVisible(SAVED);
 
   // The same request again, as a retry would send it: answered "saved", not "already scored".
   const again = await phone.request.fetch(request.url(), { method: "POST", headers: await request.allHeaders(), data: request.postData() ?? "" });

@@ -12,7 +12,8 @@ const COPY: Record<LiveStatus, string> = {
  * the visible text can say more (`detail`, like "Updated 12 seconds ago") and change as often as it likes
  * without being read out again.
  *
- * `compact` shows only the dot on small screens, except when offline, which is said in words everywhere. `labels`
+ * `compact` shows nothing on small screens while all is well (a dot alone means nothing to someone who hasn't seen the
+ * product before), and "Offline" in words, as everywhere. Screen readers still hear every change. `labels`
  * renames states where "Live" would mean something else, like the admin's desk, where the session itself is live.
  */
 export function LiveStatusBadge({
@@ -30,12 +31,14 @@ export function LiveStatusBadge({
   detail?: string;
 }) {
   const name = labels?.[status] ?? COPY[status];
+  // On a small screen a compact badge takes no room (its announcement stays) until there's something to say.
+  const quiet = compact && status !== "offline";
   return (
-    <span className={`inline-flex items-center gap-2 text-sm font-semibold ${className}`}>
+    <span className={`inline-flex items-center gap-2 text-sm font-semibold ${quiet ? "max-sm:contents" : ""} ${className}`}>
       <span role="status" className="sr-only">
         {name}
       </span>
-      <span aria-hidden className="relative flex size-2.5">
+      <span aria-hidden className={`relative flex size-2.5 ${quiet ? "max-sm:hidden" : ""}`}>
         {status === "live" && (
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-powder opacity-60 motion-reduce:hidden" />
         )}
@@ -45,7 +48,7 @@ export function LiveStatusBadge({
           }`}
         />
       </span>
-      <span aria-hidden className={compact && status !== "offline" ? "hidden sm:inline" : undefined}>
+      <span aria-hidden className={quiet ? "max-sm:hidden" : undefined}>
         {detail ?? name}
       </span>
     </span>

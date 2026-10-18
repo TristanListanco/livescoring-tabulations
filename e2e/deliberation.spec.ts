@@ -3,7 +3,7 @@ import { devices, expect, test, type Page } from "@playwright/test";
 import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // An event without live scoring, scored to three decimal places. The audience sees no scores until the judges have
-// deliberated and signed; a judge can ask to correct a score, and the others vote on the reason without seeing the values.
+// deliberated and signed, and there's no LED wall; a judge corrects their own score, saying why, until they sign.
 // Ana judges on a phone and draws her signature; Ben, the chair, judges on a laptop without a touchscreen and ticks (Sgd.).
 const NAME = `E2E Deliberation ${Date.now().toString(36)}`;
 const REALTIME = { timeout: 20_000 };
@@ -60,7 +60,7 @@ test.describe.serial("deliberation", () => {
     livePath = await screenPath(page, "Open live results");
   });
 
-  test("judges score to three places, a correction is voted on without its values, and the audience sees no scores", async ({ page }) => {
+  test("judges score to three places, a judge corrects their own score with a reason, and the audience sees no scores", async ({ page }) => {
     await signInAsSuperAdmin(page);
     for (const [judge, code, name] of [
       [ana, codes[0], "Ana Cruz"],
@@ -72,6 +72,9 @@ test.describe.serial("deliberation", () => {
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
+    // No LED wall without live scoring: its tab says why, and its page isn't there.
+    await page.goto(`${adminPath}?tab=led`);
+    await expect(page.getByRole("note")).toContainText("The LED wall is off for this event.");
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
@@ -82,54 +85,31 @@ test.describe.serial("deliberation", () => {
     await submitScore(ana, "Agila", "8.125");
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
 
-    // Ana corrects 8.125 to 8.25 while Ben is still typing his own score.
+    // Ana corrects 8.125 to 8.25 herself, saying why, while Ben is still typing his own score.
     await tapScore(ben, "9.5");
-    await ana.getByRole("button", { name: "Ask to correct this score" }).click();
+    await ana.getByRole("button", { name: "Correct this score" }).click();
     await expect(ana.getByText("Correcting your score", { exact: true })).toBeVisible();
     await tapScore(ana, "8.25");
     await ana.getByRole("button", { name: "Review correction" }).click();
-    const ask = ana.getByRole("dialog", { name: "Ask to change your score for Agila?" });
-    // She sees her own scores, before and after.
-    await expect(ask).toContainText("8.125");
-    await expect(ask).toContainText("8.250");
-    await expect(ask.getByRole("button", { name: "Ask the judges" })).toBeDisabled();
-    await ask.getByLabel("Why does it need correcting?").fill("Misread my sheet: it says 8.25.");
-    await ask.getByRole("button", { name: "Ask the judges" }).click();
-    await expect(ana.getByText("You asked to change it to 8.250.")).toBeVisible();
-    // The organizer sees the values; the score changes only if Ben agrees.
+    const fix = ana.getByRole("dialog", { name: "Change your score for Agila?" });
+    await expect(fix).toContainText("8.125");
+    await expect(fix).toContainText("8.250");
+    // The reason is required: it's kept with the correction.
+    await expect(fix.getByRole("button", { name: "Change score" })).toBeDisabled();
+    await fix.getByLabel("Why does it need correcting?").fill("Misread my sheet: it says 8.25.");
+    await fix.getByRole("button", { name: "Change score" }).click();
+    await expect(ana.getByText("Corrected from 8.125.")).toBeVisible(REALTIME);
+    // The organizer sees it, with its reason.
     const corrections = page.getByRole("region", { name: "Score corrections" });
-    await expect(corrections).toContainText("Ana Cruz asks to change their score for No. 1 Agila: 8.125 to 8.250", REALTIME);
-    await expect(corrections).toContainText("0 of 1 judge has agreed");
-    // Ben's vote doesn't land on his keypad while he's typing, nor during his five seconds to undo.
-    const vote = ben.getByRole("dialog", { name: "Ana Cruz asks to change their score for No. 1 Agila" });
-    await expect(ben.getByRole("status").filter({ hasText: "asks to correct" })).toHaveText(
-      "Ana Cruz asks to correct a score. You'll vote once your score is in.",
-      REALTIME,
-    );
-    await expect(vote).toHaveCount(0);
+    await expect(corrections).toContainText("1 settled", REALTIME);
+    await corrections.getByText("1 settled").click();
+    await expect(corrections).toContainText("Ana Cruz, No. 1 Agila, 8.125 to 8.250. Misread my sheet: it says 8.25.");
+
+    // No one else is asked: Ben scores without a vote landing on his screen.
     await ben.getByRole("button", { name: "Submit score" }).click();
     await ben.getByRole("dialog").getByRole("button", { name: "Submit", exact: true }).click();
-    await expect(ben.getByRole("button", { name: "Undo" })).toBeVisible();
-    await expect(vote).toHaveCount(0);
-    // Then he votes on her reason. Scores stay private: he never sees hers.
-    await expect(vote).toBeVisible(SAVED);
-    await expect(ben.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 9.500 for Agila");
-    await expect(vote).toContainText("Misread my sheet: it says 8.25.");
-    await expect(vote).toContainText("Scores stay private, so you see only the reason.");
-    // (Her reason can say what she meant; her score itself never reaches his screen.)
-    await expect(vote.getByText("8.125")).toHaveCount(0);
-    // The answers wake a moment after it opens (so a tap meant for the keypad can't vote): scanned once they have.
-    await expect(vote.getByRole("button", { name: /^Agree/ })).toBeEnabled();
-    await expectAccessible(ben);
-    await snap(ben, "vote without the scores");
-    // It can't be put off.
-    await ben.keyboard.press("Escape");
-    await expect(vote).toBeVisible();
-    await vote.getByRole("button", { name: /^Agree/ }).click();
-    await expect(vote).toBeHidden();
-    await expect(ben.getByRole("status").filter({ hasText: "You agreed" })).toHaveText("You agreed to Ana Cruz's correction.");
-    await expect(ana.getByText("Corrected from 8.125: every other judge agreed.")).toBeVisible(REALTIME);
-    await expect(corrections).toContainText("1 settled", REALTIME);
+    await expect(ben.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 9.500 for Agila", SAVED);
+    await expect(ben.getByRole("dialog", { name: /asks to change their score/ })).toHaveCount(0);
 
     // The audience sees the entries and which judges have scored them, but no scores: the server doesn't send them.
     const audience = await (await page.context().browser()!.newContext()).newPage();
@@ -143,6 +123,8 @@ test.describe.serial("deliberation", () => {
     // Not one value: no 8.125, nor the corrected score, nor any other number with decimal places.
     await expect(audience.getByText(/\d\.\d{3}/)).toHaveCount(0);
     await expectAccessible(audience);
+    await audience.goto(livePath.replace("/live/", "/led/"));
+    await expect(audience.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
 
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Bagwis", REALTIME);
@@ -163,28 +145,21 @@ test.describe.serial("deliberation", () => {
     await audience.context().close();
   });
 
-  test("in the deliberation a correction can still be asked for, and holds up signing until it's settled", async () => {
+  test("in the deliberation a judge corrects their own score, and can still sign straight away", async () => {
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
-    // Ben asks to change his Bagwis score from the list of every entry.
-    await ben.getByRole("button", { name: "Ask to correct this score for Bagwis" }).click();
+    // Ben corrects his Bagwis score from the list of every entry.
+    await ben.getByRole("button", { name: "Correct this score for Bagwis" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Bagwis");
     await tapScore(ben, "8.5");
     await ben.getByRole("button", { name: "Review correction" }).click();
-    const ask = ben.getByRole("dialog", { name: "Ask to change your score for Bagwis?" });
-    await ask.getByLabel("Why does it need correcting?").fill("Meant 8.5, not 8.");
-    await ask.getByRole("button", { name: "Ask the judges" }).click();
+    const fix = ben.getByRole("dialog", { name: "Change your score for Bagwis?" });
+    await fix.getByLabel("Why does it need correcting?").fill("Meant 8.5, not 8.");
+    await fix.getByRole("button", { name: "Change score" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation");
-    await expect(ben.getByText("You asked to change it to 8.500.")).toBeVisible();
-    // Nobody signs while it's open.
-    await expect(ben.getByRole("status").filter({ hasText: "A score correction is still open" })).toBeVisible();
-    // Ana disagrees: one judge disagreeing keeps the score.
-    const vote = ana.getByRole("dialog", { name: "Ben Torres asks to change their score for No. 2 Bagwis" });
-    await expect(vote).toBeVisible(REALTIME);
-    await vote.getByRole("button", { name: /^Disagree/ }).click();
-    await expect(vote).toBeHidden();
-    await expect(ana.getByRole("status").filter({ hasText: "You disagreed" })).toHaveText("You disagreed, so Ben Torres's score stays as it was.");
-    await expect(ben.getByText("Your correction to 8.500 wasn't accepted: a judge disagreed.")).toBeVisible(REALTIME);
-    await expect(ben.getByRole("button", { name: "Ask again for Bagwis" })).toBeVisible();
+    await expect(ben.getByText("Corrected from 8.000.")).toBeVisible(REALTIME);
+    // Nothing waits on a vote: signing is open.
+    await expect(ben.getByRole("status").filter({ hasText: "A score correction is still open" })).toHaveCount(0);
+    await expect(ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ })).toBeVisible();
   });
 
   test("each judge reviews their scores and signs, then the results are out", async ({ page }) => {
@@ -194,7 +169,7 @@ test.describe.serial("deliberation", () => {
     await expect(scores.getByRole("listitem")).toHaveCount(2);
     await expect(scores.getByRole("listitem").first()).toContainText("8.250");
     await expect(scores.getByRole("listitem").first()).toContainText("Corrected from 8.125");
-    await expect(ana.getByRole("button", { name: "Ask to correct this score for Bagwis" })).toBeVisible();
+    await expect(ana.getByRole("button", { name: "Correct this score for Bagwis" })).toBeVisible();
     await expectAccessible(ana);
 
     // On her phone she draws her signature.
@@ -211,6 +186,8 @@ test.describe.serial("deliberation", () => {
     await sign.click();
     await expect(ana.getByRole("status").filter({ hasText: "You've signed." })).toContainText("1 of 2 judges have signed.", REALTIME);
     await expect(ana.getByRole("img", { name: "Your signature" })).toBeVisible();
+    // Signed, her scores stand: nothing left to correct.
+    await expect(ana.getByRole("button", { name: /^Correct this score/ })).toHaveCount(0);
 
     // Ben's laptop has no touchscreen: he ticks (Sgd.).
     await signInAsSuperAdmin(page);

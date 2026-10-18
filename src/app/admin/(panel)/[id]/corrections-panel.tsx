@@ -12,9 +12,10 @@ const settledLabel: Record<Exclude<CorrectionView["status"], "open">, string> = 
 };
 
 /**
- * Score corrections for the organizer: each open one with how the vote stands, and the settled ones under it. The
- * judges decide them; only a judge alone on their panel, with no one to agree, needs the organizer to approve or turn
- * it down. `onDark`: on the control desk.
+ * Score corrections for the organizer: each open one with how the vote stands, and the settled ones under it. In an
+ * event without live scoring a judge corrects their own score (it's settled as it's made, with their reason); in a
+ * pageant the judges decide, and only a judge alone on their panel, with no one to agree, needs the organizer to
+ * approve or turn it down. `onDark`: on the control desk.
  */
 export function CorrectionsPanel({ activityId, corrections, onDark = false }: { activityId: string; corrections: CorrectionView[]; onDark?: boolean }) {
   const open = corrections.filter((c) => c.status === "open");
@@ -48,7 +49,8 @@ export function CorrectionsPanel({ activityId, corrections, onDark = false }: { 
                 {c.entryName}
                 {c.roundName && ` (${c.roundName})`}, <span className="tabular whitespace-nowrap">{c.from}</span> to <span className="tabular whitespace-nowrap">{c.to}</span>
                 <span className={muted}>
-                  {c.status === "approved" && (c.decidedBy === "organizer" ? ". Approved by the organizer." : ". Every other judge agreed.")}
+                  {c.status === "approved" &&
+                    (c.decidedBy === "judge" ? `. ${c.reason}` : c.decidedBy === "organizer" ? ". Approved by the organizer." : ". Every other judge agreed.")}
                   {c.status === "rejected" && (c.decidedBy === "organizer" ? ". Turned down by the organizer." : ". A judge disagreed.")}
                 </span>
               </li>
