@@ -4,18 +4,20 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newFileTag } from "@/lib/codes";
-import { hashPassword } from "@/lib/password";
-import { passwordProblem } from "@/lib/password-rules";
+import { getAdminCredentials } from "@/lib/data";
+import { hashPassword, verifyPassword } from "@/lib/password";
+import { MAX_PASSWORD_LENGTH, passwordProblem } from "@/lib/password-rules";
 import { photoExtension, photoFile, type Photo } from "@/lib/photo-file";
 import { removeActivityPhotos } from "@/lib/photo-storage";
-import { endOtherAdminSessions, requireAdmin, requireSuperAdmin } from "@/lib/session";
+import { endOtherAdminSessions, requireAdmin, requireSuperAdmin, startOrganizerSession } from "@/lib/session";
+import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db, ORGANIZER_BUCKET } from "@/lib/supabase/server";
 import type { ActionResult, Signatory } from "@/lib/types";
 import type { FormResult } from "./actions";
 import { traced } from "@/lib/observe";
 import { log } from "@/lib/log";
 
-// Organizer accounts. Only the super admin can create, change or delete them.
+// Organizer accounts. Only the super admin can create, change or delete them; an organizer can change their own password.
 
 const ok = (message?: string): ActionResult => ({ ok: true, message });
 const err = (error: string): ActionResult => ({ ok: false, error });
@@ -113,6 +115,37 @@ export const updateOrganizer = traced("updateOrganizer", async function updateOr
  * Sign your own account out of another browser (`sessionId`, from the list on your profile), or of every other one
  * (null). It ends there at once, wherever that browser is: its next click goes to the sign-in page.
  */
+/**
+ * An organizer changes the password the super admin gave them. Their current password first, so a browser left signed
+ * in (a shared laptop at the venue) isn't enough; a wrong one counts against the same limits as signing in. Every other
+ * browser signed in to the account is signed out, and this one carries on with a fresh session.
+ */
+export const changeOwnPassword = traced("changeOwnPassword", async function changeOwnPassword(_prev: FormResult, formData: FormData): Promise<FormResult> {
+  const session = await requireAdmin();
+  if (session.kind !== "organizer") return err("The super admin's password is ADMIN_PASSWORD, where the app is hosted.");
+  const address = await clientAddress();
+  const accountKey = `admin:${session.admin.email}`;
+  if (await tooManyFailures([[address, LIMITS.adminAddress], [accountKey, LIMITS.adminAccount]])) return err(TOO_MANY);
+  const current = String(formData.get("current") ?? "");
+  const account = await getAdminCredentials(session.admin.id);
+  if (!account) return err("Your account wasn't found. Sign in again.");
+  if (!current || current.length > MAX_PASSWORD_LENGTH || !(await verifyPassword(current, account.passwordHash))) {
+    await recordFailure([address, accountKey]);
+    return err("That isn't your current password.");
+  }
+  const password = readPassword(formData, true);
+  if (typeof password !== "string") return err(password?.error ?? "Enter a new password.");
+  if (password === current) return err("Choose a new password, not the one you have now.");
+  const hash = await hashPassword(password);
+  const { error } = await db().from("admins").update({ password_hash: hash }).eq("id", session.admin.id);
+  if (error) return dbErr(error);
+  // Sessions carry the old password's fingerprint, so they all end; this browser gets a new one at once.
+  await db().from("admin_sessions").delete().eq("admin_id", session.admin.id);
+  await startOrganizerSession(session.admin.id, hash);
+  refresh();
+  return ok("Password changed. Your other devices are signed out.");
+});
+
 export const signOutOtherDevices = traced("signOutOtherDevices", async function signOutOtherDevices(sessionId: string | null): Promise<ActionResult> {
   const session = await requireAdmin();
   if (sessionId !== null && typeof sessionId !== "string") return err("That device isn't signed in.");

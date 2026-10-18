@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { firstNames } from "@/lib/names";
 import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
-import type { Board } from "@/lib/types";
+import type { Board, ScoredMark } from "@/lib/types";
 import { Avatar } from "./avatar";
 
 type Place = "first" | "podium" | "rest";
@@ -15,13 +15,29 @@ function placeOf(row: RankedRow, ranked: boolean): Place {
 
 const ROW_BG: Record<Place, string> = { first: "bg-regal", podium: "bg-oxford", rest: "bg-prussian" };
 
+/** A score that's in while the values are held back: that it's there, not what it is. */
+function Tick() {
+  return (
+    <>
+      <svg aria-hidden viewBox="0 0 20 20" className="mx-auto inline-block size-[1.15em] align-[-0.15em]">
+        <path d="M4.5 10.5l3.5 3.5 7.5-8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="sr-only">scored</span>
+    </>
+  );
+}
+
 /**
  * Live results. With `ranked`, rows are sorted by average, show their rank, and the top three
  * stand apart as a podium. Without it, rows keep entry order and placements stay hidden.
+ * With `scored` (the scores held back until the judges sign), each judge's cell shows only whether they've scored, and
+ * the last column how many have.
  */
-export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean }) {
+export function Scoreboard({ board, ranked, scored }: { board: Board; ranked: boolean; scored?: ScoredMark[] }) {
   const { activity, judges } = board;
   const ranking = rankEntries(board.entries, judges, board.scores, activity);
+  const held = scored !== undefined;
+  const marks = new Set((scored ?? []).map((m) => `${m.entryId}:${m.judgeId}`));
   const rows = ranked ? ranking : [...ranking].sort((a, b) => a.number - b.number);
   // Judges go by their first names here, as on the LED wall.
   const names = firstNames(judges);
@@ -91,7 +107,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
             <span className="w-full truncate text-[clamp(0.95rem,1vw,1.2rem)]">{nameOf(j.id)}</span>
           </span>
         ))}
-        <span className="text-right">Average</span>
+        <span className="text-right">{held ? "Scored" : "Average"}</span>
       </div>
 
       <ol ref={listRef} className="relative border-t border-oxford">
@@ -136,17 +152,18 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                   <ul className="mt-2 flex flex-wrap gap-1.5 lg:hidden">
                     {judges.map((j) => {
                       const v = row.scores.get(j.id);
+                      const done = held ? marks.has(`${row.entry.id}:${j.id}`) : v !== undefined;
                       return (
                         <li
                           key={j.id}
-                          data-score={v === undefined ? undefined : `${row.entry.id}:${j.id}`}
+                          data-score={done ? `${row.entry.id}:${j.id}` : undefined}
                           className={`tabular inline-flex items-center gap-1.5 rounded-full py-0.5 pr-2.5 pl-0.5 text-sm text-mint ${
                             top ? "bg-prussian/60" : "bg-oxford"
                           }`}
                         >
                           <Avatar name={j.name} src={j.photoUrl} size={30} />
                           <span className="sr-only">{nameOf(j.id)}:</span>
-                          <span className={v === undefined ? "text-powder" : ""}>{cell(v)}</span>
+                          <span className={done ? "" : "text-powder"}>{held && done ? <Tick /> : cell(v)}</span>
                         </li>
                       );
                     })}
@@ -156,22 +173,25 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
 
               {judges.map((j) => {
                 const v = row.scores.get(j.id);
+                const done = held ? marks.has(`${row.entry.id}:${j.id}`) : v !== undefined;
                 return (
                   <span
                     key={j.id}
-                    data-score={v === undefined ? undefined : `${row.entry.id}:${j.id}`}
+                    data-score={done ? `${row.entry.id}:${j.id}` : undefined}
                     className={`tabular hidden rounded-md py-1 text-center lg:block ${
-                      v === undefined ? "text-[clamp(1rem,1.4vw,1.75rem)] text-powder" : "text-[clamp(1.05rem,1.8vw,2.25rem)] text-mint"
+                      done ? "text-[clamp(1.05rem,1.8vw,2.25rem)] text-mint" : "text-[clamp(1rem,1.4vw,1.75rem)] text-powder"
                     }`}
                   >
                     <span className="sr-only">{nameOf(j.id)}: </span>
-                    <span style={fit(cell(v))}>{cell(v)}</span>
+                    {held && done ? <Tick /> : <span style={fit(cell(v))}>{cell(v)}</span>}
                   </span>
                 );
               })}
 
               <div className="text-right">
-                {row.average === null ? (
+                {held ? (
+                  <HeldCount count={judges.filter((j) => marks.has(`${row.entry.id}:${j.id}`)).length} of={judges.length} top={top} />
+                ) : row.average === null ? (
                   <p className="text-[clamp(1.25rem,2vw,2.25rem)] leading-none text-powder">
                     <span aria-hidden>—</span>
                     <span className="sr-only">No scores yet</span>
@@ -185,7 +205,7 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
                     <span style={fit(averageText(row.average, activity))}>{averageText(row.average, activity)}</span>
                   </p>
                 )}
-                {partial && (
+                {partial && !held && (
                   <p className={`tabular mt-1.5 text-[clamp(0.8rem,0.9vw,1.05rem)] ${secondary}`}>
                     {row.count} of {judges.length} judges
                   </p>
@@ -196,5 +216,17 @@ export function Scoreboard({ board, ranked }: { board: Board; ranked: boolean })
         })}
       </ol>
     </div>
+  );
+}
+
+/** How many judges have scored an entry while the scores are held back: "2 of 3", or all of them marked. */
+function HeldCount({ count, of, top }: { count: number; of: number; top: boolean }) {
+  const all = count === of && of > 0;
+  return (
+    <p className={`tabular leading-none font-bold ${all ? "text-mint" : "text-powder"} ${top ? "text-[clamp(1.5rem,2.7vw,3.25rem)]" : "text-[clamp(1.25rem,2vw,2.25rem)]"}`}>
+      {all && <Tick />} {count}
+      <span className="text-[0.55em] font-semibold"> of {of}</span>
+      <span className="sr-only"> judges have scored</span>
+    </p>
   );
 }

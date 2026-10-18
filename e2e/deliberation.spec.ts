@@ -131,13 +131,17 @@ test.describe.serial("deliberation", () => {
     await expect(ana.getByText("Corrected from 8.125: every other judge agreed.")).toBeVisible(REALTIME);
     await expect(corrections).toContainText("1 settled", REALTIME);
 
-    // The audience sees the entries, but no scores: the server doesn't send them.
+    // The audience sees the entries and which judges have scored them, but no scores: the server doesn't send them.
     const audience = await (await page.context().browser()!.newContext()).newPage();
     await audience.goto(livePath);
-    await expect(audience.getByText("The results show here once the judges have deliberated and signed.")).toBeVisible();
-    await expect(audience.getByText("Agila")).toBeVisible();
-    await expect(audience.getByText("8.125")).toHaveCount(0);
-    await expect(audience.getByText(/scores in/)).toHaveCount(0);
+    await expect(audience.getByText("A tick shows each score that's in. The scores themselves show here once the judges have deliberated and signed.")).toBeVisible();
+    const agila = audience.locator("li[data-entry]", { hasText: "Agila" });
+    await expect(agila).toContainText("2 of 2");
+    await expect(agila.getByText("scored", { exact: true })).not.toHaveCount(0);
+    await expect(audience.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("0 of 2");
+    await expect(audience.getByText(/^2 of 4 scores in$/)).toBeVisible();
+    // Not one value: no 8.125, nor the corrected score, nor any other number with decimal places.
+    await expect(audience.getByText(/\d\.\d{3}/)).toHaveCount(0);
     await expectAccessible(audience);
 
     await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();

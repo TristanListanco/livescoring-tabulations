@@ -584,15 +584,26 @@ function publicJudges(judges: Judge[], anonymous: boolean): Judge[] {
 
 /** An activity by its public link, for the audience (`led`: the LED wall). */
 async function loadPublicBoard(publicId: string, { led = false }: { led?: boolean } = {}): Promise<Board | null> {
-  const { data, error } = await db().from("activities").select(ACTIVITY_COLUMNS).eq("public_id", publicId).maybeSingle();
+  const { data, error } = await db()
+    .from("activities")
+    .select(`${ACTIVITY_COLUMNS}, owner:admins!activities_owner_id_fkey(name, photo_path)`)
+    .eq("public_id", publicId)
+    .maybeSingle();
   fail(error);
   if (!data) return null;
-  const board = await loadBoard(toActivity(data as ActivityRow));
+  const row = data as ActivityRow & { owner: { name: string; photo_path: string | null } | null };
+  const board = await loadBoard(toActivity(row));
   const judges = publicJudges(board.judges, led && board.activity.ledAnonymous);
-  // Who runs it and a pageant's list of violations are the organizer's business, never on screen for the audience.
+  // A pageant's list of violations is the organizer's business, never on screen for the audience; of the organizer,
+  // only the logo heads their activity's results.
   const activity = { ...board.activity, ownerId: null, violations: null };
-  // Scores are held back on the server, so they never reach the audience's screens before they're released.
-  return { ...board, activity, judges, scores: resultsReleased(board.activity) ? board.scores : [] };
+  const logoUrl = photoUrl(row.owner?.photo_path ?? null, ORGANIZER_BUCKET);
+  const organizer = row.owner && logoUrl ? { name: row.owner.name, logoUrl } : null;
+  // Scores are held back on the server, so they never reach the audience's screens before they're released: only
+  // which judge has scored which entry does.
+  if (resultsReleased(board.activity)) return { ...board, activity, judges, organizer };
+  const scored = board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null }));
+  return { ...board, activity, judges, scores: [], scored, organizer };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
