@@ -12,6 +12,7 @@ import { entryNeighbors } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
+import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges } from "@/lib/deliberation";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
@@ -246,8 +247,8 @@ export function SessionTab({
 
   /**
    * The audience's screen, one compact card wherever the desk is: show ranks, and the live results (copy, open, QR
-   * code). The LED wall's link is on its own tab. `extra`: what follows them (the results downloads, mid-show). An
-   * archived activity keeps only the link: nothing to put in front of an audience.
+   * code). The LED wall's link is on its own tab, with its settings. `extra`: what follows them (the results downloads,
+   * mid-show). An archived activity keeps only the link: nothing to put in front of an audience.
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
@@ -270,7 +271,7 @@ export function SessionTab({
           )}
         </div>
         {!activity.liveScoring && !activity.signedOffAt && !archived && (
-          <p className="text-[13px] text-prussian/70">Scores show there once every judge has signed and the session has ended.</p>
+          <p className="hint">Scores show there once every judge has signed and the session has ended.</p>
         )}
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
         {!activity.liveScoring && !pageant && (
@@ -279,7 +280,7 @@ export function SessionTab({
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
               Open
             </a>
-            <p className="w-full text-[13px] text-prussian/70">Every score so far, unofficial, for you alone: it asks for your password each time.</p>
+            <p className="hint w-full">Every score so far, unofficial, for you alone: it asks for your password each time.</p>
           </div>
         )}
         {showQr && !archived && (
@@ -335,6 +336,60 @@ export function SessionTab({
   const devicesOf = (judgeId: string) => devices.filter((d) => d.judgeId === judgeId);
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
   const missing = progress.possible - progress.submitted;
+
+  /*
+   * On air: what the audience's screens show right now, in the desk's own words, so the operator never has to open
+   * them to check. The live results page shows the entry being judged as it stands; the LED wall follows the entry
+   * shown, in its display, with its scores as its settings let them through.
+   */
+  const heldBack = !activity.liveScoring && !activity.signedOffAt;
+  const standing = entry ? rankEntries(entries, judges, scores, activity).find((r) => r.entry.id === entry.id) : undefined;
+  const liveNow = heldBack
+    ? "A tick for each score in; the scores show once the judges have signed"
+    : !standing
+      ? activity.showRank
+        ? "Every entry, ranked by average"
+        : "Every entry, in running order"
+      : standing.count === 0
+        ? `${standing.entry.name}: no scores yet`
+        : [
+            activity.showRank && standing.rank ? `Rank ${standing.rank}` : null,
+            `${averageText(standing.average, activity)} average`,
+            standing.count < judges.length ? `${standing.count} of ${judges.length} judges` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+  const ledEntry = entries.find((e) => e.id === activity.ledEntryId);
+  const ledNow = [
+    activity.ledFullscreen ? "Full screen" : "Green screen overlay",
+    ledEntry ? ledEntry.name : `no ${noun} yet`,
+    heldBack ? "scores once the judges have signed" : activity.ledHoldScores ? "scores once every judge is in" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const onAir = (
+    <section aria-labelledby="on-air" className="shrink-0 border-t border-oxford px-6 py-3 text-sm">
+      <h3 id="on-air" className="sr-only">
+        On the audience&apos;s screens
+      </h3>
+      {/* One line each where the desk is wide; on a phone they wrap rather than lose the end of the line. */}
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-1">
+        <dt className="text-powder">Live results</dt>
+        <dd className="min-w-0 font-semibold sm:truncate" title={liveNow}>
+          {liveNow}
+        </dd>
+        {/* An event without live scoring has no LED wall (see the LED wall tab). */}
+        {(pageant || activity.liveScoring) && (
+          <>
+            <dt className="text-powder">LED wall</dt>
+            <dd className="min-w-0 font-semibold sm:truncate" title={ledNow}>
+              {ledNow}
+            </dd>
+          </>
+        )}
+      </dl>
+    </section>
+  );
   // The last entry fully scored: ending the session is the next thing to do, so the desk offers it right there.
   const lastOneIn = allIn && !next;
   // In a pageant, the last candidate of a sub-activity leads to its cut, or the next sub-activity, instead.
@@ -436,7 +491,7 @@ export function SessionTab({
       confirmLabel="Start deliberation"
       onConfirm={() => changeState("deliberation")}
     >
-      Every entry is scored. Each judge reviews their scores and notes on their own screen, asks for any correction, then signs. You end the
+      Every entry is scored. Each judge reviews their scores and notes on their own screen, corrects any that&apos;s wrong, then signs. You end the
       session once every judge has signed, and the results show then.
     </ConfirmDialog>
   );
@@ -470,6 +525,8 @@ export function SessionTab({
    * Keyboard shortcuts while live: → or Space for the next entry, ← for the previous one. They press the same
    * buttons (found by their aria-keyshortcuts), so the same "move on anyway?" guard applies. Ignored while a dialog
    * is open, while typing, with a modifier held, and on key repeat, so a held key can't skip through the show.
+   * Space moves the show only when nothing in particular has focus: on a focused list (the running order, the
+   * judges) it scrolls the list, and on a focused control it presses that control, as Space always does.
    */
   useEffect(() => {
     if (!live) return;
@@ -479,7 +536,7 @@ export function SessionTab({
       if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || document.querySelector("dialog[open]")) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
-      const space = e.key === " " && !target?.closest("button, a, summary, [role='switch']");
+      const space = e.key === " " && (!target || target === document.body || target === document.documentElement);
       if (space) e.preventDefault(); // no page scroll, on either edge of the press
       const key =
         e.type === "keydown"
@@ -555,7 +612,11 @@ export function SessionTab({
                     {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
                   </span>
                 ) : onAir ? (
-                  <span className="inline-flex h-9 items-center gap-2 rounded-md bg-regal px-3 text-sm font-semibold text-mint">Now judging</span>
+                  // A state, not a control: the on-air tally light and its words, with no button's shape.
+                  <span className="inline-flex h-9 items-center gap-2 px-1 text-sm font-semibold text-regal">
+                    <span aria-hidden className="size-2 shrink-0 rounded-full bg-tally" />
+                    Now judging
+                  </span>
                 ) : (
                   // Jumping around the running order asks first unless it's simply the next entry with everyone in.
                   moveControl({
@@ -567,7 +628,8 @@ export function SessionTab({
                         <span className="sr-only"> {e.name}</span>
                       </>
                     ),
-                    className: "btn btn-quiet btn-sm",
+                    // Quiet text, not a column of bordered buttons down every row: the next entry has the desk's own button.
+                    className: "btn btn-sm text-regal hover:bg-white",
                     title: fullyScored(e) ? `Show ${e.name} again?` : `Show ${e.name} now?`,
                     confirmLabel: fullyScored(e) ? "Show it again" : "Show this entry",
                   })
@@ -587,7 +649,7 @@ export function SessionTab({
   if (live) {
     return (
       <PdfHold value={held}>
-        <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
+        <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] lg:gap-6">
           <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-2xl bg-prussian text-mint">
             {offline}
             <div className="flex items-start justify-between gap-4 px-6 pt-4">
@@ -642,6 +704,8 @@ export function SessionTab({
                     ))}
                   </ul>
                 </div>
+
+                {onAir}
 
                 {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
                 <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
@@ -722,7 +786,7 @@ export function SessionTab({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
                     <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
                     <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
-                    <p className="text-[13px]">
+                    <p className="text-sm">
                       Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
                     </p>
                   </div>

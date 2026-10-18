@@ -157,9 +157,12 @@ export function JudgesFields({
                     </span>
                   </span>
                 </label>
+                {/* With one judge left there's nothing to remove: the button gives way, keeping its place, rather than fading out. */}
                 <button
                   type="button"
-                  className="btn btn-sm shrink-0 justify-self-start px-2.5 text-prussian/70 hover:bg-danger/10 hover:text-danger sm:mt-1.5 pointer-coarse:min-w-11"
+                  className={`btn btn-sm shrink-0 justify-self-start px-2.5 text-prussian/70 hover:bg-danger/10 hover:text-danger sm:mt-1.5 pointer-coarse:min-w-11 ${
+                    judges.length <= 1 ? "invisible" : ""
+                  }`}
                   onClick={() => onRemove(j.key)}
                   disabled={judges.length <= 1}
                   aria-label={`Remove ${who.toLowerCase()} ${i + 1}`}

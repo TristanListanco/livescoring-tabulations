@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { currentAdmin } from "@/lib/session";
 import { LoginForm } from "./login-form";
 
-export const metadata: Metadata = { title: "Admin sign-in" };
+export const metadata: Metadata = { title: "Organizer sign-in" };
 
 export default async function AdminLogin({ searchParams }: PageProps<"/admin/login">) {
   if (await currentAdmin()) redirect("/admin");
@@ -14,7 +14,7 @@ export default async function AdminLogin({ searchParams }: PageProps<"/admin/log
     <main className="flex min-h-dvh items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
         <p className="text-lg font-bold text-regal">LiveScoring</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">{asSuper ? "Super admin sign-in" : "Admin sign-in"}</h1>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">{asSuper ? "Super admin sign-in" : "Organizer sign-in"}</h1>
         <p className="hint mt-2">
           {asSuper ? "For the developer who manages organizer accounts." : "Sign in with the organizer account you were given."}
         </p>

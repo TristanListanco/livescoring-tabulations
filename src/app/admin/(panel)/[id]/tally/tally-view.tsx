@@ -25,12 +25,15 @@ const onMinute = (changed: () => void) => {
 };
 const thisMinute = () => Math.floor(Date.now() / 60_000);
 
-/** Who's looking and when, faintly across the tally: a screenshot or a photo of it says whose it was. */
+/**
+ * Who's looking and when, faintly across the tally: a screenshot or a photo of it says whose it was. A mask, filled in
+ * the admin theme's ink (see the layer it's drawn on), so it shows in the light and the dark theme alike.
+ */
 function watermark(text: string): string {
   const escaped = text.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const svg =
     `<svg xmlns='http://www.w3.org/2000/svg' width='560' height='200'>` +
-    `<text x='20' y='120' transform='rotate(-18 280 100)' font-family='sans-serif' font-size='17' font-weight='700' fill='#0b2545' fill-opacity='0.11'>${escaped}</text></svg>`;
+    `<text x='20' y='120' transform='rotate(-18 280 100)' font-family='sans-serif' font-size='17' font-weight='700' fill='#000'>${escaped}</text></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 
@@ -90,7 +93,8 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
           </div>
         </header>
 
-        <div className={`relative mt-8 transition-[filter] duration-150 ${hidden ? "blur-xl" : ""}`}>
+        {/* Its own layer, so the watermark can sit behind the scores (under every digit) yet above the page. */}
+        <div className={`relative isolate mt-8 transition-[filter] duration-150 ${hidden ? "blur-xl" : ""}`}>
           <section aria-labelledby="tally-by-entry">
             <h2 id="tally-by-entry" className="text-xl font-bold">
               By entry
@@ -178,7 +182,11 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
             </section>
           )}
 
-          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ backgroundImage: mark }} />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -z-10 bg-prussian opacity-[0.11]"
+            style={{ maskImage: mark, WebkitMaskImage: mark }}
+          />
         </div>
       </div>
     </>

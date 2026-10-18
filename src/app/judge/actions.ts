@@ -2,7 +2,7 @@
 
 import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
-import { settleCorrection } from "@/lib/correction-settle";
+import { applyOwnCorrection, settleCorrection } from "@/lib/correction-settle";
 import { cleanReason, correctionVoters } from "@/lib/corrections";
 import { findJudgeIdByCode, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRounds, getSignatures } from "@/lib/data";
 import { cleanSignature } from "@/lib/deliberation";
@@ -206,20 +206,23 @@ const sameBreakdown = (a: Record<string, number> | null, b: Record<string, numbe
   JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b ?? {}).sort());
 
 /**
- * A judge asks to correct their own score, saying why: in an event without live scoring (with it, a submitted score is
- * final). It changes only if every other judge on their panel agrees, voting on the reason without seeing the scores (a
- * judge alone on their panel waits for the organizer). While judging is open, the entry on screen; during the
- * deliberation, any entry. In a pageant (scored live, before migration 021), only in the sub-activity being judged.
+ * A judge corrects their own score, saying why. In an event without live scoring (with it, a submitted score is final)
+ * the correction is theirs to make: it's applied at once, with its reason recorded for the results PDF, until they've
+ * signed their scores. While judging is open, the entry on screen; during the deliberation, any entry. In a pageant the
+ * judge asks instead, in the sub-activity being judged: it changes only if every other judge on their panel agrees (a
+ * judge alone on their panel waits for the organizer).
  */
 export const requestCorrection = traced("requestCorrection", async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
   const context = await seat("This device isn't approved to score. Ask the organizer.");
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
-  const why = cleanReason(reason);
-  if (!why) return { ok: false, error: "Say why the score needs correcting, so the other judges can decide." };
-
   const { activity } = context;
-  if (activity.liveScoring && activity.kind === "event") return { ok: false, error: "This event scores live, so submitted scores are final." };
+  // An event's judge corrects their own (live scoring off); a pageant's asks the rest of their panel.
+  const own = activity.kind === "event";
+  const why = cleanReason(reason);
+  if (!why) return { ok: false, error: own ? "Say why the score needs correcting: it's kept with the correction." : "Say why the score needs correcting, so the other judges can decide." };
+
+  if (activity.liveScoring && own) return { ok: false, error: "This event scores live, so submitted scores are final." };
   const deliberating = activity.sessionState === "deliberation";
   if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
   if (!deliberating && activity.currentEntryId !== entryId) {
@@ -257,7 +260,13 @@ export const requestCorrection = traced("requestCorrection", async function requ
   const oldBreakdown = old.breakdown ? Object.fromEntries(Object.entries(old.breakdown).map(([id, v]) => [id, Number(v)])) : null;
   if (Number(old.value) === value && sameBreakdown(oldBreakdown, breakdown)) return { ok: false, error: "That's the score you already gave." };
 
-  const { error } = await db()
+  // Signed scores are the ones the judge stands by: they don't change after.
+  if (own && deliberating) {
+    const signatures = await getSignatures(activity.id);
+    if (signatures?.some((s) => s.judgeId === context.judge.id)) return { ok: false, error: "You've signed your scores, so they can't change now." };
+  }
+
+  const { data: made, error } = await db()
     .from("score_corrections")
     .insert({
       activity_id: activity.id,
@@ -269,11 +278,21 @@ export const requestCorrection = traced("requestCorrection", async function requ
       old_breakdown: oldBreakdown,
       new_breakdown: breakdown,
       reason: why,
-    });
+    })
+    .select("id")
+    .single();
   if (error) {
-    if (error.code === "23505") return { ok: false, error: "You've already asked to correct this score. Wait for the other judges, or withdraw it." };
+    // An open one for this score: asked before the judges stopped voting on corrections, or in a pageant.
+    if (error.code === "23505") return { ok: false, error: "A correction to this score is already waiting for the other judges. Wait for them, or withdraw it." };
     log("error", "correction_not_requested", { code: error.code, error: error.message });
     return { ok: false, error: error.code === "42P01" || error.code === "PGRST205" ? CORRECTIONS_UNAVAILABLE : "That didn't go through. Check your connection and try again." };
+  }
+  if (own) {
+    const applied = await applyOwnCorrection((made as { id: string }).id);
+    if (!applied.ok) {
+      log("error", "correction_not_applied", { error: applied.error });
+      return { ok: false, error: /Unknown outcome/.test(applied.error) ? CORRECTIONS_UNAVAILABLE : "Your correction didn't go through. Check your connection and try again." };
+    }
   }
   changed(context.activity.publicId);
   return { ok: true };

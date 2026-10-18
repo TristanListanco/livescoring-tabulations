@@ -22,9 +22,10 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           {session.kind === "super" && <AdminNav />}
           <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-5">
             {session.kind === "organizer" ? (
+              // On phones the photo alone, so the header stays one row; the name is still the link's name.
               <Link href="/admin/profile" className="flex min-w-0 items-center gap-3 rounded-lg px-1.5 py-1 hover:bg-oxford" title="Your profile">
                 <Avatar name={session.admin.name} src={session.admin.photoUrl} size={36} />
-                <div className="min-w-0 leading-tight">
+                <div className="min-w-0 leading-tight max-sm:sr-only">
                   <p className="truncate text-sm font-semibold">{session.admin.name}</p>
                   <p className="hidden truncate text-xs text-powder sm:block">{session.admin.email}</p>
                 </div>

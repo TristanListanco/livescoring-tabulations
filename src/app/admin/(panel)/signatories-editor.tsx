@@ -7,6 +7,9 @@ import { FormMessage } from "./form-message";
 
 type Row = { key: number; name: string; designation: string };
 const isBlank = (r: Row) => !r.name.trim() && !r.designation.trim();
+/** Signatories as they'd be saved (spaces tidied), as one string to compare. */
+const listed = (list: { name: string; designation: string }[]) =>
+  JSON.stringify(list.map((s) => [s.name.replace(/\s+/g, " ").trim(), s.designation.replace(/\s+/g, " ").trim()]));
 
 /** Names and designations (Board of Tabulators, representatives) printed as signature lines on the results PDF. */
 export function SignatoriesEditor({ adminId, initial }: { adminId: string | null; initial: Signatory[] }) {
@@ -15,6 +18,9 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
   const nextKey = useRef(initial.length);
   const blankRow = (): Row => ({ key: nextKey.current++, name: "", designation: "" });
   const [rows, setRows] = useState<Row[]>(() => initial.map((s, i) => ({ key: i, ...s })));
+  // What's saved, to tell whether there's anything to save: the button stands out only when there is.
+  const [baseline, setBaseline] = useState(() => listed(initial));
+  const changed = listed(rows.filter((r) => !isBlank(r))) !== baseline;
   const [result, setResult] = useState<ActionResult | null>(null);
   // Rows with a designation but no name, flagged when saving.
   const [missingName, setMissingName] = useState<Set<number>>(() => new Set());
@@ -47,6 +53,7 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
           designation: row.designation.replace(/\s+/g, " ").trim(),
         }));
         setRows(saved);
+        setBaseline(listed(saved));
       }
     });
   };
@@ -108,7 +115,7 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
         <button type="button" className="btn btn-quiet btn-sm" onClick={() => setRows((list) => [...list, blankRow()])} disabled={rows.length >= 12}>
           Add signatory
         </button>
-        <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>
+        <button type="button" className={`btn ${changed ? "btn-primary" : "btn-quiet"}`} onClick={save} disabled={pending || !changed}>
           {pending ? "Saving…" : "Save signatories"}
         </button>
         <FormMessage state={result} />

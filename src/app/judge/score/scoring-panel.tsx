@@ -111,13 +111,19 @@ function myScoreText(value: number, activity: Activity): string {
 }
 
 /**
+ * Who decides a judge's corrections: the judge themself (an event without live scoring: theirs to make, with a reason),
+ * or in a pageant the other judges on their panel, or the organizer for a judge alone on it.
+ */
+export type CorrectionDecider = "self" | "judges" | "organizer";
+
+/**
  * Score corrections on this judge's screen: the ones waiting for their vote (oldest first), their own latest one on the
- * entry on screen, and whether other judges (or, for a judge alone on their panel, the organizer) decide theirs.
+ * entry on screen, and who decides theirs.
  */
 export type Corrections = {
   toVote: CorrectionView[];
   mine: CorrectionView | null;
-  othersVote: boolean;
+  decides: CorrectionDecider;
 };
 
 /**
@@ -306,7 +312,8 @@ export function ScoringPanel({
   return (
     <div className="flex h-dvh flex-col bg-prussian text-mint">
       <header className="flex items-center gap-3 border-b border-oxford px-4 py-3 sm:px-6">
-        <Avatar name={judge.name} src={judge.photoUrl} size={44} />
+        {/* On a phone the judge's own photo gives way to their name, which the header has little room for. */}
+        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="max-sm:hidden" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{judge.name}</p>
           <p className="truncate text-sm text-powder">
@@ -402,7 +409,7 @@ export function ScoringPanel({
               const fix: Correcting = {
                 from: correctingEntry.value,
                 fromBreakdown: correctingEntry.points,
-                othersVote: corrections.othersVote,
+                decides: corrections.decides,
                 onDone: () => setCorrectingFor(null),
               };
               return activity.scoringMode === "criteria" ? (
@@ -417,7 +424,7 @@ export function ScoringPanel({
               entries={entries}
               scores={scores}
               deliberation={deliberation}
-              othersVote={corrections?.othersVote ?? true}
+              decides={corrections?.decides ?? "self"}
               canCorrect={!!corrections}
               notes={noteStore}
               onCorrect={setCorrectingFor}
@@ -464,7 +471,7 @@ export function ScoringPanel({
                 offPanel={offPanel}
                 correction={
                   corrections && view.kind === "scored" ? (
-                    <CorrectionStatus mine={corrections.mine} othersVote={corrections.othersVote} onAsk={() => setCorrectingFor(view.entry.id)} />
+                    <CorrectionStatus mine={corrections.mine} decides={corrections.decides} onAsk={() => setCorrectingFor(view.entry.id)} />
                   ) : null
                 }
               />
@@ -520,8 +527,9 @@ function ScoreList({ entries, scores, currentId, decimals }: { entries: Entry[];
 }
 
 /**
- * Below 768px, the header's count ("1/3") opens the judge's scores in a sheet from the bottom of the screen, so they can
- * compare as they go, as the list beside the keypad lets them on a wider screen.
+ * Below 768px, the header's count ("1 of 3 scored") opens the judge's scores in a sheet from the bottom of the screen, so
+ * they can compare as they go, as the list beside the keypad lets them on a wider screen. Said in words: "1/3" beside
+ * "No. 3" reads like a place in the running order.
  */
 function ScoresSheet({ title, scored, total, children }: { title: string; scored: number; total: number; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -532,17 +540,11 @@ function ScoresSheet({ title, scored, total, children }: { title: string; scored
         type="button"
         onClick={() => ref.current?.showModal()}
         aria-haspopup="dialog"
-        className="tabular flex h-11 shrink-0 items-center gap-1 rounded-lg border border-oxford px-2 text-powder hover:bg-oxford hover:text-mint md:hidden"
+        className="tabular flex h-11 shrink-0 items-center rounded-lg border border-oxford px-2.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
       >
-        <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-          <path d="M5.5 4h8M5.5 8h8M5.5 12h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <circle cx="2.5" cy="4" r="1" fill="currentColor" />
-          <circle cx="2.5" cy="8" r="1" fill="currentColor" />
-          <circle cx="2.5" cy="12" r="1" fill="currentColor" />
-        </svg>
         <span>
-          <span className="font-bold text-mint">{scored}</span>/{total}
-          <span className="sr-only"> scored. Show your scores</span>
+          <span className="font-bold text-mint">{scored}</span> of {total} scored
+          <span className="sr-only">. Show your scores</span>
         </span>
       </button>
       <dialog
@@ -668,18 +670,18 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
 }
 
 /**
- * Under a judge's submitted score: what they can do about it, their correction waiting for votes (with Withdraw), or
- * how their last one ended and what's left to do.
+ * Under a judge's submitted score: what they can do about it (correct it themself, or ask), their correction waiting for
+ * votes (with Withdraw), or how their last one ended and what's left to do.
  */
 function CorrectionStatus({
   mine,
-  othersVote,
+  decides,
   onAsk,
   entryName,
   compact = false,
 }: {
   mine: CorrectionView | null;
-  othersVote: boolean;
+  decides: CorrectionDecider;
   onAsk: () => void;
   /** In a list of entries (the deliberation): which one, for screen readers. */
   entryName?: string;
@@ -694,7 +696,7 @@ function CorrectionStatus({
           You asked to change it to <span className="tabular">{mine.to}</span>.
         </p>
         <p className="mt-1 text-sm text-powder">
-          {othersVote
+          {mine.voters > 0
             ? `${mine.agreed} of ${mine.voters} ${mine.voters === 1 ? "judge has" : "judges have"} agreed. It changes only if ${mine.voters === 1 ? "they agree" : "all of them do"}.`
             : "Waiting for the organizer to approve it."}
         </p>
@@ -725,7 +727,8 @@ function CorrectionStatus({
     <>
       {mine?.status === "approved" ? (
         <p className="mt-2 text-sm font-semibold">
-          Corrected from <span className="tabular">{mine.from}</span>: {mine.decidedBy === "organizer" ? "the organizer approved it." : "every other judge agreed."}
+          Corrected from <span className="tabular">{mine.from}</span>
+          {mine.decidedBy === "judge" ? "." : mine.decidedBy === "organizer" ? ": the organizer approved it." : ": every other judge agreed."}
         </p>
       ) : (
         mine?.status === "rejected" && (
@@ -735,7 +738,7 @@ function CorrectionStatus({
         )
       )}
       <button type="button" onClick={onAsk} className={`btn border border-regal text-mint hover:bg-regal ${compact ? "btn-sm mt-3" : "mt-4"}`}>
-        {mine?.status === "rejected" ? "Ask again" : "Ask to correct this score"}
+        {decides === "self" ? "Correct this score" : mine?.status === "rejected" ? "Ask again" : "Ask to correct this score"}
         {entryName && <span className="sr-only"> for {entryName}</span>}
       </button>
     </>
@@ -878,7 +881,7 @@ function WaitingCard({
       ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
       : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
-  const submitted = correction ?? <p className="mt-2 text-sm text-powder">Submitted. Scores can&apos;t be changed after submitting.</p>;
+  const submitted = correction ?? <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.</p>;
 
   // The chair, scored: their score kept short, so the controls to move on come straight after it.
   if (view.kind === "scored" && movesEntries && !offPanel) {
@@ -951,16 +954,16 @@ function PointsList({ points, decimals, centered = false }: { points: CriterionP
 }
 
 /**
- * The deliberation on a judge's screen: every entry in running order with their score (and points per criterion), what
- * became of any correction they asked for, and their notes; then their signature. Corrections still go to the other
- * judges' vote, who see only the reason.
+ * The deliberation on a judge's screen: every entry in running order with their score (and points per criterion), any
+ * correction they made, and their notes; then their signature. Until they sign, a wrong score is theirs to correct,
+ * saying why; once signed, their scores stand.
  */
 function DeliberationView({
   activity,
   entries,
   scores,
   deliberation,
-  othersVote,
+  decides,
   canCorrect,
   notes,
   onCorrect,
@@ -969,7 +972,7 @@ function DeliberationView({
   entries: Entry[];
   scores: Map<string, number>;
   deliberation: Deliberation;
-  othersVote: boolean;
+  decides: CorrectionDecider;
   canCorrect: boolean;
   notes: NoteStore | null;
   onCorrect: (entryId: string) => void;
@@ -978,7 +981,7 @@ function DeliberationView({
   return (
     <div className="w-full max-w-md pb-8 lg:max-w-2xl">
       <h1 className="judge-title">Deliberation</h1>
-      <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, ask the other judges to correct it. Then sign.</p>
+      <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
         {entries.map((entry, i) => {
           const value = scores.get(entry.id);
@@ -998,10 +1001,10 @@ function DeliberationView({
                 )}
               </div>
               {points && points.length > 0 && <PointsList points={points} decimals={activity.decimals} />}
-              {canCorrect && value !== undefined && (
+              {canCorrect && value !== undefined && !deliberation.signature && (
                 <CorrectionStatus
                   mine={deliberation.mineByEntry[entry.id] ?? null}
-                  othersVote={othersVote}
+                  decides={decides}
                   onAsk={() => onCorrect(entry.id)}
                   entryName={entry.name}
                   compact
@@ -1205,12 +1208,13 @@ function EntryControls({
               : `Every judge has scored ${entry.name}. That was the last entry.`
             : `${scored} of ${panel.length} judges have scored.`}
       </p>
+      {/* The next entry's name wraps onto a second line rather than being cut off: it's what the chair checks before tapping. */}
       <div className="mt-4 grid grid-cols-[auto_1fr] gap-3">
         <button
           type="button"
           onClick={() => previous && go(previous.id)}
           disabled={!previous || pending}
-          className="btn h-14 rounded-xl border border-oxford px-5 text-lg text-mint hover:bg-oxford disabled:opacity-40"
+          className="btn h-auto min-h-14 rounded-xl border border-oxford px-5 text-lg text-mint hover:bg-oxford disabled:opacity-40"
         >
           Previous
         </button>
@@ -1218,20 +1222,20 @@ function EntryControls({
           // The last entry is in: the chair can open the deliberation, as the organizer can from the desk.
           <ConfirmDialog
             triggerLabel="Start deliberation"
-            triggerClassName="btn h-14 min-w-0 rounded-xl bg-mint text-lg text-prussian hover:bg-white"
+            triggerClassName="btn h-auto min-h-14 min-w-0 rounded-xl bg-mint text-lg text-prussian hover:bg-white"
             triggerDisabled={pending}
             title="Start the deliberation?"
             confirmLabel="Start deliberation"
             onConfirm={() => startDeliberation().catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }))}
           >
-            Every entry is scored. Each judge reviews their scores and notes, asks for any correction, then signs. The results show once every
+            Every entry is scored. Each judge reviews their scores and notes, corrects any that&apos;s wrong, then signs. The results show once every
             judge has signed.
           </ConfirmDialog>
         ) : entry && next && waiting.length > 0 ? (
           // As on the organizer's desk: moving on with judges still scoring asks first.
           <ConfirmDialog
-            triggerLabel={<span className="truncate">Next: {next.name}</span>}
-            triggerClassName="btn h-14 min-w-0 rounded-xl border border-oxford text-lg text-mint hover:bg-oxford disabled:bg-oxford disabled:text-powder disabled:opacity-100"
+            triggerLabel={<span className="line-clamp-2 text-balance">Next: {next.name}</span>}
+            triggerClassName="btn h-auto min-h-14 min-w-0 rounded-xl border border-oxford py-2 text-lg leading-snug whitespace-normal text-mint hover:bg-oxford disabled:bg-oxford disabled:text-powder disabled:opacity-100"
             triggerDisabled={pending}
             title={`Move on to ${next.name}?`}
             confirmLabel="Move on anyway"
@@ -1245,11 +1249,13 @@ function EntryControls({
             type="button"
             onClick={() => next && go(next.id)}
             disabled={!next || pending}
-            className={`btn h-14 min-w-0 rounded-xl text-lg ${
+            className={`btn h-auto min-h-14 min-w-0 rounded-xl py-2 text-lg leading-snug whitespace-normal ${
               allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-oxford text-mint hover:bg-oxford"
             } disabled:bg-oxford disabled:text-powder disabled:opacity-100`}
           >
-            <span className="truncate">{entry ? (next ? `Next: ${next.name}` : "No more entries") : next ? `Show first entry: ${next.name}` : "No entries"}</span>
+            <span className="line-clamp-2 text-balance">
+              {entry ? (next ? `Next: ${next.name}` : "No more entries") : next ? `Show first entry: ${next.name}` : "No entries"}
+            </span>
           </button>
         )}
       </div>
@@ -1399,9 +1405,9 @@ function ConfirmScore({
 
 /**
  * Correcting a submitted score: what was given (with criteria, each criterion's points, which the keypad starts from),
- * whether other judges or the organizer decide, and what to do once it's asked for or cancelled.
+ * who decides it, and what to do once it's made, asked for or cancelled.
  */
-type Correcting = { from: number; fromBreakdown: Record<string, number> | null; othersVote: boolean; onDone: () => void };
+type Correcting = { from: number; fromBreakdown: Record<string, number> | null; decides: CorrectionDecider; onDone: () => void };
 
 /** Sending a correction request from the confirmation: the reason, whether it's on its way, and why it didn't go. */
 function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, dialogRef: React.RefObject<HTMLDialogElement | null>) {
@@ -1421,20 +1427,28 @@ function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, 
     dialogRef.current?.close();
     correcting.onDone();
   };
-  const dialog = correcting
-    ? {
-        title: `Ask to change your score for ${entry.name}?`,
-        note: correcting.othersVote
-          ? "It changes only if every other judge agrees. They see both scores and your reason."
-          : "It changes only if the organizer approves it.",
-        confirmLabel: asking ? "Asking…" : correcting.othersVote ? "Ask the judges" : "Ask the organizer",
-        confirmDisabled: asking || !reason.trim(),
-      }
-    : {};
+  const dialog = !correcting
+    ? {}
+    : correcting.decides === "self"
+      ? {
+          title: `Change your score for ${entry.name}?`,
+          note: "It changes as soon as you confirm. Your reason is kept with it, and the results list every correction.",
+          confirmLabel: asking ? "Changing…" : "Change score",
+          confirmDisabled: asking || !reason.trim(),
+        }
+      : {
+          title: `Ask to change your score for ${entry.name}?`,
+          note:
+            correcting.decides === "judges"
+              ? "It changes only if every other judge agrees. They see both scores and your reason."
+              : "It changes only if the organizer approves it.",
+          confirmLabel: asking ? "Asking…" : correcting.decides === "judges" ? "Ask the judges" : "Ask the organizer",
+          confirmDisabled: asking || !reason.trim(),
+        };
   return { reason, setReason, error, ask, dialog };
 }
 
-/** The reason a correction is asked for, required: the other judges decide on it. */
+/** Why a score needs correcting, required: it's kept with the correction (and the other judges decide on it, when they do). */
 function ReasonField({ value, onChange, error }: { value: string; onChange: (value: string) => void; error: string | null }) {
   const id = useId();
   return (

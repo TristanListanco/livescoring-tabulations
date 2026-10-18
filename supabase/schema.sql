@@ -397,8 +397,9 @@ create trigger scores_check
   before insert or update on public.scores
   for each row execute function public.check_score();
 
--- Submitted scores are final. One changes only through a score correction every other judge agreed to (or the
--- organizer approved, for a judge alone on their panel), applied by settle_score_correction (see Score corrections).
+-- Submitted scores are final. One changes only through a recorded score correction: the judge's own, with its reason,
+-- in an event without live scoring; in a pageant, one every other judge agreed to (or the organizer approved, for a
+-- judge alone on their panel). settle_score_correction applies it (see Score corrections).
 -- Deleting (developer reset) is still allowed.
 create or replace function public.forbid_score_update()
 returns trigger
@@ -487,8 +488,9 @@ create table if not exists public.score_corrections (
   new_breakdown  jsonb,
   reason         text not null check (char_length(reason) between 1 and 300),
   status         text not null default 'open' check (status in ('open', 'approved', 'rejected', 'withdrawn')),
-  -- Who settled it: the judges' votes, or the organizer (a judge alone on their panel).
-  decided_by     text check (decided_by in ('judges', 'organizer')),
+  -- Who settled it: the judge themself (an event without live scoring), the judges' votes, or the organizer (a judge
+  -- alone on their panel).
+  decided_by     text check (decided_by in ('judges', 'organizer', 'judge')),
   created_at     timestamptz not null default now(),
   decided_at     timestamptz
 );
@@ -522,7 +524,7 @@ as $$
 declare
   c public.score_corrections%rowtype;
 begin
-  if outcome not in ('approved', 'rejected') or decider not in ('judges', 'organizer') then
+  if outcome not in ('approved', 'rejected') or decider not in ('judges', 'organizer', 'judge') then
     raise exception 'Unknown outcome % by %', outcome, decider;
   end if;
   update public.score_corrections set status = outcome, decided_by = decider, decided_at = now()

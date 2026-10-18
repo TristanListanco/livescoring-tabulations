@@ -13,7 +13,7 @@ export default function Home() {
             I&apos;m a judge
           </Link>
           <Link href="/admin" className="btn h-14 rounded-xl border border-oxford px-7 text-lg text-mint hover:bg-oxford">
-            Admin panel
+            I&apos;m an organizer
           </Link>
         </div>
       </div>

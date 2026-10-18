@@ -105,8 +105,9 @@ export type Activity = {
   criteriaDisplay: CriteriaDisplay;
   /**
    * Live scoring (the default): the audience sees scores as they come in, and a submitted score is final. Without it the
-   * audience sees no scores until the judges have signed, a judge can ask to correct a score (the others vote without
-   * seeing the values), and the judges deliberate once every entry is scored. Events only; always true for pageants.
+   * audience sees no scores until the judges have signed (and there's no LED wall), a judge corrects their own score,
+   * saying why, until they've signed, and the judges deliberate once every entry is scored. Events only; always true for
+   * pageants.
    */
   liveScoring: boolean;
   /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */

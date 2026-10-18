@@ -230,14 +230,18 @@ const signNote = (corrections: CorrectionView[] | null, signatures?: JudgeSignat
     ? ", and submitted scores are final. "
     : corrections.length === 0
       ? ". No score was changed after it was submitted. "
-      : ". The corrections listed above changed a submitted score with the agreement of every other judge on the panel (or, for a judge alone on theirs, the organizer's approval). ") +
+      : corrections.every((c) => c.decidedBy === "judge")
+        ? ". The corrections listed above changed a submitted score: each judge corrected their own before signing, saying why. "
+        : corrections.every((c) => c.decidedBy !== "judge")
+          ? ". The corrections listed above changed a submitted score with the agreement of every other judge on the panel (or, for a judge alone on theirs, the organizer's approval). "
+          : ". The corrections listed above changed a submitted score, each with its reason and who decided it. ") +
   (signatures?.length ? SIGNED_IN_DELIBERATION : "(Sgd.) marks each judge's verified sign-off.");
 
 /** How the judges signed, after deliberating (an event without live scoring). */
 const SIGNED_IN_DELIBERATION =
   "Each judge then reviewed their scores in deliberation and signed on their approved device: drawn by hand, or (Sgd.) where they signed off without a touchscreen.";
 
-/** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who agreed. */
+/** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who decided. */
 function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
   if (corrections.length === 0) return null;
   return (
@@ -245,12 +249,16 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
       <Text style={s.sectionTitle} minPresenceAhead={48}>
         Score corrections
       </Text>
-      <Text style={s.sectionNote}>Submitted scores that changed: each judge asked, saying why, and the others agreed.</Text>
+      <Text style={s.sectionNote}>
+        {corrections.every((c) => c.decidedBy === "judge")
+          ? "Submitted scores that changed: each judge corrected their own, saying why."
+          : "Submitted scores that changed: each judge asked, saying why, and the others agreed."}
+      </Text>
       {corrections.map((c) => (
         <View key={c.id} style={s.deductionRow} wrap={false}>
           <Text style={s.deductionWho}>{`${c.judgeName}, No. ${c.entryNumber} ${c.entryName}`}</Text>
           <Text style={s.deductionWhy}>{`${c.from} to ${c.to}. ${c.reason}`}</Text>
-          <Text style={s.deductionPoints}>{c.decidedBy === "organizer" ? "Organizer approved" : "Every other judge agreed"}</Text>
+          <Text style={s.deductionPoints}>{c.decidedBy === "judge" ? "Corrected by the judge" : c.decidedBy === "organizer" ? "Organizer approved" : "Every other judge agreed"}</Text>
         </View>
       ))}
     </View>

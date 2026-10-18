@@ -8,7 +8,7 @@ import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 /** What live scoring on or off means, said the same way wherever it's chosen. */
 export const LIVE_SCORING_HINT = {
   on: "The audience sees each score as it's submitted, and a submitted score is final.",
-  off: "The audience sees no scores until the judges have deliberated and signed. A judge can ask to correct a score, and the other judges vote on it without seeing the values.",
+  off: "The audience sees no scores until the judges have deliberated and signed, and the LED wall is off. A judge can correct their own score, saying why, until they sign.",
 };
 
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
@@ -307,8 +307,9 @@ export function ScoringEditor({
                 checked={places === o.value}
                 onChange={() => set({ decimals: o.value })}
               />
-              <span className="font-semibold">{o.label}</span>
-              <span className="tabular text-sm opacity-75">e.g. {o.example}</span>
+              {/* Each choice keeps its words together: a narrow form wraps whole choices, not "3 decimal / places". */}
+              <span className="font-semibold whitespace-nowrap">{o.label}</span>
+              <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
             </label>
           ))}
         </div>

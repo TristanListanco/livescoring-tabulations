@@ -92,40 +92,53 @@ function EntryRow({
           </button>
         )}
       </div>
+      {/*
+        Once the session has started (the note above says so), the order is fixed: no arrows to fade out. An entry that
+        has scores stays, and says how many where its Remove would be.
+      */}
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
-          onClick={() => move(-1)}
-          disabled={started || isFirst || moving}
-          aria-label={`Move ${entry.name} up`}
-        >
-          <Arrow up />
-        </button>
-        <button
-          type="button"
-          className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
-          onClick={() => move(1)}
-          disabled={started || isLast || moving}
-          aria-label={`Move ${entry.name} down`}
-        >
-          <Arrow />
-        </button>
-        <ConfirmDialog
-          triggerLabel={
-            <>
-              Remove<span className="sr-only"> {entry.name}</span>
-            </>
-          }
-          triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
-          triggerDisabled={started && scored > 0}
-          title={`Remove ${entry.name}?`}
-          tone="danger"
-          confirmLabel="Remove entry"
-          onConfirm={() => removeEntry(entry.id)}
-        >
-          {scored > 0 ? `Its ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted too.` : "No judge has scored it yet."}
-        </ConfirmDialog>
+        {!started && (
+          <>
+            <button
+              type="button"
+              className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
+              onClick={() => move(-1)}
+              disabled={isFirst || moving}
+              aria-label={`Move ${entry.name} up`}
+            >
+              <Arrow up />
+            </button>
+            <button
+              type="button"
+              className="btn btn-quiet btn-sm px-2.5 pointer-coarse:min-w-11"
+              onClick={() => move(1)}
+              disabled={isLast || moving}
+              aria-label={`Move ${entry.name} down`}
+            >
+              <Arrow />
+            </button>
+          </>
+        )}
+        {started && scored > 0 ? (
+          <span className="tabular hint px-2">
+            {scored} {scored === 1 ? "score" : "scores"}
+          </span>
+        ) : (
+          <ConfirmDialog
+            triggerLabel={
+              <>
+                Remove<span className="sr-only"> {entry.name}</span>
+              </>
+            }
+            triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+            title={`Remove ${entry.name}?`}
+            tone="danger"
+            confirmLabel="Remove entry"
+            onConfirm={() => removeEntry(entry.id)}
+          >
+            {scored > 0 ? `Its ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted too.` : "No judge has scored it yet."}
+          </ConfirmDialog>
+        )}
       </div>
     </li>
   );
