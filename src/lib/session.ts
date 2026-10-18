@@ -30,7 +30,7 @@ export function canManageActivity(session: AdminSession | null, ownerId: string 
  * Secure only when the request really arrived over HTTPS. A production server on the venue
  * Wi-Fi is plain http://192.168.x.x, where browsers silently drop Secure cookies.
  */
-async function cookieOptions(maxAge: number) {
+export async function cookieOptions(maxAge: number) {
   const proto = (await headers()).get("x-forwarded-proto")?.split(",")[0]?.trim();
   return { httpOnly: true, sameSite: "lax" as const, secure: proto === "https", path: "/", maxAge };
 }
@@ -105,6 +105,11 @@ async function sessionStillOpen(payload: { sub: string; sid?: string }): Promise
   if (error) return true;
   const row = data as { admin_id: string | null; expires_at: string } | null;
   return !!row && row.admin_id === (payload.sub === "super" ? null : payload.sub) && Date.parse(row.expires_at) > Date.now();
+}
+
+/** The id of this browser's admin session (its row in admin_sessions), or null. */
+export async function adminSessionId(): Promise<string | null> {
+  return verifyToken((await cookies()).get(ADMIN_COOKIE)?.value, "admin")?.sid ?? null;
 }
 
 /**

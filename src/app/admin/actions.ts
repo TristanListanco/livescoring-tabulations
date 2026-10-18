@@ -37,6 +37,9 @@ import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { photoExtension, photoFile, PHOTOS_PER_REQUEST, type Photo } from "@/lib/photo-file";
 import { removeActivityPhotos } from "@/lib/photo-storage";
+import { tallyPath, unlockTally } from "@/lib/tally-access";
+import { deviceLabel } from "@/lib/device-label";
+import { headers } from "next/headers";
 import { newFileTag as newCriterionId } from "@/lib/codes";
 import {
   PRELIMINARY,
@@ -211,6 +214,31 @@ async function passwordMatches(session: AdminSession, password: string): Promise
   const account = await getAdminCredentials(session.admin.id);
   return !!account && (await verifyPassword(password, account.passwordHash));
 }
+
+/**
+ * Opens an event's private tally on this browser (see tally-access.ts): with the signed-in admin's own password, every
+ * time, counted against the same limits as signing in. Every opening and every refusal is logged with who and on what
+ * device, so a leak can be traced.
+ */
+export const openTally = traced("openTally", async function openTally(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+  const managed = await manageActivity(activityId);
+  if (!managed) return NOT_FOUND;
+  const { session, activity } = managed;
+  if (activity.kind !== "event" || activity.liveScoring) return err("This event scores live: its live results already show every score.");
+  const admin = session.kind === "super" ? "super" : session.admin.id;
+  const address = await clientAddress();
+  const accountKey = session.kind === "super" ? "admin:super" : `admin:${session.admin.email}`;
+  if (await tooManyFailures([[address, LIMITS.adminAddress], [accountKey, LIMITS.adminAccount]])) return err(TOO_MANY);
+  const password = String(formData.get("password") ?? "").slice(0, MAX_PASSWORD_LENGTH + 1);
+  if (!(await passwordMatches(session, password))) {
+    await recordFailure([address, accountKey]);
+    log("warn", "tally_refused", { activity: activityId, admin });
+    return err("That password isn't right.");
+  }
+  await unlockTally(session, activityId);
+  log("info", "tally_opened", { activity: activityId, admin, device: deviceLabel((await headers()).get("user-agent")) });
+  redirect(tallyPath(activityId));
+});
 
 /** The activity a judge or entry belongs to, so actions addressed by judge or entry can be authorized. */
 async function parentActivity(table: "judges" | "entries", id: string): Promise<string | null> {
