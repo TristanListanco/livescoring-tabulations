@@ -41,7 +41,7 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     return (
       <>
         {back}
-        <TallyLock activityId={id} name={activity.name} superAdmin={session.kind === "super"} />
+        <TallyLock activityId={id} name={activity.name} superAdmin={session.kind === "super"} official={activity.signedOffAt !== null} />
       </>
     );
   }

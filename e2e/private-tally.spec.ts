@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 import { ADMIN_PASSWORD, signInAsSuperAdmin, supabaseAdmin } from "./helpers";
 
 // An event without live scoring: the organizer's private tally shows every score so far, judge by judge and criterion
-// by criterion, marked partial and unofficial. It opens with the admin's password, on that browser alone, and is
-// watermarked with who's looking.
+// by criterion, marked partial and unofficial until the judges have signed. It opens with the admin's password, on that
+// browser alone, and is watermarked with who's looking.
 
 const api = supabaseAdmin()!;
 const activity = { id: randomUUID(), publicId: randomBytes(5).toString("hex") };
@@ -12,9 +12,9 @@ const judges = [randomUUID(), randomUUID()];
 const entries = [randomUUID(), randomUUID()];
 const tally = `/admin/${activity.id}/tally`;
 
-async function rest(path: string, body: unknown) {
+async function rest(path: string, body: unknown, method = "POST") {
   const response = await fetch(`${api.url}/rest/v1/${path}`, {
-    method: "POST",
+    method,
     headers: { ...api.headers, "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify(body),
   });
@@ -87,6 +87,20 @@ test("the private tally opens with the admin's password, for that browser alone"
   await expect(page.getByText("The private tally can't be printed.")).toBeVisible();
   await expect(byEntry).toBeHidden();
   await page.emulateMedia({ media: "screen" });
+
+  // Where the show stands, as on the live results: the judges deliberating, still unofficial...
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "deliberation" }, "PATCH");
+  await expect(page.getByText("Judges deliberating")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Partial and unofficial tally")).toBeVisible();
+  // ...then every judge signs and the session ends: the tally is official.
+  await rest("judge_signatures", judges.map((judge_id) => ({ judge_id, activity_id: activity.id, method: "checked" })));
+  const now = new Date().toISOString();
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "ended", signed_off_at: now, session_ended_at: now }, "PATCH");
+  await expect(page.getByText("Official tally")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Partial and unofficial tally")).toHaveCount(0);
+  await expect(page.getByText(/^Ended/)).toBeVisible();
+  const official = await page.locator("[style*='data:image/svg+xml']").first().getAttribute("style");
+  expect(decodeURIComponent(official ?? "")).toContain("Official · Super admin");
 
   // The same admin in another browser: still locked there. The link alone opens nothing.
   const other = await (await browser.newContext()).newPage();
