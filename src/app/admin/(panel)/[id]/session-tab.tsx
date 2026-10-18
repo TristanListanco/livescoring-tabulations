@@ -272,6 +272,16 @@ export function SessionTab({
         {!activity.liveScoring && !activity.signedOffAt && !archived && (
           <p className="text-[13px] text-prussian/70">Scores show there once every judge has signed and the session has ended.</p>
         )}
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
+        {!activity.liveScoring && !pageant && (
+          <div className="flex flex-wrap items-center gap-x-1 pt-1">
+            <span className="min-w-0 flex-1 font-semibold">Private tally</span>
+            <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
+              Open
+            </a>
+            <p className="w-full text-[13px] text-prussian/70">Every score so far, unofficial, for you alone: it asks for your password each time.</p>
+          </div>
+        )}
         {showQr && !archived && (
           <div className="pb-1">
             <Qr svg={liveQr} label="QR code for the live results page" />
