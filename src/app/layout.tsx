@@ -10,7 +10,7 @@ const nunito = Nunito_Sans({
 });
 
 export const metadata: Metadata = {
-  title: { default: "LiveScoring", template: "%s | LiveScoring" },
+  title: { default: "Tabulous", template: "%s | Tabulous" },
   description: "Live tabulation for judged competitions.",
 };
 

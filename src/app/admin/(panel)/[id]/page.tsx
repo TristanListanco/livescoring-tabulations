@@ -108,13 +108,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const liveUrl = `${origin}/live/${activity.publicId}`;
   const ledUrl = `${origin}/led/${activity.publicId}`;
   // What the open tab needs: mostly started above, with the board.
-  const [codes, desk, liveQr, organizers] = await Promise.all([
+  const [codes, desk, liveQr, organizers, settingsSignatories] = await Promise.all([
     tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
     tab === "session"
       ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)]))
       : null,
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
+    tab === "settings" ? getActivitySignatories(id) : null,
   ]);
   const [corrections, notes, signatories, signatures, signoff] = desk ?? [null, null, null, null, null];
 
@@ -212,6 +213,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
             expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
             locked={started}
+            ended={activity.sessionState === "ended"}
             pageant={pageant}
           />
         )}
@@ -249,6 +251,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             activity={activity}
             developer={testToolsAllowed()}
             scoreCount={scores.length}
+            signatories={settingsSignatories ?? []}
             organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}
           />
         )}

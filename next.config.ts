@@ -18,7 +18,7 @@ function lanAddresses(): string[] {
 /**
  * Sent with every response. No page may be framed by another site (so nobody can overlay the panel and trick a
  * click); browsers don't guess file types; other sites only learn which site a visitor came from, never the page
- * (judge links carry codes); and the browser features LiveScoring never uses stay off. HTTPS-only (HSTS) is left to
+ * (judge links carry codes); and the browser features Tabulous never uses stay off. HTTPS-only (HSTS) is left to
  * the host: Vercel sends it, and a server on the venue Wi-Fi is plain http.
  */
 const securityHeaders = [

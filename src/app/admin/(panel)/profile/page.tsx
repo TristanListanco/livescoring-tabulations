@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
-import { getSignatories } from "@/lib/data";
 import { listAdminSessions, requireAdmin } from "@/lib/session";
 import { Section } from "../section";
-import { SignatoriesEditor } from "../signatories-editor";
 import { ChangePassword } from "./change-password";
 import { SignedInDevices } from "./signed-in-devices";
 
@@ -14,12 +12,12 @@ const DEVICES_HINT =
   "Every browser signed in to your account. Sign out any you don't recognize or don't use anymore: it ends there at once.";
 
 /**
- * Your own profile: for an organizer, who they are on the results PDF and who signs it, and their password; for anyone,
+ * Your own profile: for an organizer, who they are on the results PDF, and their password; for anyone,
  * the browsers signed in to their account.
  */
 export default async function ProfilePage() {
   const session = await requireAdmin();
-  const [sessions, signatories] = await Promise.all([listAdminSessions(session), session.kind === "organizer" ? getSignatories(session.admin.id) : null]);
+  const sessions = await listAdminSessions(session);
   const super_ = session.kind !== "organizer";
   const devices = sessions && (
     <Section
@@ -62,9 +60,6 @@ export default async function ProfilePage() {
         </Section>
         <Section title="Password" hint="Change the password you were given for one of your own. Your other devices are signed out; this one stays signed in.">
           <ChangePassword />
-        </Section>
-        <Section title="Results PDF signatories">
-          <SignatoriesEditor adminId={null} initial={signatories ?? []} />
         </Section>
         {devices}
       </div>

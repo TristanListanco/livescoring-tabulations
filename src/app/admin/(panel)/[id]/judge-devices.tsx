@@ -4,12 +4,12 @@ import { useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Judge, JudgeDevice } from "@/lib/types";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { approveDevice, revokeDevice } from "../../actions";
 
-/** Keeps the Access tab current, so a judge's request for approval appears within seconds. */
-export function LiveRefresh({ activityId }: { activityId: string }) {
-  useLiveRefresh(activityId);
+/** Keeps the Judges tab current, so a judge's request for approval appears within seconds. */
+export function LiveRefresh({ activityId, ended = false }: { activityId: string; ended?: boolean }) {
+  useLiveRefresh(activityId, ended ? JUDGING_OVER : {});
   return null;
 }
 

@@ -4,10 +4,11 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { archiveActivity, deleteActivity } from "../actions";
 
 /**
- * Archive an activity whose session has ended, from the list of activities. Asks first: it can't be undone, and the
- * activity can't be reopened or changed after it. Sits above the row's link, so it's a button of its own.
+ * Archive an activity whose session has ended, from the list of activities or its ended desk. Asks first: it can't be
+ * undone, and the activity can't be reopened or changed after it. In the list it sits above the row's link, so it's a
+ * button of its own.
  */
-export function ArchiveButton({ activityId, name }: { activityId: string; name: string }) {
+export function ArchiveButton({ activityId, name, className = "btn btn-sm btn-quiet relative z-10" }: { activityId: string; name: string; className?: string }) {
   return (
     <ConfirmDialog
       triggerLabel={
@@ -15,15 +16,18 @@ export function ArchiveButton({ activityId, name }: { activityId: string; name: 
           Archive<span className="sr-only"> {name}</span>
         </>
       }
-      triggerClassName="btn btn-sm btn-quiet relative z-10"
+      triggerClassName={className}
       title="Archive this activity?"
       confirmLabel="Archive"
       onConfirm={() => archiveActivity(activityId)}
     >
       <p>
-        <strong>{name}</strong> moves to Archived activities for good. It can&apos;t be reopened or changed after this.
+        <strong>{name}</strong> moves to Archived activities for good. It can&apos;t be reopened, deliberated again or changed after this.
       </p>
-      <p className="mt-2">You can still open it to download its results and score sheets, or delete it.</p>
+      <p className="mt-2">
+        Judges are signed out and their codes stop working, the private tally closes, and the live results stay as they are. You can still open it
+        to download its results and score sheets, or delete it.
+      </p>
     </ConfirmDialog>
   );
 }

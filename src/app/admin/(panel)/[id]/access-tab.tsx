@@ -19,6 +19,7 @@ export async function JudgesTab({
   entryCount,
   expected,
   locked,
+  ended,
   pageant,
 }: {
   activityId: string;
@@ -32,6 +33,8 @@ export async function JudgesTab({
   expected?: Record<string, number>;
   /** The session has started: the panel can't change. */
   locked: boolean;
+  /** Judging has ended: nothing much changes here until it's reopened. */
+  ended: boolean;
   pageant: boolean;
 }) {
   const judgeLinks = judges.map((j) => {
@@ -43,7 +46,7 @@ export async function JudgesTab({
 
   return (
     <div className="max-w-4xl">
-      <LiveRefresh activityId={activityId} />
+      <LiveRefresh activityId={activityId} ended={ended} />
       <h2 className="text-xl font-bold">Judges</h2>
       <p className="mt-1 max-w-2xl text-[15px] text-prussian/80">
         Judges sign in with their code or QR code, then read out the pairing code their device shows: approve it here.

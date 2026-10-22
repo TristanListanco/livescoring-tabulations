@@ -102,18 +102,6 @@ test.describe.serial("a full event", () => {
     await createOrganizer(page, ORGANIZER, true);
     await createOrganizer(page, OTHER, false);
     await expectAccessible(page);
-
-    // Signatories print on the organizer's results PDFs.
-    await page.getByRole("link", { name: ORGANIZER.name }).click();
-    await page.getByRole("button", { name: "Add signatory" }).click();
-    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
-    await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
-    // A row left empty isn't saved, and disappears once the rest are.
-    await page.getByRole("button", { name: "Add signatory" }).click();
-    await expect(page.getByLabel("Signatory 2 full name")).toBeVisible();
-    await page.getByRole("button", { name: "Save signatories" }).click();
-    await expect(page.getByText("Saved. 1 signatory prints on the results PDF.")).toBeVisible();
-    await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
   });
 
   test("an organizer signs in, sees their profile and creates an activity", async ({ page }) => {
@@ -126,7 +114,8 @@ test.describe.serial("a full event", () => {
     await expect(page.getByText("No activities yet")).toBeVisible();
     await page.getByRole("link", { name: /Your profile|E2E Organizer/ }).first().click();
     await expect(page).toHaveURL(/\/admin\/profile$/);
-    await expect(page.getByLabel("Signatory 1 full name")).toHaveValue("Maria Reyes");
+    // Signatories are each activity's, not the account's.
+    await expect(page.getByText("Results PDF signatories")).toHaveCount(0);
     await page.goto("/admin");
 
     await page.getByRole("link", { name: "New activity" }).first().click();
@@ -148,6 +137,19 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(NAME);
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     adminPath = new URL(page.url()).pathname;
+
+    // Signatories print on this activity's results PDFs, set on its Settings tab.
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByRole("button", { name: "Add signatory" }).click();
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+    await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
+    // A row left empty isn't saved, and disappears once the rest are.
+    await page.getByRole("button", { name: "Add signatory" }).click();
+    await expect(page.getByLabel("Signatory 2 full name")).toBeVisible();
+    await page.getByRole("button", { name: "Save signatories" }).click();
+    await expect(page.getByText("Saved. 1 signatory prints on the results PDF.")).toBeVisible();
+    await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
+    await page.goto(adminPath);
 
     const codeTexts = await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents();
     codes = codeTexts.map((t) => t.replace("Judge code ", ""));
@@ -487,6 +489,7 @@ test.describe.serial("a full event", () => {
     await expect(desk).toContainText("Every score is in");
     await expect(desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/)).toBeVisible();
     await expect(desk.getByRole("link", { name: "Download results PDF" })).toBeVisible();
+    await expect(desk).toContainText("Signature lines: Maria Reyes (Chair, Board of Tabulators).");
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
     // The live results say it's over, and when, in place of "Live".

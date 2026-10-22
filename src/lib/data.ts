@@ -866,24 +866,19 @@ function toSignatories(value: unknown): Signatory[] {
     .filter((s) => s.name);
 }
 
-/** The names and designations an organizer prints on their results PDFs. */
 /**
- * The signature lines of an activity's organizer, found through the activity so they can be read alongside its board.
- * Null for an activity no organizer owns (the super admin's own), which prints none.
+ * The names and designations an activity prints as signature lines on its results PDFs (the Board of Tabulators and
+ * whoever else signs them), set on its Settings tab. Before migration 027 they were the organizer's, for all their
+ * activities: those, read through the activity. Null when there's no such activity.
  */
 export async function getActivitySignatories(activityId: string): Promise<Signatory[] | null> {
   if (!isUuid(activityId)) return null;
-  const { data, error } = await db().from("activities").select("owner:admins!activities_owner_id_fkey(signatories)").eq("id", activityId).maybeSingle();
-  if (error || !data) return null;
-  const owner = (data as unknown as { owner: { signatories: unknown } | null }).owner;
-  return owner ? toSignatories(owner.signatories) : null;
-}
-
-export async function getSignatories(adminId: string): Promise<Signatory[]> {
-  if (!isUuid(adminId)) return [];
-  const { data, error } = await db().from("admins").select("signatories").eq("id", adminId).maybeSingle();
-  if (error || !data) return [];
-  return toSignatories((data as { signatories: unknown }).signatories);
+  const { data, error } = await db().from("activities").select("signatories").eq("id", activityId).maybeSingle();
+  if (!error) return data ? toSignatories((data as { signatories: unknown }).signatories) : null;
+  const before = await db().from("activities").select("owner:admins!activities_owner_id_fkey(signatories)").eq("id", activityId).maybeSingle();
+  if (before.error || !before.data) return null;
+  const owner = (before.data as unknown as { owner: { signatories: unknown } | null }).owner;
+  return owner ? toSignatories(owner.signatories) : [];
 }
 
 // Drafts ------------------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type Le
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
 import type { Board } from "@/lib/types";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { setLedOptions } from "../../actions";
 import { FormMessage } from "../form-message";
 import { LinkField } from "../link-field";
@@ -124,7 +124,7 @@ function LookSettings({ options, onChange, disabled }: { options: LedOptions; on
 }
 
 export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
-  useLiveRefresh(board.activity.id);
+  useLiveRefresh(board.activity.id, board.activity.sessionState === "ended" ? JUDGING_OVER : {});
   const { activity, entries } = board;
   const [options, setOptions] = useOptimistic<LedOptions, Partial<LedOptions>>(
     {

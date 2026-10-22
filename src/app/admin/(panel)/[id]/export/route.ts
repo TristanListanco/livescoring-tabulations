@@ -1,5 +1,5 @@
 import { correctionView, type Correction, type CorrectionView } from "@/lib/corrections";
-import { getActivityNotes, getActivitySignoff, getAdmin, getAdminBoard, getCorrections, getSignatories, getSignatures, withBreakdowns } from "@/lib/data";
+import { getActivityNotes, getActivitySignatories, getActivitySignoff, getAdmin, getAdminBoard, getCorrections, getSignatures, withBreakdowns } from "@/lib/data";
 import { reportId } from "@/lib/report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "@/lib/pageant";
 // Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
@@ -7,7 +7,7 @@ import { pdfDrawnOn, renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, ren
 import type { ReportOrganizer, StandingsSheet } from "@/lib/results-pdf";
 import { scoreProgress } from "@/lib/scoring";
 import { canManageActivity, currentAdmin } from "@/lib/session";
-import { PRELIMINARY, type Board, type Deduction, type Round } from "@/lib/types";
+import { PRELIMINARY, type Activity, type Board, type Deduction, type Round, type Signatory } from "@/lib/types";
 import { traced } from "@/lib/observe";
 
 function slug(name: string): string {
@@ -75,7 +75,7 @@ const signedBy = (board: Board, rounds: Round[]): Board => ({ ...board, judges: 
  */
 async function pageantPdf(board: Board, search: URLSearchParams, timeZone: string | undefined, corrections: Correction[] | null): Promise<Response> {
   const { activity } = board;
-  const organizer = () => reportOrganizer(activity.ownerId);
+  const people = () => reportPeople(activity);
   const order = programOrder(board.rounds);
 
   const roundId = search.get("round");
@@ -94,7 +94,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const pdf = await renderJudgeSheetsPdf(part, {
         timeZone,
         reportId: id,
-        organizer: await organizer(),
+        ...(await people()),
         part: label,
         corrections: appliedTo(board, corrections, round.id) ?? [],
       });
@@ -108,7 +108,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       const parts = new Set(weights.map((w) => w.round.id));
       const scope: Board = { ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && parts.has(s.roundId)), deductions: undefined };
       const sheet: StandingsSheet = { kind: "subactivity", title: `${round.name} results`, weights, rows, placed: null, tieBroken: [], deductions: [] };
-      const pdf = await renderStandingsPdf(signedBy(board, [round]), sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), organizer: await organizer() });
+      const pdf = await renderStandingsPdf(signedBy(board, [round]), sheet, { timeZone, reportId: reportId(scope, `subactivity:${round.id}`), ...(await people()) });
       return pdfResponse(pdf, fileName(activity.name, round.name));
     }
 
@@ -117,7 +117,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const pdf = await renderResultsPdf(part, {
       timeZone,
       reportId: reportId(part, `round:${round.id}`),
-      organizer: await organizer(),
+      ...(await people()),
       part: label,
       corrections: appliedTo(board, corrections, round.id),
     });
@@ -150,7 +150,7 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
       deductions: scope.deductions ?? [],
     };
     const id = reportId(scope, `cut:${round.id}:${round.cutEntryIds.join(",")}`);
-    const pdf = await renderStandingsPdf(signedBy(board, plan.weights.map((w) => w.round)), sheet, { timeZone, reportId: id, organizer: await organizer() });
+    const pdf = await renderStandingsPdf(signedBy(board, plan.weights.map((w) => w.round)), sheet, { timeZone, reportId: id, ...(await people()) });
     return pdfResponse(pdf, fileName(activity.name, plan.final ? "final" : `top ${round.cutEntryIds.length}`));
   }
 
@@ -164,17 +164,17 @@ async function pageantPdf(board: Board, search: URLSearchParams, timeZone: strin
     const prelimIds = new Set(prelim.flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
     const scope: Board = { ...board, scores: board.scores.filter((s) => s.roundId && prelimIds.has(s.roundId)), deductions: countedDeductions(board, rows) };
     const sheet: StandingsSheet = { kind: "preliminary", title: "Preliminary results", weights, rows, placed: null, tieBroken: [], deductions: scope.deductions ?? [] };
-    const pdf = await renderStandingsPdf(signedBy(board, prelim), sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), organizer: await organizer() });
+    const pdf = await renderStandingsPdf(signedBy(board, prelim), sheet, { timeZone, reportId: reportId(scope, "segment:preliminary"), ...(await people()) });
     return pdfResponse(pdf, fileName(activity.name, "preliminary"));
   }
 
   return new Response("Choose which results to download from the Session tab.", { status: 400 });
 }
 
-/** The activity's organizer for the sheet's header and signature lines. A photo that won't load is left out, not fatal. */
+/** The activity's organizer for the sheet's header. A photo that won't load is left out, not fatal. */
 async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer | null> {
   if (!ownerId) return null;
-  const [admin, signatories] = await Promise.all([getAdmin(ownerId), getSignatories(ownerId)]);
+  const admin = await getAdmin(ownerId);
   if (!admin) return null;
   let photo: Buffer | null = null;
   if (admin.photoUrl) {
@@ -185,7 +185,13 @@ async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer 
       photo = null;
     }
   }
-  return { name: admin.name, photo, signatories };
+  return { name: admin.name, photo };
+}
+
+/** Who a results sheet is from and who signs it: the organizer, in the header, and the activity's signatories. */
+async function reportPeople(activity: Activity): Promise<{ organizer: ReportOrganizer | null; signatories: Signatory[] }> {
+  const [organizer, signatories] = await Promise.all([reportOrganizer(activity.ownerId), getActivitySignatories(activity.id)]);
+  return { organizer, signatories: signatories ?? [] };
 }
 
 /**
@@ -230,7 +236,7 @@ export const GET = traced("GET /admin/[id]/export", async function GET(request: 
   }
   // Signed in the deliberation: by every judge, then the organizer, who signed as they ended it.
   const [signatures, signoff] = board.activity.liveScoring ? [null, null] : await Promise.all([getSignatures(board.activity.id), getActivitySignoff(board.activity.id)]);
-  const options = { timeZone, reportId: reportId(board), organizer: await reportOrganizer(board.activity.ownerId), signatures };
+  const options = { timeZone, reportId: reportId(board), ...(await reportPeople(board.activity)), signatures };
   if (wantsJudgeSheets(search)) {
     const pdf = await renderJudgeSheetsPdf(await withBreakdowns(board), {
       ...options,
