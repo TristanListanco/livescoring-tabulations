@@ -14,11 +14,13 @@ import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges } from "@/lib/deliberation";
-import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
+import { applyTieBreaks, breakFor, ordinal, tiesIn } from "@/lib/ties";
+import type { ActionResult, ActivitySignoff, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
 import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { FormMessage } from "../form-message";
 import { CorrectionsPanel } from "./corrections-panel";
+import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { CutDialog, DeskTimer, HeldLink, JudgeRoundButton, nextUp, PdfHold, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
@@ -205,6 +207,7 @@ export function SessionTab({
   archived = false,
   hasNotes = false,
   signatures = null,
+  signoff = null,
 }: {
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -224,6 +227,8 @@ export function SessionTab({
   hasNotes?: boolean;
   /** The judges' signatures, during and after a deliberation (null before migration 021). */
   signatures?: JudgeSignature[] | null;
+  /** The organizer's signature on a deliberated session's results, once they've ended it. */
+  signoff?: ActivitySignoff | null;
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id);
@@ -288,6 +293,12 @@ export function SessionTab({
             <Qr svg={liveQr} label="QR code for the live results page" />
           </div>
         )}
+        {/* The judges' notes, for the organizer's reference while the show runs; once it ends they download with the results. */}
+        {hasNotes && activity.sessionState !== "ended" && (
+          <div className="pt-1">
+            <DownloadResults activityId={activity.id} notes className={`${textAction} -ml-1.5`} />
+          </div>
+        )}
         {extra}
       </div>
     </section>
@@ -304,8 +315,8 @@ export function SessionTab({
     return r;
   };
   const show = (entryId: string | null) => startTransition(async () => void (await move(entryId)));
-  const changeState = async (state: "live" | "deliberation" | "ended", password?: string) => {
-    const r = await reach(() => setSessionState(activity.id, state, password));
+  const changeState = async (state: "live" | "deliberation" | "ended", password?: string, signature?: string | null) => {
+    const r = await reach(() => setSessionState(activity.id, state, password, signature));
     // A wrong password shows in the dialog, which stays open.
     if (r.ok || state !== "ended") setResult(r);
     return r;
@@ -506,9 +517,8 @@ export function SessionTab({
       passwordLabel="Your password"
       onConfirm={(password) => changeState("ended", password)}
     >
-      {state === "deliberation"
-        ? "Every judge has signed. Once it ends, the results show on the live results page and the LED wall. Enter your admin password to confirm. You can reopen the session if you need to, and the judges then sign again."
-        : "Judges won't be able to submit any more scores, and entries can't be changed. Enter your admin password to confirm. You can reopen the session if you need to."}
+      Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can reopen the
+      session if you need to.
     </ConfirmDialog>
   );
 
@@ -879,6 +889,12 @@ export function SessionTab({
               const signedIds = new Set((signatures ?? []).map((sig) => sig.judgeId));
               const allSigned = signatures !== null && unsignedJudges(judges, signatures).length === 0;
               const openCorrection = corrections.some((c) => c.status === "open");
+              // Every tie in the ranking is broken (by the chair, on their screen) before anyone signs.
+              const breaks = board.tieBreaks ?? [];
+              const ranking = rankEntries(entries, judges, scores, activity);
+              const nameOf = new Map(entries.map((e) => [e.id, e.name]));
+              const ties = tiesIn(ranking).map((tie) => ({ tie, settled: breakFor(tie, breaks) }));
+              const openTies = ties.filter((t) => !t.settled).length;
               return (
                 <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
                   {offline}
@@ -918,19 +934,57 @@ export function SessionTab({
                         );
                       })}
                     </ul>
+                    {ties.length > 0 && (
+                      <ul aria-label="Ties in the ranking" className="mt-4 space-y-2">
+                        {ties.map(({ tie, settled }) => (
+                          <li key={tie.key} className={`rounded-xl px-3 py-2.5 ${settled ? "bg-oxford/45" : "bg-caution/15 ring-1 ring-caution"}`}>
+                            <span className={`font-semibold ${settled ? "" : "text-caution"}`}>Tie for {ordinal(tie.rank)}</span>
+                            {settled ? (
+                              <span className="text-mint/85">
+                                , broken: {settled.entryIds.map((id) => nameOf.get(id) ?? "an entry").join(", then ")}. &ldquo;{settled.reason}&rdquo;
+                              </span>
+                            ) : (
+                              <span>: {listNames(tie.entryIds.map((id) => ({ name: nameOf.get(id) ?? "an entry" })))}. The chair breaks it on their screen before anyone signs.</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
                     <p className="min-w-56 flex-1 text-[15px] text-powder">
                       {signatures === null
                         ? "Signatures need a database update. Run supabase/migrations/021_deliberation.sql in the Supabase SQL editor."
-                        : allSigned
-                          ? "End the session to put the results on the live results page and the LED wall."
-                          : openCorrection
-                            ? "A score correction is open. The judges sign once it's settled."
-                            : "Each judge reviews their scores on their own screen, then signs. End session appears once they all have."}
+                        : openTies > 0
+                          ? `${openTies === 1 ? "A tie" : `${openTies} ties`} in the ranking ${openTies === 1 ? "isn't" : "aren't"} broken yet. The chair breaks ${openTies === 1 ? "it" : "them"} on their screen; the judges sign after.`
+                          : allSigned
+                            ? "Sign the results to end the session."
+                            : openCorrection
+                              ? "A score correction is open. The judges sign once it's settled."
+                              : "Each judge reviews their scores on their own screen, then signs. You sign the results once they all have."}
                     </p>
-                    {allSigned && endSession("btn shrink-0 bg-mint text-prussian hover:bg-white")}
                   </div>
+                  {/* Everyone has signed: the organizer's sign-off takes over until the session ends. */}
+                  {allSigned && openTies === 0 && (
+                    <FinalSignOff
+                      activity={activity}
+                      ranking={applyTieBreaks(ranking, breaks)}
+                      ties={ties.flatMap(({ tie, settled }) =>
+                        settled
+                          ? [
+                              {
+                                place: tie.rank,
+                                names: settled.entryIds.map((id) => nameOf.get(id) ?? "an entry"),
+                                reason: settled.reason,
+                                by: judges.find((j) => j.id === settled.judgeId)?.name ?? null,
+                              },
+                            ]
+                          : [],
+                      )}
+                      judges={judges}
+                      onEnd={(password, signature) => changeState("ended", password, signature)}
+                    />
+                  )}
                 </section>
               );
             })()}
@@ -942,8 +996,25 @@ export function SessionTab({
                   <h2 id="desk-heading" className="text-powder">
                     Judging has ended
                   </h2>
-                  {/* Ending took a password; reopening at least asks, because it reopens the official record. Never once archived. */}
-                  {!archived && (
+                  {/*
+                    A deliberated session deliberates again, with the password ending took: it reopens the signed record. Any
+                    other reopens, and at least asks. Never once archived.
+                  */}
+                  {!archived && activity.signedOffAt && !activity.liveScoring && !pageant && (
+                    <ConfirmDialog
+                      triggerLabel="Redeliberate"
+                      triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
+                      title="Deliberate again?"
+                      tone="danger"
+                      confirmLabel="Redeliberate"
+                      passwordLabel="Your password"
+                      onConfirm={(password) => changeState("deliberation", password)}
+                    >
+                      The judges review their scores and sign again, then you sign the results to end the session again. Until then the results
+                      come off the live results page. Judges whose devices were signed out sign in again with their code, and you approve them.
+                    </ConfirmDialog>
+                  )}
+                  {!archived && !(activity.signedOffAt && !activity.liveScoring && !pageant) && (
                     <ConfirmDialog
                       triggerLabel="Reopen session"
                       triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
@@ -968,7 +1039,11 @@ export function SessionTab({
                 ) : progress.complete ? (
                   <>
                     <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
-                    {activity.signedOffAt && <p className="mt-1 font-semibold text-powder">Signed by every judge after deliberating</p>}
+                    {activity.signedOffAt && (
+                      <p className="mt-1 font-semibold text-powder">
+                        Signed by every judge after deliberating{signoff ? `, and by ${signoff.signedBy}` : ""}
+                      </p>
+                    )}
                     <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
                     <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
                     <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">

@@ -92,8 +92,9 @@ test("the private tally opens with the admin's password, for that browser alone"
   await rest(`activities?id=eq.${activity.id}`, { session_state: "deliberation" }, "PATCH");
   await expect(page.getByText("Judges deliberating")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Partial and unofficial tally")).toBeVisible();
-  // ...then every judge signs and the session ends: the tally is official.
+  // ...then every judge signs, the organizer signs the results, and the session ends: the tally is official.
   await rest("judge_signatures", judges.map((judge_id) => ({ judge_id, activity_id: activity.id, method: "checked" })));
+  await rest("activity_signoffs", { activity_id: activity.id, signed_by: "Super admin", method: "checked" });
   const now = new Date().toISOString();
   await rest(`activities?id=eq.${activity.id}`, { session_state: "ended", signed_off_at: now, session_ended_at: now }, "PATCH");
   await expect(page.getByText("Official tally")).toBeVisible({ timeout: 20_000 });

@@ -218,7 +218,18 @@ export type Board = {
   scored?: ScoredMark[];
   /** The public pages: the organizer's name and logo (the photo on their account), when they've added one. */
   organizer?: { name: string; logoUrl: string } | null;
+  /**
+   * An event without live scoring: the ties in its ranking the chair has broken (see ties.ts). Empty for other
+   * activities, and left off the public pages until the results are out.
+   */
+  tieBreaks?: TieBreak[];
 };
+
+/** A tie in the ranking the chair of the board of judges broke: the tied entries in their order, highest first, and why. */
+export type TieBreak = { tieKey: string; entryIds: string[]; reason: string; judgeId: string | null; createdAt: string };
+
+/** The organizer's signature on a deliberated session's results, given as they end it: drawn, or "(Sgd.)". */
+export type ActivitySignoff = { signedBy: string; method: "drawn" | "checked"; drawing: string | null; signedAt: string };
 
 /** A score that's in, without its value (see Board.scored). */
 export type ScoredMark = { entryId: string; judgeId: string; roundId: string | null };

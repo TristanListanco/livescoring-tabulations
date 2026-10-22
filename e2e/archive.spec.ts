@@ -64,11 +64,11 @@ test.describe.serial("archived activities", () => {
     await page.getByRole("link", { name: NAME }).click();
     await expect(page).toHaveURL(new RegExp(`${adminPath}$`));
 
-    // Read-only: its results and the judges' notes, nothing to change, and no reopening.
+    // Read-only: its results (the judges' notes download with them), nothing to change, and no reopening.
     await expect(page.getByText("Archived", { exact: true })).toBeVisible();
     await expect(page.getByRole("note").filter({ hasText: "can't be reopened or changed" })).toBeVisible();
     const sections = page.getByRole("navigation", { name: "Activity sections" });
-    await expect(sections.getByRole("link")).toHaveText(["Results", "Notes"]);
+    await expect(sections.getByRole("link")).toHaveText(["Results"]);
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     await expect(page.getByRole("switch", { name: /rank/i })).toHaveCount(0);

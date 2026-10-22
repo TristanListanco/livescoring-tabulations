@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useId, useRef, useState, useTransition } fro
 import { ACTION_TIMEOUT_MS } from "@/components/request-guard";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { SignatureMark, SignaturePad } from "@/components/signature-pad";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
@@ -12,12 +13,14 @@ import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
-import { cleanSignature, MAX_SIGNATURE_LENGTH, SIGNATURE_BOX } from "@/lib/deliberation";
+import { cleanSignature } from "@/lib/deliberation";
 import type { ActionResult, Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
-import { NotesBeside, NotesInline, useMediaQuery, useWideScreen, type NoteStore } from "./entry-notes";
+import { breakTie, leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
+import { ordinal } from "@/lib/ties";
+import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
 export type DeviceGate = { status: "approved" } | { status: "pending"; pairingCode: string; label: string } | { status: "revoked" };
@@ -67,6 +70,23 @@ export type Deliberation = {
   judgeCount: number;
   /** False before migration 021, which keeps signatures. */
   canSign: boolean;
+  /** The ties in the ranking, highest place first: every one is broken before anyone signs. */
+  ties: DeliberationTie[];
+  /** This judge is the chair, who breaks the ties. */
+  isChair: boolean;
+  /** The chair's name, for the other judges. */
+  chairName: string | null;
+};
+
+/**
+ * A tie in the ranking, as the judges see it in the deliberation: the place the entries share, the entries (no scores),
+ * and how the chair broke it, if they have: the order, highest first, and why.
+ */
+export type DeliberationTie = {
+  key: string;
+  place: number;
+  entries: { id: string; name: string; number: number }[];
+  broken: { order: string[]; reason: string; by: string | null } | null;
 };
 
 const DIGITS: Key[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -982,6 +1002,7 @@ function DeliberationView({
     <div className="w-full max-w-md pb-8 lg:max-w-2xl">
       <h1 className="judge-title">Deliberation</h1>
       <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
+      <TieBreaks ties={deliberation.ties} isChair={deliberation.isChair} chairName={deliberation.chairName} />
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
         {entries.map((entry, i) => {
           const value = scores.get(entry.id);
@@ -1021,11 +1042,163 @@ function DeliberationView({
 }
 
 /**
+ * The ties in the ranking, at the top of the deliberation where no judge can miss them: every tie is broken before
+ * anyone signs. The chair puts the tied entries in order and says why; the others see it waiting, then how it was
+ * broken. Only who's level, never the scores.
+ */
+function TieBreaks({ ties, isChair, chairName }: { ties: DeliberationTie[]; isChair: boolean; chairName: string | null }) {
+  if (ties.length === 0) return null;
+  return (
+    <section aria-labelledby="ties" className="mt-6 space-y-3">
+      <h2 id="ties" className="sr-only">
+        Ties in the ranking
+      </h2>
+      {ties.map((tie) => (
+        <TieCard key={`${tie.key}:${tie.broken?.order.join(",") ?? ""}`} tie={tie} isChair={isChair} chairName={chairName} />
+      ))}
+    </section>
+  );
+}
+
+/** One tie: open (highlighted until broken), or broken, with its order and reason. The chair sets or changes the order. */
+function TieCard({ tie, isChair, chairName }: { tie: DeliberationTie; isChair: boolean; chairName: string | null }) {
+  const [editing, setEditing] = useState(!tie.broken);
+  const [order, setOrder] = useState(tie.broken?.order ?? tie.entries.map((e) => e.id));
+  const [reason, setReason] = useState(tie.broken?.reason ?? "");
+  const reasonId = useId();
+  const byId = new Map(tie.entries.map((e) => [e.id, e]));
+  const names = listNames(tie.entries);
+  const swap = (i: number, j: number) =>
+    setOrder((list) => {
+      const next = [...list];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  const placed = (ids: string[]) => ids.map((id, i) => `${ordinal(tie.place + i)} ${byId.get(id)?.name ?? "an entry"}`).join(", ");
+  const open = !tie.broken;
+
+  return (
+    <div className={`rounded-2xl px-5 py-4 text-left ${open ? "border-2 border-caution bg-caution/10" : "border-2 border-oxford"}`}>
+      <h3 className={`flex items-center gap-2 text-lg font-bold ${open ? "text-caution" : "text-mint"}`}>
+        <svg viewBox="0 0 20 20" className="size-5 shrink-0" aria-hidden>
+          <path d="M3 7.5h14M3 12.5h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+        {open ? `Tie for ${ordinal(tie.place)}` : `Tie for ${ordinal(tie.place)}, broken`}
+      </h3>
+
+      {open && !isChair && (
+        <p className="mt-1">
+          {names} have the same average. {chairName ?? "The chair"} puts them in order before anyone signs.
+        </p>
+      )}
+
+      {tie.broken && !editing && (
+        <>
+          <ol className="mt-2 space-y-1">
+            {tie.broken.order.map((id, i) => (
+              <li key={id} className="flex gap-3">
+                <span className="tabular w-10 shrink-0 font-bold text-powder">{ordinal(tie.place + i)}</span>
+                <span className="font-semibold">{byId.get(id)?.name ?? "An entry"}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-powder">
+            &ldquo;{tie.broken.reason}&rdquo;{tie.broken.by && <> Broken by {tie.broken.by}.</>}
+          </p>
+          {isChair && (
+            <button type="button" onClick={() => setEditing(true)} className="btn btn-sm mt-3 border border-regal text-mint hover:bg-regal">
+              Change the order
+            </button>
+          )}
+        </>
+      )}
+
+      {isChair && editing && (
+        <>
+          <p className="mt-1">
+            {open ? `${names} have the same average. Put them in order, highest first, and say why: every judge signs the order you set.` : "Every judge signs again after you change it."}
+          </p>
+          <ol aria-label={`Order for the tie for ${ordinal(tie.place)}`} className="mt-3 space-y-2">
+            {order.map((id, i) => {
+              const entry = byId.get(id);
+              return (
+                <li key={id} className="flex items-center gap-3 rounded-xl bg-oxford px-3 py-2">
+                  <span className="tabular w-10 shrink-0 font-bold text-powder">{ordinal(tie.place + i)}</span>
+                  <span className="min-w-0 flex-1 font-semibold">
+                    <span className="text-powder">No. {entry?.number}</span> {entry?.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => swap(i, i - 1)}
+                    disabled={i === 0}
+                    aria-label={`Move ${entry?.name} up`}
+                    className="btn btn-sm size-11 px-0 text-mint hover:bg-regal disabled:opacity-30"
+                  >
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => swap(i, i + 1)}
+                    disabled={i === order.length - 1}
+                    aria-label={`Move ${entry?.name} down`}
+                    className="btn btn-sm size-11 px-0 text-mint hover:bg-regal disabled:opacity-30"
+                  >
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <label htmlFor={reasonId} className="mt-4 block text-sm font-semibold">
+            Why they place in this order
+          </label>
+          <textarea
+            id={reasonId}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={MAX_CORRECTION_REASON}
+            rows={2}
+            placeholder="e.g. Stronger choreography, as the panel agreed."
+            className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-base leading-relaxed text-prussian placeholder:text-prussian/70"
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <ConfirmDialog
+              triggerLabel="Break the tie"
+              triggerClassName="btn bg-mint text-prussian hover:bg-white disabled:opacity-50"
+              triggerDisabled={!reason.trim()}
+              title={`Break the tie for ${ordinal(tie.place)}?`}
+              confirmLabel="Break the tie"
+              onConfirm={async () => {
+                const result = await breakTie(order, reason).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
+                if (result.ok) setEditing(false);
+                return result;
+              }}
+            >
+              {placed(order)}. Your reason is printed with the results, and every judge signs this order{tie.broken ? " again" : ""}.
+            </ConfirmDialog>
+            {tie.broken && (
+              <button type="button" onClick={() => setEditing(false)} className="btn btn-sm text-powder hover:bg-oxford hover:text-mint">
+                Keep the order as it was
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Signing off at the end of the deliberation. On a touchscreen the judge draws their signature; without one they tick
  * "(Sgd.)". It waits while any correction is open, so the judges sign the scores as they'll stand.
  */
 function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
-  const { signature, signed, judgeCount, anyOpen, canSign } = deliberation;
+  const { signature, signed, judgeCount, anyOpen, canSign, isChair } = deliberation;
+  const tied = deliberation.ties.some((t) => !t.broken);
   // A touchscreen anywhere on the device (a tablet with a keyboard still has one) draws; otherwise the checkbox.
   const touch = useMediaQuery("(any-pointer: coarse)");
   const [drawing, setDrawing] = useState("");
@@ -1059,6 +1232,10 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
       ) : anyOpen ? (
         <p role="status" className="mt-1 text-powder">
           A score correction is still open. You can sign once it&apos;s settled. {count}
+        </p>
+      ) : tied ? (
+        <p role="status" className="mt-1 text-powder">
+          {isChair ? "Break the tie above first: every judge signs the order you set." : "A tie in the ranking isn't broken yet. You sign once the chair has broken it."} {count}
         </p>
       ) : (
         <form
@@ -1095,72 +1272,6 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
       )}
     </section>
   );
-}
-
-/**
- * Where a judge draws their signature with a finger or stylus: strokes kept as SVG path data in a 600 × 200 box, as
- * whole-number points. The page doesn't scroll while drawing in it.
- */
-function SignaturePad({ value, onChange }: { value: string; onChange: (update: (path: string) => string) => void }) {
-  const ref = useRef<SVGSVGElement>(null);
-  const down = useRef(false);
-  const last = useRef("");
-  const hintId = useId();
-  const at = (e: React.PointerEvent<SVGSVGElement>) => {
-    const box = ref.current!.getBoundingClientRect();
-    const clamp = (n: number) => Math.min(Math.max(n, 0), 1);
-    return `${Math.round(clamp((e.clientX - box.left) / box.width) * SIGNATURE_BOX.width)} ${Math.round(clamp((e.clientY - box.top) / box.height) * SIGNATURE_BOX.height)}`;
-  };
-  const add = (part: string) => onChange((path) => (path.length + part.length > MAX_SIGNATURE_LENGTH ? path : path + part));
-  return (
-    <div className="mt-3">
-      <p id={hintId} className="text-sm text-powder">
-        Draw your signature in the box.
-      </p>
-      <svg
-        ref={ref}
-        viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`}
-        role="img"
-        aria-label="Signature box"
-        aria-describedby={hintId}
-        className="mt-2 block aspect-[3/1] w-full cursor-crosshair touch-none rounded-xl bg-white select-none"
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          down.current = true;
-          last.current = at(e);
-          add(`M${last.current}`);
-        }}
-        onPointerMove={(e) => {
-          if (!down.current) return;
-          const point = at(e);
-          if (point === last.current) return;
-          last.current = point;
-          add(`L${point}`);
-        }}
-        onPointerUp={() => (down.current = false)}
-        onPointerCancel={() => (down.current = false)}
-      >
-        {/* The line to sign on. */}
-        <line x1="30" y1="160" x2="570" y2="160" className="stroke-powder" strokeWidth="2" strokeDasharray="8 10" />
-        {value && <path d={value} fill="none" className="stroke-prussian" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />}
-      </svg>
-      <button type="button" onClick={() => onChange(() => "")} disabled={!value} className="btn btn-sm mt-2 text-powder hover:bg-prussian hover:text-mint">
-        Clear
-      </button>
-    </div>
-  );
-}
-
-/** A signature once given: the drawing, or "(Sgd.)". */
-function SignatureMark({ signature }: { signature: JudgeSignature }) {
-  if (signature.method === "drawn" && signature.drawing) {
-    return (
-      <svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} role="img" aria-label="Your signature" className="mt-3 block aspect-[3/1] w-full rounded-xl bg-white">
-        <path d={signature.drawing} fill="none" className="stroke-prussian" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  return <p className="mt-2 text-2xl font-bold">(Sgd.)</p>;
 }
 
 /**
