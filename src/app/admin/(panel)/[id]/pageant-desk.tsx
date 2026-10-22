@@ -22,14 +22,11 @@ import { MAX_REASON, segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { newRequestId } from "@/lib/request-id";
 import { formatBound } from "@/lib/scoring";
+import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
 
-const ordinal = (n: number) => {
-  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
-  return `${n}${suffix}`;
-};
 /** A weight or share: "30%", "33.33%". */
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 const cutName = (plan: Pick<CutPlan, "final" | "round" | "size">) => (plan.final ? "the final cut" : `the Top ${plan.size}`);

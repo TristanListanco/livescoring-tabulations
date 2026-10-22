@@ -5,6 +5,8 @@ import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown,
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
+import { rankEntries } from "@/lib/scoring";
+import { breakFor, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
@@ -106,6 +108,25 @@ export default async function ScorePage() {
           judgeCount: board.judges.length,
           // Before migration 021 there's nowhere to keep a signature.
           canSign: signatures !== null,
+          // Ties in the ranking, for every judge to see before signing: which entries are level and how the chair broke
+          // it. Only who's level: never the scores, which stay each judge's own.
+          ties: (() => {
+            const ranking = rankEntries(board.entries, board.judges, board.scores, board.activity);
+            const row = new Map(ranking.map((r) => [r.entry.id, r]));
+            return tiesIn(ranking).map((tie) => {
+              const settled = breakFor(tie, board.tieBreaks ?? []);
+              return {
+                key: tie.key,
+                place: tie.rank,
+                entries: tie.entryIds.map((id) => ({ id, name: row.get(id)?.entry.name ?? "An entry", number: row.get(id)?.number ?? 0 })),
+                broken: settled
+                  ? { order: settled.entryIds, reason: settled.reason, by: board.judges.find((j) => j.id === settled.judgeId)?.name ?? null }
+                  : null,
+              };
+            });
+          })(),
+          isChair: context.judge.isChair,
+          chairName: board.judges.find((j) => j.isChair)?.name ?? null,
         }
       : null;
 

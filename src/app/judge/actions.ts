@@ -12,7 +12,8 @@ import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
-import { parseBreakdown, parseScore } from "@/lib/scoring";
+import { parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
+import { tieKey, tiesIn, unbrokenTies } from "@/lib/ties";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db } from "@/lib/supabase/server";
@@ -348,6 +349,11 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   if (signatures === null) return { ok: false, error: DELIBERATION_HINT };
   if (signatures.some((s) => s.judgeId === context.judge.id)) return { ok: true };
   if (corrections?.some((c) => c.status === "open")) return { ok: false, error: "A score correction is still open. Sign once it's settled." };
+  // The judges sign the order the results print: every tie in the ranking is broken first.
+  const board = await getBoard(context.activityId);
+  if (board && unbrokenTies(rankEntries(board.entries, board.judges, board.scores, board.activity), board.tieBreaks ?? []).length) {
+    return { ok: false, error: "A tie in the ranking isn't broken yet. Sign once the chair has broken it." };
+  }
 
   const { error } = await db()
     .from("judge_signatures")
@@ -355,6 +361,44 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   if (error && error.code !== "23505") {
     log("error", "signature_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your signature didn't save. Check your connection and try again." };
+  }
+  changed(context.activity.publicId);
+  return { ok: true };
+});
+
+/**
+ * The chair of the board of judges breaks a tie in the ranking during the deliberation: the tied entries in the order
+ * they place, highest first, and why. The scores stay as given. Every tie is broken before the judges sign; breaking
+ * one (or changing a break) after some have signed voids their signatures (the database does it), so every judge signs
+ * the order the results print.
+ */
+export const breakTie = traced("breakTie", async function breakTie(order: string[], reason: string): Promise<ActionResult> {
+  const context = await seat();
+  if ("error" in context) return context;
+  if (!context.judge.isChair) return { ok: false, error: "Only the chair of the board of judges breaks a tie." };
+  if (!Array.isArray(order) || order.length < 2 || order.some((id) => typeof id !== "string" || !isUuid(id)) || new Set(order).size !== order.length) {
+    return { ok: false, error: "Put the tied entries in order." };
+  }
+  const why = cleanReason(reason);
+  if (!why) return { ok: false, error: "Say why they place in this order: it's printed with the results." };
+
+  const board = await getBoard(context.activityId);
+  if (!board || board.activity.sessionState !== "deliberation") return { ok: false, error: "Ties are broken during the deliberation." };
+  const tie = tiesIn(rankEntries(board.entries, board.judges, board.scores, board.activity)).find((t) => t.key === tieKey(order));
+  if (!tie) return { ok: false, error: "Those entries aren't tied any more: a score changed. Check the tie again." };
+
+  const { error } = await db()
+    .from("tie_breaks")
+    .upsert(
+      { activity_id: board.activity.id, tie_key: tie.key, entry_ids: order, reason: why, judge_id: context.judge.id, created_at: new Date().toISOString() },
+      { onConflict: "activity_id,tie_key" },
+    );
+  if (error) {
+    log("error", "tie_not_broken", { code: error.code, error: error.message });
+    return {
+      ok: false,
+      error: error.code === "42P01" || error.code === "PGRST205" ? "Breaking ties needs a database update. Ask the organizer." : "That didn't go through. Check your connection and try again.",
+    };
   }
   changed(context.activity.publicId);
   return { ok: true };

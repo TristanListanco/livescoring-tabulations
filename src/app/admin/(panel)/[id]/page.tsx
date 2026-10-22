@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins } from "@/lib/data";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins } from "@/lib/data";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -16,7 +16,6 @@ import { SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
 import { EntriesTab } from "./entries-tab";
 import { LedTab } from "./led-tab";
-import { NotesTab } from "./notes-tab";
 import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
 import { SettingsTab } from "./settings-tab";
@@ -27,7 +26,7 @@ import { TabLink } from "./tab-link";
  * then what's set up beforehand. The test site tools are in Settings.
  */
 type Tab = {
-  id: "session" | "judges" | "led" | "notes" | "entries" | "segments" | "settings";
+  id: "session" | "judges" | "led" | "entries" | "segments" | "settings";
   label: string;
   group: "show" | "setup";
 };
@@ -36,13 +35,15 @@ const TABS: Tab[] = [
   { id: "session", label: "Session", group: "show" },
   { id: "judges", label: "Judges", group: "show" },
   { id: "led", label: "LED wall", group: "show" },
-  { id: "notes", label: "Notes", group: "show" },
   { id: "entries", label: "Entries", group: "setup" },
   { id: "settings", label: "Settings", group: "setup" },
 ];
 
-/** Tabs that were merged into others, so old links still land somewhere sensible. */
-const MOVED: Record<string, Tab["id"]> = { access: "judges", developer: "settings" };
+/**
+ * Tabs that were merged into others, so old links still land somewhere sensible. The judges' notes download from the
+ * session's results, beside the score sheets.
+ */
+const MOVED: Record<string, Tab["id"]> = { access: "judges", developer: "settings", notes: "session" };
 
 /** A pageant's entries are its candidates, and its program (segments and sub-activities) has a tab of its own. */
 const PAGEANT_TABS: Tab[] = TABS.flatMap((t): Tab[] =>
@@ -79,8 +80,10 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // has been checked below.
   const early = {
     codes: asked === undefined || asked === "judges" ? getActivityAccessCodes(id) : null,
-    desk: asked === undefined || asked === "session" ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id)]) : null,
-    notes: asked === "notes" ? getActivityNotes(id) : null,
+    desk:
+      asked === undefined || asked === "session"
+        ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)])
+        : null,
   };
   // The session, the board (with a pageant's deductions, for the desk) and the judges' devices, at once.
   const [session, board, devices, origin] = await Promise.all([requireAdmin(), getAdminBoard(id), listActivityDevices(id), siteOrigin()]);
@@ -90,11 +93,9 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // Before judging starts the organizer needs the judges' codes; once it's live, the session controls.
   const pageant = activity.kind === "pageant";
   const allTabs = pageant ? PAGEANT_TABS : TABS;
-  // Archived: read-only, so only its results (on the Session tab) and the judges' notes.
+  // Archived: read-only, so only its results, on the Session tab (the judges' notes download there too).
   const archived = activity.archivedAt !== null;
-  const tabs = archived
-    ? allTabs.filter((t) => t.id === "session" || t.id === "notes").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
-    : allTabs;
+  const tabs = archived ? allTabs.filter((t) => t.id === "session").map((t) => ({ ...t, label: "Results" })) : allTabs;
   const tab = tabs.find((t) => t.id === asked)?.id ?? (activity.sessionState === "draft" ? "judges" : "session");
   const started = activity.sessionState !== "draft";
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
@@ -107,15 +108,15 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const liveUrl = `${origin}/live/${activity.publicId}`;
   const ledUrl = `${origin}/led/${activity.publicId}`;
   // What the open tab needs: mostly started above, with the board.
-  const [codes, desk, tabNotes, liveQr, organizers] = await Promise.all([
+  const [codes, desk, liveQr, organizers] = await Promise.all([
     tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
-    tab === "session" ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id)])) : null,
-    tab === "notes" ? (early.notes ?? getActivityNotes(id)) : null,
+    tab === "session"
+      ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)]))
+      : null,
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
   ]);
-  const [corrections, deskNotes, signatories, signatures] = desk ?? [null, null, null, null];
-  const notes = tab === "notes" ? tabNotes : deskNotes;
+  const [corrections, notes, signatories, signatures, signoff] = desk ?? [null, null, null, null, null];
 
   const scoredBy = new Map<string, number>();
   const scoredFor = new Map<string, number>();
@@ -228,6 +229,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             archived={archived}
             hasNotes={(notes?.length ?? 0) > 0}
             signatures={signatures}
+            signoff={signoff}
           />
         )}
         {tab === "entries" && (
@@ -242,7 +244,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}
         {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
-        {tab === "notes" && <NotesTab activityId={activity.id} entries={entries} judges={judges} notes={notes} pageant={pageant} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}

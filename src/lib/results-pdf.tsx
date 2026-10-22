@@ -5,7 +5,8 @@ import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
-import type { Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
+import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
+import type { ActivitySignoff, Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
@@ -69,12 +70,10 @@ const s = StyleSheet.create({
   // A long label wraps rather than running into the page number.
   footerLabel: { flexShrink: 1, marginRight: 16 },
   footerPage: { flexShrink: 0 },
-  // The judges' notes: each entry, then each judge's note on it.
-  noteEntry: { marginTop: 18, paddingTop: 10, borderTopWidth: 0.75, borderTopColor: C.line },
-  noteEntryTitle: { fontFamily: "Helvetica-Bold", fontSize: 12 },
+  // A judge's notes: each entry in running order, beside what they noted on it.
   noteEntryNumber: { fontFamily: "Helvetica", color: C.muted },
-  noteRow: { flexDirection: "row", gap: 12, marginTop: 6 },
-  noteJudge: { width: 130, fontFamily: "Helvetica-Bold" },
+  noteRow: { flexDirection: "row", gap: 12, paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: C.line },
+  noteEntry: { width: 170, fontFamily: "Helvetica-Bold" },
   noteBody: { flexGrow: 1, flexBasis: 0 },
 });
 
@@ -84,8 +83,15 @@ export type ReportOrganizer = { name: string; photo: Buffer | null; signatories:
 /**
  * `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes).
  * `signatures`: the judges' signatures from the deliberation (an event without live scoring); absent otherwise.
+ * `signoff`: the organizer's signature on a deliberated session's results, given as they ended it.
  */
-type ReportInfo = { generatedAt: string; reportId: string | null; organizer: ReportOrganizer | null; signatures?: JudgeSignature[] | null };
+type ReportInfo = {
+  generatedAt: string;
+  reportId: string | null;
+  organizer: ReportOrganizer | null;
+  signatures?: JudgeSignature[] | null;
+  signoff?: ActivitySignoff | null;
+};
 
 /**
  * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID, the title,
@@ -144,6 +150,7 @@ function SignOff({
   note,
   inline = false,
   signatures,
+  signoff,
 }: {
   judges: Board["judges"];
   signatories: Signatory[];
@@ -151,19 +158,29 @@ function SignOff({
   inline?: boolean;
   /** From the deliberation: a judge who drew their signature has it above their name rather than "(Sgd.)". */
   signatures?: JudgeSignature[] | null;
+  /** The organizer's signature, after the judges', on a deliberated session's results. */
+  signoff?: ActivitySignoff | null;
 }) {
+  const mark = (drawing: string | null | undefined) =>
+    drawing ? (
+      <Svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} style={s.drawn}>
+        <Path d={drawing} stroke={C.prussian} strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ) : null;
+  const organizerSigned = signoff && (
+    <View key="organizer" style={s.signature}>
+      {mark(signoff.method === "drawn" ? signoff.drawing : null)}
+      <Text style={s.signName}>{signoff.signedBy}</Text>
+      {signoff.method !== "drawn" && <Text style={s.signed}>(Sgd.)</Text>}
+      <Text style={s.signRole}>Organizer</Text>
+    </View>
+  );
   const signed = judges.map((j) => {
     const drawing = signatures?.find((sig) => sig.judgeId === j.id && sig.method === "drawn")?.drawing;
     return (
       <View key={j.id} style={s.signature}>
-        {drawing ? (
-          <Svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} style={s.drawn}>
-            <Path d={drawing} stroke={C.prussian} strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        ) : (
-          // Level with the signatories' names, under their signature lines.
-          inline && <View style={{ height: s.signLine.height }} />
-        )}
+        {/* Without a drawing, level with the signatories' names, under their signature lines. */}
+        {drawing ? mark(drawing) : inline && <View style={{ height: s.signLine.height }} />}
         <Text style={s.signName}>{j.name}</Text>
         {!drawing && <Text style={s.signed}>(Sgd.)</Text>}
         <Text style={s.signRole}>{roleOf(j)}</Text>
@@ -197,7 +214,10 @@ function SignOff({
         </View>
       ) : (
         <>
-          <View style={s.signatures}>{signed}</View>
+          <View style={s.signatures}>
+            {signed}
+            {organizerSigned}
+          </View>
           <View style={s.signatures}>{lines}</View>
         </>
       )}
@@ -268,7 +288,14 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
 /** One activity's results, or one pageant sub-activity's (`part`: its name). */
 function ResultsDocument({ board, info, part, corrections }: { board: Board; info: ReportInfo; part?: string; corrections: CorrectionView[] | null }) {
   const { activity, judges } = board;
-  const rows = rankEntries(board.entries, judges, board.scores, activity);
+  // Ties the judges broke in the deliberation place in the chair's order; any other tie shares its rank.
+  const ranked = rankEntries(board.entries, judges, board.scores, activity);
+  const rows = applyTieBreaks(ranked, board.tieBreaks ?? []);
+  const broken = tiesIn(ranked).flatMap((tie) => {
+    const settled = breakFor(tie, board.tieBreaks ?? []);
+    return settled ? [{ tie, settled }] : [];
+  });
+  const nameOf = new Map(board.entries.map((e) => [e.id, e.name]));
   const noun = part ? "candidates" : "entries";
   const label = part ? `${activity.name}, ${part}` : activity.name;
 
@@ -281,7 +308,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
           subtitle={part}
           meta={
             `${rulesSummary(activity)} ${judges.length} judges, ${board.entries.length} ${noun}. ` +
-            `Ranked by the average of all judges' scores; equal averages share a rank. Generated ${info.generatedAt}.`
+            `Ranked by the average of all judges' scores; ${broken.length ? "a tie the judges broke places as they ordered it (see below), any other" : "equal averages"} share${broken.length ? "s" : ""} a rank. Generated ${info.generatedAt}.`
           }
         />
 
@@ -315,8 +342,29 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
           ))}
         </View>
 
+        {broken.length > 0 && (
+          <View>
+            <Text style={s.sectionTitle} minPresenceAhead={48}>
+              Ties broken
+            </Text>
+            <Text style={s.sectionNote}>Entries with the same average, put in order by the chair of the board of judges during the deliberation, saying why.</Text>
+            {broken.map(({ tie, settled }) => (
+              <View key={tie.key} style={s.deductionRow} wrap={false}>
+                <Text style={s.deductionWho}>{`Tie for ${ordinal(tie.rank)}: ${settled.entryIds.map((id) => nameOf.get(id) ?? "an entry").join(", then ")}`}</Text>
+                <Text style={s.deductionWhy}>{settled.reason}</Text>
+                <Text style={s.deductionPoints}>{judges.find((j) => j.id === settled.judgeId)?.name ?? "The chair"}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         <CorrectionsList corrections={corrections ?? []} />
-        <SignOff judges={judges} signatories={info.organizer?.signatories ?? []} note={signNote(corrections, info.signatures)} signatures={info.signatures} />
+        <SignOff
+          judges={judges}
+          signatories={info.organizer?.signatories ?? []}
+          note={signNote(corrections, info.signatures) + (info.signoff ? ` ${info.signoff.signedBy} signed the results as organizer and ended the session.` : "")}
+          signatures={info.signatures}
+          signoff={info.signoff}
+        />
         <Footer label={label} info={info} />
       </Page>
     </Document>
@@ -352,7 +400,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
         {fix && (
           <Text
             style={s.note}
-          >{`Corrected from ${fix.from} (${fix.decidedBy === "organizer" ? "the organizer approved" : "every other judge agreed"}): ${fix.reason}`}</Text>
+          >{`Corrected from ${fix.from} (${fix.decidedBy === "judge" ? "by the judge" : fix.decidedBy === "organizer" ? "the organizer approved" : "every other judge agreed"}): ${fix.reason}`}</Text>
         )}
       </View>
     );
@@ -573,6 +621,7 @@ export function renderResultsPdf(
     part,
     corrections = null,
     signatures = null,
+    signoff = null,
   }: {
     timeZone?: string;
     reportId: string;
@@ -580,10 +629,11 @@ export function renderResultsPdf(
     part?: string;
     corrections?: CorrectionView[] | null;
     signatures?: JudgeSignature[] | null;
+    signoff?: ActivitySignoff | null;
   },
 ): Promise<Buffer> {
   return renderToBuffer(
-    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures }} />,
+    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures, signoff }} />,
   );
 }
 
@@ -617,48 +667,48 @@ export function renderJudgeSheetsPdf(
 }
 
 /**
- * The judges' notes, a PDF of their own: each entry in running order with every judge's note on it (entries no one
- * noted are left out). For the organizer's reference, not part of the results, so it has no report ID or signatures.
+ * The judges' notes, a PDF of their own, laid out like the judges' score sheets: a page for each judge, with every entry
+ * in running order and what they noted on it. Under the organizer's logo, as the results are. For the organizer's
+ * reference, not part of the results, so it has no report ID or signatures.
  */
 function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[]; info: ReportInfo }) {
   const { activity, judges } = board;
   const noun = activity.kind === "pageant" ? "candidate" : "entry";
-  const judgeOrder = new Map(judges.map((j, i) => [j.id, i]));
-  const nameOf = new Map(judges.map((j) => [j.id, j.name]));
-  const entries = [...board.entries]
-    .sort((a, b) => a.position - b.position)
-    .map((entry, i) => ({
-      entry,
-      number: entry.number ?? i + 1,
-      notes: notes.filter((n) => n.entryId === entry.id).sort((a, b) => (judgeOrder.get(a.judgeId) ?? 0) - (judgeOrder.get(b.judgeId) ?? 0)),
-    }))
-    .filter((e) => e.notes.length > 0);
-  const writers = new Set(notes.map((n) => n.judgeId)).size;
-  const meta =
-    `What the judges noted on each ${noun}, for the organizer's reference; not part of the results. ` +
-    `${notes.length} ${notes.length === 1 ? "note" : "notes"} from ${writers} ${writers === 1 ? "judge" : "judges"}, in running order. Generated ${info.generatedAt}.`;
+  const entries = [...board.entries].sort((a, b) => a.position - b.position).map((entry, i) => ({ entry, number: entry.number ?? i + 1 }));
+  const meta = `What this judge noted on each ${noun}, for the organizer's reference; not part of the results. In running order. Generated ${info.generatedAt}.`;
 
   return (
     <Document title={`${activity.name}, judges' notes`} author="LiveScoring" creator="LiveScoring">
-      <Page size="A4" style={s.page}>
-        <Header info={info} eyebrow="Judges' notes" title={activity.name} meta={meta} />
-        {entries.length === 0 && <Text style={s.sectionNote}>{`No notes were written on any ${noun}.`}</Text>}
-        {entries.map(({ entry, number, notes: forEntry }) => (
-          <View key={entry.id} style={s.noteEntry}>
-            <Text style={s.noteEntryTitle} minPresenceAhead={40}>
-              <Text style={s.noteEntryNumber}>{`No. ${number}  `}</Text>
-              {entry.name}
-            </Text>
-            {forEntry.map((n) => (
-              <View key={n.judgeId} style={s.noteRow} wrap={false}>
-                <Text style={s.noteJudge}>{nameOf.get(n.judgeId) ?? "A judge no longer on the panel"}</Text>
-                <Text style={s.noteBody}>{n.body}</Text>
+      {judges.map((judge) => {
+        const mine = new Map(notes.filter((n) => n.judgeId === judge.id).map((n) => [n.entryId, n.body]));
+        return (
+          <Page key={judge.id} size="A4" style={s.page}>
+            <Header
+              info={info}
+              eyebrow="Judge's notes"
+              title={activity.name}
+              byline={
+                <>
+                  {judge.name}
+                  <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
+                </>
+              }
+              meta={meta}
+            />
+            {mine.size === 0 && <Text style={s.sectionNote}>{`${judge.name} didn't write a note on any ${noun}.`}</Text>}
+            {entries.map(({ entry, number }) => (
+              <View key={entry.id} style={s.noteRow} wrap={false}>
+                <Text style={s.noteEntry}>
+                  <Text style={s.noteEntryNumber}>{`No. ${number}  `}</Text>
+                  {entry.name}
+                </Text>
+                <Text style={mine.has(entry.id) ? s.noteBody : [s.noteBody, { color: C.muted }]}>{mine.get(entry.id) ?? "No note."}</Text>
               </View>
             ))}
-          </View>
-        ))}
-        <Footer label={`${activity.name}, judges' notes`} info={info} />
-      </Page>
+            <Footer label={`${activity.name}, ${judge.name}'s notes`} info={info} />
+          </Page>
+        );
+      })}
     </Document>
   );
 }

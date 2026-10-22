@@ -213,6 +213,10 @@ begin
   ) then
     raise exception 'Every judge signs before the session ends.';
   end if;
+  if old.session_state = 'deliberation' and new.session_state = 'ended'
+     and not exists (select 1 from public.activity_signoffs o where o.activity_id = new.id) then
+    raise exception 'The organizer signs before the session ends.';
+  end if;
   return new;
 end;
 $$;
@@ -472,6 +476,45 @@ $$;
 drop trigger if exists void_signatures on public.scores;
 create trigger void_signatures after update on public.scores for each row execute function public.void_signatures();
 
+-- Tie breaks: every tie in the ranking is broken before the judges sign. The chair of the board of judges puts the tied
+-- entries in order and says why; the scores stay as given. A break holds while exactly those entries stay tied.
+create table if not exists public.tie_breaks (
+  activity_id  uuid not null references public.activities (id) on delete cascade,
+  -- The tied entries as a set (their ids sorted, joined with commas): one break per tie.
+  tie_key      text not null,
+  -- The tied entries in the order the chair put them, highest first.
+  entry_ids    uuid[] not null,
+  reason       text not null check (char_length(reason) between 1 and 300),
+  judge_id     uuid references public.judges (id) on delete set null,
+  created_at   timestamptz not null default now(),
+  primary key (activity_id, tie_key)
+);
+
+-- The judges sign the order the results print: breaking a tie after they have voids their signatures.
+create or replace function public.void_signatures_on_tie_break() returns trigger
+language plpgsql
+as $$
+begin
+  delete from public.judge_signatures
+    where activity_id = case when tg_op = 'DELETE' then old.activity_id else new.activity_id end;
+  return null;
+end;
+$$;
+drop trigger if exists void_signatures on public.tie_breaks;
+create trigger void_signatures after insert or update or delete on public.tie_breaks for each row execute function public.void_signatures_on_tie_break();
+
+-- The organizer signs the results (drawn, or "(Sgd.)") as they end a deliberated session: it ends only with this and
+-- every judge's signature (see check_deliberation).
+create table if not exists public.activity_signoffs (
+  activity_id  uuid primary key references public.activities (id) on delete cascade,
+  -- Who signed: the organizer's name as their account has it, or "Super admin".
+  signed_by    text not null check (char_length(signed_by) between 1 and 120),
+  method       text not null check (method in ('drawn', 'checked')),
+  drawing      text check (char_length(drawing) between 1 and 20000),
+  signed_at    timestamptz not null default now(),
+  check ((method = 'drawn') = (drawing is not null))
+);
+
 -- Score corrections ------------------------------------------------------------
 -- A judge who entered a wrong score asks to change it; it changes only if every other judge on their panel agrees
 -- (or, for a judge alone on their panel, the organizer approves). Server only.
@@ -570,6 +613,8 @@ alter table public.judge_notes enable row level security;
 alter table public.score_corrections enable row level security;
 alter table public.correction_votes enable row level security;
 alter table public.judge_signatures enable row level security;
+alter table public.tie_breaks   enable row level security;
+alter table public.activity_signoffs enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
@@ -617,7 +662,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.

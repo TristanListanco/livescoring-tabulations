@@ -6,7 +6,7 @@ import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
 import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
-import { unsignedJudges } from "@/lib/deliberation";
+import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
 import { settleCorrection } from "@/lib/correction-settle";
@@ -32,7 +32,8 @@ import { showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
-import { formatBound, scoreProgress } from "@/lib/scoring";
+import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
+import { unbrokenTies } from "@/lib/ties";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
 import { db, PHOTO_BUCKET } from "@/lib/supabase/server";
 import { photoExtension, photoFile, PHOTOS_PER_REQUEST, type Photo } from "@/lib/photo-file";
@@ -914,19 +915,33 @@ export const setActivityOwner = traced("setActivityOwner", async function setAct
 
 // Judging session ------------------------------------------------------------------
 
+/** Where a deliberated session's sign-off needs migration 026. */
+const SIGNOFF_HINT = "Signing the results needs a database update. Run supabase/migrations/026_tie_breaks_and_organizer_signoff.sql.";
+
 /**
- * Start (draft or ended → live), deliberate (live → deliberation) or end (live or deliberation → ended) judging.
- * Starting locks the judges and the running order; judges' screens open as soon as it is live. An event without live
- * scoring deliberates once every entry is scored, and ends only once every judge has signed: then its results show.
+ * Start (draft or ended → live), deliberate (live → deliberation, or ended → deliberation again) or end (live or
+ * deliberation → ended) judging. Starting locks the judges and the running order; judges' screens open as soon as it is
+ * live. An event without live scoring deliberates once every entry is scored, and ends only once every tie in its
+ * ranking is broken, every judge has signed, and the organizer signs the results (`signature`: drawn, or null for
+ * "(Sgd.)"): then its results show.
  */
-export const setSessionState = traced("setSessionState", async function setSessionState(activityId: string, state: "live" | "deliberation" | "ended", password: string = ""): Promise<ActionResult> {
+export const setSessionState = traced("setSessionState", async function setSessionState(
+  activityId: string,
+  state: "live" | "deliberation" | "ended",
+  password: string = "",
+  signature?: string | null,
+): Promise<ActionResult> {
   // An action can be called with anything, not just what the desk sends: only these three. Above all never "draft", which
   // would reopen the judges, running order and program of a session with scores in it (only Reset scores, on a test
   // site, starts a session over, and only once its scores are gone; the database holds to that too).
   if (state !== "live" && state !== "deliberation" && state !== "ended") return err("That isn't a change the session can make.");
   const session = await manage(activityId);
   if (!session) return NOT_FOUND;
-  if (state === "deliberation") return beginDeliberation(activityId);
+  if (state === "deliberation") {
+    // An ended deliberation deliberates again; otherwise the deliberation starts.
+    if ((await sessionOf(activityId)).state === "ended") return redeliberate(activityId, session, password);
+    return beginDeliberation(activityId);
+  }
   // Ending judging is final for the judges, so it takes the signed-in admin's password.
   if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
   const current = await sessionOf(activityId);
@@ -956,6 +971,19 @@ export const setSessionState = traced("setSessionState", async function setSessi
       const signatures = await getSignatures(activityId);
       const waiting = unsignedJudges(board.judges, signatures ?? []);
       if (waiting.length) return err(`${listNames(waiting)} ${waiting.length === 1 ? "hasn't" : "haven't"} signed yet.`);
+      const ranking = rankEntries(board.entries, board.judges, board.scores, board.activity);
+      if (unbrokenTies(ranking, board.tieBreaks ?? []).length) return err("A tie in the ranking isn't broken yet. The chair breaks it on their screen.");
+      // The organizer signs the results as they end the session: drawn, or "(Sgd.)".
+      if (signature === undefined) return err("Sign the results to end the session.");
+      const drawn = signature === null ? null : cleanSignature(signature);
+      if (signature !== null && !drawn) return err("Draw your signature in the box, then end the session.");
+      const { error: signing } = await db()
+        .from("activity_signoffs")
+        .upsert(
+          { activity_id: activityId, signed_by: session.kind === "organizer" ? session.admin.name : "Super admin", method: drawn ? "drawn" : "checked", drawing: drawn, signed_at: new Date().toISOString() },
+          { onConflict: "activity_id" },
+        );
+      if (signing) return signing.code === "42P01" || signing.code === "PGRST205" ? needsMigration(SIGNOFF_HINT) : dbErr(signing);
       signedOff = true;
     }
   }
@@ -978,11 +1006,37 @@ export const setSessionState = traced("setSessionState", async function setSessi
     delete update.session_ended_at;
     ({ error } = await db().from("activities").update(update).eq("id", activityId));
   }
-  if (error) return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
+  if (error) {
+    // Not ended after all: the organizer's signature waits for the next try.
+    if (signedOff) await db().from("activity_signoffs").delete().eq("activity_id", activityId);
+    return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
+  }
   changed();
-  if (state === "ended") return ok(signedOff ? "The session has ended, signed by every judge. The results are out." : "The session has ended. Judges can no longer submit scores.");
+  if (state === "ended") return ok(signedOff ? "The session has ended, signed by every judge and by you. The results are out." : "The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
 });
+
+/**
+ * Deliberating again once a deliberated session has ended. It takes the admin's password, as ending did, because it
+ * reopens the official record: the judges' signatures and the organizer's are cleared, and the results come off the
+ * live results page until every judge has signed again and the organizer has. The judges' screens go back to their
+ * scores; a judge whose device was signed out signs in again with their code, and the organizer approves it.
+ */
+async function redeliberate(activityId: string, session: AdminSession, password: string): Promise<ActionResult> {
+  if (!(await passwordMatches(session, password))) return err("That password isn't right.");
+  const board = await getBoard(activityId);
+  if (!board) return NOT_FOUND;
+  const { activity } = board;
+  if (activity.archivedAt) return err("An archived activity can't be changed.");
+  if (activity.kind !== "event" || activity.liveScoring || !activity.signedOffAt) return err("Only a session the judges signed in a deliberation can be deliberated again.");
+  const { error } = await db().from("activities").update({ session_state: "deliberation", signed_off_at: null, session_ended_at: null }).eq("id", activityId).eq("session_state", "ended");
+  if (error) return dbErr(error);
+  // Everyone signs again: the judges, once they've reviewed, then the organizer.
+  await db().from("judge_signatures").delete().eq("activity_id", activityId);
+  await db().from("activity_signoffs").delete().eq("activity_id", activityId);
+  changed(activity.publicId);
+  return ok("The judges are deliberating again. Each one reviews their scores and signs, then you sign to end the session.");
+}
 
 /**
  * Show judges the entry to score next, or null to have them wait. Only while the session is live. The organizer does
@@ -1335,6 +1389,9 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   // Judges' notes go with the scores (fails harmlessly before migration 018), and so do their signatures (021).
   await db().from("judge_notes").delete().eq("activity_id", activityId);
   await db().from("judge_signatures").delete().eq("activity_id", activityId);
+  // The ties those scores made, and the organizer's signature on their results (fail harmlessly before migration 026).
+  await db().from("tie_breaks").delete().eq("activity_id", activityId);
+  await db().from("activity_signoffs").delete().eq("activity_id", activityId);
   // Every judge's device is signed out, even one left signed in: judges enter their codes and pair again.
   const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
   if (judgeRows?.length) await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));

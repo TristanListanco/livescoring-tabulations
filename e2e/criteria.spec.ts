@@ -167,12 +167,8 @@ test.describe.serial("criteria scoring", () => {
     await expect(row).toContainText("87.5000%", REALTIME);
     await live.context().close();
 
-    // The organizer reads the judges' notes on the Notes tab.
-    await page.goto(`${adminPath}?tab=notes`);
-    const agila = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /Agila$/ }) });
-    await expect(agila).toContainText("Ana Cruz");
-    await expect(agila).toContainText("Clever use of local materials.");
-    // They download as a PDF of their own, apart from the results and score sheets.
+    // The judges' notes download from the desk, as a PDF of their own, apart from the results and score sheets.
+    await page.goto(`${adminPath}?tab=session`);
     const [notesPdf] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' notes" }).click()]);
     expect(notesPdf.suggestedFilename()).toMatch(/^e2e-criteria-[a-z0-9]+-judges-notes\.pdf$/);
     expect(readFileSync(await notesPdf.path()).subarray(0, 5).toString()).toBe("%PDF-");

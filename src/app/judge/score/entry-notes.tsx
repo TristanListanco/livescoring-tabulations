@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import { MAX_NOTE } from "@/lib/notes";
 import type { Entry } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { saveNote } from "../actions";
 
 /**
@@ -15,18 +16,6 @@ import { saveNote } from "../actions";
 /** Saved notes this screen knows about, by entry id, and how to record one just saved. */
 export type NoteStore = { get: (entryId: string) => string; stored: (entryId: string, body: string) => void };
 
-/** Whether the screen matches a media query, following it as it changes. The server render uses `fallback`. */
-export function useMediaQuery(query: string, fallback = false): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const list = window.matchMedia(query);
-      list.addEventListener("change", onChange);
-      return () => list.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia(query).matches,
-    () => fallback,
-  );
-}
 
 /** Whether notes go beside the keypad (1280px and up) rather than under the entry's name. */
 export function useWideScreen(): boolean {

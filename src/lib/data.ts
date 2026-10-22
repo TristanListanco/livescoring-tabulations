@@ -9,7 +9,7 @@ import { readAll } from "./read-all";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
-import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
+import type { Activity, ActivitySignoff, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 export type ActivityRow = {
   id: string;
@@ -431,6 +431,7 @@ type BoardRows = {
   entries: { data: unknown; error: { message: string } | null };
   scores: { data: unknown; error: { message: string } | null };
   rounds: { data: unknown; error: { message: string } | null } | null;
+  tieBreaks: { data: unknown; error: { message: string } | null };
 };
 
 /** A board from its rows. A pageant's sub-activities only: an event has none (and a database before 011, no table). */
@@ -446,8 +447,14 @@ function toBoard(activity: Activity, rows: BoardRows): Board {
     entries: (rows.entries.data as EntryRow[]).map(toEntry),
     scores: (rows.scores.data as unknown as ScoreRow[]).map(toScore),
     rounds: pageant && rows.rounds ? (rows.rounds.data as RoundRow[]).map(toRound) : [],
+    tieBreaks:
+      activity.kind === "event" && !activity.liveScoring && !rows.tieBreaks.error
+        ? (rows.tieBreaks.data as TieBreakRow[]).map((r) => ({ tieKey: r.tie_key, entryIds: r.entry_ids, reason: r.reason, judgeId: r.judge_id, createdAt: r.created_at }))
+        : [],
   };
 }
+
+type TieBreakRow = { tie_key: string; entry_ids: string[]; reason: string; judge_id: string | null; created_at: string };
 
 /** An activity's judges, entries, scores and sub-activities, read together. */
 function boardRows(activityId: string) {
@@ -458,7 +465,9 @@ function boardRows(activityId: string) {
     // A big pageant has more scores than one read returns: they come a page at a time, oldest first.
     readAll((from, to) => db().from("scores").select("*", { count: "exact" }).eq("activity_id", activityId).order("created_at").order("id").range(from, to)),
     db().from("rounds").select("*").eq("activity_id", activityId).order("position").order("created_at"),
-  ]).then(([judges, entries, scores, rounds]) => ({ judges, entries, scores, rounds }));
+    // An event's broken ties (migration 026). Missing before it, when there's nowhere to keep them.
+    db().from("tie_breaks").select("tie_key, entry_ids, reason, judge_id, created_at").eq("activity_id", activityId),
+  ]).then(([judges, entries, scores, rounds, tieBreaks]) => ({ judges, entries, scores, rounds, tieBreaks }));
 }
 
 async function loadBoard(activity: Activity): Promise<Board> {
@@ -587,6 +596,19 @@ export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, 
 }
 
 /** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */
+/**
+ * The organizer's signature on a deliberated session's results, given as they ended it (migration 026). Null before
+ * they've signed, or on a database without the table.
+ */
+export async function getActivitySignoff(activityId: string): Promise<ActivitySignoff | null> {
+  await connection();
+  if (!isUuid(activityId)) return null;
+  const { data, error } = await db().from("activity_signoffs").select("signed_by, method, drawing, signed_at").eq("activity_id", activityId).maybeSingle();
+  if (error || !data) return null;
+  const row = data as { signed_by: string; method: "drawn" | "checked"; drawing: string | null; signed_at: string };
+  return { signedBy: row.signed_by, method: row.method, drawing: row.drawing, signedAt: row.signed_at };
+}
+
 export async function getSignatures(activityId: string): Promise<JudgeSignature[] | null> {
   const { data, error } = await db().from("judge_signatures").select("judge_id, method, drawing, signed_at").eq("activity_id", activityId);
   if (error) return null;
@@ -681,7 +703,8 @@ async function loadPublicBoard(publicId: string): Promise<Board | null> {
   // which judge has scored which entry does.
   if (resultsReleased(board.activity)) return { ...board, activity, judges, organizer };
   const scored = board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null }));
-  return { ...board, activity, judges, scores: [], scored, organizer };
+  // A broken tie says which entries were level: that waits for the results too.
+  return { ...board, activity, judges, scores: [], scored, organizer, tieBreaks: [] };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */

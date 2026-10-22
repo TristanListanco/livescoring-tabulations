@@ -145,24 +145,42 @@ test.describe.serial("deliberation", () => {
     await audience.context().close();
   });
 
-  test("in the deliberation a judge corrects their own score, and can still sign straight away", async () => {
+  test("in the deliberation a tie in the ranking is broken by the chair before anyone signs", async () => {
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
-    // Ben corrects his Bagwis score from the list of every entry.
+    // Ben corrects his Bagwis score from the list of every entry: 10 ties Bagwis with Agila for 1st (8.875 each).
     await ben.getByRole("button", { name: "Correct this score for Bagwis" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Bagwis");
-    await tapScore(ben, "8.5");
+    await tapScore(ben, "10");
     await ben.getByRole("button", { name: "Review correction" }).click();
     const fix = ben.getByRole("dialog", { name: "Change your score for Bagwis?" });
-    await fix.getByLabel("Why does it need correcting?").fill("Meant 8.5, not 8.");
+    await fix.getByLabel("Why does it need correcting?").fill("Meant 10, not 8.");
     await fix.getByRole("button", { name: "Change score" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation");
     await expect(ben.getByText("Corrected from 8.000.")).toBeVisible(REALTIME);
-    // Nothing waits on a vote: signing is open.
-    await expect(ben.getByRole("status").filter({ hasText: "A score correction is still open" })).toHaveCount(0);
+
+    // Every judge sees the tie at the top of their deliberation, and nobody signs until it's broken.
+    await expect(ana.getByRole("heading", { name: "Tie for 1st", exact: true })).toBeVisible(REALTIME);
+    await expect(ana.getByText("Agila and Bagwis have the same average. Ben Torres puts them in order before anyone signs.")).toBeVisible();
+    await expect(ana.getByRole("status").filter({ hasText: "A tie in the ranking isn't broken yet" })).toBeVisible();
+    await expectAccessible(ana);
+
+    // Ben, the chair, puts Bagwis first and says why: the reason is required.
+    await expect(ben.getByRole("heading", { name: "Tie for 1st", exact: true })).toBeVisible();
+    await expect(ben.getByRole("button", { name: "Break the tie" })).toBeDisabled();
+    await ben.getByRole("button", { name: "Move Bagwis up" }).click();
+    await ben.getByLabel("Why they place in this order").fill("Bagwis had the stronger finish, as the panel agreed.");
+    await ben.getByRole("button", { name: "Break the tie" }).click();
+    const confirm = ben.getByRole("dialog", { name: "Break the tie for 1st?" });
+    await expect(confirm).toContainText("1st Bagwis, 2nd Agila");
+    await confirm.getByRole("button", { name: "Break the tie" }).click();
+    await expect(ben.getByRole("heading", { name: "Tie for 1st, broken" })).toBeVisible(REALTIME);
+    await expect(ana.getByRole("heading", { name: "Tie for 1st, broken" })).toBeVisible(REALTIME);
+    await expect(ana.getByText("“Bagwis had the stronger finish, as the panel agreed.” Broken by Ben Torres.")).toBeVisible();
+    // Now everyone can sign.
     await expect(ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ })).toBeVisible();
   });
 
-  test("each judge reviews their scores and signs, then the results are out", async ({ page }) => {
+  test("each judge reviews their scores and signs, then the organizer signs the results to end it", async ({ page }) => {
     // Ana reviews: every entry with her score, her correction, and her notes.
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
     const scores = ana.getByRole("list", { name: "Your scores" });
@@ -170,7 +188,6 @@ test.describe.serial("deliberation", () => {
     await expect(scores.getByRole("listitem").first()).toContainText("8.250");
     await expect(scores.getByRole("listitem").first()).toContainText("Corrected from 8.125");
     await expect(ana.getByRole("button", { name: "Correct this score for Bagwis" })).toBeVisible();
-    await expectAccessible(ana);
 
     // On her phone she draws her signature.
     const sign = ana.getByRole("button", { name: "Sign", exact: true });
@@ -189,24 +206,37 @@ test.describe.serial("deliberation", () => {
     // Signed, her scores stand: nothing left to correct.
     await expect(ana.getByRole("button", { name: /^Correct this score/ })).toHaveCount(0);
 
-    // Ben's laptop has no touchscreen: he ticks (Sgd.).
+    // The desk shows the tie as broken; there's no End session button: the organizer signs the results instead.
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByRole("status").filter({ hasText: "of 2 judges have signed" })).toHaveText("1 of 2 judges have signed", REALTIME);
+    await expect(page.getByRole("list", { name: "Ties in the ranking" })).toContainText("Tie for 1st, broken: Bagwis, then Agila.");
     await expect(page.getByRole("button", { name: "End session" })).toHaveCount(0);
+
+    // Ben's laptop has no touchscreen: he ticks (Sgd.).
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
     await expect(ben.getByRole("img", { name: "Signature box" })).toHaveCount(0);
     await ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ }).check();
     await ben.getByRole("button", { name: "Sign", exact: true }).click();
     await expect(ben.getByRole("status").filter({ hasText: "You've signed." })).toBeVisible(REALTIME);
 
-    // Everyone has signed: the organizer ends the session, and the results are out.
-    await expect(page.getByRole("status").filter({ hasText: "Every judge has signed" })).toBeVisible(REALTIME);
-    await page.getByRole("button", { name: "End session" }).click();
-    const end = page.getByRole("dialog", { name: "End the session?" });
-    await end.getByLabel("Your password").fill(ADMIN_PASSWORD);
-    await end.getByRole("button", { name: "End session" }).click();
-    await expect(page.getByText("Signed by every judge after deliberating")).toBeVisible(REALTIME);
+    // Everyone has signed: the results come up over the desk, and stay until the organizer signs them.
+    const final = page.getByRole("dialog", { name: "Every judge has signed" });
+    await expect(final).toBeVisible(REALTIME);
+    await page.keyboard.press("Escape");
+    await expect(final).toBeVisible();
+    await expect(final.getByRole("row").nth(1)).toContainText("Bagwis");
+    await expect(final.getByRole("row").nth(2)).toContainText("Agila");
+    await expect(final.getByRole("list", { name: "Ties the chair broke" })).toContainText("Tie for 1st: Bagwis, then Agila.");
+    await expectAccessible(page);
+    await snap(page, "organizer signs the results");
+    const end = final.getByRole("button", { name: "Sign and end the session" });
+    await expect(end).toBeDisabled();
+    await final.getByRole("checkbox", { name: /I've checked the results and sign them/ }).check();
+    await final.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await end.click();
+    await expect(page.getByText("Signed by every judge after deliberating, and by Super admin")).toBeVisible(REALTIME);
+    await expect(final).toBeHidden();
 
     await page.goto(livePath);
     const agila = page.locator("li[data-entry]", { hasText: "Agila" });
@@ -217,5 +247,22 @@ test.describe.serial("deliberation", () => {
     await page.goto(`${adminPath}?tab=session`);
     const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download results PDF" }).click()]);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("the organizer can deliberate again, with their password", async ({ page }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=session`);
+    await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Redeliberate" }).click();
+    const again = page.getByRole("dialog", { name: "Deliberate again?" });
+    await again.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await again.getByRole("button", { name: "Redeliberate" }).click();
+    // Everyone signs again: the judges' signatures are cleared, and their screens go back to their scores.
+    await expect(page.getByRole("status").filter({ hasText: "of 2 judges have signed" })).toHaveText("0 of 2 judges have signed", REALTIME);
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
+    await expect(ana.getByRole("button", { name: "Sign", exact: true })).toBeVisible();
+    // The results come off the live results page until the session ends again.
+    await page.goto(livePath);
+    await expect(page.getByText("A tick shows each score that's in.", { exact: false })).toBeVisible();
   });
 });

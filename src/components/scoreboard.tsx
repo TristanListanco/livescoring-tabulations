@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { firstNames } from "@/lib/names";
 import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
+import { applyTieBreaks } from "@/lib/ties";
 import type { Board, ScoredMark } from "@/lib/types";
 import { Avatar } from "./avatar";
 
@@ -100,7 +101,8 @@ export function Scoreboard({
   const held = scored !== undefined;
   // Worked out again only when the board changes, so the effects below run when there's something new to show.
   const { rows, done, firstRestIndex } = useMemo(() => {
-    const ranking = rankEntries(board.entries, board.judges, board.scores, board.activity);
+    // Ties the judges broke in the deliberation place in the chair's order (the public board has them once the results are out).
+    const ranking = applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, board.activity), board.tieBreaks ?? []);
     const sorted = ranked ? ranking : [...ranking].sort((a, b) => a.number - b.number);
     const marks = new Set((scored ?? []).map((m) => `${m.entryId}:${m.judgeId}`));
     // Every score that's in (while they're held back, every one marked as in), as "entry:judge".
