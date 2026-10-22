@@ -3,16 +3,19 @@ export function Section({
   title,
   hint,
   flush = false,
+  id,
   children,
 }: {
   title: string;
+  /** For a link straight to this section. */
+  id?: string;
   hint?: React.ReactNode;
   /** The first section on a page: no divider or top padding. */
   flush?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className={`grid gap-4 py-8 md:grid-cols-[14rem_1fr] md:gap-10 ${flush ? "pt-0" : "border-t border-line"}`}>
+    <section id={id} className={`scroll-mt-6 grid gap-4 py-8 md:grid-cols-[14rem_1fr] md:gap-10 ${flush ? "pt-0" : "border-t border-line"}`}>
       <div>
         <h2 className="text-lg font-bold">{title}</h2>
         {hint && <p className="hint mt-1">{hint}</p>}

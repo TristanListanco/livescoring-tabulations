@@ -188,6 +188,7 @@ export function ScoringPanel({
   offPanel = false,
 }: Props) {
   const pageant = activity.kind === "pageant";
+  // Still over realtime once judging has ended: deliberating again, or reopening, brings the judges straight back.
   const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back. Once the page
   // has a score, its value wins: a correction can change it.

@@ -5,7 +5,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { ShowStatus } from "@/components/show-status";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreProgress, scoreText } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 
 const lockFormat = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" });
 const stampFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
@@ -47,7 +47,7 @@ function watermark(text: string): string {
  */
 export function TallyView({ board, viewer, until }: { board: Board; viewer: string; until: number }) {
   const router = useRouter();
-  const status = useLiveRefresh(board.activity.id);
+  const status = useLiveRefresh(board.activity.id, board.activity.sessionState === "ended" ? JUDGING_OVER : {});
   const hidden = useSyncExternalStore(onVisibility, isHidden, () => false);
   const minute = useSyncExternalStore(onMinute, thisMinute, () => null);
   useEffect(() => {

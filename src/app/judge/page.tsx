@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getDevice, getJudgeContext } from "@/lib/data";
+import { getActivity, getDevice, getJudgeContext } from "@/lib/data";
 import { approvedDevice } from "@/lib/devices";
 import { judgeSession } from "@/lib/session";
 import { TOO_MANY } from "@/lib/sign-in-limits";
@@ -14,8 +14,11 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
   const code = typeof query.code === "string" ? query.code.slice(0, 32) : "";
   const session = await judgeSession();
   const context = session ? await getJudgeContext(session.judgeId) : null;
-  // Resetting an activity's scores signs every judge device out: this one's gone, so the judge signs in again.
+  // Resetting an activity's scores signs every judge device out: this one's gone, so the judge signs in again. So does
+  // archiving it, which closes judging for good: then there's nothing to sign in to.
   const signedOut = !!context && !!session?.deviceId && !(await getDevice(session.deviceId));
+  const over = signedOut && context ? await getActivity(context.activityId) : null;
+  const archived = !!over?.archivedAt;
   // A judge link for someone else, opened on a device that's judging: it asks before switching (see the join route).
   const switching = query.switch === "1" && !!context && !!session && (await approvedDevice(session.judgeId, session.deviceId));
   // A judge link opened: its code is filled in, for the judge to tap Start judging (the link signs nothing in itself),
@@ -47,7 +50,9 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
             <h1 className="judge-title">Judge sign-in</h1>
             {signedOut && (
               <p role="status" className="mt-4 rounded-xl bg-oxford px-4 py-3 font-semibold">
-                You were signed out because the organizer reset the scores. Sign in again to judge.
+                {archived
+                  ? `Judging is over: the organizer archived ${over?.name ?? "the activity"}. Thank you for judging.`
+                  : "You were signed out because the organizer reset the scores. Sign in again to judge."}
               </p>
             )}
             <p className="judge-lede mt-3">

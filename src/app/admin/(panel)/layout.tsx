@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { Wordmark } from "@/components/brand";
 import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
 import { THEME_COOKIE } from "@/lib/theme";
@@ -16,8 +17,8 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       <header className="admin-header keep-light bg-prussian text-mint">
         {/* On phones the super admin's links drop to a second row, so nothing runs off the screen. */}
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 sm:h-16 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-0">
-          <Link href="/admin" className="tap-target text-lg font-bold">
-            LiveScoring
+          <Link href="/admin" className="tap-target text-lg">
+            <Wordmark />
           </Link>
           {session.kind === "super" && <AdminNav />}
           <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-5">

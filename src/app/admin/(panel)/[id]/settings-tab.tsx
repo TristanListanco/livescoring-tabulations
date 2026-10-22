@@ -4,12 +4,13 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
-import type { ActionResult, Activity } from "@/lib/types";
+import type { ActionResult, Activity, Signatory } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { deleteActivity, setActivityOwner, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
+import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { LIVE_SCORING_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
@@ -197,8 +198,11 @@ export function SettingsTab({
   organizers,
   developer = false,
   scoreCount = 0,
+  signatories,
 }: {
   activity: Activity;
+  /** The signature lines its results PDFs print. */
+  signatories: Signatory[];
   /** Present for the super admin only. */
   organizers: OrganizerOption[] | null;
   /** A test site: scores can be reset, and the activity deleted even mid-session. */
@@ -245,6 +249,14 @@ export function SettingsTab({
           <CriterionGuides activity={activity} />
         </Section>
       )}
+
+      <Section
+        id="signatories"
+        title="Results PDF signatories"
+        hint="The Board of Tabulators and anyone else who signs this activity's results. Each gets a signature line on its results PDFs and judges' score sheets."
+      >
+        <SignatoriesEditor activityId={activity.id} initial={signatories} />
+      </Section>
 
       {organizers && (
         <Section title="Organizer">

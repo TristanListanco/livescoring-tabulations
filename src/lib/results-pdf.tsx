@@ -70,6 +70,7 @@ const s = StyleSheet.create({
   // A long label wraps rather than running into the page number.
   footerLabel: { flexShrink: 1, marginRight: 16 },
   footerPage: { flexShrink: 0 },
+  footerEnd: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3 },
   // A judge's notes: each entry in running order, beside what they noted on it.
   noteEntryNumber: { fontFamily: "Helvetica", color: C.muted },
   noteRow: { flexDirection: "row", gap: 12, paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: C.line },
@@ -77,18 +78,20 @@ const s = StyleSheet.create({
   noteBody: { flexGrow: 1, flexBasis: 0 },
 });
 
-/** The organizer as printed on the sheet: their name, photo (JPEG bytes) and the people who sign. */
-export type ReportOrganizer = { name: string; photo: Buffer | null; signatories: Signatory[] };
+/** The organizer as printed on the sheet: their name and photo (JPEG bytes). */
+export type ReportOrganizer = { name: string; photo: Buffer | null };
 
 /**
  * `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes).
  * `signatures`: the judges' signatures from the deliberation (an event without live scoring); absent otherwise.
- * `signoff`: the organizer's signature on a deliberated session's results, given as they ended it.
+ * `signoff`: the organizer's signature on a deliberated session's results, given as they ended it. `signatories`: the
+ * activity's signature lines (the Board of Tabulators and whoever else signs its results).
  */
 type ReportInfo = {
   generatedAt: string;
   reportId: string | null;
   organizer: ReportOrganizer | null;
+  signatories?: Signatory[];
   signatures?: JudgeSignature[] | null;
   signoff?: ActivitySignoff | null;
 };
@@ -230,12 +233,18 @@ function Footer({ label, info, perSheet = false }: { label: string; info: Report
   return (
     <View style={s.footer} fixed>
       <Text style={s.footerLabel}>{`${label}${info.reportId ? `, report ${info.reportId}` : ""}, generated ${info.generatedAt}`}</Text>
-      <Text
-        style={s.footerPage}
-        render={({ pageNumber, totalPages, subPageNumber, subPageTotalPages }) =>
-          perSheet ? `Page ${subPageNumber} of ${subPageTotalPages}` : `Page ${pageNumber} of ${totalPages}`
-        }
-      />
+      <View style={s.footerEnd}>
+        {/* What made the sheet, quietly: Tabulous's mark and name, before the page number. */}
+        <Svg viewBox="0 0 48 48" style={{ width: 8, height: 8 }}>
+          <Path d="M12 11v26M20 11v26M28 11v26M36 11v26M5.5 33.5 42.5 14.5" stroke={C.muted} strokeWidth={5} strokeLinecap="round" fill="none" />
+        </Svg>
+        <Text
+          style={s.footerPage}
+          render={({ pageNumber, totalPages, subPageNumber, subPageTotalPages }) =>
+            `Tabulous · ${perSheet ? `Page ${subPageNumber} of ${subPageTotalPages}` : `Page ${pageNumber} of ${totalPages}`}`
+          }
+        />
+      </View>
     </View>
   );
 }
@@ -300,7 +309,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
   const label = part ? `${activity.name}, ${part}` : activity.name;
 
   return (
-    <Document title={`${label} results`} author="LiveScoring" creator="LiveScoring">
+    <Document title={`${label} results`} author="Tabulous" creator="Tabulous">
       <Page size="A4" orientation={judges.length > 4 ? "landscape" : "portrait"} style={s.page}>
         <Header
           info={info}
@@ -360,7 +369,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
         <CorrectionsList corrections={corrections ?? []} />
         <SignOff
           judges={judges}
-          signatories={info.organizer?.signatories ?? []}
+          signatories={info.signatories ?? []}
           note={signNote(corrections, info.signatures) + (info.signoff ? ` ${info.signoff.signedBy} signed the results as organizer and ended the session.` : "")}
           signatures={info.signatures}
           signoff={info.signoff}
@@ -407,7 +416,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
   };
 
   return (
-    <Document title={`${label}, judges' score sheets`} author="LiveScoring" creator="LiveScoring">
+    <Document title={`${label}, judges' score sheets`} author="Tabulous" creator="Tabulous">
       {judges.map((judge) => {
         const rows = judgeSheet(board, judge.id);
         // The last rows go with the sign-off, so a sheet that runs over never leaves the signatures alone on a page.
@@ -445,7 +454,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
                 <SignOff
                   inline
                   judges={[judge]}
-                  signatories={info.organizer?.signatories ?? []}
+                  signatories={info.signatories ?? []}
                   signatures={info.signatures}
                   note={
                     `${judge.name} submitted every score above from their approved device with a personal access code` +
@@ -520,7 +529,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
     ` Generated ${info.generatedAt}.`;
 
   return (
-    <Document title={`${activity.name}, ${sheet.title}`} author="LiveScoring" creator="LiveScoring">
+    <Document title={`${activity.name}, ${sheet.title}`} author="Tabulous" creator="Tabulous">
       <Page size="A4" orientation={sheet.weights.length > 4 ? "landscape" : "portrait"} style={s.page}>
         <Header info={info} title={activity.name} subtitle={sheet.title} meta={meta} />
 
@@ -579,7 +588,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
 
         <SignOff
           judges={judges}
-          signatories={info.organizer?.signatories ?? []}
+          signatories={info.signatories ?? []}
           note={
             "Each figure above comes from the judges' scores in that sub-activity, each submitted from an approved device with a personal access code; " +
             "submitted scores are final. The sub-activities' own results sheets list every score. (Sgd.) marks each judge's verified sign-off."
@@ -605,9 +614,9 @@ function generatedAt(timeZone?: string): string {
 export function renderStandingsPdf(
   board: Board,
   sheet: StandingsSheet,
-  { timeZone, reportId, organizer }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null },
+  { timeZone, reportId, organizer, signatories }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; signatories: Signatory[] },
 ): Promise<Buffer> {
-  return renderToBuffer(<StandingsDocument board={board} sheet={sheet} info={{ generatedAt: generatedAt(timeZone), reportId, organizer }} />);
+  return renderToBuffer(<StandingsDocument board={board} sheet={sheet} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories }} />);
 }
 
 /** Results as a PDF: an event's, or (with `part`, its name) one pageant sub-activity's. */
@@ -618,6 +627,7 @@ export function renderResultsPdf(
     timeZone,
     reportId,
     organizer,
+    signatories,
     part,
     corrections = null,
     signatures = null,
@@ -626,6 +636,7 @@ export function renderResultsPdf(
     timeZone?: string;
     reportId: string;
     organizer: ReportOrganizer | null;
+    signatories: Signatory[];
     part?: string;
     corrections?: CorrectionView[] | null;
     signatures?: JudgeSignature[] | null;
@@ -633,7 +644,7 @@ export function renderResultsPdf(
   },
 ): Promise<Buffer> {
   return renderToBuffer(
-    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures, signoff }} />,
+    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, signoff }} />,
   );
 }
 
@@ -648,6 +659,7 @@ export function renderJudgeSheetsPdf(
     timeZone,
     reportId,
     organizer,
+    signatories,
     part,
     corrections = [],
     signatures = null,
@@ -655,6 +667,7 @@ export function renderJudgeSheetsPdf(
     timeZone?: string;
     reportId: string;
     organizer: ReportOrganizer | null;
+    signatories: Signatory[];
     part?: string;
     corrections?: CorrectionView[];
     signatures?: JudgeSignature[] | null;
@@ -662,7 +675,7 @@ export function renderJudgeSheetsPdf(
 ): Promise<Buffer> {
   const corrected = new Map(corrections.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
   return renderToBuffer(
-    <JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatures }} />,
+    <JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }} />,
   );
 }
 
@@ -678,7 +691,7 @@ function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[
   const meta = `What this judge noted on each ${noun}, for the organizer's reference; not part of the results. In running order. Generated ${info.generatedAt}.`;
 
   return (
-    <Document title={`${activity.name}, judges' notes`} author="LiveScoring" creator="LiveScoring">
+    <Document title={`${activity.name}, judges' notes`} author="Tabulous" creator="Tabulous">
       {judges.map((judge) => {
         const mine = new Map(notes.filter((n) => n.judgeId === judge.id).map((n) => [n.entryId, n.body]));
         return (

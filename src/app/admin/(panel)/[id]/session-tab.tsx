@@ -16,8 +16,9 @@ import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges } from "@/lib/deliberation";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "@/lib/ties";
 import type { ActionResult, ActivitySignoff, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
-import { useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
+import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
+import { ArchiveButton } from "../archive-controls";
 import { FormMessage } from "../form-message";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
@@ -231,7 +232,7 @@ export function SessionTab({
   signoff?: ActivitySignoff | null;
 }) {
   const pageant = board.activity.kind === "pageant";
-  const connection = useLiveRefresh(board.activity.id);
+  const connection = useLiveRefresh(board.activity.id, board.activity.sessionState === "ended" ? { ...JUDGING_OVER, enabled: !archived } : {});
   // A correction being voted on may still change a score: the results PDFs wait for it.
   const held = corrections.some((c) => c.status === "open") ? "Waits until the score correction is settled" : null;
   // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
@@ -278,8 +279,9 @@ export function SessionTab({
         {!activity.liveScoring && !activity.signedOffAt && !archived && (
           <p className="hint">Scores show there once every judge has signed and the session has ended.</p>
         )}
-        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
-        {!activity.liveScoring && !pageant && (
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. Closed once
+            the activity is archived: its results are final and download below. */}
+        {!activity.liveScoring && !pageant && !archived && (
           <div className="flex flex-wrap items-center gap-x-1 pt-1">
             <span className="min-w-0 flex-1 font-semibold">Private tally</span>
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
@@ -1077,12 +1079,26 @@ export function SessionTab({
                     <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
                       {signatories.length > 0
                         ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
-                        : "No signatories yet, so the PDFs print one blank Tabulator line."}{" "}
-                      <Link href="/admin/profile" className="font-semibold text-mint underline underline-offset-2">
-                        Edit signatories
-                      </Link>
+                        : "No signatories yet, so the PDFs print one blank Tabulator line."}
+                      {!archived && (
+                        <>
+                          {" "}
+                          <Link href={`/admin/${activity.id}?tab=settings#signatories`} className="font-semibold text-mint underline underline-offset-2">
+                            Edit signatories
+                          </Link>
+                        </>
+                      )}
                     </p>
                   )}
+                </div>
+              )}
+              {/* Archiving is how the organizer says no more deliberating is needed: judging closes for good. */}
+              {!archived && (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
+                  <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
+                    No more deliberating needed? Archive it: judges are signed out, their codes stop working and the private tally closes.
+                  </p>
+                  <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford" />
                 </div>
               )}
             </section>

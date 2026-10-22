@@ -47,7 +47,7 @@ const waitToRetry = (ms: number) =>
  * A page left open across a deploy: its buttons reach the server through ids from the version it was loaded with,
  * and every deploy changes them, so afterwards each one fails ("action not found"). Without this, a judge would read
  * "check your connection" and keep retrying a score that can never save, and a form would fail with an error page.
- * Instead the page says LiveScoring was updated and reloads into the new version: the action never ran, so all that's
+ * Instead the page says Tabulous was updated and reloads into the new version: the action never ran, so all that's
  * lost is what was being typed. It reloads once; a page still out of date straight after asks to be reloaded rather
  * than reloading again.
  */
@@ -121,14 +121,14 @@ export function RequestGuard() {
   if (deploy !== "current") {
     return (
       <div role="status" className="fixed inset-x-0 top-0 z-50 bg-prussian px-4 py-3 text-center text-sm font-semibold text-mint shadow-lg">
-        {deploy === "reloading" ? "LiveScoring was just updated. Reloading…" : "LiveScoring was just updated. Reload this page to carry on."}
+        {deploy === "reloading" ? "Tabulous was just updated. Reloading…" : "Tabulous was just updated. Reload this page to carry on."}
       </div>
     );
   }
   if (retrying && !onAir) {
     return (
       <div role="status" className="fixed inset-x-0 bottom-0 z-50 bg-prussian/95 px-4 py-2.5 text-center text-sm font-semibold text-mint shadow-lg">
-        Can&apos;t reach LiveScoring right now. Showing the last update; trying again…
+        Can&apos;t reach Tabulous right now. Showing the last update; trying again…
       </div>
     );
   }

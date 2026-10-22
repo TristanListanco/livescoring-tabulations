@@ -24,7 +24,7 @@ export default function LedError({ error, retry }: { error: Error & { digest?: s
         <OperatorPanel>
           <p className="inline-flex items-center gap-2 font-semibold">
             <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-danger-soft" />
-            Can&apos;t reach LiveScoring. Trying again by itself.
+            Can&apos;t reach Tabulous. Trying again by itself.
           </p>
         </OperatorPanel>
       )}

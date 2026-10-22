@@ -36,6 +36,17 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     );
   }
 
+  // Archived: the results are final and download from its page, so the tally is closed for good.
+  if (activity.archivedAt) {
+    return (
+      <>
+        {back}
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">Private tally</h1>
+        <p className="hint mt-2 max-w-xl">The private tally closed when {activity.name} was archived. Its results and score sheets download from its page.</p>
+      </>
+    );
+  }
+
   const until = await tallyUnlockedUntil(session, id);
   if (!until) {
     return (

@@ -18,6 +18,11 @@ export async function touchJudge(judgeId: string) {
  * turned away) keeps its request; anything else asks the organizer for approval with a new pairing code.
  */
 export async function signInJudgeDevice(judgeId: string): Promise<{ error: string } | null> {
+  // Archiving closes judging for good (and signed every device out): a code no longer signs in.
+  const { data: judging } = await db().from("judges").select("activities(archived_at)").eq("id", judgeId).maybeSingle();
+  if ((judging as { activities: { archived_at: string | null } | null } | null)?.activities?.archived_at) {
+    return { error: "Judging is over for this activity: the organizer has archived it." };
+  }
   const current = await judgeSession();
   if (current?.judgeId === judgeId && current.deviceId) {
     const device = await getDevice(current.deviceId);

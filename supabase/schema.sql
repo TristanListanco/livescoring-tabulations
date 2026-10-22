@@ -1,4 +1,4 @@
--- LiveScoring schema. Paste into the Supabase SQL editor and run once.
+-- Tabulous schema. Paste into the Supabase SQL editor and run once.
 -- All writes go through the Next.js server with the secret key; the browser
 -- only reads public tables (for realtime) with the publishable key.
 
@@ -17,7 +17,7 @@ create table if not exists public.admins (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
--- Names and designations printed as signature lines on the results PDF.
+-- Signature lines from before they were per activity (see activities.signatories): no longer read.
 alter table public.admins add column if not exists signatories jsonb not null default '[]'::jsonb;
 
 -- Admin sessions: one row per sign-in, its id carried in the session cookie. Signing out deletes it, ending the session
@@ -241,6 +241,9 @@ create trigger check_session_restart before update on public.activities for each
 -- can be archived, it stays ended (no reopening, no reset), and archiving is for good.
 alter table public.activities add column if not exists session_ended_at timestamptz;
 alter table public.activities add column if not exists archived_at timestamptz;
+-- Names and designations printed as signature lines on the activity's results PDFs (admins.signatories, from before
+-- they were per activity, is no longer read).
+alter table public.activities add column if not exists signatories jsonb not null default '[]'::jsonb;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_archived_ended_check') then

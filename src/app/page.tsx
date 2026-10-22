@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { TallyMark } from "@/components/brand";
 
 export default function Home() {
   return (
     <main className="flex min-h-dvh items-center bg-prussian px-4 py-16 text-mint sm:px-10">
       <div className="mx-auto w-full max-w-3xl">
-        <h1 className="text-[clamp(2.75rem,8vw,5.5rem)] leading-[0.95] font-bold tracking-tight">LiveScoring</h1>
+        <TallyMark className="size-[clamp(3.5rem,9vw,6rem)] text-powder" />
+        <h1 className="mt-4 text-[clamp(2.75rem,8vw,5.5rem)] leading-[0.95] font-bold tracking-tight">Tabulous</h1>
         <p className="mt-5 max-w-xl text-xl leading-relaxed text-powder">
           Judges score from their own devices. Averages and rankings update on the live results page the moment a score is submitted.
         </p>

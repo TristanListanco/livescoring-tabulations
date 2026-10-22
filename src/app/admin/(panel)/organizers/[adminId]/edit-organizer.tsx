@@ -4,23 +4,20 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
-import type { AdminAccount, Signatory } from "@/lib/types";
+import type { AdminAccount } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
 import { FormMessage } from "../../form-message";
 import { PasswordField } from "../../password-field";
 import { Section } from "../../section";
-import { SignatoriesEditor } from "../../signatories-editor";
 
 export function EditOrganizer({
   organizer,
   activities,
-  signatories,
 }: {
   organizer: AdminAccount;
   /** Names only: an organizer's activities are private to them. */
   activities: string[];
-  signatories: Signatory[];
 }) {
   const [state, action] = useActionState<FormResult, FormData>(updateOrganizer.bind(null, organizer.id), null);
   const [photoPending, startPhoto] = useTransition();
@@ -89,10 +86,6 @@ export function EditOrganizer({
           </div>
         </div>
       </form>
-
-      <Section title="Results PDF signatories">
-        <SignatoriesEditor adminId={organizer.id} initial={signatories} />
-      </Section>
 
       <Section title="Activities">
         {activities.length === 0 ? (

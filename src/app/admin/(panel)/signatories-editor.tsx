@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, useTransition } from "react";
 import type { ActionResult, Signatory } from "@/lib/types";
-import { saveSignatories } from "../account-actions";
+import { saveSignatories } from "../actions";
 import { FormMessage } from "./form-message";
 
 type Row = { key: number; name: string; designation: string };
@@ -11,8 +11,8 @@ const isBlank = (r: Row) => !r.name.trim() && !r.designation.trim();
 const listed = (list: { name: string; designation: string }[]) =>
   JSON.stringify(list.map((s) => [s.name.replace(/\s+/g, " ").trim(), s.designation.replace(/\s+/g, " ").trim()]));
 
-/** Names and designations (Board of Tabulators, representatives) printed as signature lines on the results PDF. */
-export function SignatoriesEditor({ adminId, initial }: { adminId: string | null; initial: Signatory[] }) {
+/** Names and designations (Board of Tabulators, representatives) printed as signature lines on an activity's results PDFs. */
+export function SignatoriesEditor({ activityId, initial }: { activityId: string; initial: Signatory[] }) {
   // Keys count up within this editor, and ids build on useId, so the server and the browser render the same ids.
   const fieldId = useId();
   const nextKey = useRef(initial.length);
@@ -42,7 +42,7 @@ export function SignatoriesEditor({ adminId, initial }: { adminId: string | null
     }
     startTransition(async () => {
       const r = await saveSignatories(
-        adminId,
+        activityId,
         filled.map(({ name, designation }) => ({ name, designation })),
       );
       setResult(r);

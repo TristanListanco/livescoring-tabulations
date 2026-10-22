@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Wordmark } from "@/components/brand";
 import { redirect } from "next/navigation";
 import { currentAdmin } from "@/lib/session";
 import { LoginForm } from "./login-form";
@@ -13,7 +14,9 @@ export default async function AdminLogin({ searchParams }: PageProps<"/admin/log
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
-        <p className="text-lg font-bold text-regal">LiveScoring</p>
+        <p className="text-lg text-regal">
+          <Wordmark />
+        </p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight">{asSuper ? "Super admin sign-in" : "Organizer sign-in"}</h1>
         <p className="hint mt-2">
           {asSuper ? "For the developer who manages organizer accounts." : "Sign in with the organizer account you were given."}

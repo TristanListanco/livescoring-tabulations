@@ -14,9 +14,12 @@ import { useLiveRefresh } from "@/lib/use-live-refresh";
  * computer moves the mouse, taps or presses a key, which shows them whether it's connected and what it's showing.
  */
 export function LedView({ board }: { board: Board }) {
-  // The wall is on air: it follows changes at once, like the judges' screens.
-  // On air: a notice that doesn't arrive is put right within 3 seconds.
-  const status = useLiveRefresh(board.activity.id, { pollMs: 3_000 });
+  // The wall is on air: it follows changes at once, like the judges' screens, and a notice that doesn't arrive is put
+  // right within 6 seconds (3 without realtime). Once judging has ended it lets go of realtime and checks every 10.
+  const status = useLiveRefresh(
+    board.activity.id,
+    board.activity.sessionState === "ended" ? { pollMs: 10_000, realtime: false } : { pollMs: 3_000, liveCheckMs: 6_000 },
+  );
   const awake = useOperatorAwake();
   // Remembered for its error screen, which then shows the same kind of background (see error.tsx).
   const mode = board.activity.ledFullscreen ? "full" : "key";

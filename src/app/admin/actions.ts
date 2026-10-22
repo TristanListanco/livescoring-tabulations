@@ -51,6 +51,7 @@ import {
   type JudgePanel,
   type ResultDecimals,
   type SessionState,
+  type Signatory,
 } from "@/lib/types";
 import { traced } from "@/lib/observe";
 import { log, messageOf } from "@/lib/log";
@@ -70,7 +71,7 @@ const err = (error: string): ActionResult => ({ ok: false, error });
 async function needsMigration(hint: string): Promise<ActionResult> {
   if ((await currentAdmin())?.kind === "super") return err(hint);
   log("error", "needs_migration", { hint });
-  return err("This needs a database update. Ask your LiveScoring administrator to apply it, then try again.");
+  return err("This needs a database update. Ask your Tabulous administrator to apply it, then try again.");
 }
 
 /** A database failure the organizer can't fix from the panel: the details go to the server log, not the screen. */
@@ -226,6 +227,7 @@ export const openTally = traced("openTally", async function openTally(activityId
   if (!managed) return NOT_FOUND;
   const { session, activity } = managed;
   if (activity.kind !== "event" || activity.liveScoring) return err("This event scores live: its live results already show every score.");
+  if (activity.archivedAt) return err("The private tally closed when this activity was archived.");
   const admin = session.kind === "super" ? "super" : session.admin.id;
   const address = await clientAddress();
   const accountKey = session.kind === "super" ? "admin:super" : `admin:${session.admin.email}`;
@@ -849,6 +851,31 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
   return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
 });
 
+const MAX_SIGNATORIES = 12;
+
+/**
+ * Names and designations printed as signature lines on this activity's results PDFs: its Board of Tabulators and
+ * whoever else signs them. Each activity has its own; they can change until it's archived.
+ */
+export const saveSignatories = traced("saveSignatories", async function saveSignatories(activityId: string, signatories: Signatory[]): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity) return NOT_FOUND;
+  if (activity.archivedAt) return err("This activity is archived, so its signatories can't change.");
+  const clean = (Array.isArray(signatories) ? signatories : [])
+    .map((s) => ({
+      name: String(s?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+      designation: String(s?.designation ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+    }))
+    .filter((s) => s.name || s.designation);
+  if (clean.some((s) => !s.name)) return err("Every signatory needs a name.");
+  if (clean.length > MAX_SIGNATORIES) return err(`Up to ${MAX_SIGNATORIES} signatories fit on the sheet.`);
+  const { error } = await db().from("activities").update({ signatories: clean }).eq("id", activityId);
+  if (error) return /signatories/.test(error.message) ? needsMigration("Signatories for each activity need a database update. Run supabase/migrations/027_activity_signatories.sql.") : dbErr(error);
+  changed();
+  return ok(clean.length ? `Saved. ${clean.length} ${clean.length === 1 ? "signatory prints" : "signatories print"} on the results PDF.` : "Saved. No signatories will print.");
+});
+
 /**
  * A criteria event's guides for judges, one per criterion (fields guide-<criterion id>). The scoring itself is fixed
  * once the activity exists; the guides can change until judging starts, so every entry is judged against the same ones.
@@ -1424,7 +1451,9 @@ const ARCHIVE_HINT = "Archiving needs a database update. Run supabase/migrations
 /**
  * Archive an activity once its session has ended: it moves from the list of activities to the archived ones, and
  * from then on can't be reopened or changed, only read (its results and score sheets still download) and deleted.
- * The database holds the same rules (migration 020).
+ * The database holds the same rules (migration 020). It's how the organizer says no more deliberating is needed, so
+ * judging closes for good: every judge's device is signed out and their codes no longer sign in, the private tally
+ * closes, and the live results stop checking for changes.
  */
 export const archiveActivity = traced("archiveActivity", async function archiveActivity(activityId: string): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
@@ -1441,6 +1470,12 @@ export const archiveActivity = traced("archiveActivity", async function archiveA
     .eq("session_state", "ended")
     .is("archived_at", null);
   if (error) return /archived_at/.test(error.message) ? needsMigration(ARCHIVE_HINT) : dbErr(error);
+  // Then their screens hear of it, and go back to the sign-in, which says judging is over.
+  const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
+  if (judgeRows?.length) {
+    await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
+    await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
+  }
   changed();
   return ok(`${activity.name} is archived. Find it under Archived activities.`);
 });

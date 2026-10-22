@@ -3,7 +3,7 @@
 import { showingBoard } from "@/lib/pageant";
 import { rangeLabel, rulesSummary, scoreProgress } from "@/lib/scoring";
 import type { Board } from "@/lib/types";
-import { useLiveRefresh } from "@/lib/use-live-refresh";
+import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { useStage } from "@/lib/use-stage";
 import { Scoreboard } from "./scoreboard";
 import { ShowStatus } from "./show-status";
@@ -20,7 +20,14 @@ export function LiveBoard({ board: full }: { board: Board }) {
   // The audience's page: one phone per person, so it checks for changes rather than holding a realtime connection
   // (with many activities at once, phones would be most of realtime's connections), at most one refresh every 2
   // seconds. A check reads one row; a refresh reads the shared server cache, cleared only by this activity's changes.
-  const status = useLiveRefresh(full.activity.id, { pollMs: 4_000, minGapMs: 2_000, realtime: false });
+  // Between entries, when nothing changes, the checks stretch to every 12 seconds. Once judging has ended it checks
+  // every half minute, and an archived activity's results are final: it doesn't check at all.
+  const status = useLiveRefresh(
+    full.activity.id,
+    full.activity.sessionState === "ended"
+      ? { ...JUDGING_OVER, enabled: !full.activity.archivedAt }
+      : { pollMs: 4_000, minGapMs: 2_000, idleMaxMs: 12_000, realtime: false },
+  );
   const stage = useStage();
   const { board, round } = showingBoard(full);
   const { activity } = board;
