@@ -28,6 +28,8 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     signedOffAt: null,
     archivedAt: null,
     currentEntryId: null,
+    previousEntryId: null,
+    entryShownAt: null,
     kind: "event",
     preliminaryWeight: 0,
     currentRoundId: null,

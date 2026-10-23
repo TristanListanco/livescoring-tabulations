@@ -36,6 +36,9 @@ export type ActivityRow = {
   live_scoring?: boolean;
   signed_off_at?: string | null;
   current_entry_id?: string | null;
+  /** Migration 028. */
+  previous_entry_id?: string | null;
+  entry_shown_at?: string | null;
   scoring_mode?: string;
   criteria?: unknown;
   criteria_display?: string;
@@ -148,6 +151,8 @@ export function toActivity(row: ActivityRow): Activity {
     signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,
     archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
+    previousEntryId: row.previous_entry_id ?? null,
+    entryShownAt: row.entry_shown_at ?? null,
     scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
     criteria: toCriteria(row.criteria),
     criteriaDisplay: row.criteria_display === "ten" ? "ten" : "percent",
