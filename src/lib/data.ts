@@ -309,18 +309,18 @@ export async function listAttention(activities: ActivitySummary[]): Promise<Map<
 }
 
 /** An organizer's activities by name, for their account page. Only these columns are read. */
-export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string }[]> {
+export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string; sessionState: SessionState }[]> {
   await connection();
   let query = db()
     .from("activities")
-    .select("id, name, owner:admins!activities_owner_id_fkey(name)")
+    .select("id, name, session_state, owner:admins!activities_owner_id_fkey(name)")
     .not("owner_id", "is", null)
     .order("created_at", { ascending: false });
   if (ownerId) query = query.eq("owner_id", ownerId);
   const { data, error } = await query;
   fail(error);
-  type Row = { id: string; name: string; owner: { name: string } | null };
-  return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "" }));
+  type Row = { id: string; name: string; session_state: string | null; owner: { name: string } | null };
+  return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "", sessionState: toSessionState(row.session_state ?? undefined) }));
 }
 
 /** An organizer's activity on the super admin's activity list: how the show is going, never what was scored. */

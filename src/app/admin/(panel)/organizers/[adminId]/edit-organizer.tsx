@@ -4,6 +4,7 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
+import { listNames } from "@/lib/names";
 import type { AdminAccount } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
@@ -16,10 +17,11 @@ export function EditOrganizer({
   activities,
 }: {
   organizer: AdminAccount;
-  /** Names only: an organizer's activities are private to them. */
-  activities: string[];
+  /** Names and whether judging is under way: an organizer's activities are private to them. */
+  activities: { name: string; running: boolean }[];
 }) {
   const [state, action] = useActionState<FormResult, FormData>(updateOrganizer.bind(null, organizer.id), null);
+  const running = activities.filter((a) => a.running);
   const [photoPending, startPhoto] = useTransition();
   const [photoState, setPhotoState] = useState<FormResult>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -92,9 +94,10 @@ export function EditOrganizer({
           <p className="hint">None yet. Activities they create appear here.</p>
         ) : (
           <ul className="list-disc space-y-1.5 pl-5">
-            {activities.map((name, i) => (
-              <li key={i} className="font-semibold">
-                {name}
+            {activities.map((a, i) => (
+              <li key={i}>
+                <span className="font-semibold">{a.name}</span>
+                {a.running && <span className="hint"> · judging now</span>}
               </li>
             ))}
           </ul>
@@ -115,6 +118,12 @@ export function EditOrganizer({
           {activities.length > 0
             ? `Their ${activities.length} ${activities.length === 1 ? "activity is" : "activities are"} deleted too, with every judge, entry, score and photo. This can't be undone.`
             : "They have no activities."}
+          {running.length > 0 && (
+            <strong className="mt-2 block">
+              {listNames(running)} {running.length === 1 ? "is" : "are"} being judged right now: the judges&apos; scores so far are deleted with{" "}
+              {running.length === 1 ? "it" : "them"}.
+            </strong>
+          )}
         </ConfirmDialog>
       </Section>
     </div>

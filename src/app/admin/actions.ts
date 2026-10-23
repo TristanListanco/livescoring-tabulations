@@ -973,6 +973,14 @@ export const setSessionState = traced("setSessionState", async function setSessi
   if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
   const current = await sessionOf(activityId);
   if (state === "live" && current.state === "deliberation") return err("The judges are deliberating. The session ends once they've all signed.");
+  if (state === "live" && current.state === "ended") {
+    // The judges and the organizer signed these results: they're reopened only by deliberating again, which asks for the
+    // password as ending did.
+    const ended = await getActivity(activityId);
+    if (ended?.kind === "event" && !ended.liveScoring && ended.signedOffAt) {
+      return err("The judges signed these results, so deliberate again instead. It asks for your password.");
+    }
+  }
   if (state === "live" && current.state === "draft") {
     const [judges, entries] = await Promise.all([
       db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
@@ -1026,6 +1034,8 @@ export const setSessionState = traced("setSessionState", async function setSessi
     const { error: unsign } = await db().from("judge_signatures").delete().eq("activity_id", activityId);
     // Before migration 021 there's nothing to take back.
     if (!unsign) update.signed_off_at = null;
+    // Nor the organizer's signature on them (fails harmlessly before migration 026).
+    await db().from("activity_signoffs").delete().eq("activity_id", activityId);
   }
   let { error } = await db().from("activities").update(update).eq("id", activityId);
   // Before migration 020 there's no end time to keep: the session changes all the same.
@@ -1262,7 +1272,11 @@ export const removeJudge = traced("removeJudge", async function removeJudge(judg
 
 export const addEntries = traced("addEntries", async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
+  const { state } = await sessionOf(activityId);
+  if (state === "ended") return ENTRIES_ENDED;
+  // The judges are reviewing and signing every entry's scores, and no one can score a new one now (judging doesn't
+  // reopen from the deliberation): it would hold the results back for good.
+  if (state === "deliberation") return err("The judges are deliberating, so no entries can be added now.");
   const names = entryNames(formData.get("names"));
   if (names.length === 0) return err("Type at least one entry name.");
 

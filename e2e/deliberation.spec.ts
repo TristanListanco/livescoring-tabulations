@@ -185,6 +185,13 @@ test.describe.serial("deliberation", () => {
     await expect(ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ })).toBeVisible();
   });
 
+  test("while the judges deliberate, no entry can be added: no one could score it", async ({ page }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=entries`);
+    await expect(page.getByRole("note")).toHaveText("The judges are deliberating, so no entries can be added. Names can still be corrected.");
+    await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
+  });
+
   test("each judge reviews their scores and signs, then the organizer signs the results to end it", async ({ page }) => {
     // Ana reviews: every entry with her score, her correction, and her notes.
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);

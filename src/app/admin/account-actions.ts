@@ -173,7 +173,6 @@ export const setOrganizerPhoto = traced("setOrganizerPhoto", async function setO
   return ok();
 });
 
-/** Deletes the account. Their activities stay, and only the super admin can manage them afterwards. */
 /**
  * Delete an organizer and their activities. Their activities are private to them, so they are deleted
  * rather than handed to the super admin.
@@ -184,6 +183,9 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
   if (!current) return err("Organizer not found.");
 
+  // Signed out first, everywhere: an activity they created while theirs were being deleted would outlive them,
+  // handed to the super admin when the account goes.
+  await db().from("admin_sessions").delete().eq("admin_id", adminId);
   const { data: owned, error: listError } = await db().from("activities").select("id").eq("owner_id", adminId);
   if (listError) return err(listError.message);
   const activityIds = (owned as { id: string }[]).map((a) => a.id);

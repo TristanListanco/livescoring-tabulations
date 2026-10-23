@@ -249,6 +249,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             scoredFor={Object.fromEntries(scoredFor)}
             started={started}
             ended={activity.sessionState === "ended"}
+            deliberating={activity.sessionState === "deliberation"}
             pageant={pageant}
           />
         )}
