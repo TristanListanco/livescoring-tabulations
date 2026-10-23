@@ -21,7 +21,10 @@ export default async function OrganizerPage({ params }: PageProps<"/admin/organi
       </Link>
       <h1 className="mt-1 text-3xl font-bold tracking-tight">{organizer.name}</h1>
       <p className="hint mt-1">{organizer.email}</p>
-      <EditOrganizer organizer={organizer} activities={activities.map((a) => a.name)} />
+      <EditOrganizer
+        organizer={organizer}
+        activities={activities.map((a) => ({ name: a.name, running: a.sessionState === "live" || a.sessionState === "deliberation" }))}
+      />
     </>
   );
 }

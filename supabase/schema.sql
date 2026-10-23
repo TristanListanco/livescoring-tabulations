@@ -370,6 +370,11 @@ begin
   if not found then
     raise exception 'Activity not found';
   end if;
+  -- A new score only while judging is live: not one that arrives as the session ends or the deliberation starts. A
+  -- correction (an update) is settled later, in the deliberation too.
+  if tg_op = 'INSERT' and a.session_state is distinct from 'live' then
+    raise exception 'Judging is not open' using errcode = '55000';
+  end if;
   if not exists (select 1 from public.entries where id = new.entry_id and activity_id = new.activity_id) then
     raise exception 'Entry does not belong to this activity';
   end if;
@@ -397,6 +402,27 @@ begin
   return new;
 end;
 $$;
+
+-- The entry on screen before this one, and when judges were moved on from it: a score a judge confirmed just before the
+-- move (inside their few seconds to undo it) still counts when it arrives (see scoreWindowOpen in src/lib/judging.ts).
+alter table public.activities add column if not exists previous_entry_id uuid references public.entries (id) on delete set null;
+alter table public.activities add column if not exists entry_shown_at timestamptz;
+create or replace function public.note_entry_shown()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.current_entry_id is distinct from old.current_entry_id then
+    new.previous_entry_id := old.current_entry_id;
+    new.entry_shown_at := now();
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists activities_entry_shown on public.activities;
+create trigger activities_entry_shown
+  before update of current_entry_id on public.activities
+  for each row execute function public.note_entry_shown();
 
 -- On update too: a corrected score still has to fit its rules.
 drop trigger if exists scores_check on public.scores;

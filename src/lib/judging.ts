@@ -1,4 +1,4 @@
-import { roundPool } from "./pageant";
+import { roundPool, SCORE_UNDO_MS } from "./pageant";
 import type { Activity, Board, Entry } from "./types";
 
 /**
@@ -25,6 +25,26 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
   const value = myScores.get(entry.id);
   const number = entry.number ?? index + 1;
   return value === undefined ? { kind: "scoring", entry, number } : { kind: "scored", entry, number, value };
+}
+
+/** How long after judges are moved on that a score for the entry they left still counts: the undo window, and ten seconds for it to arrive. */
+export const LATE_SCORE_MS = SCORE_UNDO_MS + 10_000;
+
+/**
+ * Whether a judge's score for this entry is accepted now: the entry on screen, or, in an event, the one judges were
+ * moved on from in the last LATE_SCORE_MS. A judge confirms a score and has a few seconds to undo it before it's sent;
+ * one confirmed just before the organizer (or the chair) moved on still counts. A pageant's scores belong to the
+ * sub-activity on screen and its timer, so there only the candidate on screen.
+ */
+export function scoreWindowOpen(
+  activity: Pick<Activity, "kind" | "currentEntryId" | "previousEntryId" | "entryShownAt">,
+  entryId: string,
+  now: number,
+): boolean {
+  if (activity.currentEntryId === entryId) return true;
+  if (activity.kind !== "event" || activity.previousEntryId !== entryId || !activity.entryShownAt) return false;
+  const movedOn = Date.parse(activity.entryShownAt);
+  return Number.isFinite(movedOn) && now - movedOn <= LATE_SCORE_MS;
 }
 
 /** Where the running order stands: the entry on judges' screens, and the ones before and after it. */

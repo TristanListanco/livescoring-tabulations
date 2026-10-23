@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { correctionView } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins } from "@/lib/data";
+import { correctionView, withoutValues } from "@/lib/corrections";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { deliberationResults } from "@/lib/deliberation";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
 import { reportId } from "@/lib/report";
 import { expectedScores, programProgress } from "@/lib/pageant";
-import { scoreProgress } from "@/lib/scoring";
+import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { DeleteArchivedButton } from "../archive-controls";
@@ -118,6 +119,12 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     tab === "settings" ? getActivitySignatories(id) : null,
   ]);
   const [corrections, notes, signatories, signatures, signoff] = desk ?? [null, null, null, null, null];
+  // An event without live scoring keeps its scores from every screen until the judges have deliberated and the
+  // organizer has signed, the desk included: the private tally, behind the organizer's password, is the one place they
+  // show. The desk gets which judge has scored which entry, corrections without the scores, and what the deliberation
+  // needs (its ties, then the signed results) worked out here.
+  const held = !resultsReleased(activity);
+  const deskBoard = held ? withheldScores(board) : board;
 
   const scoredBy = new Map<string, number>();
   const scoredFor = new Map<string, number>();
@@ -219,7 +226,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         )}
         {tab === "session" && (
           <SessionTab
-            board={board}
+            board={deskBoard}
             renderedAt={renderedAt}
             devices={devices}
             progress={progress}
@@ -227,7 +234,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             signatories={signatories}
             liveUrl={liveUrl}
             liveQr={liveQr}
-            corrections={corrections?.map((c) => correctionView(board, c)) ?? []}
+            corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}
+            deliberation={activity.sessionState === "deliberation" ? deliberationResults(board, signatures) : undefined}
             archived={archived}
             hasNotes={(notes?.length ?? 0) > 0}
             signatures={signatures}
@@ -241,11 +249,12 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             scoredFor={Object.fromEntries(scoredFor)}
             started={started}
             ended={activity.sessionState === "ended"}
+            deliberating={activity.sessionState === "deliberation"}
             pageant={pageant}
           />
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}
-        {tab === "led" && <LedTab board={board} ledUrl={ledUrl} />}
+        {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
         {tab === "settings" && (
           <SettingsTab
             activity={activity}

@@ -11,17 +11,23 @@ export const JUDGE_COOKIE = "ls_judge";
  */
 export type SessionPayload = { role: "admin" | "judge" | "tally"; sub: string; pv?: string; dev?: string; sid?: string; act?: string; exp: number };
 
-function secret(): string {
-  const value = process.env.SESSION_SECRET;
-  if (!value || value.length < 32) throw new Error("SESSION_SECRET must be set to at least 32 characters.");
-  return value;
+/**
+ * The secrets tokens are checked with: SESSION_SECRET, which signs every new one, and while it's being rotated the one
+ * before it (SESSION_SECRET_PREVIOUS), so changing the secret doesn't sign every admin and judge out mid-event. Keep the
+ * previous one until the longest session it signed has run out (a judge's: 3 days), then remove it.
+ */
+function secrets(): string[] {
+  const current = process.env.SESSION_SECRET;
+  if (!current || current.length < 32) throw new Error("SESSION_SECRET must be set to at least 32 characters.");
+  const previous = process.env.SESSION_SECRET_PREVIOUS;
+  return previous && previous.length >= 32 && previous !== current ? [current, previous] : [current];
 }
 
-function mac(body: string): Buffer {
-  return createHmac("sha256", secret()).update(body).digest();
+function mac(body: string, key = secrets()[0]): Buffer {
+  return createHmac("sha256", key).update(body).digest();
 }
 
-/** A tamper-proof token: base64url(payload).base64url(hmac). */
+/** A tamper-proof token: base64url(payload).base64url(hmac), signed with SESSION_SECRET. */
 export function signToken(payload: SessionPayload): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${mac(body).toString("base64url")}`;
@@ -33,8 +39,11 @@ export function verifyToken(token: string | undefined, role: SessionPayload["rol
   if (!body || !signature) return null;
 
   const given = Buffer.from(signature, "base64url");
-  const expected = mac(body);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  const signed = secrets().some((key) => {
+    const expected = mac(body, key);
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  });
+  if (!signed) return null;
 
   try {
     const payload = JSON.parse(Buffer.from(body, "base64url").toString()) as SessionPayload;
@@ -51,6 +60,11 @@ export function verifyToken(token: string | undefined, role: SessionPayload["rol
  */
 export function fingerprint(value: string): string {
   return mac(`fingerprint:${value}`).toString("base64url").slice(0, 16);
+}
+
+/** The fingerprints a session may carry for a secret: under SESSION_SECRET, and under the previous one while it rotates. */
+export function fingerprints(value: string): string[] {
+  return secrets().map((key) => mac(`fingerprint:${value}`, key).toString("base64url").slice(0, 16));
 }
 
 /** Constant-time comparison that does not leak the password length. */

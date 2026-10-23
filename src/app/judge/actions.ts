@@ -9,7 +9,7 @@ import { cleanSignature } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
-import { showColumns } from "@/lib/judging";
+import { scoreWindowOpen, showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
@@ -138,9 +138,10 @@ export const submitScore = traced("submitScore", async function submitScore(entr
 
   const { activity } = context;
 
-  // The organizer decides what is judged: only the entry on screen, and only while the session is live.
+  // The organizer decides what is judged: only the entry on screen (or, for a few seconds, the one they just moved on
+  // from, for a score confirmed before the move), and only while the session is live. The database checks the session too.
   if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
-  if (activity.currentEntryId !== entryId) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
+  if (!scoreWindowOpen(activity, entryId, Date.now())) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
 
   // A pageant scores in the sub-activity being judged, with its rules, and only while its timer runs.
   let rules = activity;
@@ -193,6 +194,8 @@ export const submitScore = traced("submitScore", async function submitScore(entr
       return { ok: false, error: `You already scored this ${roundId ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
     }
     if (error.code === "23503") return { ok: false, error: "This entry was removed by the organizer." };
+    // The session ended (or the deliberation started) as the score arrived: the database turns it away (migration 028).
+    if (error.code === "55000") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
     // The one write that matters most: why it failed goes to the log, beside the judge's own message.
     log("error", "score_not_saved", { activity: activity.id, entry: entryId, judge: context.judge.id, code: error.code, error: error.message });
     return { ok: false, error: "The score didn't save. Check your connection and try again." };

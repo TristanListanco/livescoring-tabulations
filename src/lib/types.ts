@@ -123,6 +123,12 @@ export type Activity = {
   archivedAt: string | null;
   /** The entry every judge is scoring right now, chosen by the organizer. */
   currentEntryId: string | null;
+  /**
+   * The entry on screen before this one, and when judges were moved on from it (migration 028; null before then, or
+   * before the first move): a score a judge confirmed just before the move still counts (see scoreWindowOpen).
+   */
+  previousEntryId: string | null;
+  entryShownAt: string | null;
   /** Pageant: the preliminary segment's share of the overall score, in percent. Pageant proper gets the rest. */
   preliminaryWeight: number;
   /** Pageant: the sub-activity being judged now. */

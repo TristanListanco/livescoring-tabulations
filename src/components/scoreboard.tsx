@@ -230,7 +230,7 @@ export function Scoreboard({
   }, [stage, paging, current, done, paused, rows, judging]);
 
   if (!hasRows) {
-    return <p className="px-6 py-16 text-center text-lg text-powder">No entries yet. Add them from the admin panel and they appear here.</p>;
+    return <p className="px-6 py-16 text-center text-lg text-powder">No entries yet. They appear here once the organizer adds them.</p>;
   }
 
   // On a stage the columns share the screen's width however many judges there are (nobody can scroll a projector

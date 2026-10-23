@@ -1,4 +1,5 @@
-import { scoreProgress } from "./scoring";
+import { rankEntries, scoreProgress, type RankedRow } from "./scoring";
+import { applyTieBreaks, tiesIn, unbrokenTies, type Tie } from "./ties";
 import type { Board, Judge, JudgeSignature } from "./types";
 
 /**
@@ -41,4 +42,22 @@ export function cleanSignature(value: unknown): string | null {
   if (!path.startsWith("M") || points.length < MIN_SIGNATURE_POINTS) return null;
   const inside = points.every((p) => Number(p[1]) <= SIGNATURE_BOX.width && Number(p[2]) <= SIGNATURE_BOX.height);
   return inside ? path : null;
+}
+
+/**
+ * What the organizer's desk is sent of a deliberation, worked out on the server from the scores it never sends: the
+ * ties in the ranking (which entries are level, not their scores), and, once every judge has signed and every tie is
+ * broken, the results they signed, for the organizer to sign in turn (each entry's average, not each judge's score).
+ */
+export type DeliberationResults = { ties: Tie[]; ranking: RankedRow[] | null };
+
+export function deliberationResults(board: Board, signatures: JudgeSignature[] | null): DeliberationResults {
+  const breaks = board.tieBreaks ?? [];
+  const ranking = rankEntries(board.entries, board.judges, board.scores, board.activity);
+  const signed = signatures !== null && unsignedJudges(board.judges, signatures).length === 0;
+  const settled = unbrokenTies(ranking, breaks).length === 0;
+  return {
+    ties: tiesIn(ranking),
+    ranking: signed && settled ? applyTieBreaks(ranking, breaks).map((row) => ({ ...row, scores: new Map<string, number>() })) : null,
+  };
 }

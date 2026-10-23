@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cleanSignature, deliberationGap, MAX_SIGNATURE_LENGTH, unsignedJudges } from "./deliberation";
+import { cleanSignature, deliberationGap, deliberationResults, MAX_SIGNATURE_LENGTH, unsignedJudges } from "./deliberation";
+import { withheldScores } from "./scoring";
+import { tieKey } from "./ties";
 import { activityFixture } from "./test-fixtures";
 import type { Board, Judge, JudgeSignature } from "./types";
 
@@ -63,5 +65,46 @@ describe("cleanSignature", () => {
   });
   it("refuses one that's too long", () => {
     expect(cleanSignature(`M1 1${"L599 199".repeat(MAX_SIGNATURE_LENGTH / 8)}`)).toBeNull();
+  });
+});
+
+describe("withheldScores", () => {
+  it("keeps who has scored what, without the scores", () => {
+    const held = withheldScores(board());
+    expect(held.scores).toEqual([]);
+    expect(held.scored).toEqual([
+      { entryId: "e1", judgeId: "ana", roundId: null },
+      { entryId: "e2", judgeId: "ana", roundId: null },
+      { entryId: "e1", judgeId: "ben", roundId: null },
+      { entryId: "e2", judgeId: "ben", roundId: null },
+    ]);
+  });
+});
+
+describe("deliberationResults", () => {
+  // Every score is 9: Agila and Bagwis are tied for 1st.
+  const deliberating = (tieBreaks: Board["tieBreaks"] = []): Board => ({ ...board({ sessionState: "deliberation" }), tieBreaks });
+  const both = [signature("ana"), signature("ben")];
+  const broken = [{ tieKey: tieKey(["e1", "e2"]), entryIds: ["e2", "e1"], reason: "Stronger finish", judgeId: "ben", createdAt: "" }];
+
+  it("sends the ties, which entries are level and for what place, but no results until every judge has signed", () => {
+    const results = deliberationResults(deliberating(broken), [signature("ana")]);
+    expect(results.ties).toHaveLength(1);
+    expect(results.ties[0]).toMatchObject({ rank: 1, key: tieKey(["e1", "e2"]) });
+    expect([...results.ties[0].entryIds].sort()).toEqual(["e1", "e2"]);
+    expect(results.ranking).toBeNull();
+  });
+
+  it("waits for every tie to be broken too", () => {
+    expect(deliberationResults(deliberating(), both).ranking).toBeNull();
+  });
+
+  it("then sends the signed results, in the chair's order, with each entry's average but no judge's score", () => {
+    const ranking = deliberationResults(deliberating(broken), both).ranking;
+    expect(ranking?.map((row) => [row.entry.id, row.rank, row.average])).toEqual([
+      ["e2", 1, 9],
+      ["e1", 2, 9],
+    ]);
+    expect(ranking?.every((row) => row.scores.size === 0)).toBe(true);
   });
 });

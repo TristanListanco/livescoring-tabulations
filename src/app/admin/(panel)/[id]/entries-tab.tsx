@@ -178,6 +178,7 @@ export function EntriesTab({
   scoredFor,
   started,
   ended,
+  deliberating = false,
   pageant = false,
 }: {
   activityId: string;
@@ -189,6 +190,8 @@ export function EntriesTab({
   started: boolean;
   /** Once judging has ended nothing about the entries can change. */
   ended: boolean;
+  /** The judges are deliberating: no entry can be added, since no one could score it now. */
+  deliberating?: boolean;
 }) {
   return (
     <div className="max-w-3xl">
@@ -215,6 +218,10 @@ export function EntriesTab({
             })}
           </ol>
         </>
+      ) : deliberating ? (
+        <p role="note" className="note mt-3">
+          The judges are deliberating, so no entries can be added. Names can still be corrected.
+        </p>
       ) : started ? (
         <p role="note" className="note mt-3">
           The session has started, so the running order is locked and {pageant ? "candidates" : "entries"} with scores can&apos;t be removed.
@@ -241,7 +248,7 @@ export function EntriesTab({
               ))}
             </ol>
           )}
-          <AddEntriesForm activityId={activityId} pageant={pageant} />
+          {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} />}
         </div>
       )}
     </div>

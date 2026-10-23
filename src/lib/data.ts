@@ -6,6 +6,7 @@ import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
+import { withheldScores } from "./scoring";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
@@ -35,6 +36,9 @@ export type ActivityRow = {
   live_scoring?: boolean;
   signed_off_at?: string | null;
   current_entry_id?: string | null;
+  /** Migration 028. */
+  previous_entry_id?: string | null;
+  entry_shown_at?: string | null;
   scoring_mode?: string;
   criteria?: unknown;
   criteria_display?: string;
@@ -147,6 +151,8 @@ export function toActivity(row: ActivityRow): Activity {
     signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,
     archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
+    previousEntryId: row.previous_entry_id ?? null,
+    entryShownAt: row.entry_shown_at ?? null,
     scoringMode: row.scoring_mode === "criteria" ? "criteria" : "simple",
     criteria: toCriteria(row.criteria),
     criteriaDisplay: row.criteria_display === "ten" ? "ten" : "percent",
@@ -308,18 +314,18 @@ export async function listAttention(activities: ActivitySummary[]): Promise<Map<
 }
 
 /** An organizer's activities by name, for their account page. Only these columns are read. */
-export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string }[]> {
+export async function listOrganizerActivityNames(ownerId?: string): Promise<{ id: string; name: string; organizer: string; sessionState: SessionState }[]> {
   await connection();
   let query = db()
     .from("activities")
-    .select("id, name, owner:admins!activities_owner_id_fkey(name)")
+    .select("id, name, session_state, owner:admins!activities_owner_id_fkey(name)")
     .not("owner_id", "is", null)
     .order("created_at", { ascending: false });
   if (ownerId) query = query.eq("owner_id", ownerId);
   const { data, error } = await query;
   fail(error);
-  type Row = { id: string; name: string; owner: { name: string } | null };
-  return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "" }));
+  type Row = { id: string; name: string; session_state: string | null; owner: { name: string } | null };
+  return (data as unknown as Row[]).map((row) => ({ id: row.id, name: row.name, organizer: row.owner?.name ?? "", sessionState: toSessionState(row.session_state ?? undefined) }));
 }
 
 /** An organizer's activity on the super admin's activity list: how the show is going, never what was scored. */
@@ -702,9 +708,8 @@ async function loadPublicBoard(publicId: string): Promise<Board | null> {
   // Scores are held back on the server, so they never reach the audience's screens before they're released: only
   // which judge has scored which entry does.
   if (resultsReleased(board.activity)) return { ...board, activity, judges, organizer };
-  const scored = board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null }));
   // A broken tie says which entries were level: that waits for the results too.
-  return { ...board, activity, judges, scores: [], scored, organizer, tieBreaks: [] };
+  return { ...withheldScores(board), activity, judges, organizer, tieBreaks: [] };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */

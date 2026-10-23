@@ -177,6 +177,16 @@ export function judgeSheet(board: Board, judgeId: string): JudgeSheetRow[] {
     });
 }
 
+/**
+ * A board whose scores aren't to be seen yet (an event without live scoring, until the judges have deliberated and the
+ * organizer has signed): which judge has scored which entry, without the scores. It's what the audience's screens and
+ * the organizer's desk are sent, so the scores never reach a browser before then except through the private tally,
+ * behind the organizer's password.
+ */
+export function withheldScores(board: Board): Board {
+  return { ...board, scores: [], scored: board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null })) };
+}
+
 /** How many of the expected scores (every judge × every entry) are in. */
 export function scoreProgress(board: Board): { submitted: number; possible: number; complete: boolean } {
   const judgeIds = new Set(board.judges.map((j) => j.id));
