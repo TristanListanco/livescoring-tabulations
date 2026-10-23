@@ -99,11 +99,16 @@ test.describe.serial("deliberation", () => {
     await fix.getByLabel("Why does it need correcting?").fill("Misread my sheet: it says 8.25.");
     await fix.getByRole("button", { name: "Change score" }).click();
     await expect(ana.getByText("Corrected from 8.125.")).toBeVisible(REALTIME);
-    // The organizer sees it, with its reason.
+    // The organizer sees it, with its reason, but not the scores: those stay on the private tally until the judges sign.
     const corrections = page.getByRole("region", { name: "Score corrections" });
     await expect(corrections).toContainText("1 settled", REALTIME);
     await corrections.getByText("1 settled").click();
-    await expect(corrections).toContainText("Ana Cruz, No. 1 Agila, 8.125 to 8.250. Misread my sheet: it says 8.25.");
+    await expect(corrections).toContainText("Ana Cruz, No. 1 Agila. Misread my sheet: it says 8.25.");
+    await expect(corrections).not.toContainText("8.125 to 8.250");
+    // Nor does the desk's page carry them for the browser to read: only which judge has scored which entry.
+    const desk = await (await page.request.get(`${adminPath}?tab=session`)).text();
+    expect(desk).not.toMatch(/value\\?"\s*:\s*8\.(125|25)\b/);
+    expect(desk).toMatch(/scored\\?"\s*:\s*\[/);
 
     // No one else is asked: Ben scores without a vote landing on his screen.
     await ben.getByRole("button", { name: "Submit score" }).click();

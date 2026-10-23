@@ -13,7 +13,8 @@ const settledLabel: Record<Exclude<CorrectionView["status"], "open">, string> = 
 
 /**
  * Score corrections for the organizer: each open one with how the vote stands, and the settled ones under it. In an
- * event without live scoring a judge corrects their own score (it's settled as it's made, with their reason); in a
+ * event without live scoring a judge corrects their own score (it's settled as it's made, with their reason), and
+ * until the results are out the desk sees who corrected what and why, not the scores (those are on the tally); in a
  * pageant the judges decide, and only a judge alone on their panel, with no one to agree, needs the organizer to
  * approve or turn it down. `onDark`: on the control desk.
  */
@@ -47,7 +48,12 @@ export function CorrectionsPanel({ activityId, corrections, onDark = false }: { 
               <li key={c.id}>
                 <span className="font-semibold">{settledLabel[c.status as Exclude<CorrectionView["status"], "open">]}:</span> {c.judgeName}, No. {c.entryNumber}{" "}
                 {c.entryName}
-                {c.roundName && ` (${c.roundName})`}, <span className="tabular whitespace-nowrap">{c.from}</span> to <span className="tabular whitespace-nowrap">{c.to}</span>
+                {c.roundName && ` (${c.roundName})`}
+                {!c.valuesHidden && (
+                  <>
+                    , <span className="tabular whitespace-nowrap">{c.from}</span> to <span className="tabular whitespace-nowrap">{c.to}</span>
+                  </>
+                )}
                 <span className={muted}>
                   {c.status === "approved" &&
                     (c.decidedBy === "judge" ? `. ${c.reason}` : c.decidedBy === "organizer" ? ". Approved by the organizer." : ". Every other judge agreed.")}
@@ -74,7 +80,12 @@ function OpenCorrection({ activityId, correction: c, onDark }: { activityId: str
     <li className={`rounded-xl px-4 py-3 ${onDark ? "bg-oxford" : "bg-wash"}`}>
       <p className="font-semibold">
         {c.judgeName} asks to change their score for No. {c.entryNumber} {c.entryName}
-        {c.roundName && ` (${c.roundName})`}: <span className="tabular whitespace-nowrap">{c.from}</span> to <span className="tabular whitespace-nowrap">{c.to}</span>
+        {c.roundName && ` (${c.roundName})`}
+        {!c.valuesHidden && (
+          <>
+            : <span className="tabular whitespace-nowrap">{c.from}</span> to <span className="tabular whitespace-nowrap">{c.to}</span>
+          </>
+        )}
       </p>
       <p className={`mt-0.5 text-sm ${onDark ? "text-powder" : "text-prussian/75"}`}>
         &ldquo;{c.reason}&rdquo;{" "}

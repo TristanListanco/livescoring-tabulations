@@ -13,8 +13,8 @@ import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
-import { unsignedJudges } from "@/lib/deliberation";
-import { applyTieBreaks, breakFor, ordinal, tiesIn } from "@/lib/ties";
+import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
+import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, ActivitySignoff, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
@@ -209,7 +209,9 @@ export function SessionTab({
   hasNotes = false,
   signatures = null,
   signoff = null,
+  deliberation,
 }: {
+  /** Without score values while they're withheld (see withheldScores): then `scored` says who has scored what. */
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
   renderedAt: number;
@@ -230,6 +232,8 @@ export function SessionTab({
   signatures?: JudgeSignature[] | null;
   /** The organizer's signature on a deliberated session's results, once they've ended it. */
   signoff?: ActivitySignoff | null;
+  /** During a deliberation: its ties and, once every judge has signed, the results, worked out on the server. */
+  deliberation?: DeliberationResults;
 }) {
   const pageant = board.activity.kind === "pageant";
   const connection = useLiveRefresh(board.activity.id, board.activity.sessionState === "ended" ? { ...JUDGING_OVER, enabled: !archived } : {});
@@ -340,12 +344,14 @@ export function SessionTab({
   );
 
   const { index, entry, previous, next } = entryNeighbors(entries, current);
-  const scoredBy = new Set(scores.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
+  // Who has scored what, from the scores, or while they're withheld from which judge has scored which entry.
+  const marks: { entryId: string; judgeId: string }[] = between ? [] : (shown.scored ?? scores);
+  const scoredBy = new Set(marks.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const stillScoring = judges.filter((j) => !scoredBy.has(j.id));
   const allIn = entry !== null && judges.length > 0 && stillScoring.length === 0;
   const state = activity.sessionState;
   const live = state === "live";
-  const scoreCount = (entryId: string) => scores.filter((s) => s.entryId === entryId).length;
+  const scoreCount = (entryId: string) => marks.filter((s) => s.entryId === entryId).length;
   const devicesOf = (judgeId: string) => devices.filter((d) => d.judgeId === judgeId);
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
   const missing = progress.possible - progress.submitted;
@@ -356,7 +362,7 @@ export function SessionTab({
    * shown, in its display, with its scores as its settings let them through.
    */
   const heldBack = !activity.liveScoring && !activity.signedOffAt;
-  const standing = entry ? rankEntries(entries, judges, scores, activity).find((r) => r.entry.id === entry.id) : undefined;
+  const standing = entry && !heldBack ? rankEntries(entries, judges, scores, activity).find((r) => r.entry.id === entry.id) : undefined;
   const liveNow = heldBack
     ? "A tick for each score in; the scores show once the judges have signed"
     : !standing
@@ -891,11 +897,11 @@ export function SessionTab({
               const signedIds = new Set((signatures ?? []).map((sig) => sig.judgeId));
               const allSigned = signatures !== null && unsignedJudges(judges, signatures).length === 0;
               const openCorrection = corrections.some((c) => c.status === "open");
-              // Every tie in the ranking is broken (by the chair, on their screen) before anyone signs.
+              // Every tie in the ranking is broken (by the chair, on their screen) before anyone signs. The ties and the
+              // signed results come from the server, which keeps the scores themselves.
               const breaks = board.tieBreaks ?? [];
-              const ranking = rankEntries(entries, judges, scores, activity);
               const nameOf = new Map(entries.map((e) => [e.id, e.name]));
-              const ties = tiesIn(ranking).map((tie) => ({ tie, settled: breakFor(tie, breaks) }));
+              const ties = (deliberation?.ties ?? []).map((tie) => ({ tie, settled: breakFor(tie, breaks) }));
               const openTies = ties.filter((t) => !t.settled).length;
               return (
                 <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
@@ -967,10 +973,10 @@ export function SessionTab({
                     </p>
                   </div>
                   {/* Everyone has signed: the organizer's sign-off takes over until the session ends. */}
-                  {allSigned && openTies === 0 && (
+                  {allSigned && openTies === 0 && deliberation?.ranking && (
                     <FinalSignOff
                       activity={activity}
-                      ranking={applyTieBreaks(ranking, breaks)}
+                      ranking={deliberation.ranking}
                       ties={ties.flatMap(({ tie, settled }) =>
                         settled
                           ? [

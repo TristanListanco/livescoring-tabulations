@@ -6,6 +6,7 @@ import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
+import { withheldScores } from "./scoring";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
@@ -702,9 +703,8 @@ async function loadPublicBoard(publicId: string): Promise<Board | null> {
   // Scores are held back on the server, so they never reach the audience's screens before they're released: only
   // which judge has scored which entry does.
   if (resultsReleased(board.activity)) return { ...board, activity, judges, organizer };
-  const scored = board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null }));
   // A broken tie says which entries were level: that waits for the results too.
-  return { ...board, activity, judges, scores: [], scored, organizer, tieBreaks: [] };
+  return { ...withheldScores(board), activity, judges, organizer, tieBreaks: [] };
 }
 
 /** An activity by its public link, read fresh: for the LED wall, which is on air and follows every change at once. */
