@@ -73,6 +73,22 @@ The admin panel works at `http://localhost:3000/admin` on the laptop. Judge link
 
 `npm run dev -- -H 0.0.0.0` also works for testing on phones; the dev server allows this laptop's network addresses.
 
+#### With nginx in front, for a real event
+
+On its own the app can't tell the devices on the Wi-Fi apart. Next.js doesn't give server actions the connection's address, so the limits on guessing judge codes and admin passwords count by the `X-Real-IP` and `X-Forwarded-For` headers, which any phone can send. [`deploy/nginx/tabulous.conf`](deploy/nginx/tabulous.conf) puts nginx in front: it replaces those headers with each device's real address, lets go of stalled connections, refuses oversized requests, and caps sign-in attempts per device (judge sign-in and admin sign-in only; scoring is never slowed). The app then listens on the laptop alone, so every device goes through nginx.
+
+1. Install nginx: `brew install nginx` on a Mac, `sudo apt install nginx` on Ubuntu or Debian.
+2. Include the config inside nginx's `http` block. On a Mac: `ln -s "$PWD/deploy/nginx/tabulous.conf" "$(brew --prefix)/etc/nginx/servers/tabulous.conf"`. On Linux: `sudo cp deploy/nginx/tabulous.conf /etc/nginx/conf.d/`, and remove the package's welcome site (`sudo rm /etc/nginx/sites-enabled/default`), which would otherwise answer on port 80 instead. Check it with `nginx -t`.
+3. Start the app on the laptop only, then nginx:
+
+   ```bash
+   npm run build
+   npm start -- -H 127.0.0.1
+   brew services start nginx   # Linux: sudo systemctl reload nginx
+   ```
+
+The admin panel is then at `http://localhost/admin`, and judge links, QR codes and the results link use the laptop's Wi-Fi address without a port (`http://192.168.1.16`). nginx listens on port 80: if it can't open it (another app has it, or the system wants it started with `sudo nginx`), change both `listen` lines in the config to another port, such as 8080, and open that port instead. It doesn't add HTTPS: phones only trust a certificate for a real domain, so on venue Wi-Fi sign-ins still travel unencrypted. For that, run the event on Vercel.
+
 ## Deploying to Vercel
 
 Import the repository in Vercel and add the same environment variables. Set `NEXT_PUBLIC_SITE_URL` to your production URL.
@@ -115,7 +131,7 @@ Node.js is pinned in `package.json` (`engines`), which Vercel and CI both use.
 - The public pages (live results and LED wall) get only what they show: judges' first names with a last initial and their photos (on an LED wall that keeps judges anonymous, not even that), and no scores until they're released (only which judge has scored which entry). Of the organizer, only their logo and name (its description) appear, on the live results; a pageant's list of violations stays off them.
 - Server actions can be called with anything, not just what the screens send, so each checks its arguments: a session can only start, deliberate or end (never go back to not started, which the database refuses too while it has scores), and votes and choices must be true or false.
 - The test site tools (reset scores, delete mid-session) are off in every production build unless `TEST_TOOLS=on`, including `npm start` on a laptop at the venue, which uses the live database.
-- Running `npm start` on a laptop, there's no platform in front of the app to vouch for where a request came from: the per-address sign-in limits trust the browser's own headers there, and everyone on the venue Wi-Fi shares the limits on Vercel too (one public address). Sign in to the admin panel before the show; sessions last 12 hours. A judge code on its own is no use to a stranger: their device still needs the organizer's approval.
+- Running `npm start` on a laptop, there's no platform in front of the app to vouch for where a request came from: the per-address sign-in limits trust the browser's own headers there unless nginx is in front with `deploy/nginx/tabulous.conf` (see Running on a laptop over the venue Wi-Fi), which replaces them with each device's address. Everyone on the venue Wi-Fi shares the limits on Vercel (one public address). Sign in to the admin panel before the show; sessions last 12 hours. A judge code on its own is no use to a stranger: their device still needs the organizer's approval.
 - Known and accepted: the public key can read `activity_changes`, so anyone can see activities' ids and when they last changed (never what), which the screens' live updates need. The lint tooling depends on a `braces` with a denial-of-service advisory and no fix yet; it only ever reads this project's own files.
 - Organizer accounts and password hashes sit in a table with no public access. Every admin action checks that the signed-in organizer owns the activity it touches.
 - Live pages check every few seconds whether their activity changed (one row of `activity_changes`, read straight from Supabase, so a check costs no page render) and reload their data from the server only when it did; judges', desks' and LED walls' pages also hear the change over Supabase Realtime, which makes it immediate, and while it's connected they check only every 20 seconds (the LED wall every 6), as a safety net. A missed notice or a dropped connection costs seconds, not a stale screen. Realtime's plan counts connections at their peak, so a page out of view for a minute lets go of its connection (and connects again as it comes back), every screen lets go of it once judging has ended (checking every half minute instead, the LED wall every 10 seconds), and an archived activity's pages don't check at all. The audience's live results don't hold a realtime connection (with many activities at once their phones would be most of realtime's connections, and it falls behind when each change has to reach hundreds), check every 4 seconds while on screen (not while the phone is locked), stretching to every 12 seconds while nothing changes (between entries) and back at the first change, and read through a short shared server cache keyed by when their activity last changed, so a page asked for after a change is never served the board from before it, whatever order the change and the cache's clearing happen in. Every page also refreshes when it comes back into view.
