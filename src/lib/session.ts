@@ -8,7 +8,7 @@ import { getAdminCredentials } from "./data";
 import { deviceLabel } from "./device-label";
 import { passwordVersion } from "./password";
 import { db } from "./supabase/server";
-import { ADMIN_COOKIE, fingerprint, JUDGE_COOKIE, safeEqual, signToken, verifyToken } from "./token";
+import { ADMIN_COOKIE, fingerprint, fingerprints, JUDGE_COOKIE, safeEqual, signToken, verifyToken } from "./token";
 import type { AdminAccount } from "./types";
 
 const ADMIN_TTL_S = 60 * 60 * 12;
@@ -121,8 +121,9 @@ export const currentAdmin = cache(async (): Promise<AdminSession | null> => {
   const payload = verifyToken((await cookies()).get(ADMIN_COOKIE)?.value, "admin");
   if (!payload) return null;
   if (payload.sub === "super") {
-    const pv = superPasswordVersion();
-    if (!pv || payload.pv !== pv) return null;
+    // The password version as signed under SESSION_SECRET, or the previous secret while it's being rotated.
+    const password = process.env.ADMIN_PASSWORD;
+    if (!password || !payload.pv || !fingerprints(password).includes(payload.pv)) return null;
     return (await sessionStillOpen(payload)) ? { kind: "super" } : null;
   }
   const [open, account] = await Promise.all([sessionStillOpen(payload), getAdminCredentials(payload.sub)]);
