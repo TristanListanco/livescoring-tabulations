@@ -90,6 +90,8 @@ test.describe.serial("outages", () => {
     const context = await browser.newContext({ ...devices["Pixel 7"] });
     const phone = await context.newPage();
     await openJudgeLink(phone, CODE);
+    // Approving it, as the organizer would: the phone from the test before is signed out (a judge has one approved device).
+    await rest(`judge_devices?judge_id=eq.${judge}&status=eq.approved`, { status: "revoked" }, "PATCH");
     await rest(`judge_devices?judge_id=eq.${judge}&status=eq.pending`, { status: "approved" }, "PATCH");
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Banog", { timeout: 20_000 });
     // The first send is cut off before it reaches the server.
