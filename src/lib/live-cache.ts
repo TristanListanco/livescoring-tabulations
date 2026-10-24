@@ -12,12 +12,13 @@ export const LIVE_BOARD_TAG = "live-board";
 export const liveBoardTag = (publicId: string) => `live-board:${publicId}`;
 
 /**
- * After an action changes an activity: re-render the page the action came from, and clear the live results' cache,
- * so their next refresh reads the change (never a stale copy). Called right after the write, before the realtime
- * notice of it reaches the phones watching. With the activity's public id only its own results are cleared; the
- * occasional action without it clears every activity's.
+ * After an action changes an activity: re-render the page the action came from, and, given the activity's public id,
+ * clear its live results' cache. That's belt and braces: each cached board is keyed by when its activity last changed
+ * (see getLiveBoard), and every write that changes what a board shows moves that, so a refresh after it never reads a
+ * stale copy either way. Without a public id nothing else is cleared: clearing every activity's results for one
+ * activity's change (a device approved, an entry renamed) only made every room's audience reload at once on a busy day.
  */
 export function changed(publicId?: string) {
-  revalidateTag(publicId ? liveBoardTag(publicId) : LIVE_BOARD_TAG, { expire: 0 });
+  if (publicId) revalidateTag(liveBoardTag(publicId), { expire: 0 });
   refresh();
 }

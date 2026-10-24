@@ -88,7 +88,13 @@ test("the private tally opens with the admin's password, for that browser alone"
   await expect(byEntry).toBeHidden();
   await page.emulateMedia({ media: "screen" });
 
-  // Where the show stands, as on the live results: the judges deliberating, still unofficial...
+  // Where the show stands, as on the live results: the judges deliberating (once every entry is scored), still
+  // unofficial...
+  await rest("scores", [
+    { activity_id: activity.id, entry_id: entries[1], judge_id: judges[0], value: 80, breakdown: { c1: 48, c2: 32 } },
+    { activity_id: activity.id, entry_id: entries[0], judge_id: judges[1], value: 75, breakdown: { c1: 45, c2: 30 } },
+    { activity_id: activity.id, entry_id: entries[1], judge_id: judges[1], value: 70, breakdown: { c1: 42, c2: 28 } },
+  ]);
   await rest(`activities?id=eq.${activity.id}`, { session_state: "deliberation" }, "PATCH");
   await expect(page.getByText("Judges deliberating")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Partial and unofficial tally")).toBeVisible();

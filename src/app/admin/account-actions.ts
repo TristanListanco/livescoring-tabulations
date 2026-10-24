@@ -193,6 +193,8 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
     // Judges, entries, scores and devices go with their activity; their photos once the response has been sent.
     const { error: deleteError } = await db().from("activities").delete().in("id", activityIds);
     if (deleteError) return err(deleteError.message);
+    // Their change-feed rows too, so the deleted activities' ids aren't left readable by anyone.
+    await db().from("activity_changes").delete().in("activity_id", activityIds);
     after(() => removeActivityPhotos(activityIds));
   }
 
