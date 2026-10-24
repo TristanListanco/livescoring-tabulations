@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { Wordmark } from "@/components/brand";
 import { LegalLinks } from "@/components/legal-links";
+import { SurveyLink } from "@/components/survey-link";
 import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
 import { THEME_COOKIE } from "@/lib/theme";
@@ -46,7 +47,10 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">{children}</main>
       <footer className="mx-auto max-w-6xl px-4 pb-8 sm:px-6">
-        <LegalLinks className="text-prussian/70" />
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-prussian/70">
+          <LegalLinks />
+          <SurveyLink className="hover:underline" />
+        </div>
       </footer>
     </div>
   );

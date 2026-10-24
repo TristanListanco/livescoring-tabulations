@@ -5,6 +5,7 @@ import { ACTION_TIMEOUT_MS } from "@/components/request-guard";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SignatureMark, SignaturePad } from "@/components/signature-pad";
+import { SurveyLink } from "@/components/survey-link";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
@@ -12,6 +13,7 @@ import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
+import { SURVEY_URL } from "@/lib/survey";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
 import { cleanSignature } from "@/lib/deliberation";
 import type { ActionResult, Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
@@ -942,6 +944,12 @@ function WaitingCard({
       {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
       <h1 className="judge-title">{title}</h1>
       <p className="judge-lede mt-3">{body}</p>
+      {view.kind === "ended" && SURVEY_URL && (
+        <div className="mt-10 flex max-w-sm flex-col items-center">
+          <p className="text-powder">How was judging with Tabulous? A short anonymous survey, about 8 minutes, helps make it better.</p>
+          <SurveyLink className="btn mt-4 h-14 rounded-xl border border-oxford px-6 text-lg text-mint hover:bg-oxford">Take the survey</SurveyLink>
+        </div>
+      )}
     </div>
   );
 }

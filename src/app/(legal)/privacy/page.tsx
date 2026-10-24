@@ -108,6 +108,13 @@ export default function PrivacyPolicy() {
       </ul>
       <p>No one else.</p>
 
+      <h2>The feedback survey</h2>
+      <p>
+        Tabulous links judges, organizers and the audience to an optional, anonymous survey on Google Forms, for improving Tabulous and
+        for research. It’s separate from Tabulous: Tabulous sends nothing to it, not even which page or event the
+        link was on, and your answers go to Google Forms under the survey’s own notice, which you read before you start.
+      </p>
+
       <h2>Cookies and storage on your device</h2>
       <p>Tabulous uses only these cookies, all its own:</p>
       <ul>

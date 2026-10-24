@@ -6,6 +6,7 @@ import { Avatar } from "@/components/avatar";
 import { CopyButton } from "@/components/copy-button";
 import { LiveStatusBadge } from "@/components/live-status";
 import { Qr } from "@/components/qr";
+import { SurveyLink } from "@/components/survey-link";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { entryNeighbors } from "@/lib/judging";
@@ -14,6 +15,7 @@ import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
+import { SURVEY_URL } from "@/lib/survey";
 import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, ActivitySignoff, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
@@ -1096,6 +1098,14 @@ export function SessionTab({
                       )}
                     </p>
                   )}
+                </div>
+              )}
+              {SURVEY_URL && (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
+                  <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
+                    How did Tabulous work for this event? A short anonymous survey, about 8 minutes, helps make it better.
+                  </p>
+                  <SurveyLink className="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford">Take the survey</SurveyLink>
                 </div>
               )}
               {/* Archiving is how the organizer says no more deliberating is needed: judging closes for good. */}
