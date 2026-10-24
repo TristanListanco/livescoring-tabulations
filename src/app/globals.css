@@ -267,6 +267,22 @@ html:has(.share-ledger) {
   .text-action {
     @apply text-sm font-semibold text-regal hover:underline;
   }
+  /* The privacy policy and the terms of service: long reading, so a comfortable measure and open leading. */
+  .legal h2 {
+    @apply mt-10 text-xl font-bold tracking-tight text-balance;
+  }
+  .legal h3 {
+    @apply mt-6 font-bold;
+  }
+  .legal p {
+    @apply mt-3 leading-relaxed;
+  }
+  .legal ul {
+    @apply mt-3 list-disc space-y-1.5 pl-5 leading-relaxed;
+  }
+  .legal a {
+    @apply font-semibold text-regal underline underline-offset-2;
+  }
   /* A quiet explanation of the current state, like why a list is locked. Give it role="note". */
   .note {
     @apply rounded-lg bg-wash px-4 py-3 text-[15px];
