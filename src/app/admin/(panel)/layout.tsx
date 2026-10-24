@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { Wordmark } from "@/components/brand";
+import { LegalLinks } from "@/components/legal-links";
 import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
 import { THEME_COOKIE } from "@/lib/theme";
@@ -44,6 +45,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">{children}</main>
+      <footer className="mx-auto max-w-6xl px-4 pb-8 sm:px-6">
+        <LegalLinks className="text-prussian/70" />
+      </footer>
     </div>
   );
 }

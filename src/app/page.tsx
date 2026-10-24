@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TallyMark } from "@/components/brand";
+import { LegalLinks } from "@/components/legal-links";
 
 export default function Home() {
   return (
@@ -18,6 +19,7 @@ export default function Home() {
             I&apos;m an organizer
           </Link>
         </div>
+        <LegalLinks className="mt-16 text-powder" />
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "@/components/brand";
+import { LegalLinks } from "@/components/legal-links";
 import { redirect } from "next/navigation";
 import { currentAdmin } from "@/lib/session";
 import { LoginForm } from "./login-form";
@@ -27,6 +28,7 @@ export default async function AdminLogin({ searchParams }: PageProps<"/admin/log
             {asSuper ? "Sign in as an organizer instead" : "Super admin sign-in"}
           </Link>
         </p>
+        <LegalLinks className="mt-10 text-prussian/70" />
       </div>
     </main>
   );

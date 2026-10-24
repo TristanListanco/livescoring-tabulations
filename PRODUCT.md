@@ -61,6 +61,7 @@ The selling point is all three together, integrity and broadcast-speed output, i
 
 - **Real-world use:** none yet. Tabulous has only been used in rehearsals and has not scored a real event. Nothing may claim real events, clients, testimonials, usage numbers or reliability records.
 - **Test suite:** the Playwright tests in `e2e/` walk through a whole event. They cover creating an activity with a judge photo, judges scoring on a phone and a tablet, the live board updating in real time, hiding ranks, the results PDF and the judges' score sheets, the LED wall, and resetting and deleting. A pageant run covers the step-by-step setup, cuts with an organizer-broken tie, the scoring timer, and the pageant's results PDFs. They also check sign-in guards and scan key pages for WCAG 2.1 AA issues.
+- **Privacy policy and terms of service:** `/privacy` and `/terms`, under the Philippines' Data Privacy Act of 2012 and Philippine law, naming Tristan Listanco as the operator. The policy states only what the app does; any change to cookies, logs, public pages or deletion must update it.
 - **Logo:** a tally gate, four strokes and the slash that counts a fifth, in one colour (`src/components/brand.tsx`: the mark, and the wordmark beside the name). The app icon (`src/app/icon.svg`, `favicon.ico`, `apple-icon.png`) is the mark in mint on a navy square. The PDFs carry it small in the footer; the live results and the LED wall carry only the organizer's logo.
 
 ## Product Principles

@@ -14,13 +14,14 @@ export async function register() {
 /**
  * Every error a page, route or action throws, in the same JSON lines as the rest (see log.ts). The `digest` is the
  * reference the admin's error screen shows, so a screenshot of it leads here. The path goes without its query, which
- * can carry a judge's code; no headers, which carry cookies.
+ * can carry a judge's code, and without the code in a judge link's own path (/judge/join/<code>); no headers, which
+ * carry cookies.
  */
 export const onRequestError: Instrumentation.onRequestError = async (error, request, context) => {
   const { log, messageOf } = await import("./lib/log");
   log("error", "request_error", {
     method: request.method,
-    path: request.path.split("?")[0].slice(0, 160),
+    path: request.path.split("?")[0].replace(/^\/judge\/join\/[^/]+/, "/judge/join/[code]").slice(0, 160),
     route: context.routePath,
     kind: context.routeType,
     digest: typeof error === "object" && error !== null && "digest" in error ? String(error.digest) : undefined,

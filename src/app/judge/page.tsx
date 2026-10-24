@@ -5,6 +5,7 @@ import { getActivity, getDevice, getJudgeContext } from "@/lib/data";
 import { approvedDevice } from "@/lib/devices";
 import { judgeSession } from "@/lib/session";
 import { TOO_MANY } from "@/lib/sign-in-limits";
+import { LegalLinks } from "@/components/legal-links";
 import { CodeForm } from "./code-form";
 
 export const metadata: Metadata = { title: "Judge sign-in" };
@@ -66,6 +67,7 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
             />
           </>
         )}
+        <LegalLinks className="mt-12 text-powder" />
       </div>
     </main>
   );
