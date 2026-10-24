@@ -2,11 +2,13 @@
 
 import { showingBoard } from "@/lib/pageant";
 import { rangeLabel, rulesSummary, scoreProgress } from "@/lib/scoring";
+import { SURVEY_URL } from "@/lib/survey";
 import type { Board } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { useStage } from "@/lib/use-stage";
 import { Scoreboard } from "./scoreboard";
 import { ShowStatus } from "./show-status";
+import { SurveyLink } from "./survey-link";
 
 /**
  * The public live results: scoreboard plus its heading (with the organizer's logo, when they've added one), kept
@@ -93,6 +95,13 @@ export function LiveBoard({ board: full }: { board: Board }) {
         <p className="px-6 py-16 text-center text-[clamp(1.1rem,1.6vw,1.75rem)] text-powder">The next part of the pageant starts soon. Scores appear here as judges submit them.</p>
       ) : (
         <Scoreboard board={board} ranked={ranked && !held} scored={scored} stage={stage} footnote={summary} />
+      )}
+      {/* Once judging has ended, the audience is asked too: not on a venue screen, where no one can follow a link. */}
+      {full.activity.sessionState === "ended" && !stage && SURVEY_URL && (
+        <p className="mx-auto mt-12 w-full max-w-[120rem] px-6 text-[clamp(0.95rem,1.1vw,1.25rem)] text-powder">
+          Followed the results here? A short anonymous survey, about 8 minutes, helps make Tabulous better.{" "}
+          <SurveyLink className="font-semibold text-mint underline underline-offset-2">Take the survey</SurveyLink>
+        </p>
       )}
     </section>
   );
