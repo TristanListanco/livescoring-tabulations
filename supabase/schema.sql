@@ -97,6 +97,9 @@ create table if not exists public.judge_devices (
   decided_at    timestamptz
 );
 create index if not exists judge_devices_judge_idx on public.judge_devices (judge_id);
+-- A judge has at most one approved device: approving one revokes the rest (migration 029 made it a rule, so two
+-- approvals crossing can't leave two).
+create unique index if not exists judge_devices_one_approved_idx on public.judge_devices (judge_id) where status = 'approved';
 
 -- Failed sign-ins (admin passwords, judge codes), counted per network address and per account so too many in a short
 -- time are refused for a while. Server only, like judge_access.
@@ -206,6 +209,14 @@ begin
   if new.session_state = 'deliberation' and old.session_state is distinct from 'deliberation'
      and (new.live_scoring or new.kind <> 'event') then
     raise exception 'Only an event without live scoring has a deliberation.';
+  end if;
+  -- It starts (or starts again) only once every judge has scored every entry: no one can score during it.
+  if new.session_state = 'deliberation' and old.session_state is distinct from 'deliberation' and exists (
+    select 1 from public.entries e join public.judges j on j.activity_id = e.activity_id
+    where e.activity_id = new.id
+      and not exists (select 1 from public.scores s where s.entry_id = e.id and s.judge_id = j.id and s.round_id is null)
+  ) then
+    raise exception 'Every judge scores every entry before the deliberation.' using errcode = '55000';
   end if;
   if old.session_state = 'deliberation' and new.session_state = 'ended' and exists (
     select 1 from public.judges j
@@ -544,6 +555,57 @@ create table if not exists public.activity_signoffs (
   check ((method = 'drawn') = (drawing is not null))
 );
 
+-- Session changes the database makes whole (migration 029), each in the same write as the change itself:
+-- - leaving an ended session (reopening it, deliberating again, resetting it) takes back the judges' signatures, the
+--   organizer's and when it was signed off, so it can't end again on the old ones;
+-- - archiving signs every judge's device out, and their screens hear of it;
+-- - no entry is added while the judges deliberate: no one could score it.
+create or replace function public.clear_signatures_on_reopen() returns trigger
+language plpgsql
+as $$
+begin
+  if old.session_state = 'ended' and new.session_state is distinct from 'ended' then
+    new.signed_off_at := null;
+    delete from public.judge_signatures where activity_id = new.id;
+    delete from public.activity_signoffs where activity_id = new.id;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists clear_signatures_on_reopen on public.activities;
+create trigger clear_signatures_on_reopen
+  before update of session_state on public.activities
+  for each row execute function public.clear_signatures_on_reopen();
+create or replace function public.sign_out_on_archive() returns trigger
+language plpgsql
+as $$
+begin
+  if old.archived_at is null and new.archived_at is not null then
+    delete from public.judge_devices d using public.judges j where d.judge_id = j.id and j.activity_id = new.id;
+    update public.judges set devices_updated_at = now() where activity_id = new.id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists sign_out_on_archive on public.activities;
+create trigger sign_out_on_archive
+  after update of archived_at on public.activities
+  for each row execute function public.sign_out_on_archive();
+create or replace function public.check_entry_added() returns trigger
+language plpgsql
+as $$
+begin
+  if exists (select 1 from public.activities a where a.id = new.activity_id and a.session_state = 'deliberation') then
+    raise exception 'No entry can be added during the deliberation.' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists check_entry_added on public.entries;
+create trigger check_entry_added
+  before insert on public.entries
+  for each row execute function public.check_entry_added();
+
 -- Score corrections ------------------------------------------------------------
 -- A judge who entered a wrong score asks to change it; it changes only if every other judge on their panel agrees
 -- (or, for a judge alone on their panel, the organizer approves). Server only.
@@ -691,7 +753,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs', 'deductions'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.

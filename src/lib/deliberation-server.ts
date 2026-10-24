@@ -22,6 +22,7 @@ export async function beginDeliberation(activityId: string): Promise<ActionResul
     .update({ session_state: "deliberation", current_entry_id: null })
     .eq("id", activityId)
     .eq("session_state", "live");
+  if (error?.code === "55000") return { ok: false, error: "An entry was just added, so the judges score it before the deliberation." };
   if (error) return { ok: false, error: /session_state|deliberation/.test(error.message) ? DELIBERATION_HINT : "That didn't go through. Try again." };
   changed(board.activity.publicId);
   return { ok: true, message: "The judges are deliberating. Each one reviews their scores, then signs." };

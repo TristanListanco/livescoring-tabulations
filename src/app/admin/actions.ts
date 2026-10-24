@@ -1037,15 +1037,23 @@ export const setSessionState = traced("setSessionState", async function setSessi
     // Nor the organizer's signature on them (fails harmlessly before migration 026).
     await db().from("activity_signoffs").delete().eq("activity_id", activityId);
   }
-  let { error } = await db().from("activities").update(update).eq("id", activityId);
+  // Only from the state this was decided on: if someone else changed the session meanwhile (the chair started the
+  // deliberation, another tab ended it), nothing changes and the organizer sees where it stands now.
+  const write = () => db().from("activities").update(update, { count: "exact" }).eq("id", activityId).eq("session_state", current.state);
+  let { error, count } = await write();
   // Before migration 020 there's no end time to keep: the session changes all the same.
   if (error && /session_ended_at/.test(error.message)) {
     delete update.session_ended_at;
-    ({ error } = await db().from("activities").update(update).eq("id", activityId));
+    ({ error, count } = await write());
   }
-  if (error) {
+  if (error || !count) {
     // Not ended after all: the organizer's signature waits for the next try.
     if (signedOff) await db().from("activity_signoffs").delete().eq("activity_id", activityId);
+    if (!error) {
+      changed();
+      return err("The session changed meanwhile, so nothing was changed. Check where it stands now.");
+    }
+    if (error.code === "55000") return err(error.message);
     return /session_/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
   }
   changed();
@@ -1124,6 +1132,7 @@ export const approveDevice = traced("approveDevice", async function approveDevic
     .neq("status", "revoked");
   if (error) return dbErr(error);
   const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }).eq("id", deviceId);
+  if (approved.error?.code === "23505") return err("Another device was approved for this judge just now. Check which one is approved.");
   if (approved.error) return dbErr(approved.error);
   await touchJudge(device.judgeId);
   changed();
@@ -1287,6 +1296,7 @@ export const addEntries = traced("addEntries", async function addEntries(activit
   const { error } = await db()
     .from("entries")
     .insert(names.map((name, i) => ({ activity_id: activityId, name, position: start + i })));
+  if (error?.code === "55000") return err("The judges are deliberating, so no entries can be added now.");
   if (error) return dbErr(error);
   changed();
   return ok(names.length === 1 ? `${names[0]} added.` : `${names.length} entries added.`);
@@ -1505,9 +1515,11 @@ export const deleteActivityNow = traced("deleteActivityNow", async function dele
 async function removeActivity(activityId: string): Promise<ActionResult> {
   const { error } = await db().from("activities").delete().eq("id", activityId);
   if (error) return dbErr(error);
-  // Its photos go once the response has been sent.
+  // Its photos go once the response has been sent. Its row in activity_changes goes too, so its id isn't left readable
+  // by anyone; screens still watching it find it gone at their next check, and its live results page with them (the
+  // cached board is keyed by its last change, which no longer exists).
   after(() => removeActivityPhotos([activityId]));
-  // Its live results page goes too, rather than showing the cached board until it expires.
+  await db().from("activity_changes").delete().eq("activity_id", activityId);
   changed();
   redirect("/admin");
 }
