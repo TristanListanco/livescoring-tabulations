@@ -606,6 +606,42 @@ create trigger check_entry_added
   before insert on public.entries
   for each row execute function public.check_entry_added();
 
+-- An activity's running order: these entries first, in this order, then any not listed (added meanwhile) in the order
+-- they had, numbered from 0. Only before its session starts, checked and written in one step (migration 030), so a
+-- session starting meanwhile waits for it rather than beginning on half a new order. Moving an entry and shuffling the
+-- order both write through it.
+create or replace function public.set_entry_order(activity uuid, entry_ids uuid[]) returns void
+language plpgsql
+as $$
+begin
+  -- Holds the activity until the order is written: a session starting meanwhile waits, then starts on it.
+  perform 1 from public.activities a where a.id = activity and a.session_state = 'draft' for share;
+  if not found then
+    raise exception 'The running order is locked once the session has started.' using errcode = '55000';
+  end if;
+  update public.entries e set position = o.place
+  from (
+    select x.id, (row_number() over (order by l.n nulls last, x.position, x.created_at) - 1)::integer as place
+    from public.entries x
+    left join (select u.id, min(u.n) as n from unnest(entry_ids) with ordinality as u(id, n) group by u.id) l on l.id = x.id
+    where x.activity_id = activity
+  ) o
+  where e.id = o.id and e.position is distinct from o.place;
+end;
+$$;
+-- Only the server sets the order.
+revoke execute on function public.set_entry_order(uuid, uuid[]) from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke execute on function public.set_entry_order(uuid, uuid[]) from anon, authenticated;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.set_entry_order(uuid, uuid[]) to service_role;
+  end if;
+end;
+$$;
+
 -- Score corrections ------------------------------------------------------------
 -- A judge who entered a wrong score asks to change it; it changes only if every other judge on their panel agrees
 -- (or, for a judge alone on their panel, the organizer approves). Server only.

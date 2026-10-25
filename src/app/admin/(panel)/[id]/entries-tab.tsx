@@ -5,8 +5,8 @@ import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
-import type { Entry } from "@/lib/types";
-import { addEntries, moveEntry, removeEntry, renameEntry, setEntryPhoto, type FormResult } from "../../actions";
+import type { ActionResult, Entry } from "@/lib/types";
+import { addEntries, moveEntry, removeEntry, renameEntry, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 
 function Arrow({ up }: { up?: boolean }) {
@@ -24,6 +24,7 @@ function EntryRow({
   isLast,
   scored,
   started,
+  onReorder,
 }: {
   entry: Entry;
   number: number;
@@ -31,13 +32,19 @@ function EntryRow({
   isLast: boolean;
   scored: number;
   started: boolean;
+  /** Moving or removing it changes the running order. */
+  onReorder: () => void;
 }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
   // Save shows only once the name has been edited, so an untouched list isn't a column of buttons.
   const [name, setName] = useState(entry.name);
   const dirty = name.trim() !== entry.name;
   const [moving, startMove] = useTransition();
-  const move = (direction: -1 | 1) => startMove(async () => void (await moveEntry(entry.id, direction)));
+  const move = (direction: -1 | 1) =>
+    startMove(async () => {
+      onReorder();
+      await moveEntry(entry.id, direction);
+    });
   const [photoPending, startPhoto] = useTransition();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -134,7 +141,10 @@ function EntryRow({
             title={`Remove ${entry.name}?`}
             tone="danger"
             confirmLabel="Remove entry"
-            onConfirm={() => removeEntry(entry.id)}
+            onConfirm={() => {
+              onReorder();
+              return removeEntry(entry.id);
+            }}
           >
             {scored > 0 ? `Its ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted too.` : "No judge has scored it yet."}
           </ConfirmDialog>
@@ -193,9 +203,32 @@ export function EntriesTab({
   /** The judges are deliberating: no entry can be added, since no one could score it now. */
   deliberating?: boolean;
 }) {
+  // An event's running order can be drawn at random until its session starts. A pageant's candidates keep their numbers
+  // through every cut, so they're only moved by hand.
+  const canShuffle = !pageant && !started && entries.length > 1;
+  const [shuffled, setShuffled] = useState<ActionResult | null>(null);
   return (
     <div className="max-w-3xl">
-      <h2 className="text-xl font-bold">{pageant ? "Candidates" : "Entries"}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 className="text-xl font-bold">{pageant ? "Candidates" : "Entries"}</h2>
+        {canShuffle && (
+          <ConfirmDialog
+            triggerLabel="Shuffle order"
+            triggerClassName="btn btn-quiet btn-sm"
+            title="Shuffle the running order?"
+            confirmLabel="Shuffle"
+            onConfirm={async () => {
+              const result = await shuffleEntries(activityId);
+              if (result.ok) setShuffled(result);
+              return result;
+            }}
+          >
+            Tabulous draws a new order at random, in place of the current one. Until the session starts you can shuffle again or move entries by hand.
+            Starting the session locks the order.
+          </ConfirmDialog>
+        )}
+      </div>
+      {canShuffle && <FormMessage state={shuffled} small className="mt-1" />}
       {ended ? (
         <>
           <p role="note" className="note mt-3">
@@ -244,6 +277,8 @@ export function EntriesTab({
                   isLast={i === entries.length - 1}
                   scored={scoredFor[e.id] ?? 0}
                   started={started}
+                  // The shuffle's "is now first" no longer holds.
+                  onReorder={() => setShuffled(null)}
                 />
               ))}
             </ol>

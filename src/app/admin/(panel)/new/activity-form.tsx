@@ -163,7 +163,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
           aria-describedby="entries-hint"
         />
         <p id="entries-hint" className="hint tabular mt-2">
-          {entryCount} {entryCount === 1 ? "entry" : "entries"}, in running order. You can reorder, rename and add entries later.
+          {entryCount} {entryCount === 1 ? "entry" : "entries"}, in running order. You can reorder or shuffle them, rename them and add more later.
         </p>
       </Section>
 
