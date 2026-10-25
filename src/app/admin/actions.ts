@@ -9,6 +9,7 @@ import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrectio
 import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
+import { shuffle } from "@/lib/shuffle";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -1396,22 +1397,26 @@ export const removeEntry = traced("removeEntry", async function removeEntry(entr
   return ok();
 });
 
-export const moveEntry = traced("moveEntry", async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
-  if (direction !== -1 && direction !== 1) return err("Move an entry up or down one place.");
-  const activityId = await parentActivity("entries", entryId);
-  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return err("The running order is locked once the session has started.");
+const ORDER_LOCKED = err("The running order is locked once the session has started.");
 
-  const { data, error } = await db().from("entries").select("id, position").eq("activity_id", activityId).order("position").order("created_at");
-  check(error);
-  const order = (data as { id: string; position: number }[]).map((r) => r.id);
-  const from = order.indexOf(entryId);
-  const to = from + direction;
-  if (from < 0 || to < 0 || to >= order.length) return ok();
-  [order[from], order[to]] = [order[to], order[from]];
-
+/**
+ * An activity's running order: these entries in this order, any not listed after them. The database checks the session
+ * hasn't started and writes the order in one step (migration 030), so a session starting meanwhile waits for it rather
+ * than beginning on half a new order. Before 030, each entry's place is written on its own, as before.
+ */
+async function writeEntryOrder(activityId: string, entryIds: string[]): Promise<ActionResult> {
+  const { error } = await db().rpc("set_entry_order", { activity: activityId, entry_ids: entryIds });
+  if (error?.code === "55000") return ORDER_LOCKED;
+  if (error?.code !== "PGRST202") {
+    check(error);
+    return ok();
+  }
+  const { data, error: readError } = await db().from("entries").select("id, position").eq("activity_id", activityId).order("position").order("created_at");
+  check(readError);
+  const rows = data as { id: string; position: number }[];
+  const order = [...entryIds.filter((id) => rows.some((r) => r.id === id)), ...rows.map((r) => r.id).filter((id) => !entryIds.includes(id))];
   // Renumber so positions stay dense even if earlier edits left gaps or duplicates.
-  const current = new Map((data as { id: string; position: number }[]).map((r) => [r.id, r.position]));
+  const current = new Map(rows.map((r) => [r.id, r.position]));
   await Promise.all(
     order.map((id, position) =>
       current.get(id) === position
@@ -1423,8 +1428,49 @@ export const moveEntry = traced("moveEntry", async function moveEntry(entryId: s
             .then(({ error: e }) => check(e)),
     ),
   );
-  changed();
   return ok();
+}
+
+/** An activity's entries, in running order. */
+async function runningOrder(activityId: string): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await db().from("entries").select("id, name").eq("activity_id", activityId).order("position").order("created_at");
+  check(error);
+  return data as { id: string; name: string }[];
+}
+
+export const moveEntry = traced("moveEntry", async function moveEntry(entryId: string, direction: -1 | 1): Promise<ActionResult> {
+  if (direction !== -1 && direction !== 1) return err("Move an entry up or down one place.");
+  const activityId = await parentActivity("entries", entryId);
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return ORDER_LOCKED;
+
+  const order = (await runningOrder(activityId)).map((e) => e.id);
+  const from = order.indexOf(entryId);
+  const to = from + direction;
+  if (from < 0 || to < 0 || to >= order.length) return ok();
+  [order[from], order[to]] = [order[to], order[from]];
+  const result = await writeEntryOrder(activityId, order);
+  if (result.ok) changed();
+  return result;
+});
+
+/**
+ * An event's running order drawn at random, as many times as the organizer likes until the session starts, which
+ * locks it. A pageant's candidates keep their numbers through every cut, so they're only moved by hand.
+ */
+export const shuffleEntries = traced("shuffleEntries", async function shuffleEntries(activityId: string): Promise<ActionResult> {
+  const managed = await manageActivity(activityId);
+  if (!managed) return NOT_FOUND;
+  if (managed.activity.kind !== "event") return err("A pageant's candidates are moved by hand.");
+  if (managed.activity.sessionState !== "draft") return ORDER_LOCKED;
+
+  const entries = await runningOrder(activityId);
+  if (entries.length < 2) return ok();
+  const order = shuffle(entries);
+  const result = await writeEntryOrder(activityId, order.map((e) => e.id));
+  if (!result.ok) return result;
+  changed();
+  return ok(`Shuffled. ${order[0].name} is now first.`);
 });
 
 // Developer -------------------------------------------------------------------
