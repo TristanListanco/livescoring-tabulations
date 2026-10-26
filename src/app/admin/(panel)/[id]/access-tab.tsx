@@ -43,6 +43,8 @@ export async function JudgesTab({
   });
   const judgeQrs = await Promise.all(judgeLinks.map((l) => qrSvg(l.url)));
   const waiting = devices.filter((d) => d.status === "pending").length;
+  // Each board's chair, by the segments it chairs: a judge on the same segments can take over.
+  const chaired = new Set(judges.filter((j) => j.isChair).map((j) => j.panel));
 
   return (
     <div className="max-w-4xl">
@@ -77,7 +79,7 @@ export async function JudgesTab({
                     {locked ? (
                       <JudgeIdentity judge={judge} pageant={pageant} detail={detail} />
                     ) : (
-                      <JudgeEditor judge={judge} scored={scored} pageant={pageant} detail={detail} />
+                      <JudgeEditor judge={judge} scored={scored} pageant={pageant} detail={detail} canChair={!judge.isChair && chaired.has(judge.panel)} />
                     )}
                   </div>
                   {/* Called "judge code" here because that's what the judge portal asks them for. */}
