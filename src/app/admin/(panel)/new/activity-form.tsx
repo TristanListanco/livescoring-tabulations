@@ -137,7 +137,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
       <Section
         title="Judges"
-        hint="The chair moves judging between entries from their own screen. It can't be changed later."
+        hint="The chair moves judging between entries from their own screen. Another judge can take over on the Judges tab until the session starts."
       >
         <JudgesFields
           judges={judges}

@@ -707,7 +707,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     judges.push({ name: judgeName, photo, panel: pageant ? readPanel(formData.get(`judge-${i}-panel`)) : "all" });
   }
   // The chair of the board of judges, by position in the list; a pageant with separate boards has one per board
-  // ("0,3"). Decided now: chairs can't change later.
+  // ("0,3"). Another judge can take over until the session starts (setChair).
   const chairs = new Set(
     String(formData.get("chair") ?? "")
       .split(",")
@@ -1232,13 +1232,45 @@ export const setJudgePanel = traced("setJudgePanel", async function setJudgePane
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
-  // A chair chairs their board: like the chair, it's decided when the pageant is created.
+  // A chair stays on their board, which would otherwise be left without one: another judge takes over as its chair first.
   const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
-  if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("A chair's board is set when the pageant is created, so it can't change.");
+  if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("Make another judge this board's chair first, then move them.");
   const { error } = await db().from("judges").update({ panel: readPanel(panel) }).eq("id", judgeId);
   if (error) return /panel/.test(error.message) ? needsMigration(PANELS_HINT) : dbErr(error);
   changed();
   return ok(panel === "preliminary" ? "Judges the preliminary only." : panel === "proper" ? "Judges pageant proper only." : "Judges both segments.");
+});
+
+/**
+ * Another judge takes over as chair, until the session starts: from the chair of the same segments (the board of
+ * judges, or one of a pageant's separate boards), so each board keeps exactly one. The database hands it over in one
+ * step (migration 031); before it, the old chair steps down first, since a board can't have two.
+ */
+export const setChair = traced("setChair", async function setChair(judgeId: string): Promise<ActionResult> {
+  const activityId = await parentActivity("judges", judgeId);
+  if (!activityId || !(await manage(activityId))) return err("Judge not found.");
+  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  // "*" so this works on databases without migration 013's panel.
+  const { data, error } = await db().from("judges").select("*").eq("activity_id", activityId);
+  check(error);
+  const judges = (data as { id: string; name: string; is_chair?: boolean; panel?: string }[]).map((j) => ({ ...j, panel: j.panel ?? "all" }));
+  const judge = judges.find((j) => j.id === judgeId);
+  if (!judge) return err("Judge not found.");
+  if (judge.is_chair) return ok();
+  const chair = judges.find((j) => j.is_chair && j.panel === judge.panel);
+  if (!chair) return err("Only a judge on the same segments as a chair can take over as chair. Set them to judge that board's segments first.");
+
+  const { error: handOver } = await db().rpc("set_judge_chair", { judge: judgeId });
+  if (handOver?.code === "55000") return JUDGES_LOCKED;
+  if (handOver?.code === "PGRST202") {
+    check((await db().from("judges").update({ is_chair: false }).eq("id", chair.id)).error);
+    check((await db().from("judges").update({ is_chair: true }).eq("id", judgeId)).error);
+  } else {
+    check(handOver);
+  }
+  changed();
+  const title = judge.panel === "preliminary" ? "the preliminary chair" : judge.panel === "proper" ? "the pageant proper chair" : "the chair";
+  return ok(`${judge.name} is now ${title}.`);
 });
 
 export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
@@ -1268,9 +1300,8 @@ export const removeJudge = traced("removeJudge", async function removeJudge(judg
   if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
   // "*" so this works on databases without migration 008's is_chair.
   const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
-  if ((judge as { is_chair?: boolean } | null)?.is_chair) {
-    return err("The chair of the board of judges is set when the activity is created, so they can't be removed.");
-  }
+  // Their board would be left without a chair.
+  if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("Make another judge the chair first, then remove them.");
   const { error } = await db().from("judges").delete().eq("id", judgeId);
   if (error) return dbErr(error);
   removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);

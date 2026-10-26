@@ -10,12 +10,12 @@ import { nameParts } from "@/lib/names";
 import { reach } from "@/lib/reach";
 import type { ActionResult, JudgePanel } from "@/lib/types";
 import { MIN_PROPER_JUDGES } from "@/lib/pageant-setup";
-import { addJudge, removeJudge, renameJudge, setJudgePanel, setJudgePhoto, type FormResult } from "../../actions";
+import { addJudge, removeJudge, renameJudge, setChair, setJudgePanel, setJudgePhoto, type FormResult } from "../../actions";
 import { PANEL_OPTIONS } from "../new/judges-fields";
 import { FormMessage } from "../form-message";
 import { PersonNameInput } from "../person-name-input";
 
-/** Pageants: which segments a judge judges, changed straight away. A chair's board is fixed, like the chair. */
+/** Pageants: which segments a judge judges, changed straight away. A chair stays on their board while they chair it. */
 function PanelSelect({ judge }: { judge: Judge }) {
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
@@ -61,6 +61,21 @@ export function ChairBadge({ judge }: { judge: Judge }) {
   );
 }
 
+/**
+ * Another judge takes over as chair, until the session starts: from the chair of the same segments, so it's offered
+ * only to a judge on a chair's segments. In a pageant with separate boards it names the board.
+ */
+function TakeChair({ judge, pageant, onResult }: { judge: Judge; pageant: boolean; onResult: (result: ActionResult) => void }) {
+  const [pending, start] = useTransition();
+  const label = pageant && judge.panel === "preliminary" ? "Make preliminary chair" : pageant && judge.panel === "proper" ? "Make pageant proper chair" : "Make chair";
+  return (
+    <button type="button" className="text-action disabled:opacity-50" disabled={pending} onClick={() => start(async () => onResult(await reach(() => setChair(judge.id))))}>
+      {label}
+      <span className="sr-only"> {judge.name}</span>
+    </button>
+  );
+}
+
 /** A pageant's boards at a glance: one board, or the preliminary's and pageant proper's, each with its chair. */
 export function BoardsSummary({ judges }: { judges: Judge[] }) {
   const separate = judges.some((j) => j.panel !== "all");
@@ -88,7 +103,20 @@ export function BoardsSummary({ judges }: { judges: Judge[] }) {
  * A judge's row before the session starts, on the Judges tab: their photo and name to change (Save appears once the
  * name is edited), a pageant's segments, the chair, and Remove. `detail`: the line under the name (how far they've got).
  */
-export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; scored: number; pageant: boolean; detail: string }) {
+export function JudgeEditor({
+  judge,
+  scored,
+  pageant,
+  detail,
+  canChair,
+}: {
+  judge: Judge;
+  scored: number;
+  pageant: boolean;
+  detail: string;
+  /** They can take over as chair: they're on the same segments as a chair. */
+  canChair: boolean;
+}) {
   const [state, rename] = useActionState<FormResult, FormData>(renameJudge.bind(null, judge.id), null);
   // Save shows only once a name has been edited.
   const initial = nameParts(judge);
@@ -97,6 +125,8 @@ export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; 
   const [photoPending, startPhoto] = useTransition();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  // Taking over as chair: kept here, since the button goes once they're chair. Said while they still are.
+  const [chairResult, setChairResult] = useState<ActionResult | null>(null);
 
   const changePhoto = (photo: Blob | null, previewUrl: string | null) =>
     startPhoto(async () => {
@@ -127,6 +157,7 @@ export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; 
         <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
           {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
           {detail}
+          {canChair && <TakeChair judge={judge} pageant={pageant} onResult={setChairResult} />}
           {judge.photoUrl && !photoPending && (
             <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
               Remove photo
@@ -139,7 +170,7 @@ export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; 
               </>
             }
             triggerClassName="text-sm font-semibold text-danger hover:underline disabled:opacity-40 disabled:no-underline"
-            // The chair is decided when the activity is created.
+            // Their board would be left without a chair: another judge takes over first.
             triggerDisabled={judge.isChair}
             title={`Remove ${judge.name}?`}
             tone="danger"
@@ -152,6 +183,7 @@ export function JudgeEditor({ judge, scored, pageant, detail }: { judge: Judge; 
             Their access code will stop working.
           </ConfirmDialog>
         </div>
+        <FormMessage state={chairResult && (!chairResult.ok || judge.isChair) ? chairResult : null} small />
       </div>
     </div>
   );
