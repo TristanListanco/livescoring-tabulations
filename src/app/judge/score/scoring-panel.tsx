@@ -23,6 +23,8 @@ import { breakTie, leavePortal, moveToEntry, requestApproval, requestCorrection,
 import { ordinal } from "@/lib/ties";
 import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
 import { PrivacyScreen } from "./privacy-screen";
+import { AssistButton, AssistStatus } from "./assist";
+import type { JudgeAssistance } from "@/lib/assistance";
 import { useMediaQuery } from "@/lib/use-media-query";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
@@ -58,6 +60,8 @@ type Props = {
   serverNow: number;
   /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
   offPanel?: boolean;
+  /** The judge's call for help (see AssistButton): what to show of their last one. Null before migration 032: no Assist me. */
+  assistance: { current: JudgeAssistance | null } | null;
 };
 
 /**
@@ -197,6 +201,7 @@ export function ScoringPanel({
   round,
   serverNow,
   offPanel = false,
+  assistance,
 }: Props) {
   const pageant = activity.kind === "pageant";
   // Still over realtime once judging has ended: deliberating again, or reopening, brings the judges straight back.
@@ -366,6 +371,7 @@ export function ScoringPanel({
             </>
           )}
           <LiveStatusBadge status={status} className="text-mint" compact />
+          {assistance && gate.status !== "revoked" && <AssistButton current={assistance.current} />}
           {approved ? (
             // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
             // stray tap mid-show would stall the panel.
@@ -388,6 +394,7 @@ export function ScoringPanel({
           )}
         </div>
       </header>
+      {assistance && <AssistStatus current={assistance.current} />}
       {/* While judging, turning a phone or tablet away from its judge hides the screen (unless turned off in Settings). */}
       <PrivacyScreen active={activity.privacyScreen && approved && (activity.sessionState === "live" || activity.sessionState === "deliberation")} />
 

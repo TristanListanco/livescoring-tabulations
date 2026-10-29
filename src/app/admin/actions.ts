@@ -12,6 +12,7 @@ import { listNames } from "@/lib/names";
 import { shuffle } from "@/lib/shuffle";
 import { FINGERPRINT, readExport } from "@/lib/csv";
 import { csvFingerprints } from "@/lib/exports";
+import { getAlertActivityIds, getOpenAssistance, type AssistanceRequest } from "@/lib/assistance";
 import { sha256 } from "@/lib/results-csv";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
@@ -888,6 +889,31 @@ export const setActivityOption = traced("setActivityOption", async function setA
   changed();
   if (option === "judgesSeeRanking") return ok(on ? "Judges see the ranking while they deliberate." : "Judges see only their own scores while they deliberate.");
   return ok(on ? "The privacy screen is on." : "The privacy screen is off.");
+});
+
+/**
+ * Judges' calls for help in this admin's activities, for the alert on every page of the panel (see AssistanceAlerts):
+ * the calls still waiting, and (with `withIds`) which activities to listen to for new ones. Null calls: before migration
+ * 032, when judges can't call.
+ */
+export const assistanceAlerts = traced("assistanceAlerts", async function assistanceAlerts(
+  withIds: boolean,
+): Promise<{ requests: AssistanceRequest[] | null; activityIds: string[] | null }> {
+  const session = await requireAdmin();
+  const [requests, activityIds] = await Promise.all([getOpenAssistance(session), withIds ? getAlertActivityIds(session) : null]);
+  return { requests, activityIds };
+});
+
+/** "On my way": the organizer answers a judge's call. Their screen says so, and the call leaves every alert. */
+export const answerAssistance = traced("answerAssistance", async function answerAssistance(requestId: string): Promise<ActionResult> {
+  if (!isUuid(requestId)) return err("That call wasn't found.");
+  const { data } = await db().from("assistance_requests").select("activity_id").eq("id", requestId).maybeSingle();
+  const activityId = (data as { activity_id: string } | null)?.activity_id;
+  if (!activityId || !(await manage(activityId, { archived: true }))) return err("That call wasn't found.");
+  const { error } = await db().from("assistance_requests").update({ answered_at: new Date().toISOString() }).eq("id", requestId).is("answered_at", null);
+  if (error) return dbErr(error);
+  changed();
+  return ok();
 });
 
 /** The longest CSV a check reads: far more than any activity's results. */

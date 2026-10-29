@@ -48,6 +48,8 @@ test.describe.serial("feedback survey", () => {
     const phone = await context.newPage();
     await openJudgeLink(phone, CODE);
     await restOk(`judge_devices?judge_id=eq.${judge}`, { status: "approved" }, "PATCH");
+    // As the organizer's approval does: the judge's screen hears of it.
+    await restOk(`judges?id=eq.${judge}`, { devices_updated_at: new Date().toISOString() }, "PATCH");
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Judging has ended", { timeout: 20_000 });
     await expectSurvey(phone.getByRole("link", { name: "Take the survey (opens in a new tab)" }));
     await snap(phone, "judge");

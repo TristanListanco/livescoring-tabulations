@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
 import { THEME_COOKIE } from "@/lib/theme";
 import { AdminNav } from "./admin-nav";
+import { AssistanceAlerts } from "./assistance-alerts";
 import { ThemeToggle } from "./theme-toggle";
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
@@ -52,6 +53,8 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           <SurveyLink className="hover:underline" />
         </div>
       </footer>
+      {/* Judges' calls for help, wherever the organizer is in the panel. */}
+      <AssistanceAlerts />
     </div>
   );
 }
