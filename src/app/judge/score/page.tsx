@@ -5,8 +5,9 @@ import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown,
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
-import { rankEntries } from "@/lib/scoring";
-import { breakFor, tiesIn } from "@/lib/ties";
+import { getJudgeAssistance } from "@/lib/assistance";
+import { averageText, rankEntries } from "@/lib/scoring";
+import { applyTieBreaks, breakFor, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
@@ -23,12 +24,13 @@ export default async function ScorePage() {
   const { device } = found;
   const onScreen = found.activity.currentEntryId;
   const deliberating = found.activity.sessionState === "deliberation";
-  const [board, allCorrections, givenOnScreen, breakdowns, signatures] = await Promise.all([
+  const [board, allCorrections, givenOnScreen, breakdowns, signatures, assistance] = await Promise.all([
     getBoard(context.activityId),
     getCorrections(context.activityId),
     onScreen ? getOwnBreakdown(context.judge.id, onScreen, found.activity.currentRoundId) : null,
     deliberating && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
     deliberating ? getSignatures(context.activityId) : null,
+    getJudgeAssistance(context.judge.id),
   ]);
   if (!board) redirect("/judge");
   // The device is gone, not just unapproved: the organizer reset the activity, which signs every device out. Back to
@@ -127,6 +129,16 @@ export default async function ScorePage() {
           })(),
           isChair: context.judge.isChair,
           chairName: board.judges.find((j) => j.isChair)?.name ?? null,
+          // With the organizer's say-so, where each entry stands overall: rank and average, never another judge's score.
+          ranking: activity.judgesSeeRanking
+            ? applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, activity), board.tieBreaks ?? []).map((row) => ({
+                id: row.entry.id,
+                rank: row.rank,
+                number: row.number,
+                name: row.entry.name,
+                average: averageText(row.average, activity),
+              }))
+            : null,
         }
       : null;
 
@@ -162,6 +174,7 @@ export default async function ScorePage() {
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}
       offPanel={offPanel}
+      assistance={assistance}
       // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
       // eslint-disable-next-line react-hooks/purity
       serverNow={Date.now()}

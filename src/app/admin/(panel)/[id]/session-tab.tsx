@@ -25,7 +25,8 @@ import { FormMessage } from "../form-message";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
-import { CutDialog, DeskTimer, HeldLink, JudgeRoundButton, nextUp, PdfHold, ProgramPanel } from "./pageant-desk";
+import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
@@ -804,8 +805,7 @@ export function SessionTab({
 
             {screens(progress.complete && !pageant && activity.liveScoring && (
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
-                    <DownloadResults activityId={activity.id} className="btn btn-primary btn-sm" />
-                    <DownloadResults activityId={activity.id} sheets className="btn btn-quiet btn-sm" />
+                    <ExportMenu activityId={activity.id} options={sheetOptions("", { judges: true })} className="btn btn-primary btn-sm" />
                     <p className="text-sm">
                       Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
                     </p>
@@ -1079,9 +1079,15 @@ export function SessionTab({
               {progress.complete && !pageant && (
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
                   <div className="flex flex-wrap gap-3">
-                    <DownloadResults activityId={activity.id} className="btn bg-mint text-prussian hover:bg-white max-sm:w-full" />
-                    <DownloadResults activityId={activity.id} sheets className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
-                    {hasNotes && <DownloadResults activityId={activity.id} notes className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />}
+                    <ExportMenu
+                      activityId={activity.id}
+                      options={[
+                        ...sheetOptions("", { judges: true }),
+                        ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
+                      ]}
+                      className="btn bg-mint text-prussian hover:bg-white max-sm:w-full"
+                    />
+                    <CsvCheck activityId={activity.id} className="btn border border-oxford text-mint hover:bg-oxford" onDark />
                   </div>
                   {signatories && (
                     <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">

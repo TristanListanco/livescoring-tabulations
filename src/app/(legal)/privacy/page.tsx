@@ -50,7 +50,12 @@ export default function PrivacyPolicy() {
         An organizer adds each judge’s first and last name, and optionally a photo. Each judge gets a six-character access code. For every
         device that signs in with the code, we keep a device label, a pairing code and whether the organizer approved it. Then we keep
         what the judge does: each score (and the points for each criterion), corrections and their reasons, notes on entries, the chair’s
-        reasons for breaking ties, and the judge’s signature (drawn on a touchscreen, or “(Sgd.)”).
+        reasons for breaking ties, and the judge’s signature (drawn on a touchscreen, or “(Sgd.)”). When a judge asks the organizer for
+        help from their screen, we keep when they asked, and when the organizer answered or the judge took it back.
+      </p>
+      <p>
+        While judging, a judge’s phone or tablet can hide its screen when it’s turned away from them (the organizer can turn this off). It
+        reads the device’s orientation on the device itself: nothing about it is sent to us or kept.
       </p>
       <h3>Entries and candidates</h3>
       <p>Names and optional photos, added by the organizer, with their scores and results.</p>
@@ -132,8 +137,10 @@ export default function PrivacyPolicy() {
         </li>
       </ul>
       <p>
-        Your browser also remembers whether a judge’s notes panel is open, and for that tab only, the LED wall’s display and when a page
-        last reloaded itself after an update. There are no analytics, advertising or third-party cookies.
+        Your browser also remembers whether a judge’s notes panel is open, whether an organizer has answered the offer of alerts for
+        judges’ calls for help, and for that tab only, the LED wall’s display and when a page last reloaded itself after an update. Those
+        alerts, when an organizer turns them on, are notifications their own browser shows. There are no analytics, advertising or
+        third-party cookies.
       </p>
 
       <h2>How long it’s kept</h2>
@@ -143,6 +150,7 @@ export default function PrivacyPolicy() {
           entries, scores, notes, signatures and photos.
         </li>
         <li>Judges’ devices are signed out and deleted when the activity is archived.</li>
+        <li>Judges’ calls for help stay with the activity, and go when it’s deleted.</li>
         <li>An organizer account stays until we delete it, which also deletes all of that organizer’s activities.</li>
         <li>An organizer’s sign-in lasts until they sign out, or 12 hours.</li>
         <li>Failed sign-in records: a day. Logs: as long as our hosting providers keep them.</li>

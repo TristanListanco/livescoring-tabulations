@@ -54,6 +54,52 @@ export const enterCode = traced("enterCode", async function enterCode(_prev: Cod
   redirect("/judge/score");
 });
 
+/**
+ * A judge on this device, signed in and not signed out by the organizer: approved or still waiting for approval. Calling
+ * for help needs no more than that, since a judge waiting to be approved is often the one who needs it.
+ */
+async function signedInJudge(): Promise<{ judgeId: string; activityId: string } | null> {
+  const session = await judgeSession();
+  const found = session ? await getJudgeSeat(session.judgeId, session.deviceId) : null;
+  if (!session || !found?.device || found.device.judgeId !== found.judge.id || found.device.status === "revoked") return null;
+  return { judgeId: found.judge.id, activityId: found.activity.id };
+}
+
+const NEEDS_HELP_UPDATE = "Asking for help needs a database update. Wave to the organizer instead.";
+
+/**
+ * Assist me: the organizer is alerted wherever they are in the admin panel (see AssistanceAlerts), and comes over. Asking
+ * again while a call is waiting is the same call.
+ */
+export const requestAssistance = traced("requestAssistance", async function requestAssistance(): Promise<ActionResult> {
+  const judge = await signedInJudge();
+  if (!judge) return { ok: false, error: "Your session has ended. Enter your code again." };
+  const { error } = await db().from("assistance_requests").insert({ activity_id: judge.activityId, judge_id: judge.judgeId });
+  // One waiting call per judge (assistance_one_open_idx): this one's already in.
+  if (error && error.code !== "23505") {
+    if (/assistance_requests/.test(error.message)) return { ok: false, error: NEEDS_HELP_UPDATE };
+    log("error", "assistance_not_sent", { code: error.code, error: error.message });
+    return { ok: false, error: "Your call didn't go through. Check your connection, or wave to the organizer." };
+  }
+  changed();
+  return { ok: true };
+});
+
+/** The judge no longer needs the organizer: their waiting call is taken back. */
+export const cancelAssistance = traced("cancelAssistance", async function cancelAssistance(): Promise<ActionResult> {
+  const judge = await signedInJudge();
+  if (!judge) return { ok: false, error: "Your session has ended. Enter your code again." };
+  const { error } = await db()
+    .from("assistance_requests")
+    .update({ cancelled_at: new Date().toISOString() })
+    .eq("judge_id", judge.judgeId)
+    .is("answered_at", null)
+    .is("cancelled_at", null);
+  if (error) return { ok: false, error: /assistance_requests/.test(error.message) ? NEEDS_HELP_UPDATE : "That didn't go through. Try again." };
+  changed();
+  return { ok: true };
+});
+
 /** Signing out also signs this device out for good: signing in again asks the organizer for approval again. */
 export const leavePortal = traced("leavePortal", async function leavePortal() {
   const session = await judgeSession();

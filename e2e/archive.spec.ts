@@ -32,6 +32,8 @@ test.describe.serial("archived activities", () => {
     await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
+    // New events start without live scoring; this one scores live.
+    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
     adminPath = new URL(page.url()).pathname;

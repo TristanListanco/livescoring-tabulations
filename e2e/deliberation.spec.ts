@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // An event without live scoring, scored to three decimal places. The audience sees no scores until the judges have
 // deliberated and signed, and there's no LED wall; a judge corrects their own score, saying why, until they sign.
@@ -34,11 +34,11 @@ test.describe.serial("deliberation", () => {
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("group", { name: "Judges score with" }).getByRole("radio", { name: /^3 decimal places/ }).check();
-    // Live scoring is on unless turned off, and the form says what each choice means.
-    const live = page.getByRole("checkbox", { name: /Show scores live/ });
-    await expect(live).toBeChecked();
-    await live.uncheck();
+    // A new event starts without live scoring, and the form says what that means.
+    await expect(page.getByRole("checkbox", { name: /Show scores live/ })).not.toBeChecked();
     await expect(page.getByText(/The audience sees no scores until the judges have deliberated and signed/)).toBeVisible();
+    // Judges seeing the ranking while they deliberate is offered, and off unless ticked (it's turned on later, in Settings).
+    await expect(page.getByRole("checkbox", { name: /Judges see the overall ranking while they deliberate/ })).not.toBeChecked();
     await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
@@ -185,6 +185,26 @@ test.describe.serial("deliberation", () => {
     await expect(ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ })).toBeVisible();
   });
 
+  test("the organizer can let the judges see the overall ranking while they deliberate", async ({ page }) => {
+    // Off unless the organizer says so: each judge sees only their own scores.
+    await expect(ana.getByRole("region", { name: "Overall ranking" })).toHaveCount(0);
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByRole("switch", { name: "Judges see the overall ranking while they deliberate" }).click();
+    await expect(page.getByText("Judges see the ranking while they deliberate.")).toBeVisible();
+
+    // Rank, entry and average, with the tie broken as the chair broke it. Never another judge's score.
+    const ranking = ana.getByRole("region", { name: "Overall ranking" });
+    await expect(ranking).toBeVisible(REALTIME);
+    const places = ranking.getByRole("listitem");
+    await expect(places).toHaveCount(2);
+    await expect(places.nth(0)).toContainText(/1st\s*No\. 2 Bagwis\s*8\.8/);
+    await expect(places.nth(1)).toContainText(/2nd\s*No\. 1 Agila\s*8\.8/);
+    await expect(ranking).not.toContainText("Torres");
+    await expect(ben.getByRole("region", { name: "Overall ranking" })).toBeVisible(REALTIME);
+    await expectAccessible(ana);
+  });
+
   test("while the judges deliberate, no entry can be added: no one could score it", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=entries`);
@@ -211,7 +231,9 @@ test.describe.serial("deliberation", () => {
     await ana.mouse.down();
     for (let i = 1; i <= 12; i++) await ana.mouse.move(box.x + box.width * (0.1 + i * 0.06), box.y + box.height * (0.7 - (i % 2) * 0.3));
     await ana.mouse.up();
-    await snap(ana, "deliberation signature drawn");
+    // The screen as it is, not the whole page: a full-page capture briefly resizes the emulated phone, which takes its
+    // touchscreen with it, and the signature box would give way to the checkbox.
+    await test.info().attach("deliberation signature drawn", { body: await ana.screenshot(), contentType: "image/png" });
     await sign.click();
     await expect(ana.getByRole("status").filter({ hasText: "You've signed." })).toContainText("1 of 2 judges have signed.", REALTIME);
     await expect(ana.getByRole("img", { name: "Your signature" })).toBeVisible();
@@ -257,7 +279,7 @@ test.describe.serial("deliberation", () => {
     await expect(agila).toContainText("8.88");
 
     await page.goto(`${adminPath}?tab=session`);
-    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download results PDF" }).click()]);
+    const download = await exportFile(page, "Results (PDF)");
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 

@@ -418,6 +418,20 @@ $$;
 -- move (inside their few seconds to undo it) still counts when it arrives (see scoreWindowOpen in src/lib/judging.ts).
 alter table public.activities add column if not exists previous_entry_id uuid references public.entries (id) on delete set null;
 alter table public.activities add column if not exists entry_shown_at timestamptz;
+-- Judges see each entry's rank and average while they deliberate, never each other's scores (migration 032).
+alter table public.activities add column if not exists judges_see_ranking boolean not null default false;
+-- Judges' phones and tablets hide the screen when tilted off axis while judging (migration 032): on for new activities,
+-- off for those from before it.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name = 'privacy_screen'
+  ) then
+    alter table public.activities add column privacy_screen boolean not null default false;
+    alter table public.activities alter column privacy_screen set default true;
+  end if;
+end;
+$$;
 create or replace function public.note_entry_shown()
 returns trigger
 language plpgsql
@@ -766,6 +780,23 @@ begin
 end;
 $$;
 
+-- Help requests ----------------------------------------------------------------
+-- A judge's call for the organizer, from their screen, until the organizer answers it ("On my way") or the judge cancels
+-- it. One open call per judge. Each call and answer counts as a change to its activity (see Realtime below).
+
+create table if not exists public.assistance_requests (
+  id            uuid primary key default gen_random_uuid(),
+  activity_id   uuid not null references public.activities (id) on delete cascade,
+  judge_id      uuid not null references public.judges (id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  -- The organizer is on the way.
+  answered_at   timestamptz,
+  -- The judge no longer needs it.
+  cancelled_at  timestamptz
+);
+create unique index if not exists assistance_one_open_idx on public.assistance_requests (judge_id) where answered_at is null and cancelled_at is null;
+create index if not exists assistance_open_idx on public.assistance_requests (activity_id) where answered_at is null and cancelled_at is null;
+
 -- Row level security ---------------------------------------------------------
 -- None of these tables has a policy, so only the secret key (the server) can read or write them. The public key
 -- reads only activity_changes (see Realtime below).
@@ -788,6 +819,7 @@ alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
 alter table public.activity_drafts enable row level security;
 alter table public.deductions   enable row level security;
+alter table public.assistance_requests enable row level security;
 
 -- The results tables are server-only: the public key reads none of them (scores stay private until the app shows
 -- them). Databases set up before migration 016 had a public read policy on each; these drop it.
@@ -830,7 +862,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs', 'deductions'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs', 'deductions', 'assistance_requests'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.
