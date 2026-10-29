@@ -110,6 +110,10 @@ export type Activity = {
    * pageants.
    */
   liveScoring: boolean;
+  /** In the deliberation, judges see each entry's rank and average (never each other's scores). Migration 032; off before it. */
+  judgesSeeRanking: boolean;
+  /** Judges' phones and tablets hide the screen when tilted off axis while judging. Migration 032; off before it. */
+  privacyScreen: boolean;
   /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */
   sessionState: SessionState;
   /** When the session ended with every judge's signature (an event without live scoring), or null. Its results show from then on. */

@@ -6,6 +6,10 @@ import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft }
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
 /** What live scoring on or off means, said the same way wherever it's chosen. */
+/** Judges seeing the ranking in the deliberation: what they see, and what two judges could work out. */
+export const JUDGES_RANKING_HINT =
+  "Each entry's rank and average, beside their own scores, never another judge's. With two judges, each could work out the other's scores from the averages.";
+
 export const LIVE_SCORING_HINT = {
   on: "The audience sees each score as it's submitted, and a submitted score is final.",
   off: "The audience sees no scores until the judges have deliberated and signed, and the LED wall is off. A judge can correct their own score, saying why, until they sign.",

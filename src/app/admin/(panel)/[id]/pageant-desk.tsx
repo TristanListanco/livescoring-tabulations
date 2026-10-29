@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import {
@@ -26,26 +26,12 @@ import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
+import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 
 /** A weight or share: "30%", "33.33%". */
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 const cutName = (plan: Pick<CutPlan, "final" | "round" | "size">) => (plan.final ? "the final cut" : `the Top ${plan.size}`);
 
-/**
- * Why results PDFs are held back, or null: while a score correction is being voted on, a score may still change, so
- * every results link shows disabled with the reason.
- */
-export const PdfHold = createContext<string | null>(null);
-
-/** A results link held back (see PdfHold): the same look, disabled, with why. */
-export function HeldLink({ reason, className, children }: { reason: string; className: string; children: React.ReactNode }) {
-  return (
-    <span role="link" aria-disabled="true" title={reason} className={`${className} cursor-not-allowed opacity-50`}>
-      {children}
-      <span className="sr-only">: {reason}</span>
-    </span>
-  );
-}
 
 /** A pageant results PDF. The time zone goes along so the sheet's printed time matches the venue's clock. */
 export function PdfLink({ activityId, query, className, children }: { activityId: string; query: string; className: string; children: React.ReactNode }) {
@@ -228,16 +214,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
             }
           />
         )}
-        {progress.complete && (
-          <>
-            <PdfLink activityId={activity.id} query={`round=${r.id}`} className={action}>
-              PDF<span className="sr-only"> of {label} results</span>
-            </PdfLink>
-            <PdfLink activityId={activity.id} query={`round=${r.id}&sheet=judges`} className={action}>
-              Judges&apos; sheets<span className="sr-only"> for {label}, as a PDF</span>
-            </PdfLink>
-          </>
-        )}
+        {progress.complete && <ExportMenu activityId={activity.id} options={sheetOptions(`round=${r.id}`, { judges: true })} className={action} context={label} align="right" />}
       </div>
     );
   };
@@ -267,9 +244,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                     </button>
                   )}
                   {prelimDone && (
-                    <PdfLink activityId={activity.id} query="segment=preliminary" className={action}>
-                      Standings PDF<span className="sr-only"> for the preliminary</span>
-                    </PdfLink>
+                    <ExportMenu activityId={activity.id} options={sheetOptions("segment=preliminary", { noun: "Standings" })} className={action} context="the preliminary" align="right" />
                   )}
                 </div>
               )}
@@ -292,9 +267,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                           </span>
                           {status(round, false)}
                           {roundProgress(board, round).complete && (
-                            <PdfLink activityId={activity.id} query={`round=${round.id}`} className={action}>
-                              Standings PDF<span className="sr-only"> for {round.name}</span>
-                            </PdfLink>
+                            <ExportMenu activityId={activity.id} options={sheetOptions(`round=${round.id}`, { noun: "Standings" })} className={action} context={round.name} align="right" />
                           )}
                         </div>
                         <ol aria-label={`Parts of ${round.name}`} className="border-l-2 border-line ml-1 pl-2">
@@ -316,9 +289,13 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                           <span className="sr-only"> {cutName(plan)} after {round.name}</span>
                         </button>
                         {round.cutEntryIds && (
-                          <PdfLink activityId={activity.id} query={`cut=${round.id}`} className={action}>
-                            PDF<span className="sr-only"> of {plan.final ? "the final results" : `the Top ${plan.size}`}</span>
-                          </PdfLink>
+                          <ExportMenu
+                            activityId={activity.id}
+                            options={sheetOptions(`cut=${round.id}`)}
+                            className={action}
+                            context={plan.final ? "the final results" : `the Top ${plan.size}`}
+                            align="right"
+                          />
                         )}
                       </div>
                     )}
@@ -329,6 +306,12 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           </div>
         );
       })}
+      {/* Once anything can be exported, a CSV someone has can be checked against the scores. */}
+      {board.rounds.some((r) => roundProgress(board, r).complete) && (
+        <div className={compact ? "mt-2" : "mt-3"}>
+          <CsvCheck activityId={activity.id} className={action} />
+        </div>
+      )}
       {deductionsShown && <DeductionsDialog board={board} onClose={() => setDeductionsShown(false)} />}
     </section>
   );

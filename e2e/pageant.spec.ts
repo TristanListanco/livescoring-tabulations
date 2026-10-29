@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -477,22 +477,29 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Every score is in")).toBeVisible();
   });
 
-  test("each sub-activity, the cuts and the preliminary have their own results PDF", async ({ page }) => {
+  test("each sub-activity, the cuts and the preliminary have their own results, as PDF and CSV", async ({ page }) => {
     await openDesk(page);
     const slug = NAME.toLowerCase().replace(/\s+/g, "-");
-    for (const [link, file] of [
-      ["PDF of Interview · Questions results", `${slug}-interview-questions-results.pdf`],
-      ["Judges' sheets for Interview · Questions, as a PDF", `${slug}-interview-questions-judges-score-sheets.pdf`],
-      ["Standings PDF for Interview", `${slug}-interview-results.pdf`],
-      ["PDF of Q&A results", `${slug}-qa-results.pdf`],
-      ["Judges' sheets for Q&A, as a PDF", `${slug}-qa-judges-score-sheets.pdf`],
-      ["Standings PDF for the preliminary", `${slug}-preliminary-results.pdf`],
-      ["PDF of the Top 2", `${slug}-top-2-results.pdf`],
-      ["PDF of the final results", `${slug}-final-results.pdf`],
+    for (const [of, link, file] of [
+      ["Interview · Questions", "Results (PDF)", `${slug}-interview-questions-results.pdf`],
+      ["Interview · Questions", "Judges' score sheets (PDF)", `${slug}-interview-questions-judges-score-sheets.pdf`],
+      ["Interview", "Standings (PDF)", `${slug}-interview-results.pdf`],
+      ["Q&A", "Results (PDF)", `${slug}-qa-results.pdf`],
+      ["Q&A", "Judges' score sheets (PDF)", `${slug}-qa-judges-score-sheets.pdf`],
+      ["the preliminary", "Standings (PDF)", `${slug}-preliminary-results.pdf`],
+      ["the Top 2", "Results (PDF)", `${slug}-top-2-results.pdf`],
+      ["the final results", "Results (PDF)", `${slug}-final-results.pdf`],
     ] as const) {
-      const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: link }).click()]);
+      const download = await exportFile(page, `${link} for ${of}`, `Export ${of}`);
       expect(download.suggestedFilename()).toBe(file);
       expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
     }
+    // The same sheets as CSV: a sub-activity's results, and the final results with each candidate's place.
+    const qa = await exportFile(page, "Results (CSV) for Q&A", "Export Q&A");
+    expect(qa.suggestedFilename()).toBe(`${slug}-qa-results.csv`);
+    expect(readFileSync(await qa.path(), "utf8")).toContain("Rank,No.,Candidate,");
+    const final = await exportFile(page, "Results (CSV) for the final results", "Export the final results");
+    expect(final.suggestedFilename()).toBe(`${slug}-final-results.csv`);
+    expect(readFileSync(await final.path(), "utf8")).toContain("Place,Rank,No.,Candidate,");
   });
 });

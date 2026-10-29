@@ -6,6 +6,7 @@ import {
   deleteActivityNamed,
   deleteOrganizerByEmail,
   expectAccessible,
+  exportFile,
   openJudgeLink,
   screenPath,
   signInAsOrganizer,
@@ -130,6 +131,8 @@ test.describe.serial("a full event", () => {
     await choosePhoto(page, "Photo for Ana Cruz");
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
+    // New events start without live scoring; this one scores live.
+    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
 
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
@@ -452,17 +455,15 @@ test.describe.serial("a full event", () => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByText(/^Report ID LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/)).toBeVisible();
-    const [download] = await Promise.all([
-      page.waitForEvent("download"),
-      page.getByRole("link", { name: "Download results PDF" }).click(),
-    ]);
+    // Every download is in one menu.
+    const download = await exportFile(page, "Results (PDF)");
     expect(download.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.pdf$/);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
     // Drawn on the server's PDF worker, so it doesn't hold up the server's other requests.
     expect((await page.request.get(`${adminPath}/export`)).headers()["server-timing"]).toBe("pdf;desc=worker");
 
     // The second PDF: each judge's own score sheet, with their sign-off and the signatories.
-    const [sheets] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' score sheets" }).click()]);
+    const sheets = await exportFile(page, "Judges' score sheets (PDF)");
     expect(sheets.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-score-sheets\.pdf$/);
     expect(readFileSync(await sheets.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
@@ -488,7 +489,7 @@ test.describe.serial("a full event", () => {
     const desk = page.getByRole("region", { name: "Judging has ended" });
     await expect(desk).toContainText("Every score is in");
     await expect(desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/)).toBeVisible();
-    await expect(desk.getByRole("link", { name: "Download results PDF" })).toBeVisible();
+    await expect(desk.getByRole("button", { name: "Export", exact: true })).toBeVisible();
     await expect(desk).toContainText("Signature lines: Maria Reyes (Chair, Board of Tabulators).");
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
@@ -509,6 +510,33 @@ test.describe.serial("a full event", () => {
     await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
   });
 
+
+  test("the results download as CSV too, and a copy is checked against the scores", async ({ page }) => {
+    await openSession(page);
+    const desk = page.getByRole("region", { name: "Judging has ended" });
+    const shownId = (await desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/).textContent())!;
+    const csv = await exportFile(page, "Results (CSV)");
+    expect(csv.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.csv$/);
+    const text = readFileSync(await csv.path(), "utf8");
+    // What it is and its report ID, as on the desk and the PDF; a fingerprint of its rows; then the rows.
+    expect(text.startsWith("\uFEFFActivity,")).toBe(true);
+    expect(text).toContain(`Report ID,${shownId}`);
+    expect(text).toMatch(/Fingerprint \(SHA-256\),[0-9a-f]{64}/);
+    expect(text).toContain("Rank,No.,Entry,Ana Cruz,Ben Torres,Average");
+
+    // The copy as downloaded checks out; one with a name changed doesn't.
+    const check = desk.getByLabel("Check a CSV");
+    await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+    await expect(desk.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.");
+    await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
+    await expect(desk.getByRole("alert")).toHaveText("This file was changed after it was exported: its rows no longer match its fingerprint.");
+
+    // Each judge's scores, one row per entry.
+    const scores = await exportFile(page, "Judges' scores (CSV)");
+    expect(scores.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-scores\.csv$/);
+    expect(readFileSync(await scores.path(), "utf8")).toContain("Judge,No.,Entry,Score");
+    await expectAccessible(page);
+  });
   test("another organizer can't see or export this activity", async ({ page }) => {
     await signInAsOrganizer(page, OTHER.email, OTHER.password);
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);

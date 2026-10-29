@@ -10,6 +10,9 @@ import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
 import { shuffle } from "@/lib/shuffle";
+import { FINGERPRINT, readExport } from "@/lib/csv";
+import { csvFingerprints } from "@/lib/exports";
+import { sha256 } from "@/lib/results-csv";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -690,8 +693,12 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     const parsed = readScoring(formData);
     if ("error" in parsed) return err(parsed.error);
     columns = scoringColumns(parsed.scoring);
-    // Live scoring is on unless the form says off; written only then, so events with it create without migration 021.
-    if (formData.get("live_scoring") === "off") columns.live_scoring = false;
+    // Live scoring is off unless the form says on (the database's default is on, so it's written only when off). Judges
+    // seeing the ranking while they deliberate is written only when on, so events without it create before migration 032.
+    if (formData.get("live_scoring") !== "on") {
+      columns.live_scoring = false;
+      if (formData.get("judges_see_ranking") === "on") columns.judges_see_ranking = true;
+    }
   }
 
   const judgeCount = Number(formData.get("judgeCount"));
@@ -748,6 +755,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
     // Before migration 021: no live_scoring column, and three decimal places break the old check.
     if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
+    if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
     // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
     if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
     // Otherwise its public link was taken: another try, with another.
@@ -850,6 +858,57 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
   if (error) return /live_scoring/.test(error.message) ? needsMigration(DELIBERATION_HINT) : dbErr(error);
   changed();
   return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
+});
+
+/** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
+const OPTIONS_HINT = "This needs a database update. Run supabase/migrations/032_assistance_ranking_privacy.sql in the Supabase SQL editor.";
+
+/**
+ * An activity's options for judges' screens, changed straight away:
+ * - judgesSeeRanking: in the deliberation, judges see each entry's rank and average (an event without live scoring),
+ *   until the session ends;
+ * - privacyScreen: judges' phones and tablets hide the screen when tilted off axis while judging, until it's archived.
+ */
+export const setActivityOption = traced("setActivityOption", async function setActivityOption(
+  activityId: string,
+  option: "judgesSeeRanking" | "privacyScreen",
+  on: boolean,
+): Promise<ActionResult> {
+  if (typeof on !== "boolean" || (option !== "judgesSeeRanking" && option !== "privacyScreen")) return err("Choose on or off.");
+  const managed = await manageActivity(activityId);
+  if (!managed) return NOT_FOUND;
+  const { activity } = managed;
+  if (option === "judgesSeeRanking") {
+    if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has a deliberation.");
+    if (activity.sessionState === "ended") return err("Judging has ended, so this can't change.");
+  }
+  const column = option === "judgesSeeRanking" ? "judges_see_ranking" : "privacy_screen";
+  const { error } = await db().from("activities").update({ [column]: on }).eq("id", activityId);
+  if (error) return new RegExp(column).test(error.message) ? needsMigration(OPTIONS_HINT) : dbErr(error);
+  changed();
+  if (option === "judgesSeeRanking") return ok(on ? "Judges see the ranking while they deliberate." : "Judges see only their own scores while they deliberate.");
+  return ok(on ? "The privacy screen is on." : "The privacy screen is off.");
+});
+
+/** The longest CSV a check reads: far more than any activity's results. */
+const MAX_CHECKED_CSV = 2_000_000;
+
+/**
+ * Checks a CSV someone has (see CsvCheck): its rows still match its own fingerprint, so nothing was changed after it was
+ * exported, and the fingerprint is one of the sheets this activity's scores give now. Archived activities too: their
+ * results still download.
+ */
+export const checkExport = traced("checkExport", async function checkExport(activityId: string, text: string): Promise<ActionResult> {
+  if (typeof text !== "string" || text.length > MAX_CHECKED_CSV) return err("That file is too big to be a CSV exported from Tabulous.");
+  if (!(await manageActivity(activityId, { archived: true }))) return NOT_FOUND;
+  const read = readExport(text);
+  const fingerprint = read?.header.get(FINGERPRINT);
+  if (!read || !fingerprint) return err("That isn't a CSV exported from Tabulous: it has no fingerprint.");
+  if (sha256(read.rows) !== fingerprint) return err("This file was changed after it was exported: its rows no longer match its fingerprint.");
+  const board = await getAdminBoard(activityId);
+  const match = board && (await csvFingerprints(board)).find((f) => f.fingerprint === fingerprint);
+  if (!match) return err("It's unchanged since it was exported, but it doesn't match this activity's scores as they are now: it's from another activity, or a score has changed since.");
+  return ok(`It matches the official ${match.label} sheet.`);
 });
 
 const MAX_SIGNATORIES = 12;

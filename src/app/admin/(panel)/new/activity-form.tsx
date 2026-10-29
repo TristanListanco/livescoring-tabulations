@@ -8,7 +8,7 @@ import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
-import { blankEventScoring, DEFAULT_RESULT_DECIMALS, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
+import { blankEventScoring, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
@@ -26,8 +26,9 @@ function opened(data: unknown) {
     resultDecimals: (Number.isInteger(places) && places >= 0 && places <= 4 ? places : DEFAULT_RESULT_DECIMALS) as ResultDecimals,
     judges,
     chairKey: typeof d.chair === "number" && d.chair >= 0 && d.chair < judges.length ? d.chair : null,
-    // Drafts saved before the choice existed score live, as events did then.
-    liveScoring: d.liveScoring !== false,
+    // A new event starts without live scoring. Drafts saved before the choice existed score live, as events did then.
+    liveScoring: data === undefined || data === null ? false : d.liveScoring !== false,
+    judgesSeeRanking: d.judgesSeeRanking === true,
     entries: typeof d.entries === "string" ? d.entries : "",
   };
 }
@@ -52,6 +53,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [scoring, setScoring] = useState<ScoringDraft>(start.scoring);
   const [resultDecimals, setResultDecimals] = useState<ResultDecimals>(start.resultDecimals);
   const [liveScoring, setLiveScoring] = useState(start.liveScoring);
+  const [judgesSeeRanking, setJudgesSeeRanking] = useState(start.judgesSeeRanking);
   // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
   const nextKey = useRef(start.judges.length);
   const [judges, setJudges] = useState<DraftJudge[]>(start.judges);
@@ -66,12 +68,13 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     saveRef,
     kind: "event",
     name,
-    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
+    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
     collect: async () => ({
       name,
       scoring,
       resultDecimals,
       liveScoring,
+      judgesSeeRanking,
       judges: await saveJudges(judges),
       chair: chairIndex < 0 ? null : chairIndex,
       entries: entriesText,
@@ -133,6 +136,24 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
             <span className="hint mt-1 block">{liveScoring ? LIVE_SCORING_HINT.on : LIVE_SCORING_HINT.off}</span>
           </span>
         </label>
+        {/* Only an event without live scoring has a deliberation. */}
+        {!liveScoring && (
+          <>
+            <input type="hidden" name="judges_see_ranking" value={judgesSeeRanking ? "on" : "off"} />
+            <label className="mt-4 flex max-w-xl items-start gap-3">
+              <input
+                type="checkbox"
+                checked={judgesSeeRanking}
+                onChange={(e) => setJudgesSeeRanking(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0 accent-regal"
+              />
+              <span>
+                <span className="font-semibold">Judges see the overall ranking while they deliberate</span>
+                <span className="hint mt-1 block">{JUDGES_RANKING_HINT}</span>
+              </span>
+            </label>
+          </>
+        )}
       </Section>
 
       <Section

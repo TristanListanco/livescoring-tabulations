@@ -22,6 +22,7 @@ import { useLiveRefresh } from "@/lib/use-live-refresh";
 import { breakTie, leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
 import { ordinal } from "@/lib/ties";
 import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
+import { PrivacyScreen } from "./privacy-screen";
 import { useMediaQuery } from "@/lib/use-media-query";
 
 /** Whether the organizer has approved this device for the judge. Only the approved device can score. */
@@ -78,7 +79,15 @@ export type Deliberation = {
   isChair: boolean;
   /** The chair's name, for the other judges. */
   chairName: string | null;
+  /**
+   * Where each entry stands overall, when the organizer lets judges see it (judgesSeeRanking): rank and average as the
+   * results will show them, ties broken as the chair broke them. Never another judge's score. Null otherwise.
+   */
+  ranking: DeliberationRank[] | null;
 };
+
+/** An entry's place in the overall ranking, as the judges see it in the deliberation. */
+export type DeliberationRank = { id: string; rank: number | null; number: number; name: string; average: string };
 
 /**
  * A tie in the ranking, as the judges see it in the deliberation: the place the entries share, the entries (no scores),
@@ -379,6 +388,8 @@ export function ScoringPanel({
           )}
         </div>
       </header>
+      {/* While judging, turning a phone or tablet away from its judge hides the screen (unless turned off in Settings). */}
+      <PrivacyScreen active={activity.privacyScreen && approved && (activity.sessionState === "live" || activity.sessionState === "deliberation")} />
 
       <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
         {/* A short message (a score saved, a vote cast), just under the header so the judge's name and count stay in view. */}
@@ -1012,6 +1023,7 @@ function DeliberationView({
       <h1 className="judge-title">Deliberation</h1>
       <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
       <TieBreaks ties={deliberation.ties} isChair={deliberation.isChair} chairName={deliberation.chairName} />
+      {deliberation.ranking && <OverallRanking ranking={deliberation.ranking} />}
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
         {entries.map((entry, i) => {
           const value = scores.get(entry.id);
@@ -1047,6 +1059,29 @@ function DeliberationView({
       </ol>
       <SignOffPanel deliberation={deliberation} />
     </div>
+  );
+}
+
+/** The overall ranking in the deliberation, when the organizer lets judges see it: rank, entry and average only. */
+function OverallRanking({ ranking }: { ranking: DeliberationRank[] }) {
+  return (
+    <section aria-labelledby="overall-ranking" className="mt-6 rounded-2xl border-2 border-oxford px-5 py-4">
+      <h2 id="overall-ranking" className="text-lg font-bold">
+        Overall ranking
+      </h2>
+      <p className="mt-1 text-sm text-powder">Every judge&apos;s scores together, as they stand now. Your own scores are below.</p>
+      <ol className="mt-3 divide-y divide-oxford">
+        {ranking.map((row) => (
+          <li key={row.id} className="flex items-center gap-3 py-2.5">
+            <span className="tabular w-12 shrink-0 font-bold text-mint">{row.rank ? ordinal(row.rank) : "—"}</span>
+            <span className="min-w-0 flex-1 text-powder">
+              No. {row.number} <span className="font-semibold text-mint">{row.name}</span>
+            </span>
+            <span className="tabular font-semibold text-mint">{row.average}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

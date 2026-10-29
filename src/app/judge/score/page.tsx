@@ -5,8 +5,8 @@ import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown,
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
 import { judgeSession } from "@/lib/session";
-import { rankEntries } from "@/lib/scoring";
-import { breakFor, tiesIn } from "@/lib/ties";
+import { averageText, rankEntries } from "@/lib/scoring";
+import { applyTieBreaks, breakFor, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
@@ -127,6 +127,16 @@ export default async function ScorePage() {
           })(),
           isChair: context.judge.isChair,
           chairName: board.judges.find((j) => j.isChair)?.name ?? null,
+          // With the organizer's say-so, where each entry stands overall: rank and average, never another judge's score.
+          ranking: activity.judgesSeeRanking
+            ? applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, activity), board.tieBreaks ?? []).map((row) => ({
+                id: row.entry.id,
+                rank: row.rank,
+                number: row.number,
+                name: row.entry.name,
+                average: averageText(row.average, activity),
+              }))
+            : null,
         }
       : null;
 

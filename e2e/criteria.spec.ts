@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -55,6 +55,8 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
+    // New events start without live scoring; this one scores live.
+    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
 
     // Like a score sheet's "lowest possible score", each criterion can have a lowest score, in points.
     await page.getByLabel("Criterion 1 lowest score").fill("21");
@@ -187,7 +189,7 @@ test.describe.serial("criteria scoring", () => {
     // Every score is in (Ana's for Agila), so both PDFs are ready on the desk: Ana's sheet lists her points per criterion.
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=session`);
-    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' score sheets" }).click()]);
+    const download = await exportFile(page, "Judges' score sheets (PDF)");
     expect(download.suggestedFilename()).toMatch(/^e2e-criteria-[a-z0-9]+-judges-score-sheets\.pdf$/);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });

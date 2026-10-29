@@ -35,6 +35,9 @@ export type ActivityRow = {
   /** Migration 021. */
   live_scoring?: boolean;
   signed_off_at?: string | null;
+  /** Migration 032. */
+  judges_see_ranking?: boolean;
+  privacy_screen?: boolean;
   current_entry_id?: string | null;
   /** Migration 028. */
   previous_entry_id?: string | null;
@@ -146,6 +149,8 @@ export function toActivity(row: ActivityRow): Activity {
     ownerId: row.owner_id ?? null,
     // Pageants always score live; databases without migration 021 do too.
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
+    judgesSeeRanking: row.judges_see_ranking ?? false,
+    privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
     signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,

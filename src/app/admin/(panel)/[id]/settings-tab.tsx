@@ -7,12 +7,12 @@ import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOwner, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOption, setActivityOwner, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
-import { LIVE_SCORING_HINT } from "../scoring-fields";
+import { JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
@@ -152,6 +152,49 @@ function LiveScoring({ activity }: { activity: Activity }) {
   );
 }
 
+/** One of the options for judges' screens (see setActivityOption), switched straight away. */
+function OptionSwitch({
+  activity,
+  option,
+  label,
+  hint,
+  editable,
+}: {
+  activity: Activity;
+  option: "judgesSeeRanking" | "privacyScreen";
+  label: string;
+  hint: string;
+  editable: boolean;
+}) {
+  const [on, setOn] = useState(activity[option]);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const id = `${option}-label`;
+  const toggle = () => {
+    const next = !on;
+    setOn(next);
+    startTransition(async () => {
+      const r = await reach(() => setActivityOption(activity.id, option, next));
+      setResult(r);
+      if (!r.ok) setOn(!next);
+    });
+  };
+  return (
+    <div className="max-w-2xl space-y-2">
+      <div className="flex items-start gap-4">
+        {editable && <Switch checked={on} onChange={toggle} labelledBy={id} disabled={pending} />}
+        <div>
+          <p id={id} className="font-semibold">
+            {editable ? label : `${label}: ${on ? "on" : "off"}`}
+          </p>
+          <p className="hint mt-1">{hint}</p>
+        </div>
+      </div>
+      <FormMessage state={result} small />
+    </div>
+  );
+}
+
 type OrganizerOption = { id: string; name: string; email: string };
 
 /**
@@ -236,6 +279,28 @@ export function SettingsTab({
           <LiveScoring activity={activity} />
         </Section>
       )}
+
+      {activity.kind === "event" && !activity.liveScoring && (
+        <Section title="Deliberation" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
+          <OptionSwitch
+            activity={activity}
+            option="judgesSeeRanking"
+            label="Judges see the overall ranking while they deliberate"
+            hint={JUDGES_RANKING_HINT}
+            editable={activity.sessionState !== "ended"}
+          />
+        </Section>
+      )}
+
+      <Section title="Judges' screens">
+        <OptionSwitch
+          activity={activity}
+          option="privacyScreen"
+          label="Privacy screen on judges' phones and tablets"
+          hint="While judging, a judge's phone or tablet hides its screen when it's tilted away from them, so no one beside them can read their scores. Judges tilt it back to carry on."
+          editable={!activity.archivedAt}
+        />
+      </Section>
 
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
         <Section

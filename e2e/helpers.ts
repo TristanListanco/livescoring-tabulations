@@ -90,6 +90,16 @@ export async function expectAccessible(page: Page) {
   expect(results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([]);
 }
 
+/**
+ * Download one of an export menu's files: open the menu ("Export", plus what it's of where a page has several, as in
+ * "Export Q&A") and pick the file ("Results (PDF)", "Results (PDF) for Q&A").
+ */
+export async function exportFile(page: Page, file: string, menu = "Export") {
+  await page.getByRole("button", { name: menu, exact: true }).click();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: file, exact: true }).click()]);
+  return download;
+}
+
 /** Save a screenshot into the test report, for reviewing what each screen looked like in the run. */
 export async function snap(page: Page, name: string) {
   await settle(page);
