@@ -14,6 +14,7 @@ import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
+import { CsvCheck } from "./export-menu";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -321,6 +322,10 @@ export function SettingsTab({
         hint="The Board of Tabulators and anyone else who signs this activity's results. Each gets a signature line on its results PDFs and judges' score sheets."
       >
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
+      </Section>
+
+      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores now.">
+        <CsvCheck activityId={activity.id} className="btn btn-quiet" />
       </Section>
 
       {organizers && (

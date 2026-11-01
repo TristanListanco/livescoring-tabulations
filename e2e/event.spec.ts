@@ -524,18 +524,21 @@ test.describe.serial("a full event", () => {
     expect(text).toMatch(/Fingerprint \(SHA-256\),[0-9a-f]{64}/);
     expect(text).toContain("Rank,No.,Entry,Ana Cruz,Ben Torres,Average");
 
-    // The copy as downloaded checks out; one with a name changed doesn't.
-    const check = desk.getByLabel("Check a CSV");
-    await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
-    await expect(desk.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.");
-    await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
-    await expect(desk.getByRole("alert")).toHaveText("This file was changed after it was exported: its rows no longer match its fingerprint.");
-
     // Each judge's scores, one row per entry.
     const scores = await exportFile(page, "Judges' scores (CSV)");
     expect(scores.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-scores\.csv$/);
     expect(readFileSync(await scores.path(), "utf8")).toContain("Judge,No.,Entry,Score");
     await expectAccessible(page);
+
+    // A copy is checked on the Settings tab: as downloaded it checks out; with a name changed it doesn't.
+    await page.goto(`${adminPath}?tab=settings`);
+    const check = page.getByLabel("Check a CSV");
+    await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+    await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.");
+    await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
+    await expect(page.getByRole("alert").filter({ hasText: "changed" })).toHaveText(
+      "This file was changed after it was exported: its rows no longer match its fingerprint.",
+    );
   });
   test("another organizer can't see or export this activity", async ({ page }) => {
     await signInAsOrganizer(page, OTHER.email, OTHER.password);

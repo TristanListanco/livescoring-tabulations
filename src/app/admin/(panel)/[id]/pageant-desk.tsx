@@ -26,7 +26,7 @@ import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
-import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 
 /** A weight or share: "30%", "33.33%". */
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
@@ -306,12 +306,6 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           </div>
         );
       })}
-      {/* Once anything can be exported, a CSV someone has can be checked against the scores. */}
-      {board.rounds.some((r) => roundProgress(board, r).complete) && (
-        <div className={compact ? "mt-2" : "mt-3"}>
-          <CsvCheck activityId={activity.id} className={action} />
-        </div>
-      )}
       {deductionsShown && <DeductionsDialog board={board} onClose={() => setDeductionsShown(false)} />}
     </section>
   );

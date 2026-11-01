@@ -173,10 +173,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
       {archived && (
         <div role="note" className="note mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <p className="max-w-2xl">
-            Archived {dateFormat.format(new Date(activity.archivedAt!))}. It can&apos;t be reopened or changed. Its results and score sheets still download
-            below.
-          </p>
+          <p className="max-w-2xl">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>
           <DeleteArchivedButton activityId={activity.id} name={activity.name} className="btn btn-sm btn-danger-quiet" />
         </div>
       )}

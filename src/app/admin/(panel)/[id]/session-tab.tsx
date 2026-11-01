@@ -25,7 +25,7 @@ import { FormMessage } from "../form-message";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
-import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
@@ -261,7 +261,7 @@ export function SessionTab({
   /**
    * The audience's screen, one compact card wherever the desk is: show ranks, and the live results (copy, open, QR
    * code). The LED wall's link is on its own tab, with its settings. `extra`: what follows them (the results downloads,
-   * mid-show). An archived activity keeps only the link: nothing to put in front of an audience.
+   * mid-show). Not once archived, when the live results close.
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
@@ -1039,14 +1039,7 @@ export function SessionTab({
                   )}
                 </div>
                 <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-                {progress.complete && pageant ? (
-                  <>
-                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
-                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                      Download each sub-activity&apos;s results, the cuts and the final results from the program below. Each sheet has its own report ID.
-                    </p>
-                  </>
-                ) : progress.complete ? (
+                {progress.complete ? (
                   <>
                     <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
                     {activity.signedOffAt && (
@@ -1054,31 +1047,27 @@ export function SessionTab({
                         Signed by every judge after deliberating{signoff ? `, and by ${signoff.signedBy}` : ""}
                       </p>
                     )}
-                    <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
-                    <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
-                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                      Printed on the results PDF and on each judge&apos;s score sheet. The ID changes if any score changes, so anyone can check a printed sheet
-                      against this screen.
-                    </p>
+                    {/* A pageant's sheets each have their own, with their downloads in the program below. */}
+                    {!pageant && (
+                      <>
+                        <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
+                        <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
                     <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
                       {missing} {missing === 1 ? "score is" : "scores are"} missing
                     </p>
-                    <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-powder">
-                      {archived
-                        ? "It was archived with scores missing, so a results PDF can't be made."
-                        : pageant
-                          ? "Each results PDF needs every judge's score for every candidate in it. Reopen the session so the remaining judges can score."
-                          : "The results PDF needs every judge's score for every entry. Reopen the session so the remaining judges can score."}
-                    </p>
+                    {!archived && <p className="mt-2 text-[15px] text-powder">Reopen the session so the judges can finish.</p>}
                   </>
                 )}
               </div>
-              {progress.complete && !pageant && (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-                  <div className="flex flex-wrap gap-3">
+              {/* What's left to do, in one row: download, archive (which closes judging for good), and the survey. */}
+              {(!archived || (progress.complete && !pageant) || SURVEY_URL) && (
+                <div className="flex flex-wrap items-center gap-3 border-t border-oxford px-6 py-4">
+                  {progress.complete && !pageant && (
                     <ExportMenu
                       activityId={activity.id}
                       options={[
@@ -1087,41 +1076,28 @@ export function SessionTab({
                       ]}
                       className="btn bg-mint text-prussian hover:bg-white max-sm:w-full"
                     />
-                    <CsvCheck activityId={activity.id} className="btn border border-oxford text-mint hover:bg-oxford" onDark />
-                  </div>
-                  {signatories && (
-                    <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
-                      {signatories.length > 0
-                        ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
-                        : "No signatories yet, so the PDFs print one blank Tabulator line."}
-                      {!archived && (
-                        <>
-                          {" "}
-                          <Link href={`/admin/${activity.id}?tab=settings#signatories`} className="font-semibold text-mint underline underline-offset-2">
-                            Edit signatories
-                          </Link>
-                        </>
-                      )}
-                    </p>
                   )}
+                  {!archived && (
+                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
+                  )}
+                  <SurveyLink className="btn btn-sm text-powder hover:bg-oxford hover:text-mint sm:ml-auto">Take the survey</SurveyLink>
                 </div>
               )}
-              {SURVEY_URL && (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-                  <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
-                    How did Tabulous work for this event? A short anonymous survey, about 8 minutes, helps make it better.
-                  </p>
-                  <SurveyLink className="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford">Take the survey</SurveyLink>
-                </div>
-              )}
-              {/* Archiving is how the organizer says no more deliberating is needed: judging closes for good. */}
-              {!archived && (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
-                  <p className="min-w-56 flex-1 text-sm leading-relaxed text-powder">
-                    No more deliberating needed? Archive it: judges are signed out, their codes stop working and the private tally closes.
-                  </p>
-                  <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford" />
-                </div>
+              {progress.complete && !pageant && signatories && (
+                <p className="border-t border-oxford px-6 py-3 text-sm text-powder">
+                  {signatories.length > 0
+                    ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
+                    : "No signatories: the PDFs print one blank Tabulator line."}
+                  {!archived && (
+                    <>
+                      {" "}
+                      <Link href={`/admin/${activity.id}?tab=settings#signatories`} className="font-semibold text-mint underline underline-offset-2">
+                        Edit
+                        <span className="sr-only"> signatories</span>
+                      </Link>
+                    </>
+                  )}
+                </p>
               )}
             </section>
           )}
@@ -1131,7 +1107,8 @@ export function SessionTab({
         {runningOrder(false)}
         {cutDialog}
 
-        <div className="sm:max-w-md">{screens()}</div>
+        {/* Archived, the live results close: nothing to put in front of an audience. */}
+        {!archived && <div className="sm:max-w-md">{screens()}</div>}
       </div>
     </PdfHold>
   );
