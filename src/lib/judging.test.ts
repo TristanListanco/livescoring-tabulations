@@ -55,7 +55,21 @@ describe("showEntryColumns", () => {
 
 describe("scoreWindowOpen", () => {
   const movedAt = Date.parse("2026-10-23T10:00:00Z");
-  const event = { kind: "event" as const, currentEntryId: "e2", previousEntryId: "e1", entryShownAt: new Date(movedAt).toISOString() };
+  const event = {
+    kind: "event" as const,
+    liveScoring: false,
+    independentScoring: false,
+    currentEntryId: "e2",
+    previousEntryId: "e1",
+    entryShownAt: new Date(movedAt).toISOString(),
+  };
+
+  it("at their own pace, takes a score for any entry, whatever is on screen", () => {
+    const ownPace = { ...event, independentScoring: true, currentEntryId: null };
+    expect(scoreWindowOpen(ownPace, "e3", movedAt + 600_000)).toBe(true);
+    // Not with live scoring, where it doesn't apply.
+    expect(scoreWindowOpen({ ...ownPace, liveScoring: true }, "e3", movedAt + 600_000)).toBe(false);
+  });
 
   it("takes a score for the entry on screen", () => {
     expect(scoreWindowOpen(event, "e2", movedAt + 60_000)).toBe(true);

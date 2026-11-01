@@ -93,6 +93,20 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * Phones and tablets don't zoom by accident: not on a double tap (a judge tapping 9 then 9 on the keypad), and not as a
+ * text box is tapped, which iOS does for text under 16px. Pinch-zoom still works, for anyone who needs the page larger.
+ * Outside a layer, so it holds over a field's smaller text utility.
+ */
+html {
+  touch-action: manipulation;
+}
+@media (pointer: coarse) {
+  .field {
+    font-size: 16px;
+  }
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

@@ -40,6 +40,8 @@ export type ActivityRow = {
   judges_see_ranking?: boolean;
   /** Migration 033. */
   correction_reasons?: boolean;
+  /** Migration 034. */
+  independent_scoring?: boolean;
   privacy_screen?: boolean;
   current_entry_id?: string | null;
   /** Migration 028. */
@@ -154,6 +156,7 @@ export function toActivity(row: ActivityRow): Activity {
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
     judgesSeeRanking: row.judges_see_ranking ?? false,
     correctionReasons: row.correction_reasons ?? false,
+    independentScoring: row.independent_scoring ?? false,
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,

@@ -12,9 +12,10 @@ import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
-import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
+import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, OWN_PACE_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
+import { DeleteArchivedButton } from "../archive-controls";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -162,7 +163,7 @@ function OptionSwitch({
   editable,
 }: {
   activity: Activity;
-  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons";
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring";
   label: string;
   hint: string;
   editable: boolean;
@@ -197,6 +198,20 @@ function OptionSwitch({
 }
 
 type OrganizerOption = { id: string; name: string; email: string };
+
+/** An archived activity's Settings: nothing to change, but a CSV to check, and deleting it. */
+export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
+  return (
+    <div className="max-w-4xl">
+      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores." flush>
+        <CsvCheck activityId={activityId} className="btn btn-quiet" />
+      </Section>
+      <Section title="Delete activity">
+        <DeleteArchivedButton activityId={activityId} name={name} />
+      </Section>
+    </div>
+  );
+}
 
 /**
  * Super admin only: hand this activity to an organizer. Organizers' activities are private to them, so
@@ -282,8 +297,15 @@ export function SettingsTab({
       )}
 
       {activity.kind === "event" && !activity.liveScoring && (
-        <Section title="Corrections and deliberation" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
+        <Section title="Judging without live scoring" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
           <div className="space-y-6">
+            <OptionSwitch
+              activity={activity}
+              option="independentScoring"
+              label="Judges score at their own pace"
+              hint={OWN_PACE_HINT}
+              editable={activity.sessionState === "draft"}
+            />
             <OptionSwitch
               activity={activity}
               option="correctionReasons"

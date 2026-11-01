@@ -5,7 +5,7 @@ import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 import type { Activity } from "@/lib/types";
 import { ActivitiesRefresh } from "./activities-refresh";
-import { ArchiveButton, DeleteArchivedButton } from "./archive-controls";
+import { ArchiveButton } from "./archive-controls";
 import { DraftsList } from "./drafts-list";
 import { SessionStatus } from "./session-status";
 
@@ -325,10 +325,9 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
             Archived activities
             <span className="text-base font-semibold text-prussian/60">{archived.length}</span>
           </summary>
-          <p className="hint mt-1">Their sessions have ended for good: they can&apos;t be reopened or changed. Open one to download its results, or delete it.</p>
           <ul className="mt-4 divide-y divide-line border-y border-line">
             {archived.map((a) => (
-              <li key={a.id} className="group/row relative flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+              <li key={a.id} className="group/row relative py-3">
                 <div className="min-w-0 flex-1">
                   <Link href={`/admin/${a.id}`} className="font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover/row:underline">
                     {a.name}
@@ -337,7 +336,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                     {scoringOf(a)} · {scoresIn(a)} in · Archived {dateFormat.format(new Date(a.archivedAt!))}
                   </p>
                 </div>
-                <DeleteArchivedButton activityId={a.id} name={a.name} className="btn btn-sm btn-danger-quiet relative z-10" />
               </li>
             ))}
           </ul>

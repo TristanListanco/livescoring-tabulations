@@ -12,14 +12,14 @@ import { expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
-import { DeleteArchivedButton } from "../archive-controls";
+
 import { SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
 import { EntriesTab } from "./entries-tab";
 import { LedTab } from "./led-tab";
 import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
-import { SettingsTab } from "./settings-tab";
+import { ArchivedSettings, SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 
 /**
@@ -94,9 +94,11 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   // Before judging starts the organizer needs the judges' codes; once it's live, the session controls.
   const pageant = activity.kind === "pageant";
   const allTabs = pageant ? PAGEANT_TABS : TABS;
-  // Archived: read-only, so only its results, on the Session tab (the judges' notes download there too).
+  // Archived: read-only, so its results (on the Session tab, the judges' notes too) and Settings, to check a CSV or delete it.
   const archived = activity.archivedAt !== null;
-  const tabs = archived ? allTabs.filter((t) => t.id === "session").map((t) => ({ ...t, label: "Results" })) : allTabs;
+  const tabs = archived
+    ? allTabs.filter((t) => t.id === "session" || t.id === "settings").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
+    : allTabs;
   const tab = tabs.find((t) => t.id === asked)?.id ?? (activity.sessionState === "draft" ? "judges" : "session");
   const started = activity.sessionState !== "draft";
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
@@ -173,12 +175,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         </div>
       </div>
 
-      {archived && (
-        <div role="note" className="note mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <p className="max-w-2xl">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>
-          <DeleteArchivedButton activityId={activity.id} name={activity.name} className="btn btn-sm btn-danger-quiet" />
-        </div>
-      )}
+      {archived && <p className="mt-3 text-sm text-prussian/70">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>}
 
       <nav
         aria-label="Activity sections"
@@ -255,7 +252,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}
         {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
-        {tab === "settings" && (
+        {tab === "settings" && archived && <ArchivedSettings activityId={activity.id} name={activity.name} />}
+        {tab === "settings" && !archived && (
           <SettingsTab
             activity={activity}
             developer={testToolsAllowed()}

@@ -9,7 +9,7 @@ import { Qr } from "@/components/qr";
 import { SurveyLink } from "@/components/survey-link";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
-import { entryNeighbors } from "@/lib/judging";
+import { atOwnPace, entryNeighbors } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
@@ -430,6 +430,8 @@ export function SessionTab({
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
   // Without live scoring, a fully scored session goes to the deliberation rather than straight to its end.
   const deliberateNext = !pageant && !activity.liveScoring && progress.complete;
+  // Judges scoring at their own pace (see atOwnPace): no entry to show, only how far they've got, then the deliberation.
+  const ownPace = atOwnPace(activity);
 
   /**
    * What moving to `target` would interrupt or skip, in the order the operator needs to hear it. Empty when the
@@ -627,7 +629,7 @@ export function SessionTab({
                     </>
                   )}
                 </span>
-                {state === "draft" || between ? null : state === "ended" || state === "deliberation" ? (
+                {state === "draft" || between || (ownPace && state === "live") ? null : state === "ended" || state === "deliberation" ? (
                   // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                   <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
                     {scoreCount(e.id) > 0 ? "Judged" : "Not judged"}
@@ -677,7 +679,9 @@ export function SessionTab({
               <div className="min-w-0 flex-1">
                 <h2 id="desk-heading" className="text-sm text-powder">
                   {round && <span className="font-semibold text-mint">{round.name} · </span>}
-                  {entry
+                  {ownPace
+                    ? "Judges score at their own pace"
+                    : entry
                     ? entry.number
                       ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
                       : `Now judging: No. ${index + 1} of ${entries.length}`
@@ -686,13 +690,19 @@ export function SessionTab({
                       : "On judges' screens"}
                 </h2>
                 <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-bold text-balance wrap-anywhere">
-                  {entry ? entry.name : between ? "Choose what to judge next" : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
+                  {ownPace
+                    ? `${progress.submitted} of ${progress.possible} scores in`
+                    : entry
+                      ? entry.name
+                      : between
+                        ? "Choose what to judge next"
+                        : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
                 {deliberateNext
-                  ? !lastOneIn && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
+                  ? !lastOneIn && !ownPace && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
                   : (!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
               </div>
             </div>
@@ -726,9 +736,20 @@ export function SessionTab({
                   </ul>
                 </div>
 
-                {onAir}
+                {!ownPace && onAir}
 
-                {/* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */}
+                {ownPace ? (
+                  // At their own pace there's nothing to show: how many scores are still to come, then the deliberation.
+                  <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
+                    <p role="status" className="min-w-48 flex-1 leading-snug font-semibold">
+                      {progress.complete
+                        ? "Every judge has scored every entry."
+                        : `${progress.possible - progress.submitted} ${progress.possible - progress.submitted === 1 ? "score" : "scores"} to come.`}
+                    </p>
+                    {progress.complete && startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:w-full")}
+                  </div>
+                ) : (
+                /* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */
                 <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
                   {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
                   <p role="status" className="line-clamp-2 min-w-48 flex-1 leading-snug font-semibold">
@@ -791,6 +812,7 @@ export function SessionTab({
                     </p>
                   )}
                 </div>
+                )}
               </>
             )}
           </section>

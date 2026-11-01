@@ -9,7 +9,7 @@ import { SurveyLink } from "@/components/survey-link";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { CORRECTION_REASONS, MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
-import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
+import { atOwnPace, entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
@@ -62,6 +62,8 @@ type Props = {
   offPanel?: boolean;
   /** The judge's call for help (see AssistButton): what to show of their last one. Null before migration 032: no Assist me. */
   assistance: { current: JudgeAssistance | null } | null;
+  /** At their own pace (see atOwnPace), with criteria: the points behind each of their scores. Null otherwise. */
+  ownBreakdowns: Record<string, Record<string, number>> | null;
 };
 
 /**
@@ -164,6 +166,8 @@ export type CorrectionDecider = "self" | "judges" | "organizer";
 export type Corrections = {
   toVote: CorrectionView[];
   mine: CorrectionView | null;
+  /** At their own pace (see atOwnPace): their latest correction on each entry, for whichever they open. */
+  mineByEntry?: Record<string, CorrectionView>;
   decides: CorrectionDecider;
 };
 
@@ -208,6 +212,7 @@ export function ScoringPanel({
   serverNow,
   offPanel = false,
   assistance,
+  ownBreakdowns,
 }: Props) {
   const pageant = activity.kind === "pageant";
   // Still over realtime once judging has ended: deliberating again, or reopening, brings the judges straight back.
@@ -218,8 +223,14 @@ export function ScoringPanel({
   // With criteria, the points behind each of those scores: a correction asked for before the page has them starts from these.
   const [justSavedPoints, setJustSavedPoints] = useState<Map<string, Record<string, number>>>(() => new Map());
   const scores = new Map([...justSaved, ...myScores.map((s) => [s.entryId, s.value] as const)]);
+  // At their own pace (see atOwnPace), the judge picks the entry: the one they chose from their scores, or else the first
+  // they haven't scored. Otherwise the organizer (or the chair) decides, and the entry on screen is theirs.
+  const ownPace = atOwnPace(activity) && activity.sessionState === "live";
+  const [chosen, setChosen] = useState<string | null>(null);
+  const nextUnscored = entries.find((e) => !scores.has(e.id)) ?? null;
+  const pick = chosen && entries.some((e) => e.id === chosen) ? chosen : (nextUnscored?.id ?? null);
   // Off the panel of the sub-activity on screen: nothing to score until their part comes up.
-  const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(activity, entries, scores);
+  const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(ownPace ? { ...activity, currentEntryId: pick } : activity, entries, scores);
   // A short message at the top: a score saved (`entryId`), a vote cast.
   const [toast, setToast] = useState<{ content: React.ReactNode; entryId?: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -232,6 +243,8 @@ export function ScoringPanel({
   };
   const onSaved = (entry: Entry, value: number, typed: PendingScore["typed"]) => {
     setJustSaved((m) => new Map(m).set(entry.id, value));
+    // At their own pace, on to the next entry they haven't scored.
+    if (ownPace) setChosen(null);
     const points = typeof typed === "string" ? null : parseBreakdown(typed, activity.criteria, activity.decimals);
     if (points?.ok) setJustSavedPoints((m) => new Map(m).set(entry.id, points.breakdown));
     showToast(
@@ -291,7 +304,7 @@ export function ScoringPanel({
 
   const currentId = approved && (view.kind === "scoring" || view.kind === "scored") ? view.entry.id : null;
   // The points behind the score on screen (criteria): the page's, or, until it has them, the ones just saved here.
-  const pointsOnScreen = view.kind === "scored" ? (breakdown ?? justSavedPoints.get(view.entry.id) ?? null) : null;
+  const pointsOnScreen = view.kind === "scored" ? ((ownPace ? ownBreakdowns?.[view.entry.id] : breakdown) ?? justSavedPoints.get(view.entry.id) ?? null) : null;
   // Correcting a score: the keypad comes back, starting from what they gave. While judging, the entry on screen; in the
   // deliberation, any entry they choose.
   const [correctingFor, setCorrectingFor] = useState<string | null>(null);
@@ -373,7 +386,7 @@ export function ScoringPanel({
               </p>
               {/* Narrower, the list isn't beside the keypad: the count opens it. */}
               <ScoresSheet title={`Your scores${round ? ` in ${round.name}` : ""}`} scored={scores.size} total={entries.length}>
-                <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} />
+                <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} onPick={ownPace ? setChosen : undefined} />
               </ScoresSheet>
             </>
           )}
@@ -425,7 +438,7 @@ export function ScoringPanel({
         {approved && !offPanel && !deliberating && (
           <aside aria-label="Your scores" className="hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
             <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
-            <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} />
+            <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} onPick={ownPace ? setChosen : undefined} />
           </aside>
         )}
 
@@ -515,15 +528,27 @@ export function ScoringPanel({
                     ? activity.criteria.flatMap((c) => (pointsOnScreen[c.id] === undefined ? [] : [{ id: c.id, name: c.name, points: pointsOnScreen[c.id], max: c.max }]))
                     : null
                 }
-                movesEntries={!!panel}
+                movesEntries={!!panel && !ownPace}
+                ownPace={ownPace}
                 offPanel={offPanel}
                 correction={
                   corrections && view.kind === "scored" ? (
-                    <CorrectionStatus mine={corrections.mine} decides={corrections.decides} onAsk={() => setCorrectingFor(view.entry.id)} />
+                    <CorrectionStatus
+                      mine={ownPace ? (corrections.mineByEntry?.[view.entry.id] ?? null) : corrections.mine}
+                      decides={corrections.decides}
+                      onAsk={() => setCorrectingFor(view.entry.id)}
+                    />
                   ) : null
                 }
               />
-              {panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
+              {/* At their own pace: on to the next entry they haven't scored, from one they came back to. */}
+              {ownPace && view.kind === "scored" && nextUnscored && (
+                <button type="button" onClick={() => setChosen(null)} className="btn mt-6 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white">
+                  <span className="truncate">Next: {nextUnscored.name}</span>
+                </button>
+              )}
+              {ownPace && panel && (view.kind === "waiting" || view.kind === "scored") && <ChairStartsDeliberation ready={deliberationReady} />}
+              {!ownPace && panel && (view.kind === "waiting" || view.kind === "scored") && !(pageant && !round) && (
                 <EntryControls
                   activity={activity}
                   entries={entries}
@@ -548,14 +573,28 @@ export function ScoringPanel({
 }
 
 /** The entries in running order with this judge's score for each: beside the keypad from 768px, in a sheet below. */
-function ScoreList({ entries, scores, currentId, decimals }: { entries: Entry[]; scores: Map<string, number>; currentId: string | null; decimals: Activity["decimals"] }) {
+function ScoreList({
+  entries,
+  scores,
+  currentId,
+  decimals,
+  onPick,
+}: {
+  entries: Entry[];
+  scores: Map<string, number>;
+  currentId: string | null;
+  decimals: Activity["decimals"];
+  /** At their own pace (see atOwnPace): each entry opens to score it, or to see the score given. */
+  onPick?: (entryId: string) => void;
+}) {
   return (
     <ol className="space-y-1 px-3 pb-4">
       {entries.map((entry, i) => {
         const value = scores.get(entry.id);
         const current = entry.id === currentId;
-        return (
-          <li key={entry.id} aria-current={current ? "true" : undefined} className={`flex items-center gap-3 rounded-xl px-3 py-3 ${current ? "bg-regal" : ""}`}>
+        const row = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${current ? "bg-regal" : onPick ? "hover:bg-oxford" : ""}`;
+        const content = (
+          <>
             <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{entry.number ?? i + 1}</span>
             <span className="min-w-0 flex-1 truncate font-semibold">
               {entry.name}
@@ -569,6 +608,29 @@ function ScoreList({ entries, scores, currentId, decimals }: { entries: Entry[];
                 <span className="sr-only">Not scored</span>
               </span>
             )}
+          </>
+        );
+        if (onPick) {
+          return (
+            <li key={entry.id}>
+              <button
+                type="button"
+                aria-current={current ? "true" : undefined}
+                onClick={(e) => {
+                  onPick(entry.id);
+                  // From the sheet on a phone: back to the keypad.
+                  e.currentTarget.closest("dialog")?.close();
+                }}
+                className={row}
+              >
+                {content}
+              </button>
+            </li>
+          );
+        }
+        return (
+          <li key={entry.id} aria-current={current ? "true" : undefined} className={row}>
+            {content}
           </li>
         );
       })}
@@ -886,11 +948,14 @@ function WaitingCard({
   scoredCount,
   entryCount,
   movesEntries,
+  ownPace = false,
   offPanel,
   correction,
   points,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
+  /** Scoring at their own pace (see atOwnPace): nothing to wait for but the other judges, before the deliberation. */
+  ownPace?: boolean;
   /** Under a submitted score: asking for a correction, or how one stands (null before migration 019). */
   correction?: React.ReactNode;
   /** With criteria, the points behind the submitted score, when this screen has them. */
@@ -923,13 +988,17 @@ function WaitingCard({
     },
     scored: { title: "Your score is in", body: "Show the next entry below once every judge has scored." },
   };
+  const ownPaceCopy: Partial<typeof copy> = {
+    waiting: { title: "You've scored every entry", body: "The chair starts the deliberation once every judge has. Open any entry in your scores to see it again." },
+    scored: { title: "Your score is in", body: "Open any entry in your scores to see it again." },
+  };
   // A pageant between sub-activities: nothing to score until the organizer starts the next one.
   const betweenRounds = activity.kind === "pageant" && !round && view.kind === "waiting";
   const { title, body } = offPanel
     ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
     : betweenRounds
       ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
-      : ((movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
+      : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   const submitted = correction ?? <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.</p>;
 
@@ -1329,6 +1398,36 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
           </button>
           <p className="mt-2 text-sm text-powder">{count}</p>
         </form>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The chair, when judges score at their own pace: no entries to move, only the deliberation to start once every judge
+ * has scored every entry (as the organizer can from the desk).
+ */
+function ChairStartsDeliberation({ ready }: { ready: boolean }) {
+  return (
+    <section aria-labelledby="chair-deliberation" className="mt-5 w-full rounded-2xl border-2 border-oxford p-5 text-left">
+      <h2 id="chair-deliberation" className="text-lg font-bold">
+        Chair of the board of judges
+      </h2>
+      {ready ? (
+        <ConfirmDialog
+          triggerLabel="Start deliberation"
+          triggerClassName="btn mt-4 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white"
+          title="Start the deliberation?"
+          confirmLabel="Start deliberation"
+          onConfirm={() => startDeliberation().catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }))}
+        >
+          Every entry is scored. Each judge reviews their scores and notes, corrects any that&apos;s wrong, then signs. The results show once every judge
+          has signed.
+        </ConfirmDialog>
+      ) : (
+        <p role="status" className="mt-1 text-powder">
+          You start the deliberation here once every judge has scored every entry.
+        </p>
       )}
     </section>
   );
