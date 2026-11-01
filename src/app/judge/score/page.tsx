@@ -4,6 +4,7 @@ import { correctionView, correctionVoters, withoutValues } from "@/lib/correctio
 import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
+import { atOwnPace } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
 import { averageText, rankEntries } from "@/lib/scoring";
@@ -24,11 +25,13 @@ export default async function ScorePage() {
   const { device } = found;
   const onScreen = found.activity.currentEntryId;
   const deliberating = found.activity.sessionState === "deliberation";
+  // At their own pace, a judge can open any entry they've scored: the points and corrections behind each come along.
+  const ownPace = atOwnPace(found.activity) && found.activity.sessionState === "live";
   const [board, allCorrections, givenOnScreen, breakdowns, signatures, assistance] = await Promise.all([
     getBoard(context.activityId),
     getCorrections(context.activityId),
     onScreen ? getOwnBreakdown(context.judge.id, onScreen, found.activity.currentRoundId) : null,
-    deliberating && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
+    (deliberating || ownPace) && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
     deliberating ? getSignatures(context.activityId) : null,
     getJudgeAssistance(context.judge.id),
   ]);
@@ -89,6 +92,14 @@ export default async function ScorePage() {
               .filter((c) => c.judgeId === context.judge.id && c.entryId === board.activity.currentEntryId && c.roundId === (round?.id ?? null) && c.status !== "withdrawn")
               .map((c) => correctionView(board, c))
               .at(-1) ?? null,
+          // At their own pace, their latest correction on each entry, for whichever they open.
+          mineByEntry: ownPace
+            ? Object.fromEntries(
+                allCorrections
+                  .filter((c) => c.judgeId === context.judge.id && c.status !== "withdrawn")
+                  .map((c) => [c.entryId, correctionView(board, c)] as const),
+              )
+            : undefined,
           decides,
         }
       : null;
@@ -175,6 +186,7 @@ export default async function ScorePage() {
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}
       offPanel={offPanel}
       assistance={assistance}
+      ownBreakdowns={ownPace ? (breakdowns ?? {}) : null}
       // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
       // eslint-disable-next-line react-hooks/purity
       serverNow={Date.now()}

@@ -27,6 +27,13 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
   return value === undefined ? { kind: "scoring", entry, number } : { kind: "scored", entry, number, value };
 }
 
+/**
+ * Whether judges score at their own pace: an event without live scoring whose organizer chose it. Each judge then scores
+ * the entries in any order, without waiting for the next one to be shown; the chair still starts the deliberation.
+ */
+export const atOwnPace = (activity: Pick<Activity, "kind" | "liveScoring" | "independentScoring">) =>
+  activity.kind === "event" && !activity.liveScoring && activity.independentScoring;
+
 /** How long after judges are moved on that a score for the entry they left still counts: the undo window, and ten seconds for it to arrive. */
 export const LATE_SCORE_MS = SCORE_UNDO_MS + 10_000;
 
@@ -37,11 +44,12 @@ export const LATE_SCORE_MS = SCORE_UNDO_MS + 10_000;
  * sub-activity on screen and its timer, so there only the candidate on screen.
  */
 export function scoreWindowOpen(
-  activity: Pick<Activity, "kind" | "currentEntryId" | "previousEntryId" | "entryShownAt">,
+  activity: Pick<Activity, "kind" | "currentEntryId" | "previousEntryId" | "entryShownAt" | "liveScoring" | "independentScoring">,
   entryId: string,
   now: number,
 ): boolean {
-  if (activity.currentEntryId === entryId) return true;
+  // At their own pace, any of the activity's entries (the caller has checked it's one).
+  if (activity.currentEntryId === entryId || atOwnPace(activity)) return true;
   if (activity.kind !== "event" || activity.previousEntryId !== entryId || !activity.entryShownAt) return false;
   const movedOn = Date.parse(activity.entryShownAt);
   return Number.isFinite(movedOn) && now - movedOn <= LATE_SCORE_MS;

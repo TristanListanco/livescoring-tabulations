@@ -726,6 +726,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       columns.live_scoring = false;
       if (formData.get("judges_see_ranking") === "on") columns.judges_see_ranking = true;
       if (formData.get("correction_reasons") === "on") columns.correction_reasons = true;
+      if (formData.get("independent_scoring") === "on") columns.independent_scoring = true;
     }
     // Written only with fields, so events without them create before migration 033.
     if (entryFields.length) {
@@ -789,6 +790,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
     if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
     if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
+    if (error && /independent_scoring/.test(error.message)) return needsMigration(OWN_PACE_HINT);
     // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
     if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
     // Otherwise its public link was taken: another try, with another.
@@ -895,6 +897,8 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
 
 /** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
 const OPTIONS_HINT = "This needs a database update. Run supabase/migrations/032_assistance_ranking_privacy.sql in the Supabase SQL editor.";
+/** Where judges scoring at their own pace needs migration 034. */
+const OWN_PACE_HINT = "This needs a database update. Run supabase/migrations/034_independent_scoring.sql in the Supabase SQL editor.";
 /** Where correction reasons from a list and entry details need migration 033. */
 const REASONS_HINT = "This needs a database update. Run supabase/migrations/033_entry_details_and_reasons.sql in the Supabase SQL editor.";
 
@@ -904,14 +908,21 @@ const REASONS_HINT = "This needs a database update. Run supabase/migrations/033_
  *   until the session ends;
  * - privacyScreen: judges' phones and tablets hide the screen when tilted off axis while judging, until it's archived;
  * - correctionReasons: a judge correcting their own score picks the reason from a list (an event without live scoring),
- *   until the session ends.
+ *   until the session ends;
+ * - independentScoring: judges score at their own pace, in any order (an event without live scoring), until the
+ *   session starts.
  */
 export const setActivityOption = traced("setActivityOption", async function setActivityOption(
   activityId: string,
-  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons",
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring",
   on: boolean,
 ): Promise<ActionResult> {
-  const columns = { judgesSeeRanking: "judges_see_ranking", privacyScreen: "privacy_screen", correctionReasons: "correction_reasons" } as const;
+  const columns = {
+    judgesSeeRanking: "judges_see_ranking",
+    privacyScreen: "privacy_screen",
+    correctionReasons: "correction_reasons",
+    independentScoring: "independent_scoring",
+  } as const;
   if (typeof on !== "boolean" || !Object.hasOwn(columns, option)) return err("Choose on or off.");
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
@@ -919,13 +930,17 @@ export const setActivityOption = traced("setActivityOption", async function setA
   if (option !== "privacyScreen") {
     if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has corrections and a deliberation.");
     if (activity.sessionState === "ended") return err("Judging has ended, so this can't change.");
+    // How judges move through the entries is set before judging starts.
+    if (option === "independentScoring" && activity.sessionState !== "draft") return err("Judging has started, so this can't change.");
   }
   const column = columns[option];
   const { error } = await db().from("activities").update({ [column]: on }).eq("id", activityId);
-  if (error) return new RegExp(column).test(error.message) ? needsMigration(option === "correctionReasons" ? REASONS_HINT : OPTIONS_HINT) : dbErr(error);
+  const hint = option === "correctionReasons" ? REASONS_HINT : option === "independentScoring" ? OWN_PACE_HINT : OPTIONS_HINT;
+  if (error) return new RegExp(column).test(error.message) ? needsMigration(hint) : dbErr(error);
   changed();
   if (option === "judgesSeeRanking") return ok(on ? "Judges see the ranking while they deliberate." : "Judges see only their own scores while they deliberate.");
   if (option === "correctionReasons") return ok(on ? "Judges pick a reason from a list." : "Judges type their reason.");
+  if (option === "independentScoring") return ok(on ? "Judges score at their own pace." : "Judges score the entry on screen.");
   return ok(on ? "The privacy screen is on." : "The privacy screen is off.");
 });
 

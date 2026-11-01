@@ -10,6 +10,10 @@ import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 export const JUDGES_RANKING_HINT =
   "Each entry's rank and average, beside their own scores, never another judge's. With two judges, each could work out the other's scores from the averages.";
 
+/** Judges scoring at their own pace: what changes for them and the chair. */
+export const OWN_PACE_HINT =
+  "Each judge scores the entries in any order, without waiting for the next one to be shown. The chair starts the deliberation once every judge has scored every entry.";
+
 /** Correction reasons from a list: what judges choose from. */
 export const CORRECTION_REASONS_HINT =
   "Instead of typing why, they choose a reason (a wrong number, a misread criterion, and the like), or Other to type one. Every correction still keeps its reason.";

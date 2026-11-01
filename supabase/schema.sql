@@ -424,6 +424,8 @@ alter table public.activities add column if not exists entry_shown_at timestampt
 alter table public.activities add column if not exists judges_see_ranking boolean not null default false;
 -- An event's correction reasons from a list (migration 033): a judge picks why, or types it under Other.
 alter table public.activities add column if not exists correction_reasons boolean not null default false;
+-- Judges score at their own pace, in any order, without waiting for the next entry to be shown (migration 034).
+alter table public.activities add column if not exists independent_scoring boolean not null default false;
 -- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): seen only by the organizer, on
 -- the Entries tab and the results. Each entry's values are in entries.details, by field id.
 alter table public.activities add column if not exists entry_fields jsonb not null default '[]'::jsonb;

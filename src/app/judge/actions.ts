@@ -9,7 +9,7 @@ import { cleanSignature } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
-import { scoreWindowOpen, showColumns } from "@/lib/judging";
+import { atOwnPace, scoreWindowOpen, showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
@@ -275,7 +275,8 @@ export const requestCorrection = traced("requestCorrection", async function requ
   if (activity.liveScoring && own) return { ok: false, error: "This event scores live, so submitted scores are final." };
   const deliberating = activity.sessionState === "deliberation";
   if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
-  if (!deliberating && activity.currentEntryId !== entryId) {
+  // At their own pace, any entry they've scored; otherwise the one on screen.
+  if (!deliberating && activity.currentEntryId !== entryId && !atOwnPace(activity)) {
     return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
   }
 

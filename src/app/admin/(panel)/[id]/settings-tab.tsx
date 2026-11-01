@@ -12,7 +12,7 @@ import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
-import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
+import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, OWN_PACE_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
 import { DeleteArchivedButton } from "../archive-controls";
@@ -163,7 +163,7 @@ function OptionSwitch({
   editable,
 }: {
   activity: Activity;
-  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons";
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring";
   label: string;
   hint: string;
   editable: boolean;
@@ -297,8 +297,15 @@ export function SettingsTab({
       )}
 
       {activity.kind === "event" && !activity.liveScoring && (
-        <Section title="Corrections and deliberation" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
+        <Section title="Judging without live scoring" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
           <div className="space-y-6">
+            <OptionSwitch
+              activity={activity}
+              option="independentScoring"
+              label="Judges score at their own pace"
+              hint={OWN_PACE_HINT}
+              editable={activity.sessionState === "draft"}
+            />
             <OptionSwitch
               activity={activity}
               option="correctionReasons"

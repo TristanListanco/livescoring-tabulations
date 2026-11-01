@@ -9,7 +9,7 @@ import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
 import { MAX_FIELD_NAME } from "@/lib/entry-details";
-import { blankEventScoring, CORRECTION_REASONS_HINT, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
+import { blankEventScoring, CORRECTION_REASONS_HINT, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, OWN_PACE_HINT, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
@@ -31,6 +31,7 @@ function opened(data: unknown) {
     liveScoring: data === undefined || data === null ? false : d.liveScoring !== false,
     judgesSeeRanking: d.judgesSeeRanking === true,
     correctionReasons: d.correctionReasons === true,
+    independentScoring: d.independentScoring === true,
     // The names of up to three details kept about each entry.
     entryFields: [0, 1, 2].map((i) => (Array.isArray(d.entryFields) && typeof d.entryFields[i] === "string" ? d.entryFields[i] : "")),
     entries: typeof d.entries === "string" ? d.entries : "",
@@ -59,6 +60,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [liveScoring, setLiveScoring] = useState(start.liveScoring);
   const [judgesSeeRanking, setJudgesSeeRanking] = useState(start.judgesSeeRanking);
   const [correctionReasons, setCorrectionReasons] = useState(start.correctionReasons);
+  const [independentScoring, setIndependentScoring] = useState(start.independentScoring);
   const [entryFields, setEntryFields] = useState<string[]>(start.entryFields);
   const named = entryFields.map((f) => f.trim()).filter(Boolean);
   // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
@@ -75,7 +77,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     saveRef,
     kind: "event",
     name,
-    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, correctionReasons, entryFields, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
+    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, correctionReasons, independentScoring, entryFields, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
     collect: async () => ({
       name,
       scoring,
@@ -83,6 +85,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
       liveScoring,
       judgesSeeRanking,
       correctionReasons,
+      independentScoring,
       entryFields,
       judges: await saveJudges(judges),
       chair: chairIndex < 0 ? null : chairIndex,
@@ -148,6 +151,19 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         {/* Only an event without live scoring has a deliberation. */}
         {!liveScoring && (
           <>
+            <input type="hidden" name="independent_scoring" value={independentScoring ? "on" : "off"} />
+            <label className="mt-4 flex max-w-xl items-start gap-3">
+              <input
+                type="checkbox"
+                checked={independentScoring}
+                onChange={(e) => setIndependentScoring(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0 accent-regal"
+              />
+              <span>
+                <span className="font-semibold">Judges score at their own pace</span>
+                <span className="hint mt-1 block">{OWN_PACE_HINT}</span>
+              </span>
+            </label>
             <input type="hidden" name="judges_see_ranking" value={judgesSeeRanking ? "on" : "off"} />
             <label className="mt-4 flex max-w-xl items-start gap-3">
               <input
