@@ -48,9 +48,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">{children}</main>
       <footer className="mx-auto max-w-6xl px-4 pb-8 sm:px-6">
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-prussian/70">
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-prussian/70 pointer-coarse:gap-y-3">
           <LegalLinks />
-          <SurveyLink className="hover:underline" />
+          <SurveyLink className="tap-target hover:underline" />
         </div>
       </footer>
       {/* Judges' calls for help, wherever the organizer is in the panel. */}

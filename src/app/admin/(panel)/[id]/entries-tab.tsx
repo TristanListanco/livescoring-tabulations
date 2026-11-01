@@ -95,7 +95,8 @@ function EntryRow({
               onChange={(e) => setName(e.target.value)}
               className="field max-w-md"
             />
-            <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible"}`} pendingLabel="Saving…">
+            {/* On a phone it takes no room until there's something to save, so the name has the width. */}
+            <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible max-sm:hidden"}`} pendingLabel="Saving…">
               Save<span className="sr-only"> {entry.name}</span>
             </SubmitButton>
           </div>
