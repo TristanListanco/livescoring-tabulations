@@ -141,6 +141,12 @@ function WarningIcon() {
 }
 
 /** A judge's own score as they think of it: the score, or criteria points out of 100. */
+/**
+ * Whether a confirmed score waits SCORE_UNDO_MS, to be undone, before it's sent. Not in an event with live scoring: the
+ * audience sees each score as it comes in, so it goes in at once.
+ */
+const undoable = (activity: Activity) => !(activity.kind === "event" && activity.liveScoring);
+
 function myScoreText(value: number, activity: Activity): string {
   return activity.scoringMode === "criteria" ? `${formatScore(value, activity.decimals)} / 100` : formatScore(value, activity.decimals);
 }
@@ -259,9 +265,10 @@ export function ScoringPanel({
     if (result.ok) onSaved(score.entry, score.value, score.typed);
     else setFailed({ entry: score.entry, error: result.error });
   });
+  const undoMs = undoable(activity) ? SCORE_UNDO_MS : 0;
   useEffect(() => {
     if (!pending || pending.sending) return;
-    const timer = setTimeout(() => send(pending), SCORE_UNDO_MS);
+    const timer = setTimeout(() => send(pending), undoMs);
     // Leaving the page now would drop the score: the browser asks first.
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", warn);
@@ -269,7 +276,7 @@ export function ScoringPanel({
       clearTimeout(timer);
       window.removeEventListener("beforeunload", warn);
     };
-  }, [pending]);
+  }, [pending, undoMs]);
   // The entry whose keypad has a score typed on it (not yet submitted).
   const [typingFor, setTypingFor] = useState<string | null>(null);
   const submission = (entry: Entry): Submission => ({
@@ -531,7 +538,9 @@ export function ScoringPanel({
         </main>
         {noteStore && wide && !deliberating && <NotesBeside entry={noteEntry} notes={noteStore} />}
       </div>
-      {pending && <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />}
+      {pending && (undoable(activity) || pending.sending) && (
+        <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />
+      )}
       {/* Another judge's correction waits for this judge's vote: it can't be put off, only held while they score. */}
       {!busyScoring && toVote.length > 0 && <CorrectionVote key={toVote[0].id} view={toVote[0]} onVoted={(agree) => onVoted(toVote[0], agree)} />}
     </div>
@@ -1797,7 +1806,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
         </button>
       </div>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...request.dialog}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: "Once you submit it, it's final." })} {...request.dialog}>
         {correcting ? (
           <>
             <FromTo from={formatScore(correcting.from, activity.decimals)} to={typed.ok ? formatScore(typed.value, activity.decimals) : buffer} />
@@ -2024,7 +2033,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         </button>
       </div>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...request.dialog}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: "Once you submit it, it's final." })} {...request.dialog}>
         {all.ok && correcting && (
           <>
             <FromTo from={formatScore(correcting.from, decimals)} to={formatScore(all.total, decimals)} />
