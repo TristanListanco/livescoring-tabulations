@@ -112,6 +112,8 @@ export type Activity = {
   liveScoring: boolean;
   /** In the deliberation, judges see each entry's rank and average (never each other's scores). Migration 032; off before it. */
   judgesSeeRanking: boolean;
+  /** Without live scoring, a judge correcting their own score picks the reason from a list (CORRECTION_REASONS). Migration 033. */
+  correctionReasons: boolean;
   /** Judges' phones and tablets hide the screen when tilted off axis while judging. Migration 032; off before it. */
   privacyScreen: boolean;
   /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */

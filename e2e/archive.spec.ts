@@ -77,7 +77,6 @@ test.describe.serial("archived activities", () => {
     // So does the ended desk, for when no more deliberating is needed.
     await page.goto(`${adminPath}?tab=session`);
     const desk = page.getByRole("region", { name: "Judging has ended" });
-    await expect(desk).toContainText("No more deliberating needed?");
     await desk.getByRole("button", { name: `Archive ${NAME}` }).click();
     const dialog = page.getByRole("dialog", { name: "Archive this activity?" });
     await expect(dialog).toContainText("can't be reopened, deliberated again or changed");
@@ -105,7 +104,9 @@ test.describe.serial("archived activities", () => {
 
     // Read-only: its results (the judges' notes download with them), nothing to change, and no reopening.
     await expect(page.getByText("Archived", { exact: true })).toBeVisible();
-    await expect(page.getByRole("note").filter({ hasText: "can't be reopened or changed" })).toBeVisible();
+    await expect(page.getByRole("note").filter({ hasText: "Read-only" })).toBeVisible();
+    // Its live results are closed, so nothing links to them.
+    await expect(page.getByRole("region", { name: "Screens" })).toHaveCount(0);
     const sections = page.getByRole("navigation", { name: "Activity sections" });
     await expect(sections.getByRole("link")).toHaveText(["Results"]);
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
@@ -117,15 +118,11 @@ test.describe.serial("archived activities", () => {
     await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
   });
 
-  test("the archived live results are final: the page stops checking for changes", async ({ page }) => {
-    const checks: string[] = [];
-    page.on("request", (request) => {
-      if (request.url().includes("/rest/v1/activity_changes")) checks.push(request.url());
-    });
-    await page.goto(livePath);
-    await expect(page.getByText(/^Ended · /).first()).toBeVisible();
-    await page.waitForTimeout(3_000);
-    expect(checks).toHaveLength(0);
+  test("once archived, the live results link no longer works", async ({ page }) => {
+    const response = await page.goto(livePath);
+    expect(response?.status()).toBe(404);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("This page doesn't exist");
+    await expect(page.getByText(/^Ended · /)).toHaveCount(0);
   });
 
   test("an archived activity can still be deleted", async ({ page }) => {

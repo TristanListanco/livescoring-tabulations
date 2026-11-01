@@ -23,11 +23,11 @@ export function LiveBoard({ board: full }: { board: Board }) {
   // (with many activities at once, phones would be most of realtime's connections), at most one refresh every 2
   // seconds. A check reads one row; a refresh reads the shared server cache, cleared only by this activity's changes.
   // Between entries, when nothing changes, the checks stretch to every 12 seconds. Once judging has ended it checks
-  // every half minute, and an archived activity's results are final: it doesn't check at all.
+  // every half minute: archiving it then takes the page away.
   const status = useLiveRefresh(
     full.activity.id,
     full.activity.sessionState === "ended"
-      ? { ...JUDGING_OVER, enabled: !full.activity.archivedAt }
+      ? JUDGING_OVER
       : { pollMs: 4_000, minGapMs: 2_000, idleMaxMs: 12_000, realtime: false },
   );
   const stage = useStage();

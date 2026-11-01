@@ -10,6 +10,10 @@ import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 export const JUDGES_RANKING_HINT =
   "Each entry's rank and average, beside their own scores, never another judge's. With two judges, each could work out the other's scores from the averages.";
 
+/** Correction reasons from a list: what judges choose from. */
+export const CORRECTION_REASONS_HINT =
+  "Instead of typing why, they choose a reason (a wrong number, a misread criterion, and the like), or Other to type one. Every correction still keeps its reason.";
+
 export const LIVE_SCORING_HINT = {
   on: "The audience sees each score as it's submitted, and a submitted score is final.",
   off: "The audience sees no scores until the judges have deliberated and signed, and the LED wall is off. A judge can correct their own score, saying why, until they sign.",

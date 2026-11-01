@@ -58,7 +58,11 @@ export default function PrivacyPolicy() {
         reads the device’s orientation on the device itself: nothing about it is sent to us or kept.
       </p>
       <h3>Entries and candidates</h3>
-      <p>Names and optional photos, added by the organizer, with their scores and results.</p>
+      <p>
+        Names and optional photos, added by the organizer, with their scores and results. An event’s organizer can also add up to three
+        details about each entry, such as a school, a division or a region: only the organizer sees them, on their own pages and in the
+        results they download. Judges and the public pages never get them.
+      </p>
       <h3>Signatories</h3>
       <p>Names and designations an organizer adds to an activity, printed as signature lines on its results PDFs.</p>
       <h3>The audience</h3>
@@ -92,7 +96,7 @@ export default function PrivacyPolicy() {
           An activity’s live results page and LED wall, to anyone with the link: the activity’s name, entries’ and candidates’ names and
           photos, scores and ranks, judges’ first names with a last initial and their photos (or just “Judge 1”, “Judge 2” when the
           organizer keeps judges anonymous), and the organizer’s logo. When an event doesn’t score live, its scores appear only once the
-          judges have signed them.
+          judges have signed them. Once the activity is archived, both are gone: the link no longer works.
         </li>
         <li>Photos are stored at web addresses that anyone who has the address can open.</li>
         <li>

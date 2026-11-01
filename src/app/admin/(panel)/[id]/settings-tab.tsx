@@ -12,8 +12,9 @@ import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
-import { JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
+import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
+import { CsvCheck } from "./export-menu";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -161,7 +162,7 @@ function OptionSwitch({
   editable,
 }: {
   activity: Activity;
-  option: "judgesSeeRanking" | "privacyScreen";
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons";
   label: string;
   hint: string;
   editable: boolean;
@@ -281,14 +282,23 @@ export function SettingsTab({
       )}
 
       {activity.kind === "event" && !activity.liveScoring && (
-        <Section title="Deliberation" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
-          <OptionSwitch
-            activity={activity}
-            option="judgesSeeRanking"
-            label="Judges see the overall ranking while they deliberate"
-            hint={JUDGES_RANKING_HINT}
-            editable={activity.sessionState !== "ended"}
-          />
+        <Section title="Corrections and deliberation" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
+          <div className="space-y-6">
+            <OptionSwitch
+              activity={activity}
+              option="correctionReasons"
+              label="Judges pick a reason from a list when they correct a score"
+              hint={CORRECTION_REASONS_HINT}
+              editable={activity.sessionState !== "ended"}
+            />
+            <OptionSwitch
+              activity={activity}
+              option="judgesSeeRanking"
+              label="Judges see the overall ranking while they deliberate"
+              hint={JUDGES_RANKING_HINT}
+              editable={activity.sessionState !== "ended"}
+            />
+          </div>
         </Section>
       )}
 
@@ -321,6 +331,10 @@ export function SettingsTab({
         hint="The Board of Tabulators and anyone else who signs this activity's results. Each gets a signature line on its results PDFs and judges' score sheets."
       >
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
+      </Section>
+
+      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores now.">
+        <CsvCheck activityId={activity.id} className="btn btn-quiet" />
       </Section>
 
       {organizers && (

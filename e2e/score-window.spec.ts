@@ -28,7 +28,8 @@ async function restOk(path: string, body: unknown, method = "POST") {
 
 test.describe.serial("score window", () => {
   test.beforeAll(async () => {
-    await restOk("activities", { id: activity.id, name: "E2E Score window", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+    // Without live scoring, where a confirmed score waits a few seconds to be undone (with it, it goes in at once).
+    await restOk("activities", { id: activity.id, name: "E2E Score window", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live", live_scoring: false });
     await restOk("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
     await restOk("judge_access", { judge_id: judge, code: CODE });
     await restOk("entries", [
@@ -47,6 +48,8 @@ test.describe.serial("score window", () => {
     const phone = await context.newPage();
     await openJudgeLink(phone, CODE);
     await restOk(`judge_devices?judge_id=eq.${judge}`, { status: "approved" }, "PATCH");
+    // As the organizer's approval does: the judge's screen hears of it.
+    await restOk(`judges?id=eq.${judge}`, { devices_updated_at: new Date().toISOString() }, "PATCH");
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Agila", { timeout: 20_000 });
 
     await tapScore(phone, "8");

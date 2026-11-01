@@ -1,6 +1,6 @@
 import "server-only";
 import { correctionView, type Correction, type CorrectionView } from "./corrections";
-import { getActivityNotes, getActivitySignatories, getActivitySignoff, getAdmin, getCorrections, getSignatures, withBreakdowns } from "./data";
+import { getActivityNotes, getActivitySignatories, getActivitySignoff, getAdmin, getCorrections, getEntryDetails, getSignatures, withBreakdowns } from "./data";
 import { reportId } from "./report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "./pageant";
 // Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
@@ -257,10 +257,18 @@ async function sheetFor(board: Board, search: URLSearchParams, corrections: Corr
     reportId: id,
     files: resultsFiles(activity.name),
     pdf: async (timeZone) => {
-      const [signatures, signoff] = await signed();
-      return renderResultsPdf(board, { timeZone, reportId: id, ...(await reportPeople(activity)), signatures, signoff, corrections: appliedTo(board, corrections, null) });
+      const [[signatures, signoff], details] = await Promise.all([signed(), getEntryDetails(activity.id)]);
+      return renderResultsPdf(board, {
+        timeZone,
+        reportId: id,
+        ...(await reportPeople(activity)),
+        signatures,
+        signoff,
+        corrections: appliedTo(board, corrections, null),
+        details,
+      });
     },
-    csv: async () => resultsTable(board),
+    csv: async () => resultsTable(board, "Entry", await getEntryDetails(activity.id)),
   };
 }
 

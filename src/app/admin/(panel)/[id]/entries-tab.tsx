@@ -5,8 +5,9 @@ import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
+import { detailsLine, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import type { ActionResult, Entry } from "@/lib/types";
-import { addEntries, moveEntry, removeEntry, renameEntry, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
+import { addEntries, moveEntry, removeEntry, renameEntry, setEntryFields, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 
 function Arrow({ up }: { up?: boolean }) {
@@ -25,6 +26,8 @@ function EntryRow({
   scored,
   started,
   onReorder,
+  fields,
+  details,
 }: {
   entry: Entry;
   number: number;
@@ -34,11 +37,15 @@ function EntryRow({
   started: boolean;
   /** Moving or removing it changes the running order. */
   onReorder: () => void;
+  /** The event's entry fields, and this entry's values (see entry-details.ts). */
+  fields: EntryField[];
+  details: EntryDetails;
 }) {
   const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
-  // Save shows only once the name has been edited, so an untouched list isn't a column of buttons.
+  // Save shows only once the name or a detail has been edited, so an untouched list isn't a column of buttons.
   const [name, setName] = useState(entry.name);
-  const dirty = name.trim() !== entry.name;
+  const [values, setValues] = useState(details);
+  const dirty = name.trim() !== entry.name || fields.some((f) => (values[f.id] ?? "").trim() !== (details[f.id] ?? ""));
   const [moving, startMove] = useTransition();
   const move = (direction: -1 | 1) =>
     startMove(async () => {
@@ -74,22 +81,40 @@ function EntryRow({
         />
       </div>
       <div className="min-w-56 flex-1 space-y-1">
-        <form action={rename} className="flex items-center gap-2">
-          <label htmlFor={`entry-${entry.id}`} className="sr-only">
-            Entry {number} name
-          </label>
-          <input
-            id={`entry-${entry.id}`}
-            name="name"
-            required
-            maxLength={120}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="field max-w-md"
-          />
-          <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible"}`} pendingLabel="Saving…">
-            Save<span className="sr-only"> {entry.name}</span>
-          </SubmitButton>
+        <form action={rename} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <label htmlFor={`entry-${entry.id}`} className="sr-only">
+              Entry {number} name
+            </label>
+            <input
+              id={`entry-${entry.id}`}
+              name="name"
+              required
+              maxLength={120}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="field max-w-md"
+            />
+            <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible"}`} pendingLabel="Saving…">
+              Save<span className="sr-only"> {entry.name}</span>
+            </SubmitButton>
+          </div>
+          {fields.length > 0 && (
+            <div className="flex max-w-md flex-wrap gap-2">
+              {fields.map((f) => (
+                <input
+                  key={f.id}
+                  name={`detail-${f.id}`}
+                  aria-label={`${f.name} for ${entry.name}`}
+                  placeholder={f.name}
+                  maxLength={MAX_DETAIL}
+                  value={values[f.id] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
+                  className="field h-9 min-w-32 flex-1 py-0 text-sm"
+                />
+              ))}
+            </div>
+          )}
           <FormMessage state={state?.ok ? null : state} small />
         </form>
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
@@ -154,7 +179,45 @@ function EntryRow({
   );
 }
 
-function AddEntriesForm({ activityId, pageant }: { activityId: string; pageant: boolean }) {
+/**
+ * An event's entry details: the names of up to three fields (a school, a division), saved together. Renaming one keeps
+ * its values; clearing one takes it off. Only the organizer sees them, here and on the results.
+ */
+function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: EntryField[] }) {
+  const [state, action] = useActionState<FormResult, FormData>(setEntryFields.bind(null, activityId), null);
+  const slots = Array.from({ length: MAX_ENTRY_FIELDS }, (_, i) => fields[i] ?? null);
+  return (
+    <form action={action} className="mt-6 max-w-xl">
+      <fieldset>
+        <legend className="label">Details for each entry</legend>
+        <p className="hint">Up to three, such as a school, a division or a region. Only you see them, here and on the results.</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {slots.map((field, i) => (
+            <span key={field?.id ?? i}>
+              <input type="hidden" name="field-id" value={field?.id ?? ""} />
+              <input
+                name="field-name"
+                aria-label={`Detail ${i + 1} name`}
+                placeholder={["e.g. School", "e.g. Division", "e.g. Region"][i]}
+                maxLength={MAX_FIELD_NAME}
+                defaultValue={field?.name ?? ""}
+                className="field"
+              />
+            </span>
+          ))}
+        </div>
+      </fieldset>
+      <div className="mt-2 flex items-center gap-3">
+        <SubmitButton className="btn btn-quiet btn-sm" pendingLabel="Saving…">
+          Save details<span className="sr-only"> for each entry</span>
+        </SubmitButton>
+        <FormMessage state={state} small />
+      </div>
+    </form>
+  );
+}
+
+function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; pageant: boolean; fields: EntryField[] }) {
   const [state, action] = useActionState<FormResult, FormData>(addEntries.bind(null, activityId), null);
   return (
     <form action={action} className="mt-8 max-w-xl space-y-2">
@@ -172,7 +235,9 @@ function AddEntriesForm({ activityId, pageant }: { activityId: string; pageant: 
       <p id="new-entries-hint" className="hint">
         {pageant
           ? "A candidate's name on each line. They join the end of the running order, and every sub-activity before the first cut judges them."
-          : "One per line. They join the end of the running order."}
+          : fields.length
+            ? `Each name, then its ${new Intl.ListFormat("en").format(fields.map((f) => f.name))}, separated by | (or paste rows from a spreadsheet). They join the end of the running order.`
+            : "One per line. They join the end of the running order."}
       </p>
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>
@@ -190,9 +255,12 @@ export function EntriesTab({
   ended,
   deliberating = false,
   pageant = false,
+  details = null,
 }: {
   activityId: string;
   entries: Entry[];
+  /** An event's entry fields and each entry's values; null for a pageant, or before migration 033. */
+  details?: { fields: EntryField[]; byEntry: Record<string, EntryDetails> } | null;
   /** A pageant calls its entries candidates. */
   pageant?: boolean;
   scoredFor: Record<string, number>;
@@ -207,6 +275,7 @@ export function EntriesTab({
   // through every cut, so they're only moved by hand.
   const canShuffle = !pageant && !started && entries.length > 1;
   const [shuffled, setShuffled] = useState<ActionResult | null>(null);
+  const fields = details?.fields ?? [];
   return (
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -242,7 +311,10 @@ export function EntriesTab({
                 <li key={e.id} className="flex items-center gap-4 py-3">
                   <span className="tabular w-8 text-right font-semibold text-prussian/70">{i + 1}</span>
                   {e.photoUrl && <Avatar name={e.name} src={e.photoUrl} size={48} square />}
-                  <span className="min-w-0 flex-1 truncate font-semibold">{e.name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{e.name}</span>
+                    {detailsLine(fields, details?.byEntry[e.id]) && <span className="hint block truncate">{detailsLine(fields, details?.byEntry[e.id])}</span>}
+                  </span>
                   <span className="tabular hint shrink-0">
                     {scored} {scored === 1 ? "score" : "scores"}
                   </span>
@@ -279,11 +351,14 @@ export function EntriesTab({
                   started={started}
                   // The shuffle's "is now first" no longer holds.
                   onReorder={() => setShuffled(null)}
+                  fields={fields}
+                  details={details?.byEntry[e.id] ?? {}}
                 />
               ))}
             </ol>
           )}
-          {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} />}
+          {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} fields={fields} />}
+          {details && <EntryFieldsForm activityId={activityId} fields={fields} />}
         </div>
       )}
     </div>

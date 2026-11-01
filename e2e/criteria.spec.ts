@@ -140,13 +140,10 @@ test.describe.serial("criteria scoring", () => {
     await judge.getByRole("button", { name: "Submit score" }).click();
     const dialog = judge.getByRole("dialog");
     await expect(dialog.getByRole("list", { name: "Points for each criterion" }).getByRole("listitem")).toHaveText([/^Innovativeness\s*25\.0\s*\/ 30$/, /^Design\s*62\.5\s*\/ 70$/]);
+    // The event scores live, so the score goes in at once: no seconds to undo it.
+    await expect(dialog).toContainText("Once you submit it, it's final.");
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
-    // Five seconds to take it back: Undo returns the keypad as it was, and nothing was saved.
-    await judge.getByRole("button", { name: "Undo" }).click();
     await expect(judge.getByRole("button", { name: "Undo" })).toHaveCount(0);
-    await expect(judge.getByRole("button", { name: /^Design/ })).toContainText("62.5");
-    await judge.getByRole("button", { name: "Submit score" }).click();
-    await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
     // The event scores live, so a submitted score is final: nothing to ask to correct.
     await expect(judge.getByRole("button", { name: "Ask to correct this score" })).toHaveCount(0);

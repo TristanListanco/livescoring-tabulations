@@ -6,7 +6,7 @@ export default function NotFound() {
       <div className="max-w-md">
         <h1 className="text-3xl font-bold">This page doesn&apos;t exist</h1>
         <p className="mt-3 text-powder">
-          The link may be mistyped, or its activity deleted. If you&apos;re watching the scores, ask the organizer for the live results link.
+          The link may be mistyped, or its activity archived or deleted. If you&apos;re watching the scores, ask the organizer for the live results link.
         </p>
         {/* The start page's two ways in, for a judge or an organizer who followed a wrong link: the audience has none. */}
         <div className="mt-8 flex flex-wrap justify-center gap-3">
