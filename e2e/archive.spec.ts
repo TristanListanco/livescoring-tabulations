@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, openJudgeLink, screenPath, signInAsSuperAdmin } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, screenPath, signInAsSuperAdmin } from "./helpers";
 
 // Archiving an activity once its session has ended, which says no more deliberating is needed: it leaves the list of
 // activities, opens read-only (its results still there, nothing to change, no reopening), signs the judges out for
@@ -104,18 +104,24 @@ test.describe.serial("archived activities", () => {
 
     // Read-only: its results (the judges' notes download with them), nothing to change, and no reopening.
     await expect(page.getByText("Archived", { exact: true })).toBeVisible();
-    await expect(page.getByRole("note").filter({ hasText: "Read-only" })).toBeVisible();
+    await expect(page.getByText(/^Archived \w+ \d{1,2}, \d{4}\. Read-only\.$/)).toBeVisible();
     // Its live results are closed, so nothing links to them.
     await expect(page.getByRole("region", { name: "Screens" })).toHaveCount(0);
     const sections = page.getByRole("navigation", { name: "Activity sections" });
-    await expect(sections.getByRole("link")).toHaveText(["Results"]);
+    await expect(sections.getByRole("link")).toHaveText(["Results", "Settings"]);
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     await expect(page.getByRole("switch", { name: /rank/i })).toHaveCount(0);
     // A tab it doesn't have shows its results instead.
-    await page.goto(`${adminPath}?tab=settings`);
+    await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
     await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
+    // Its Settings: a CSV to check, and deleting it; nothing to change.
+    await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByLabel("Check a CSV")).toBeAttached();
+    await expect(page.getByRole("button", { name: `Delete ${NAME}` })).toBeVisible();
+    await expect(page.getByLabel("Activity name")).toHaveCount(0);
+    await expectAccessible(page);
   });
 
   test("once archived, the live results link no longer works", async ({ page }) => {
@@ -127,8 +133,9 @@ test.describe.serial("archived activities", () => {
 
   test("an archived activity can still be deleted", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    await page.goto(adminPath);
-    await page.getByRole("note").getByRole("button", { name: `Delete ${NAME}` }).click();
+    // From its Settings, the only place it's offered.
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByRole("button", { name: `Delete ${NAME}` }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(NAME);
     await dialog.getByRole("button", { name: "Delete activity" }).click();
