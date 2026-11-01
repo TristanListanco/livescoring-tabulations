@@ -17,7 +17,7 @@ import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
 import { SURVEY_URL } from "@/lib/survey";
 import { breakFor, ordinal } from "@/lib/ties";
-import type { ActionResult, ActivitySignoff, Board, Entry, Judge, JudgeDevice, JudgeSignature, Signatory } from "@/lib/types";
+import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { ArchiveButton } from "../archive-controls";
@@ -30,8 +30,6 @@ import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./
 import { RankingSwitch } from "./ranking-switch";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
-
-const list = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
 
 /**
  * The clock, ticking only while something on screen needs it (the "updated N seconds ago" line). Null until
@@ -204,14 +202,12 @@ export function SessionTab({
   devices,
   progress,
   reportId,
-  signatories,
   liveUrl,
   liveQr,
   corrections,
   archived = false,
   hasNotes = false,
   signatures = null,
-  signoff = null,
   deliberation,
 }: {
   /** Without score values while they're withheld (see withheldScores): then `scored` says who has scored what. */
@@ -221,8 +217,6 @@ export function SessionTab({
   devices: JudgeDevice[];
   progress: Progress;
   reportId: string;
-  /** The organizer's signature lines for the PDF; null for the super admin's own activities, which have none. */
-  signatories: Signatory[] | null;
   liveUrl: string;
   liveQr: string;
   /** Score corrections, oldest first (empty before migration 019). */
@@ -233,8 +227,6 @@ export function SessionTab({
   hasNotes?: boolean;
   /** The judges' signatures, during and after a deliberation (null before migration 021). */
   signatures?: JudgeSignature[] | null;
-  /** The organizer's signature on a deliberated session's results, once they've ended it. */
-  signoff?: ActivitySignoff | null;
   /** During a deliberation: its ties and, once every judge has signed, the results, worked out on the server. */
   deliberation?: DeliberationResults;
 }) {
@@ -1025,7 +1017,7 @@ export function SessionTab({
             <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
               <div className="px-6 pt-6 pb-6">
                 <div className="flex items-start justify-between gap-4">
-                  <h2 id="desk-heading" className="text-powder">
+                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
                     Judging has ended
                   </h2>
                   {/*
@@ -1062,24 +1054,16 @@ export function SessionTab({
                 </div>
                 <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
                 {progress.complete ? (
-                  <>
-                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">Every score is in</p>
-                    {activity.signedOffAt && (
-                      <p className="mt-1 font-semibold text-powder">
-                        Signed by every judge after deliberating{signoff ? `, and by ${signoff.signedBy}` : ""}
-                      </p>
-                    )}
-                    {/* A pageant's sheets each have their own, with their downloads in the program below. */}
-                    {!pageant && (
-                      <>
-                        <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
-                        <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
-                      </>
-                    )}
-                  </>
+                  // A pageant's sheets each have their own, with their downloads in the program below.
+                  !pageant && (
+                    <>
+                      <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
+                      <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
+                    </>
+                  )
                 ) : (
                   <>
-                    <p className="mt-1 text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
+                    <p className="mt-2 text-xl font-bold">
                       {missing} {missing === 1 ? "score is" : "scores are"} missing
                     </p>
                     {!archived && <p className="mt-2 text-[15px] text-powder">Reopen the session so the judges can finish.</p>}
@@ -1104,22 +1088,6 @@ export function SessionTab({
                   )}
                   <SurveyLink className="btn btn-sm text-powder hover:bg-oxford hover:text-mint sm:ml-auto">Take the survey</SurveyLink>
                 </div>
-              )}
-              {progress.complete && !pageant && signatories && (
-                <p className="border-t border-oxford px-6 py-3 text-sm text-powder">
-                  {signatories.length > 0
-                    ? `Signature lines: ${list.format(signatories.map((s) => (s.designation ? `${s.name} (${s.designation})` : s.name)))}.`
-                    : "No signatories: the PDFs print one blank Tabulator line."}
-                  {!archived && (
-                    <>
-                      {" "}
-                      <Link href={`/admin/${activity.id}?tab=settings#signatories`} className="font-semibold text-mint underline underline-offset-2">
-                        Edit
-                        <span className="sr-only"> signatories</span>
-                      </Link>
-                    </>
-                  )}
-                </p>
               )}
             </section>
           )}

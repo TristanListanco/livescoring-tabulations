@@ -82,7 +82,7 @@ function Tick() {
  *
  * With `stage` (see useStage), the board fills the height its parent gives it and never scrolls: rows grow or shrink
  * to the space, their type with them, and a list too long for one screen turns its own pages. A footer carries
- * `footnote` (how the board works) and which entries are showing. Screen readers have every row on every page.
+ * `footnote` (why the scores are held back) and which entries are showing. Screen readers have every row on every page.
  */
 export function Scoreboard({
   board,

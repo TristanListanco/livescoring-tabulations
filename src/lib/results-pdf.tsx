@@ -3,7 +3,7 @@ import { Document, Font, Image, Page, Path, StyleSheet, Svg, Text, View, renderT
 import type { CorrectionView } from "./corrections";
 import type { EntryDetails, EntryField } from "./entry-details";
 import type { StandingRow } from "./pageant";
-import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
+import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
@@ -101,8 +101,9 @@ type ReportInfo = {
 };
 
 /**
- * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID, the title,
- * and what the sheet covers. `byline`: whose sheet it is, on a judge's score sheet.
+ * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID and the title.
+ * `byline`: whose sheet it is, on a judge's score sheet. `meta`: only what the sheet needs read before its table (what
+ * its marks mean); when it was generated is in the footer.
  */
 function Header({
   info,
@@ -117,12 +118,12 @@ function Header({
   title: string;
   subtitle?: string;
   byline?: React.ReactNode;
-  meta: string;
+  meta?: string;
 }) {
   const { reportId, organizer } = info;
   return (
     <View style={s.header}>
-      {/* react-pdf's Image takes no alt text; the organizer's name is printed beside it. */}
+      {/* react-pdf's Image takes no alt text. */}
       {/* eslint-disable-next-line jsx-a11y/alt-text */}
       {organizer?.photo && <Image style={s.photo} src={{ data: organizer.photo, format: "jpg" }} />}
       <View style={s.headerText}>
@@ -138,8 +139,7 @@ function Header({
         <Text style={s.title}>{title}</Text>
         {subtitle && <Text style={s.subtitle}>{subtitle}</Text>}
         {byline && <Text style={s.byline}>{byline}</Text>}
-        {/* One string: react-pdf spaces mixed text children unevenly. */}
-        <Text style={s.meta}>{(organizer ? `Organized by ${organizer.name}. ` : "") + meta}</Text>
+        {meta && <Text style={s.meta}>{meta}</Text>}
       </View>
     </View>
   );
@@ -154,14 +154,12 @@ const roleOf = (judge: Judge) => (judge.isChair ? "Chair, Board of Judges" : "Ju
 function SignOff({
   judges,
   signatories,
-  note,
   inline = false,
   signatures,
   signoff,
 }: {
   judges: Board["judges"];
   signatories: Signatory[];
-  note: string;
   inline?: boolean;
   /** From the deliberation: a judge who drew their signature has it above their name rather than "(Sgd.)". */
   signatures?: JudgeSignature[] | null;
@@ -213,7 +211,6 @@ function SignOff({
   return (
     <View wrap={false}>
       <Text style={s.sectionTitle}>Certified correct</Text>
-      <Text style={s.sectionNote}>{note}</Text>
       {inline ? (
         <View style={s.signatures}>
           {signed}
@@ -253,27 +250,6 @@ function Footer({ label, info, perSheet = false }: { label: string; info: Report
   );
 }
 
-/**
- * The sign-off's note. `corrections`: the ones that changed a score on this sheet; null when they can't be known
- * (before migration 019), when submitted scores were simply final.
- */
-const signNote = (corrections: CorrectionView[] | null, signatures?: JudgeSignature[] | null) =>
-  "Each judge submitted every score above from their approved device with a personal access code" +
-  (corrections === null
-    ? ", and submitted scores are final. "
-    : corrections.length === 0
-      ? ". No score was changed after it was submitted. "
-      : corrections.every((c) => c.decidedBy === "judge")
-        ? ". The corrections listed above changed a submitted score: each judge corrected their own before signing, saying why. "
-        : corrections.every((c) => c.decidedBy !== "judge")
-          ? ". The corrections listed above changed a submitted score with the agreement of every other judge on the panel (or, for a judge alone on theirs, the organizer's approval). "
-          : ". The corrections listed above changed a submitted score, each with its reason and who decided it. ") +
-  (signatures?.length ? SIGNED_IN_DELIBERATION : "(Sgd.) marks each judge's verified sign-off.");
-
-/** How the judges signed, after deliberating (an event without live scoring). */
-const SIGNED_IN_DELIBERATION =
-  "Each judge then reviewed their scores in deliberation and signed on their approved device: drawn by hand, or (Sgd.) where they signed off without a touchscreen.";
-
 /** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who decided. */
 function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
   if (corrections.length === 0) return null;
@@ -281,11 +257,6 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
     <View>
       <Text style={s.sectionTitle} minPresenceAhead={48}>
         Score corrections
-      </Text>
-      <Text style={s.sectionNote}>
-        {corrections.every((c) => c.decidedBy === "judge")
-          ? "Submitted scores that changed: each judge corrected their own, saying why."
-          : "Submitted scores that changed: each judge asked, saying why, and the others agreed."}
       </Text>
       {corrections.map((c) => (
         <View key={c.id} style={s.deductionRow} wrap={false}>
@@ -323,21 +294,12 @@ function ResultsDocument({
     return settled ? [{ tie, settled }] : [];
   });
   const nameOf = new Map(board.entries.map((e) => [e.id, e.name]));
-  const noun = part ? "candidates" : "entries";
   const label = part ? `${activity.name}, ${part}` : activity.name;
 
   return (
     <Document title={`${label} results`} author="Tabulous" creator="Tabulous">
       <Page size="A4" orientation={judges.length + fields.length > 4 ? "landscape" : "portrait"} style={s.page}>
-        <Header
-          info={info}
-          title={activity.name}
-          subtitle={part}
-          meta={
-            `${rulesSummary(activity)} ${judges.length} judges, ${board.entries.length} ${noun}. ` +
-            `Ranked by the average of all judges' scores; ${broken.length ? "a tie the judges broke places as they ordered it (see below), any other" : "equal averages"} share${broken.length ? "s" : ""} a rank. Generated ${info.generatedAt}.`
-          }
-        />
+        <Header info={info} title={activity.name} subtitle={part} />
 
         <View style={s.table}>
           <View style={s.headRow} fixed>
@@ -384,7 +346,6 @@ function ResultsDocument({
             <Text style={s.sectionTitle} minPresenceAhead={48}>
               Ties broken
             </Text>
-            <Text style={s.sectionNote}>Entries with the same average, put in order by the chair of the board of judges during the deliberation, saying why.</Text>
             {broken.map(({ tie, settled }) => (
               <View key={tie.key} style={s.deductionRow} wrap={false}>
                 <Text style={s.deductionWho}>{`Tie for ${ordinal(tie.rank)}: ${settled.entryIds.map((id) => nameOf.get(id) ?? "an entry").join(", then ")}`}</Text>
@@ -395,13 +356,7 @@ function ResultsDocument({
           </View>
         )}
         <CorrectionsList corrections={corrections ?? []} />
-        <SignOff
-          judges={judges}
-          signatories={info.signatories ?? []}
-          note={signNote(corrections, info.signatures) + (info.signoff ? ` ${info.signoff.signedBy} signed the results as organizer and ended the session.` : "")}
-          signatures={info.signatures}
-          signoff={info.signoff}
-        />
+        <SignOff judges={judges} signatories={info.signatories ?? []} signatures={info.signatures} signoff={info.signoff} />
         <Footer label={label} info={info} />
       </Page>
     </Document>
@@ -416,10 +371,8 @@ function ResultsDocument({
 function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; info: ReportInfo; part?: string; corrected: Map<string, CorrectionView> }) {
   const { activity, judges } = board;
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
-  const noun = part ? "candidates" : "entries";
   const label = part ? `${activity.name}, ${part}` : activity.name;
   const total = criteria.length === 0 ? "Score" : activity.criteriaDisplay === "ten" ? "Total (of 10)" : "Total";
-  const meta = `${rulesSummary(activity)} ${board.entries.length} ${noun}, in running order. Generated ${info.generatedAt}.`;
   const row = (judge: Judge, r: JudgeSheetRow) => {
     const fix = corrected.get(`${judge.id}|${r.entry.id}`);
     return (
@@ -462,7 +415,6 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
                   <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
                 </>
               }
-              meta={meta}
             />
 
             <View style={s.table}>
@@ -479,21 +431,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
               {rows.slice(0, rows.length - kept.length).map((r) => row(judge, r))}
               <View wrap={false}>
                 {kept.map((r) => row(judge, r))}
-                <SignOff
-                  inline
-                  judges={[judge]}
-                  signatories={info.signatories ?? []}
-                  signatures={info.signatures}
-                  note={
-                    `${judge.name} submitted every score above from their approved device with a personal access code` +
-                    ([...corrected.keys()].some((k) => k.startsWith(`${judge.id}|`))
-                      ? "; a corrected score changed only with the others' agreement, as marked. "
-                      : ", and submitted scores are final. ") +
-                    (info.signatures?.length
-                      ? "They then reviewed these scores in deliberation and signed on their approved device: drawn by hand, or (Sgd.) without a touchscreen."
-                      : "(Sgd.) marks the judge's verified sign-off.")
-                  }
-                />
+                <SignOff inline judges={[judge]} signatories={info.signatories ?? []} signatures={info.signatures} />
               </View>
             </View>
 
@@ -527,7 +465,6 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   const { activity, judges } = board;
   const places = activity.resultDecimals;
   const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v.toFixed(places)}%`);
-  const counts = sheet.weights.map((w) => `${w.round.name} ${formatBound(Math.round(w.weight * 100) / 100)}%`).join(", ");
   const placed = sheet.placed ?? [];
   const placeOf = new Map(placed.map((id, i) => [id, i + 1]));
   // Placed candidates first in their confirmed order (ties broken by the organizer), then the rest as ranked.
@@ -542,19 +479,14 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   // Deductions come off the preliminary score: all of it on the preliminary's sheet, its share on a cut that counts it.
   const deducting = sheet.rows.some((r) => r.deducted > 0);
   const prelimShare = sheet.weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => n + w.weight, 0);
-  const deductionNote = !deducting
-    ? ""
-    : sheet.kind === "preliminary"
-      ? " Deductions for violations are points off the preliminary score, listed below."
-      : ` Deductions for violations are points off the preliminary score, which counts for ${formatBound(Math.round(prelimShare * 100) / 100)}% here, so each point takes ${formatBound(Math.round(prelimShare * 100) / 10000)} off the total. They're listed below.`;
+  // A cut counts only a share of the preliminary, so a deduction there takes less off the total than its points.
+  const deductionNote =
+    deducting && sheet.kind !== "preliminary"
+      ? `Deductions are points off the preliminary score, which counts for ${formatBound(Math.round(prelimShare * 100) / 100)}% here, so each point takes ${formatBound(Math.round(prelimShare * 100) / 10000)} off the total.`
+      : "";
   const numberOf = new Map(sheet.rows.map((r) => [r.entry.id, r]));
   const listed = [...sheet.deductions].sort((a, b) => (numberOf.get(a.entryId)?.number ?? 0) - (numberOf.get(b.entryId)?.number ?? 0));
-  const meta =
-    `Ranked by ${counts}. Each ${sheet.kind === "subactivity" ? "part" : "sub-activity"} counts as a candidate's average as a percentage of its maximum score.` +
-    deductionNote +
-    ` ${judges.length} judges, ${sheet.rows.length} candidates.` +
-    (tieBroken.size ? " Candidates marked * were tied; the organizer decided their order." : "") +
-    ` Generated ${info.generatedAt}.`;
+  const meta = [deductionNote, tieBroken.size ? "Candidates marked * were tied; the organizer decided their order." : ""].filter(Boolean).join(" ");
 
   return (
     <Document title={`${activity.name}, ${sheet.title}`} author="Tabulous" creator="Tabulous">
@@ -600,7 +532,6 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
             <Text style={s.sectionTitle} minPresenceAhead={48}>
               Deductions
             </Text>
-            <Text style={s.sectionNote}>Points off the preliminary score, for violations during the preliminary.</Text>
             {listed.map((d) => {
               const row = numberOf.get(d.entryId);
               return (
@@ -614,14 +545,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
           </View>
         )}
 
-        <SignOff
-          judges={judges}
-          signatories={info.signatories ?? []}
-          note={
-            "Each figure above comes from the judges' scores in that sub-activity, each submitted from an approved device with a personal access code; " +
-            "submitted scores are final. The sub-activities' own results sheets list every score. (Sgd.) marks each judge's verified sign-off."
-          }
-        />
+        <SignOff judges={judges} signatories={info.signatories ?? []} />
         <Footer label={`${activity.name}, ${sheet.title}`} info={info} />
       </Page>
     </Document>
@@ -724,7 +648,6 @@ function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[
   const { activity, judges } = board;
   const noun = activity.kind === "pageant" ? "candidate" : "entry";
   const entries = [...board.entries].sort((a, b) => a.position - b.position).map((entry, i) => ({ entry, number: entry.number ?? i + 1 }));
-  const meta = `What this judge noted on each ${noun}, for the organizer's reference; not part of the results. In running order. Generated ${info.generatedAt}.`;
 
   return (
     <Document title={`${activity.name}, judges' notes`} author="Tabulous" creator="Tabulous">
@@ -742,7 +665,7 @@ function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[
                   <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
                 </>
               }
-              meta={meta}
+              meta="For the organizer's reference, not part of the results."
             />
             {mine.size === 0 && <Text style={s.sectionNote}>{`${judge.name} didn't write a note on any ${noun}.`}</Text>}
             {entries.map(({ entry, number }) => (

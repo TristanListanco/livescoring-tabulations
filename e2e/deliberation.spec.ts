@@ -269,7 +269,7 @@ test.describe.serial("deliberation", () => {
     await final.getByRole("checkbox", { name: /I've checked the results and sign them/ }).check();
     await final.getByLabel("Your password").fill(ADMIN_PASSWORD);
     await end.click();
-    await expect(page.getByText("Signed by every judge after deliberating, and by Super admin")).toBeVisible(REALTIME);
+    await expect(page.getByRole("heading", { name: "Judging has ended" })).toBeVisible(REALTIME);
     await expect(final).toBeHidden();
 
     await page.goto(livePath);

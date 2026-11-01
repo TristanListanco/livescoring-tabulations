@@ -83,5 +83,4 @@ test("on a phone, the board scrolls through every entry", async ({ browser }) =>
   await page.goto(`/live/${activity.publicId}`);
   await expect(page.locator("li[data-entry]:not([data-off])")).toHaveCount(ENTRIES);
   await expect(page.locator("footer")).toHaveCount(0);
-  await expect(page.getByText("Ranked by the average of the scores submitted so far.", { exact: false })).toBeVisible();
 });

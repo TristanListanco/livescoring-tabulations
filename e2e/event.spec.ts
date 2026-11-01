@@ -487,10 +487,9 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
     // The desk turns into the results: the report ID and the PDF, right where the show ended.
     const desk = page.getByRole("region", { name: "Judging has ended" });
-    await expect(desk).toContainText("Every score is in");
+    await expect(desk).not.toContainText("missing");
     await expect(desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/)).toBeVisible();
     await expect(desk.getByRole("button", { name: "Export", exact: true })).toBeVisible();
-    await expect(desk).toContainText("Signature lines: Maria Reyes (Chair, Board of Tabulators).");
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
     // The live results say it's over, and when, in place of "Live".

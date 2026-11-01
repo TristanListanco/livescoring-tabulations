@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
@@ -83,7 +83,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     codes: asked === undefined || asked === "judges" ? getActivityAccessCodes(id) : null,
     desk:
       asked === undefined || asked === "session"
-        ? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)])
+        ? Promise.all([getCorrections(id), getActivityNotes(id), getSignatures(id)])
         : null,
   };
   // The session, the board (with a pageant's deductions, for the desk) and the judges' devices, at once.
@@ -114,7 +114,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const [codes, desk, liveQr, organizers, settingsSignatories, entryDetails] = await Promise.all([
     tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
     tab === "session"
-      ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)]))
+      ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getSignatures(id)]))
       : null,
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
@@ -122,7 +122,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     // An event's entry details: the organizer's alone, so read only for this tab.
     tab === "entries" && activity.kind === "event" ? getEntryDetails(id) : null,
   ]);
-  const [corrections, notes, signatories, signatures, signoff] = desk ?? [null, null, null, null, null];
+  const [corrections, notes, signatures] = desk ?? [null, null, null];
   // An event without live scoring keeps its scores from every screen until the judges have deliberated and the
   // organizer has signed, the desk included: the private tally, behind the organizer's password, is the one place they
   // show. The desk gets which judge has scored which entry, corrections without the scores, and what the deliberation
@@ -227,7 +227,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             devices={devices}
             progress={progress}
             reportId={reportId(board)}
-            signatories={signatories}
             liveUrl={liveUrl}
             liveQr={liveQr}
             corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}
@@ -235,7 +234,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             archived={archived}
             hasNotes={(notes?.length ?? 0) > 0}
             signatures={signatures}
-            signoff={signoff}
           />
         )}
         {tab === "entries" && (
