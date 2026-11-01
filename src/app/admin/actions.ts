@@ -11,6 +11,7 @@ import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server"
 import { listNames } from "@/lib/names";
 import { shuffle } from "@/lib/shuffle";
 import { FINGERPRINT, readExport } from "@/lib/csv";
+import { detailsFor, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEntryLine, toEntryFields, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import { csvFingerprints } from "@/lib/exports";
 import { getAlertActivityIds, getOpenAssistance, type AssistanceRequest } from "@/lib/assistance";
 import { sha256 } from "@/lib/results-csv";
@@ -99,10 +100,32 @@ function cleanName(value: FormDataEntryValue | null): string {
 }
 
 function entryNames(value: FormDataEntryValue | null): string[] {
+  return entryLines(value, []).map((e) => e.name);
+}
+
+/** An entries list, one per line: each name, and with entry fields its details after it (see parseEntryLine). */
+function entryLines(value: FormDataEntryValue | null, fields: EntryField[]): { name: string; details: EntryDetails }[] {
   return String(value ?? "")
     .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim().slice(0, MAX_NAME))
-    .filter(Boolean);
+    .map((line) => parseEntryLine(line, fields.length))
+    .map(({ name, values }) => ({ name: name.replace(/\s+/g, " ").trim().slice(0, MAX_NAME), details: detailsFor(fields, values) }))
+    .filter((e) => e.name);
+}
+
+/** Entry fields named on a form (`entry_field`, up to three; blanks dropped), each given an id. */
+function newEntryFields(formData: FormData): EntryField[] {
+  return formData
+    .getAll("entry_field")
+    .map((v) => String(v).replace(/\s+/g, " ").trim().slice(0, MAX_FIELD_NAME))
+    .filter(Boolean)
+    .slice(0, MAX_ENTRY_FIELDS)
+    .map((name) => ({ id: newCriterionId(), name }));
+}
+
+/** An activity's entry fields (none before migration 033). */
+async function entryFieldsOf(activityId: string): Promise<EntryField[]> {
+  const { data } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
+  return toEntryFields((data as { entry_fields?: unknown } | null)?.entry_fields);
 }
 
 /**
@@ -668,7 +691,10 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   const resultDecimals = readResultDecimals(formData);
   if (typeof resultDecimals !== "number") return err(resultDecimals.error);
 
-  const entries = entryNames(formData.get("entries"));
+  // An event's entry fields (a pageant's candidates have none), and each entry's details after its name.
+  const entryFields = pageant ? [] : newEntryFields(formData);
+  const entryRows = entryLines(formData.get("entries"), entryFields);
+  const entries = entryRows.map((e) => e.name);
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
 
   // An event's scoring, or a pageant's program; a pageant scores in its sub-activities, so its own range is a placeholder.
@@ -699,6 +725,11 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (formData.get("live_scoring") !== "on") {
       columns.live_scoring = false;
       if (formData.get("judges_see_ranking") === "on") columns.judges_see_ranking = true;
+      if (formData.get("correction_reasons") === "on") columns.correction_reasons = true;
+    }
+    // Written only with fields, so events without them create before migration 033.
+    if (entryFields.length) {
+      columns.entry_fields = entryFields;
     }
   }
 
@@ -757,6 +788,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     // Before migration 021: no live_scoring column, and three decimal places break the old check.
     if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
     if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
+    if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
     // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
     if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
     // Otherwise its public link was taken: another try, with another.
@@ -797,7 +829,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (entries.length) {
       const { data: rows, error: entriesError } = await db()
         .from("entries")
-        .insert(entries.map((n, position) => ({ activity_id: activityId, name: n, position })))
+        .insert(entryRows.map((e, position) => ({ activity_id: activityId, name: e.name, position, ...(entryFields.length ? { details: e.details } : {}) })))
         .select("id, position");
       check(entriesError);
       entryIds = (rows as { id: string; position: number }[]).sort((a, b) => a.position - b.position).map((r) => r.id);
@@ -863,31 +895,37 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
 
 /** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
 const OPTIONS_HINT = "This needs a database update. Run supabase/migrations/032_assistance_ranking_privacy.sql in the Supabase SQL editor.";
+/** Where correction reasons from a list and entry details need migration 033. */
+const REASONS_HINT = "This needs a database update. Run supabase/migrations/033_entry_details_and_reasons.sql in the Supabase SQL editor.";
 
 /**
  * An activity's options for judges' screens, changed straight away:
  * - judgesSeeRanking: in the deliberation, judges see each entry's rank and average (an event without live scoring),
  *   until the session ends;
- * - privacyScreen: judges' phones and tablets hide the screen when tilted off axis while judging, until it's archived.
+ * - privacyScreen: judges' phones and tablets hide the screen when tilted off axis while judging, until it's archived;
+ * - correctionReasons: a judge correcting their own score picks the reason from a list (an event without live scoring),
+ *   until the session ends.
  */
 export const setActivityOption = traced("setActivityOption", async function setActivityOption(
   activityId: string,
-  option: "judgesSeeRanking" | "privacyScreen",
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons",
   on: boolean,
 ): Promise<ActionResult> {
-  if (typeof on !== "boolean" || (option !== "judgesSeeRanking" && option !== "privacyScreen")) return err("Choose on or off.");
+  const columns = { judgesSeeRanking: "judges_see_ranking", privacyScreen: "privacy_screen", correctionReasons: "correction_reasons" } as const;
+  if (typeof on !== "boolean" || !Object.hasOwn(columns, option)) return err("Choose on or off.");
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
   const { activity } = managed;
-  if (option === "judgesSeeRanking") {
-    if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has a deliberation.");
+  if (option !== "privacyScreen") {
+    if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has corrections and a deliberation.");
     if (activity.sessionState === "ended") return err("Judging has ended, so this can't change.");
   }
-  const column = option === "judgesSeeRanking" ? "judges_see_ranking" : "privacy_screen";
+  const column = columns[option];
   const { error } = await db().from("activities").update({ [column]: on }).eq("id", activityId);
-  if (error) return new RegExp(column).test(error.message) ? needsMigration(OPTIONS_HINT) : dbErr(error);
+  if (error) return new RegExp(column).test(error.message) ? needsMigration(option === "correctionReasons" ? REASONS_HINT : OPTIONS_HINT) : dbErr(error);
   changed();
   if (option === "judgesSeeRanking") return ok(on ? "Judges see the ranking while they deliberate." : "Judges see only their own scores while they deliberate.");
+  if (option === "correctionReasons") return ok(on ? "Judges pick a reason from a list." : "Judges type their reason.");
   return ok(on ? "The privacy screen is on." : "The privacy screen is off.");
 });
 
@@ -1403,7 +1441,9 @@ export const addEntries = traced("addEntries", async function addEntries(activit
   // The judges are reviewing and signing every entry's scores, and no one can score a new one now (judging doesn't
   // reopen from the deliberation): it would hold the results back for good.
   if (state === "deliberation") return err("The judges are deliberating, so no entries can be added now.");
-  const names = entryNames(formData.get("names"));
+  const fields = await entryFieldsOf(activityId);
+  const rows = entryLines(formData.get("names"), fields);
+  const names = rows.map((e) => e.name);
   if (names.length === 0) return err("Type at least one entry name.");
 
   const { count } = await db().from("entries").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
@@ -1412,7 +1452,7 @@ export const addEntries = traced("addEntries", async function addEntries(activit
   const start = await nextPosition("entries", activityId);
   const { error } = await db()
     .from("entries")
-    .insert(names.map((name, i) => ({ activity_id: activityId, name, position: start + i })));
+    .insert(rows.map((e, i) => ({ activity_id: activityId, name: e.name, position: start + i, ...(fields.length ? { details: e.details } : {}) })));
   if (error?.code === "55000") return err("The judges are deliberating, so no entries can be added now.");
   if (error) return dbErr(error);
   changed();
@@ -1425,10 +1465,36 @@ export const renameEntry = traced("renameEntry", async function renameEntry(entr
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
-  const { error } = await db().from("entries").update({ name }).eq("id", entryId);
+  // Its details too, for the activity's fields (`detail-<field id>`).
+  const fields = await entryFieldsOf(activityId);
+  const details = fields.length ? { details: detailsFor(fields, fields.map((f) => formData.get(`detail-${f.id}`))) } : {};
+  const { error } = await db().from("entries").update({ name, ...details }).eq("id", entryId);
   if (error) return dbErr(error);
   changed();
   return ok("Saved.");
+});
+
+/**
+ * An event's entry fields, from the Entries tab: up to three names, in order (`field-name`, with `field-id` for one
+ * that's kept, so its values stay with it). A field left blank goes, and its values are no longer shown. Until judging
+ * ends, as the entries themselves.
+ */
+export const setEntryFields = traced("setEntryFields", async function setEntryFields(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
+  const managed = await manageActivity(activityId);
+  if (!managed) return NOT_FOUND;
+  if (managed.activity.kind !== "event") return err("Only an event's entries have details.");
+  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
+  const kept = new Set((await entryFieldsOf(activityId)).map((f) => f.id));
+  const ids = formData.getAll("field-id").map(String);
+  const fields: EntryField[] = formData
+    .getAll("field-name")
+    .map((v, i) => ({ id: kept.has(ids[i]) ? ids[i] : newCriterionId(), name: String(v).replace(/\s+/g, " ").trim().slice(0, MAX_FIELD_NAME) }))
+    .filter((f) => f.name)
+    .slice(0, MAX_ENTRY_FIELDS);
+  const { error } = await db().from("activities").update({ entry_fields: fields }).eq("id", activityId);
+  if (error) return /entry_fields/.test(error.message) ? needsMigration(REASONS_HINT) : dbErr(error);
+  changed();
+  return ok(fields.length ? "Saved." : "Entries have no details now.");
 });
 
 /** An entry's photo for the LED wall, or null to remove it. Allowed at any time, even mid-session. */

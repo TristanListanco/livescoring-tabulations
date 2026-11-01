@@ -121,6 +121,8 @@ create table if not exists public.entries (
   created_at   timestamptz not null default now()
 );
 create index if not exists entries_activity_idx on public.entries (activity_id, position);
+-- The entry's details, by the activity's entry_fields id (migration 033).
+alter table public.entries add column if not exists details jsonb not null default '{}'::jsonb;
 -- An optional photo per entry, shown on the LED wall.
 alter table public.entries add column if not exists photo_path text;
 
@@ -420,6 +422,11 @@ alter table public.activities add column if not exists previous_entry_id uuid re
 alter table public.activities add column if not exists entry_shown_at timestamptz;
 -- Judges see each entry's rank and average while they deliberate, never each other's scores (migration 032).
 alter table public.activities add column if not exists judges_see_ranking boolean not null default false;
+-- An event's correction reasons from a list (migration 033): a judge picks why, or types it under Other.
+alter table public.activities add column if not exists correction_reasons boolean not null default false;
+-- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): seen only by the organizer, on
+-- the Entries tab and the results. Each entry's values are in entries.details, by field id.
+alter table public.activities add column if not exists entry_fields jsonb not null default '[]'::jsonb;
 -- Judges' phones and tablets hide the screen when tilted off axis while judging (migration 032): on for new activities,
 -- off for those from before it.
 do $$

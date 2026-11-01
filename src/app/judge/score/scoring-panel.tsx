@@ -8,7 +8,7 @@ import { SignatureMark, SignaturePad } from "@/components/signature-pad";
 import { SurveyLink } from "@/components/survey-link";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
-import { MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
+import { CORRECTION_REASONS, MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
 import { entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
@@ -1620,28 +1620,78 @@ function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, 
 }
 
 /** Why a score needs correcting, required: it's kept with the correction (and the other judges decide on it, when they do). */
-function ReasonField({ value, onChange, error }: { value: string; onChange: (value: string) => void; error: string | null }) {
+/**
+ * Why a judge corrects a score. Typed, or (choices: when the organizer has judges pick from CORRECTION_REASONS) chosen
+ * from the list, where Other opens the box to type it. Either way the reason is kept with the correction.
+ */
+function ReasonField({ value, onChange, error, choices }: { value: string; onChange: (value: string) => void; error: string | null; choices?: readonly string[] }) {
   const id = useId();
+  const [other, setOther] = useState(false);
+  const typed = (
+    <textarea
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      maxLength={MAX_CORRECTION_REASON}
+      rows={2}
+      required
+      aria-label={choices ? "Your reason" : undefined}
+      placeholder="e.g. I typed 59 instead of 95."
+      className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-base leading-relaxed text-prussian placeholder:text-prussian/70"
+    />
+  );
+  const problem = error && (
+    <p role="alert" className="mt-2 text-sm font-semibold text-danger">
+      {error}
+    </p>
+  );
+  if (choices) {
+    const option = "flex items-start gap-3 rounded-xl border border-powder bg-white px-3 py-2.5 text-[15px] leading-snug text-prussian has-checked:border-regal has-checked:ring-2 has-checked:ring-regal";
+    return (
+      <fieldset className="mt-4 text-left">
+        <legend className="text-sm font-semibold">Why does it need correcting?</legend>
+        <div className="mt-2 space-y-1.5">
+          {choices.map((reason) => (
+            <label key={reason} className={option}>
+              <input
+                type="radio"
+                name={`${id}-reason`}
+                checked={!other && value === reason}
+                onChange={() => {
+                  setOther(false);
+                  onChange(reason);
+                }}
+                className="mt-0.5 size-5 shrink-0 accent-regal"
+              />
+              {reason}
+            </label>
+          ))}
+          <label className={option}>
+            <input
+              type="radio"
+              name={`${id}-reason`}
+              checked={other}
+              onChange={() => {
+                setOther(true);
+                onChange("");
+              }}
+              className="mt-0.5 size-5 shrink-0 accent-regal"
+            />
+            Other reason
+          </label>
+        </div>
+        {other && typed}
+        {problem}
+      </fieldset>
+    );
+  }
   return (
     <div className="mt-4 text-left">
       <label htmlFor={id} className="text-sm font-semibold">
         Why does it need correcting?
       </label>
-      <textarea
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        maxLength={MAX_CORRECTION_REASON}
-        rows={2}
-        required
-        placeholder="e.g. I typed 59 instead of 95."
-        className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-base leading-relaxed text-prussian placeholder:text-prussian/70"
-      />
-      {error && (
-        <p role="alert" className="mt-2 text-sm font-semibold text-danger">
-          {error}
-        </p>
-      )}
+      {typed}
+      {problem}
     </div>
   );
 }
@@ -1810,7 +1860,12 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
         {correcting ? (
           <>
             <FromTo from={formatScore(correcting.from, activity.decimals)} to={typed.ok ? formatScore(typed.value, activity.decimals) : buffer} />
-            <ReasonField value={request.reason} onChange={request.setReason} error={request.error} />
+            <ReasonField
+              value={request.reason}
+              onChange={request.setReason}
+              error={request.error}
+              choices={correcting?.decides === "self" && activity.correctionReasons ? CORRECTION_REASONS : undefined}
+            />
           </>
         ) : (
           <>
@@ -2060,7 +2115,12 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
                 );
               })}
             </ol>
-            <ReasonField value={request.reason} onChange={request.setReason} error={request.error} />
+            <ReasonField
+              value={request.reason}
+              onChange={request.setReason}
+              error={request.error}
+              choices={correcting?.decides === "self" && activity.correctionReasons ? CORRECTION_REASONS : undefined}
+            />
           </>
         )}
         {all.ok && !correcting && (

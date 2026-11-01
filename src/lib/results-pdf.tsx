@@ -1,6 +1,7 @@
 import "server-only";
 import { Document, Font, Image, Page, Path, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { CorrectionView } from "./corrections";
+import type { EntryDetails, EntryField } from "./entry-details";
 import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, rulesSummary, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
@@ -47,6 +48,7 @@ const s = StyleSheet.create({
   rank: { width: 42 },
   number: { width: 34, color: C.muted },
   entry: { flexGrow: 3, flexBasis: 0 },
+  detail: { flexGrow: 2, flexBasis: 0, color: C.muted },
   judge: { flexGrow: 1, flexBasis: 0, textAlign: "center" },
   // Wide enough for "100.0000%" at four decimal places.
   average: { width: 72, textAlign: "right", fontFamily: "Helvetica-Bold" },
@@ -80,6 +82,8 @@ const s = StyleSheet.create({
 
 /** The organizer as printed on the sheet: their name and photo (JPEG bytes). */
 export type ReportOrganizer = { name: string; photo: Buffer | null };
+/** An event's entry details for the results: the fields, and each entry's values by entry id. */
+export type EntryDetailsSheet = { fields: EntryField[]; byEntry: Record<string, EntryDetails> };
 
 /**
  * `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes).
@@ -295,8 +299,22 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
 }
 
 /** One activity's results, or one pageant sub-activity's (`part`: its name). */
-function ResultsDocument({ board, info, part, corrections }: { board: Board; info: ReportInfo; part?: string; corrections: CorrectionView[] | null }) {
+function ResultsDocument({
+  board,
+  info,
+  part,
+  corrections,
+  details,
+}: {
+  board: Board;
+  info: ReportInfo;
+  part?: string;
+  corrections: CorrectionView[] | null;
+  /** An event's entry details, a column each after the entry's name (see entry-details.ts). */
+  details: EntryDetailsSheet | null;
+}) {
   const { activity, judges } = board;
+  const fields = details?.fields ?? [];
   // Ties the judges broke in the deliberation place in the chair's order; any other tie shares its rank.
   const ranked = rankEntries(board.entries, judges, board.scores, activity);
   const rows = applyTieBreaks(ranked, board.tieBreaks ?? []);
@@ -310,7 +328,7 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
 
   return (
     <Document title={`${label} results`} author="Tabulous" creator="Tabulous">
-      <Page size="A4" orientation={judges.length > 4 ? "landscape" : "portrait"} style={s.page}>
+      <Page size="A4" orientation={judges.length + fields.length > 4 ? "landscape" : "portrait"} style={s.page}>
         <Header
           info={info}
           title={activity.name}
@@ -326,6 +344,11 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
             <Text style={[s.cell, s.rank]}>Rank</Text>
             <Text style={[s.cell, s.number, { color: C.mint }]}>No.</Text>
             <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
+            {fields.map((f) => (
+              <Text key={f.id} style={[s.cell, s.detail, { color: C.mint }]}>
+                {f.name}
+              </Text>
+            ))}
             {judges.map((j) => (
               <Text key={j.id} style={[s.cell, s.judge]}>
                 {j.name}
@@ -338,6 +361,11 @@ function ResultsDocument({ board, info, part, corrections }: { board: Board; inf
               <Text style={[s.cell, s.rank]}>{row.rank ?? "—"}</Text>
               <Text style={[s.cell, s.number]}>{row.number}</Text>
               <Text style={[s.cell, s.entry]}>{row.entry.name}</Text>
+              {fields.map((f) => (
+                <Text key={f.id} style={[s.cell, s.detail]}>
+                  {details?.byEntry[row.entry.id]?.[f.id] ?? ""}
+                </Text>
+              ))}
               {judges.map((j) => {
                 const v = row.scores.get(j.id);
                 return (
@@ -632,6 +660,7 @@ export function renderResultsPdf(
     corrections = null,
     signatures = null,
     signoff = null,
+    details = null,
   }: {
     timeZone?: string;
     reportId: string;
@@ -641,10 +670,17 @@ export function renderResultsPdf(
     corrections?: CorrectionView[] | null;
     signatures?: JudgeSignature[] | null;
     signoff?: ActivitySignoff | null;
+    details?: EntryDetailsSheet | null;
   },
 ): Promise<Buffer> {
   return renderToBuffer(
-    <ResultsDocument board={board} part={part} corrections={corrections} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, signoff }} />,
+    <ResultsDocument
+      board={board}
+      part={part}
+      corrections={corrections}
+      details={details}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, signoff }}
+    />,
   );
 }
 

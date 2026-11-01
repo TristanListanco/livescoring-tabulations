@@ -8,7 +8,8 @@ import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
-import { blankEventScoring, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
+import { MAX_FIELD_NAME } from "@/lib/entry-details";
+import { blankEventScoring, CORRECTION_REASONS_HINT, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
@@ -29,6 +30,9 @@ function opened(data: unknown) {
     // A new event starts without live scoring. Drafts saved before the choice existed score live, as events did then.
     liveScoring: data === undefined || data === null ? false : d.liveScoring !== false,
     judgesSeeRanking: d.judgesSeeRanking === true,
+    correctionReasons: d.correctionReasons === true,
+    // The names of up to three details kept about each entry.
+    entryFields: [0, 1, 2].map((i) => (Array.isArray(d.entryFields) && typeof d.entryFields[i] === "string" ? d.entryFields[i] : "")),
     entries: typeof d.entries === "string" ? d.entries : "",
   };
 }
@@ -54,6 +58,9 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [resultDecimals, setResultDecimals] = useState<ResultDecimals>(start.resultDecimals);
   const [liveScoring, setLiveScoring] = useState(start.liveScoring);
   const [judgesSeeRanking, setJudgesSeeRanking] = useState(start.judgesSeeRanking);
+  const [correctionReasons, setCorrectionReasons] = useState(start.correctionReasons);
+  const [entryFields, setEntryFields] = useState<string[]>(start.entryFields);
+  const named = entryFields.map((f) => f.trim()).filter(Boolean);
   // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
   const nextKey = useRef(start.judges.length);
   const [judges, setJudges] = useState<DraftJudge[]>(start.judges);
@@ -68,13 +75,15 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     saveRef,
     kind: "event",
     name,
-    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
+    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, correctionReasons, entryFields, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
     collect: async () => ({
       name,
       scoring,
       resultDecimals,
       liveScoring,
       judgesSeeRanking,
+      correctionReasons,
+      entryFields,
       judges: await saveJudges(judges),
       chair: chairIndex < 0 ? null : chairIndex,
       entries: entriesText,
@@ -152,6 +161,19 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
                 <span className="hint mt-1 block">{JUDGES_RANKING_HINT}</span>
               </span>
             </label>
+            <input type="hidden" name="correction_reasons" value={correctionReasons ? "on" : "off"} />
+            <label className="mt-4 flex max-w-xl items-start gap-3">
+              <input
+                type="checkbox"
+                checked={correctionReasons}
+                onChange={(e) => setCorrectionReasons(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0 accent-regal"
+              />
+              <span>
+                <span className="font-semibold">Judges pick a reason from a list when they correct a score</span>
+                <span className="hint mt-1 block">{CORRECTION_REASONS_HINT}</span>
+              </span>
+            </label>
           </>
         )}
       </Section>
@@ -171,8 +193,26 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
       </Section>
 
       <Section title="Entries">
+        <fieldset className="mb-6 max-w-xl">
+          <legend className="label">Details for each entry (optional)</legend>
+          <p className="hint">Up to three, such as a school, a division or a region. Only you see them, here and on the results.</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {["e.g. School", "e.g. Division", "e.g. Region"].map((example, i) => (
+              <input
+                key={example}
+                name="entry_field"
+                aria-label={`Detail ${i + 1} name`}
+                placeholder={example}
+                maxLength={MAX_FIELD_NAME}
+                value={entryFields[i]}
+                onChange={(e) => setEntryFields((f) => f.map((v, j) => (j === i ? e.target.value : v)))}
+                className="field"
+              />
+            ))}
+          </div>
+        </fieldset>
         <label htmlFor="entries" className="label">
-          Entry names, one per line
+          {named.length ? "Entries, one per line" : "Entry names, one per line"}
         </label>
         <textarea
           id="entries"
@@ -182,7 +222,13 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
           onChange={(e) => setEntriesText(e.target.value)}
           className="field h-auto max-w-xl py-2.5 leading-relaxed"
           aria-describedby="entries-hint"
+          placeholder={named.length ? `Agila | ${named.map((f) => f).join(" | ")}` : undefined}
         />
+        {named.length > 0 && (
+          <p className="hint mt-2 max-w-xl">
+            Each name, then its {new Intl.ListFormat("en").format(named)}, separated by | (or paste rows from a spreadsheet).
+          </p>
+        )}
         <p id="entries-hint" className="hint tabular mt-2">
           {entryCount} {entryCount === 1 ? "entry" : "entries"}, in running order. You can reorder or shuffle them, rename them and add more later.
         </p>

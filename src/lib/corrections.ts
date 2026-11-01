@@ -34,6 +34,18 @@ export type Correction = {
 
 export const MAX_CORRECTION_REASON = 300;
 
+/**
+ * Why a judge corrects their own score, when the organizer has them pick from a list (correctionReasons): the usual
+ * reasons, then Other, where they type it. What they pick is kept as the reason, word for word.
+ */
+export const CORRECTION_REASONS = [
+  "I typed the wrong number.",
+  "I misread the criteria or the scoring guide.",
+  "I missed part of the entry's performance.",
+  "I mixed up the entries.",
+  "I reconsidered after seeing every entry.",
+] as const;
+
 /** A reason as typed: one paragraph, trimmed, cut to MAX_CORRECTION_REASON. Empty means none was given. */
 export function cleanReason(value: unknown): string {
   return String(value ?? "")

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getActivitySignoff, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
@@ -109,7 +109,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const liveUrl = `${origin}/live/${activity.publicId}`;
   const ledUrl = `${origin}/led/${activity.publicId}`;
   // What the open tab needs: mostly started above, with the board.
-  const [codes, desk, liveQr, organizers, settingsSignatories] = await Promise.all([
+  const [codes, desk, liveQr, organizers, settingsSignatories, entryDetails] = await Promise.all([
     tab === "judges" ? (early.codes ?? getActivityAccessCodes(id)) : new Map<string, string>(),
     tab === "session"
       ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getActivitySignatories(id), getSignatures(id), getActivitySignoff(id)]))
@@ -117,6 +117,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
     tab === "settings" ? getActivitySignatories(id) : null,
+    // An event's entry details: the organizer's alone, so read only for this tab.
+    tab === "entries" && activity.kind === "event" ? getEntryDetails(id) : null,
   ]);
   const [corrections, notes, signatories, signatures, signoff] = desk ?? [null, null, null, null, null];
   // An event without live scoring keeps its scores from every screen until the judges have deliberated and the
@@ -248,6 +250,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             ended={activity.sessionState === "ended"}
             deliberating={activity.sessionState === "deliberation"}
             pageant={pageant}
+            details={entryDetails}
           />
         )}
         {tab === "segments" && pageant && <SegmentsTab board={board} />}

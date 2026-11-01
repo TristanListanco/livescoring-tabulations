@@ -10,6 +10,7 @@ import { withheldScores } from "./scoring";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
+import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
 import type { Activity, ActivitySignoff, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 export type ActivityRow = {
@@ -37,6 +38,8 @@ export type ActivityRow = {
   signed_off_at?: string | null;
   /** Migration 032. */
   judges_see_ranking?: boolean;
+  /** Migration 033. */
+  correction_reasons?: boolean;
   privacy_screen?: boolean;
   current_entry_id?: string | null;
   /** Migration 028. */
@@ -150,6 +153,7 @@ export function toActivity(row: ActivityRow): Activity {
     // Pageants always score live; databases without migration 021 do too.
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
     judgesSeeRanking: row.judges_see_ranking ?? false,
+    correctionReasons: row.correction_reasons ?? false,
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
@@ -618,6 +622,22 @@ export async function getActivitySignoff(activityId: string): Promise<ActivitySi
   if (error || !data) return null;
   const row = data as { signed_by: string; method: "drawn" | "checked"; drawing: string | null; signed_at: string };
   return { signedBy: row.signed_by, method: row.method, drawing: row.drawing, signedAt: row.signed_at };
+}
+
+/**
+ * An event's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
+ * pages and the results only: never part of a board, which judges and the public pages are sent. Null before migration
+ * 033.
+ */
+export async function getEntryDetails(activityId: string): Promise<{ fields: EntryField[]; byEntry: Record<string, EntryDetails> } | null> {
+  const [activity, entries] = await Promise.all([
+    db().from("activities").select("entry_fields").eq("id", activityId).maybeSingle(),
+    db().from("entries").select("id, details").eq("activity_id", activityId),
+  ]);
+  if (activity.error || entries.error) return null;
+  const fields = toEntryFields((activity.data as { entry_fields?: unknown } | null)?.entry_fields);
+  const byEntry = Object.fromEntries((entries.data as { id: string; details: unknown }[]).map((e) => [e.id, toEntryDetails(e.details)]));
+  return { fields, byEntry };
 }
 
 export async function getSignatures(activityId: string): Promise<JudgeSignature[] | null> {

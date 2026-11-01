@@ -24,6 +24,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     criteriaDisplay: "percent",
     liveScoring: true,
     judgesSeeRanking: false,
+    correctionReasons: false,
     privacyScreen: false,
     sessionState: "draft",
     sessionEndedAt: null,

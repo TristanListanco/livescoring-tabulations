@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { BOM, csvBlock, csvRow, FINGERPRINT, LINE } from "./csv";
-import type { StandingsSheet } from "./results-pdf";
+import type { EntryDetailsSheet, StandingsSheet } from "./results-pdf";
 import { averageText, formatScore, judgeSheet, rankEntries, scoreText } from "./scoring";
 import { applyTieBreaks } from "./ties";
 import type { Board } from "./types";
@@ -33,16 +33,21 @@ export function renderCsv(
   return { text: BOM + header.map(csvRow).join(LINE) + LINE + LINE + rows + LINE, fingerprint };
 }
 
-/** The results, as on the results PDF: rank (ties the judges broke placed as they ordered them), entry, each judge, average. */
-export function resultsTable(board: Board, noun: "Entry" | "Candidate" = "Entry"): CsvTable {
+/**
+ * The results, as on the results PDF: rank (ties the judges broke placed as they ordered them), entry, an event's entry
+ * details, each judge, average.
+ */
+export function resultsTable(board: Board, noun: "Entry" | "Candidate" = "Entry", details: EntryDetailsSheet | null = null): CsvTable {
   const { activity, judges } = board;
+  const fields = details?.fields ?? [];
   const rows = applyTieBreaks(rankEntries(board.entries, judges, board.scores, activity), board.tieBreaks ?? []);
   return {
-    columns: ["Rank", "No.", noun, ...judges.map((j) => j.name), "Average"],
+    columns: ["Rank", "No.", noun, ...fields.map((f) => f.name), ...judges.map((j) => j.name), "Average"],
     rows: rows.map((row) => [
       row.rank,
       row.number,
       row.entry.name,
+      ...fields.map((f) => details?.byEntry[row.entry.id]?.[f.id] ?? null),
       ...judges.map((j) => {
         const value = row.scores.get(j.id);
         return value === undefined ? null : scoreText(value, activity);
