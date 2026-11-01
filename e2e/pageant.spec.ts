@@ -474,7 +474,7 @@ test.describe.serial("a pageant", () => {
     await end.getByLabel("Your password").fill(ADMIN_PASSWORD);
     await end.getByRole("button", { name: "End session" }).click();
     await expect(page.getByRole("heading", { name: "Judging has ended" })).toBeVisible();
-    await expect(page.getByText("Every score is in")).toBeVisible();
+    await expect(page.getByText(/scores? (is|are) missing/)).toHaveCount(0);
   });
 
   test("each sub-activity, the cuts and the preliminary have their own results, as PDF and CSV", async ({ page }) => {

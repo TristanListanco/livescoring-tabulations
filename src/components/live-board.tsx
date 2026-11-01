@@ -1,7 +1,7 @@
 "use client";
 
 import { showingBoard } from "@/lib/pageant";
-import { rangeLabel, rulesSummary, scoreProgress } from "@/lib/scoring";
+import { scoreProgress } from "@/lib/scoring";
 import { SURVEY_URL } from "@/lib/survey";
 import type { Board } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
@@ -16,7 +16,7 @@ import { SurveyLink } from "./survey-link";
  * the candidates still in the running. While the scores are held back, a tick shows each one that's in.
  *
  * On a projector or venue screen (a stage, see useStage) the page is exactly one screen: a shorter heading, the board
- * paging through long lists below it, and how the board works in its footer.
+ * paging through long lists below it, and, while the scores are held back, why in its footer.
  */
 export function LiveBoard({ board: full }: { board: Board }) {
   // The audience's page: one phone per person, so it checks for changes rather than holding a realtime connection
@@ -43,11 +43,8 @@ export function LiveBoard({ board: full }: { board: Board }) {
   const submitted = scored ? scored.length : progress.submitted;
   const { organizer } = full;
 
-  // The audience needs the range, not the setup: decimal places are for the organizer and the judges' keypads.
-  const rules = activity.scoringMode === "criteria" ? rulesSummary(activity) : `Judges score from ${rangeLabel(activity)}.`;
-  const summary = held
-    ? "A tick shows each score that's in. The scores themselves show here once the judges have deliberated and signed."
-    : `${ranked ? "Ranked by the average of the scores submitted so far." : "Averages of the scores submitted so far."} ${rules}`;
+  // Only a board without scores needs saying why.
+  const summary = held ? "A tick shows each score that's in. The scores themselves show here once the judges have deliberated and signed." : undefined;
 
   return (
     <section className={`bg-prussian text-mint ${stage ? "flex h-dvh flex-col overflow-hidden" : "min-h-dvh pb-10"}`}>
@@ -79,7 +76,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
             >
               {activity.name}
             </h1>
-            {!waiting && !stage && <p className="mt-3 max-w-[65ch] text-[clamp(0.95rem,1.1vw,1.25rem)] text-powder">{summary}</p>}
+            {!waiting && !stage && summary && <p className="mt-3 max-w-[65ch] text-[clamp(0.95rem,1.1vw,1.25rem)] text-powder">{summary}</p>}
           </div>
         </div>
         <div className="flex items-center gap-6" style={stage ? { fontSize: "max(0.875rem, min(1.25vw, 2.3vh))" } : undefined}>
