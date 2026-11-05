@@ -49,7 +49,7 @@ export async function JudgesTab({
   return (
     <div className="max-w-4xl">
       <LiveRefresh activityId={activityId} ended={ended} />
-      <h2 className="title-sm">Judges</h2>
+      <h2 className="sr-only">Judges</h2>
       <p className="label mt-4">Judge portal</p>
       <LinkField url={`${origin}/judge`} />
       {pageant && <BoardsSummary judges={judges} />}

@@ -194,10 +194,10 @@ type OrganizerOption = { id: string; name: string; email: string };
 export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
   return (
     <div className="max-w-4xl">
-      <Section title="Check an exported CSV">
+      <Section quiet title="Check an exported CSV">
         <CsvCheck activityId={activityId} className="btn btn-quiet" />
       </Section>
-      <Section title="Delete activity">
+      <Section quiet title="Delete activity">
         <DeleteArchivedButton activityId={activityId} name={name} />
       </Section>
     </div>
@@ -265,7 +265,7 @@ export function SettingsTab({
   return (
     <div className="max-w-4xl">
       <form action={action}>
-        <Section title="Details">
+        <Section quiet title="Details">
           <label htmlFor="name" className="label">
             Activity name
           </label>
@@ -277,18 +277,18 @@ export function SettingsTab({
         </Section>
       </form>
 
-      <Section title="Scoring">
+      <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
       </Section>
 
       {activity.kind === "event" && (
-        <Section title="Live scoring">
+        <Section quiet title="Live scoring">
           <LiveScoring activity={activity} />
         </Section>
       )}
 
       {activity.kind === "event" && !activity.liveScoring && (
-        <Section title="Judging without live scoring">
+        <Section quiet title="Judging without live scoring">
           <div className="space-y-6">
             <OptionSwitch
               activity={activity}
@@ -312,7 +312,7 @@ export function SettingsTab({
         </Section>
       )}
 
-      <Section title="Judges' screens">
+      <Section quiet title="Judges' screens">
         <OptionSwitch
           activity={activity}
           option="privacyScreen"
@@ -322,31 +322,31 @@ export function SettingsTab({
       </Section>
 
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
-        <Section title="Guides for judges">
+        <Section quiet title="Guides for judges">
           <CriterionGuides activity={activity} />
         </Section>
       )}
 
-      <Section id="signatories" title="Results PDF signatories">
+      <Section quiet id="signatories" title="Results PDF signatories">
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
       </Section>
 
-      <Section title="Check an exported CSV">
+      <Section quiet title="Check an exported CSV">
         <CsvCheck activityId={activity.id} className="btn btn-quiet" />
       </Section>
 
       {organizers && (
-        <Section title="Organizer">
+        <Section quiet title="Organizer">
           <OwnerPicker activity={activity} organizers={organizers} />
         </Section>
       )}
 
       {developer ? (
-        <Section title="Test site tools">
+        <Section quiet title="Test site tools">
           <TestSiteTools activity={activity} scoreCount={scoreCount} />
         </Section>
       ) : (
-        <Section title="Delete activity">
+        <Section quiet title="Delete activity">
           {activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
             <p role="note" className="note max-w-xl">
               The session is running. End it on the Session tab before deleting the activity.

@@ -272,7 +272,7 @@ export function EntriesTab({
   return (
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 className="title-sm">{pageant ? "Candidates" : "Entries"}</h2>
+        <h2 className="sr-only">{pageant ? "Candidates" : "Entries"}</h2>
         {canShuffle && (
           <ConfirmDialog
             triggerLabel="Shuffle order"

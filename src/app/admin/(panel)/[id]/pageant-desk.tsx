@@ -221,7 +221,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
 
   return (
     <section aria-labelledby="program" className={compact ? "card shrink-0 px-5 py-4 text-sm" : ""}>
-      <h2 id="program" className={compact ? "title-sm text-lg" : "title-sm"}>
+      <h2 id="program" className="sr-only">
         Program
       </h2>
       <FormMessage state={result} small className="mt-1" />

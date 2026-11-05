@@ -257,7 +257,7 @@ export function SessionTab({
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
-      <h2 id="screens" className="title-sm text-lg">
+      <h2 id="screens" className="sr-only">
         Screens
       </h2>
       <div className="mt-1.5 space-y-1">
@@ -582,7 +582,7 @@ export function SessionTab({
   const runningOrder = (compact: boolean) =>
     entries.length > 0 && (
       <section aria-labelledby="running-order" className={compact ? "flex min-h-0 flex-1 flex-col" : undefined}>
-        <h2 id="running-order" className="title-sm">
+        <h2 id="running-order" className="sr-only">
           {round ? `Running order: ${round.name}` : "Running order"}
         </h2>
         <ol

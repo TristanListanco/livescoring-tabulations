@@ -111,13 +111,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   const sorted = [...current].sort((a, b) => urgency(b) - urgency(a));
   // The list keeps itself current while anything could still change: a device asking to judge, a score coming in.
   const changing = current.some((a) => a.sessionState !== "ended");
-  // Where the activities this admin runs stand, at a glance: counted from the list below.
-  const tally = [
-    { label: "Running now", count: current.filter((a) => running(a.sessionState)).length },
-    { label: "Needs you", count: attention.size },
-    { label: "Not started", count: current.filter((a) => a.sessionState === "draft").length },
-    { label: "Ended", count: current.filter((a) => a.sessionState === "ended").length },
-  ];
 
   return (
     <>
@@ -129,16 +122,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
         </Link>
       </div>
 
-      {current.length > 0 && (
-        <dl className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {tally.map((t) => (
-            <div key={t.label} className="card px-4 py-3 sm:px-5 sm:py-4">
-              <dt className="text-[13px] text-prussian/70">{t.label}</dt>
-              <dd className="tabular mt-1.5 text-[1.75rem] leading-none tracking-[-0.02em] sm:text-[2rem]">{t.count}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
 
       {nothingAnywhere && (
         <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">

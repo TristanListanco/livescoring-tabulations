@@ -62,6 +62,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [correctionReasons, setCorrectionReasons] = useState(start.correctionReasons);
   const [independentScoring, setIndependentScoring] = useState(start.independentScoring);
   const [entryFields, setEntryFields] = useState<string[]>(start.entryFields);
+  // Optional, so folded away until asked for (or a draft already has some).
+  const [showDetails, setShowDetails] = useState(() => start.entryFields.some((f) => f.trim() !== ""));
   const named = entryFields.map((f) => f.trim()).filter(Boolean);
   // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
   const nextKey = useRef(start.judges.length);
@@ -119,7 +121,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
   return (
     <form ref={formRef} onSubmit={submit} className="mt-6">
-      <Section title="Activity">
+      <Section quiet title="Activity">
         <label htmlFor="name" className="label">
           Name
         </label>
@@ -135,11 +137,11 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         />
       </Section>
 
-      <Section title="Scoring">
+      <Section quiet title="Scoring">
         <ScoringFields value={scoring} onChange={setScoring} resultDecimals={resultDecimals} onResultDecimals={setResultDecimals} />
       </Section>
 
-      <Section title="Live scoring">
+      <Section quiet title="Live scoring">
         <input type="hidden" name="live_scoring" value={liveScoring ? "on" : "off"} />
         <label className="flex max-w-xl items-center gap-3">
           <input type="checkbox" checked={liveScoring} onChange={(e) => setLiveScoring(e.target.checked)} className="size-5 shrink-0 accent-regal" />
@@ -182,7 +184,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         )}
       </Section>
 
-      <Section title="Judges">
+      <Section quiet title="Judges">
         <JudgesFields
           judges={judges}
           chairKey={chairKey}
@@ -193,10 +195,15 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         />
       </Section>
 
-      <Section title="Entries">
-        <fieldset className="mb-6 max-w-xl">
-          <legend className="label">Details for each entry (optional)</legend>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+      <Section quiet title="Entries">
+        <details open={showDetails} onToggle={(e) => setShowDetails(e.currentTarget.open)} className="group mb-6 max-w-xl">
+          <summary className="text-action tap-target inline-flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
+            <svg viewBox="0 0 16 16" className="size-4 transition-transform group-open:rotate-90" aria-hidden>
+              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Details for each entry
+          </summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {["e.g. School", "e.g. Division", "e.g. Region"].map((example, i) => (
               <input
                 key={example}
@@ -210,7 +217,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
               />
             ))}
           </div>
-        </fieldset>
+        </details>
         <label htmlFor="entries" className="label">
           {named.length ? "Entries, one per line" : "Entry names, one per line"}
         </label>

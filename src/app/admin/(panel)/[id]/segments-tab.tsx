@@ -107,7 +107,7 @@ export function SegmentsTab({ board }: { board: Board }) {
   if (activity.sessionState !== "draft") {
     return (
       <div className="max-w-3xl">
-        <h2 className="title-sm">Segments</h2>
+        <h2 className="sr-only">Segments</h2>
         <LockedProgram board={board} />
       </div>
     );
@@ -125,7 +125,7 @@ export function SegmentsTab({ board }: { board: Board }) {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="title-sm">Segments</h2>
+      <h2 className="sr-only">Segments</h2>
       <section aria-labelledby="segment-preliminary" className="mt-6">
         <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
           Preliminary
