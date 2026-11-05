@@ -182,7 +182,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       </div>
 
       {/* Wide enough, the preview stands beside the settings (and stays in view) so each change shows next to its control. */}
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start lg:gap-10">
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
         <div className="space-y-8">
           <DisplaySettings options={options} onChange={changeOptions} disabled={pending} />
           {/* Set once for a show, so it's folded away. The preview shows what's chosen and follows any change. */}
@@ -203,7 +203,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
           <FormMessage state={error ? { ok: false, error } : null} small />
         </div>
 
-        <figure className="max-w-4xl lg:sticky lg:top-6">
+        <figure className="max-w-4xl xl:sticky xl:top-6">
           {/*
             The preview keeps the wall's own colours in dark mode. It's a picture of the wall, so screen readers hear the
             caption rather than every name and score on it again.

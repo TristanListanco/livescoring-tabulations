@@ -659,12 +659,13 @@ export function SessionTab({
   /*
    * The live desk: one screen that doesn't scroll on a 1366×768 laptop. The desk (what's on, who we're waiting on,
    * and the action bar that never moves) on the left; the running order as a rundown and the show's screens on the
-   * right. Only the judge grid and the rundown scroll, inside themselves. Below lg it stacks as before.
+   * right. Only the judge grid and the rundown scroll, inside themselves. Below xl (with the sidebar, too narrow for both
+   * columns) it stacks as before.
    */
   if (live) {
     return (
       <PdfHold value={held}>
-        <div className="max-lg:space-y-8 lg:-mb-6 lg:grid lg:h-[calc(100dvh-18rem)] lg:min-h-[22rem] lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] lg:gap-6">
+        <div className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-11rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
           <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-2xl bg-prussian text-mint">
             {offline}
             <div className="flex items-start justify-between gap-4 px-6 pt-4">
