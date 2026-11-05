@@ -1,5 +1,5 @@
 import { devices, expect, test, type Page } from "@playwright/test";
-import { deleteActivityNamed, openJudgeLink, signInAsSuperAdmin } from "./helpers";
+import { deleteActivityNamed, judgeCodes, openJudgeLink, signInAsSuperAdmin } from "./helpers";
 
 // A judge's phone whose realtime connection is down (venue Wi-Fi, or the browser was in the background
 // while the camera scanned a QR code) must still open within seconds of the organizer's approval.
@@ -41,7 +41,7 @@ test.describe.serial("judge devices without realtime", () => {
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
     adminPath = new URL(page.url()).pathname;
-    codes = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Judge code ", ""));
+    codes = await judgeCodes(page);
   });
 
   test("approval reaches a phone with no realtime connection within seconds", async ({ page, playwright }) => {

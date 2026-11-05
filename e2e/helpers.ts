@@ -99,6 +99,13 @@ export async function exportFile(page: Page, file: string, menu = "Export") {
   return download;
 }
 
+/** The judges' codes on an activity's Judges tab, once they're there: a new activity opens on its skeleton first. */
+export async function judgeCodes(page: Page): Promise<string[]> {
+  const codes = page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ });
+  await expect(codes.first()).toBeVisible({ timeout: 20_000 });
+  return (await codes.allTextContents()).map((t) => t.replace("Judge code ", ""));
+}
+
 /** Save a screenshot into the test report, for reviewing what each screen looked like in the run. */
 export async function snap(page: Page, name: string) {
   await settle(page);

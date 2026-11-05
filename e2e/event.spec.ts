@@ -1,20 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
-import {
-  boardOrder,
-  choosePhoto,
-  deleteActivityNamed,
-  deleteOrganizerByEmail,
-  expectAccessible,
-  exportFile,
-  openJudgeLink,
-  screenPath,
-  signInAsOrganizer,
-  signInAsSuperAdmin,
-  snap,
-  submitScore,
-  tapScore,
-} from "./helpers";
+import { boardOrder, choosePhoto, deleteActivityNamed, deleteOrganizerByEmail, expectAccessible, exportFile, judgeCodes, openJudgeLink, screenPath, signInAsOrganizer, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // One event from account setup to teardown, against a real database. Each step builds on the last.
 // The organizer drives judging: judges wait for the session to start and score the entry they're shown.
@@ -154,8 +140,7 @@ test.describe.serial("a full event", () => {
     await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
     await page.goto(adminPath);
 
-    const codeTexts = await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents();
-    codes = codeTexts.map((t) => t.replace("Judge code ", ""));
+    codes = await judgeCodes(page);
     expect(codes).toHaveLength(2);
     // Judges' codes show without copy buttons or links; the header has no live results button or rules line.
     await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
