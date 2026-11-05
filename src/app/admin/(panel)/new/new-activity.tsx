@@ -79,8 +79,8 @@ export function NewActivity({
       ) : pageantsOpen ? (
         <PageantForm draft={opened} onDirty={setDirty} formRef={formRef} saveRef={saveRef} />
       ) : (
-        <section aria-labelledby="pageant-soon" className="mt-8 max-w-3xl rounded-2xl border border-dashed border-powder px-6 py-12 text-center">
-          <h2 id="pageant-soon" className="text-2xl font-bold tracking-tight">
+        <section aria-labelledby="pageant-soon" className="card mt-8 max-w-3xl border-dashed border-powder px-6 py-12 text-center">
+          <h2 id="pageant-soon" className="title-sm text-2xl">
             Pageant mode is coming soon
           </h2>
           <p className="hint mx-auto mt-2 max-w-md">

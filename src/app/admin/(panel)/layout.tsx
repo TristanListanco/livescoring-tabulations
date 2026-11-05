@@ -27,7 +27,7 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
       <AdminNav isSuper={session.kind === "super"}>{nav}</AdminNav>
       <div className="mt-auto space-y-3 pt-6">
         {SURVEY_URL && (
-          <div className="rounded-2xl border border-line bg-white p-3.5">
+          <div className="card p-3.5">
             <p className="text-sm font-semibold">Help make Tabulous better</p>
             <p className="mt-0.5 text-[13px] leading-snug text-prussian/70">A short anonymous survey, about 8 minutes.</p>
             <SurveyLink className="btn btn-sm btn-quiet mt-2.5">Take the survey</SurveyLink>

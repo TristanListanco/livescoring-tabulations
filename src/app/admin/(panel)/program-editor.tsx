@@ -515,7 +515,7 @@ function RoundCard({
   const toggleBasis = (key: string, on: boolean) => onChange({ cutBasis: on ? [...basis, key] : basis.filter((k) => k !== key) });
 
   return (
-    <li className="rounded-2xl border border-line bg-white p-4 sm:p-5">
+    <li className="card p-4 sm:p-5">
       <div className="flex items-start gap-2">
         <h4 className="min-w-0 flex-1 pt-1.5 font-bold">
           <span className="tabular text-prussian/75">{index + 1}.</span> {name}

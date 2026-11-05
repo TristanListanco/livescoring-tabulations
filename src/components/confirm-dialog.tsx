@@ -97,7 +97,7 @@ export function ConfirmDialog({
               </span>
             )}
             <div className="min-w-0 flex-1">
-              <h2 id={titleId} className="text-xl leading-snug font-bold text-balance wrap-anywhere">
+              <h2 id={titleId} className="title-sm wrap-anywhere">
                 {title}
               </h2>
               <div id={bodyId} className="mt-2 leading-relaxed text-prussian/75 wrap-anywhere [&_strong]:font-semibold [&_strong]:text-prussian">

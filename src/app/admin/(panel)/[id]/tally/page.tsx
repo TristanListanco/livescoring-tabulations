@@ -30,7 +30,7 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     return (
       <>
         {back}
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">Private tally</h1>
+        <h1 className="title mt-1">Private tally</h1>
         <p className="hint mt-2 max-w-xl">This event scores live, so its live results already show every score as it comes in.</p>
       </>
     );
@@ -41,7 +41,7 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     return (
       <>
         {back}
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">Private tally</h1>
+        <h1 className="title mt-1">Private tally</h1>
         <p className="hint mt-2 max-w-xl">The private tally closed when {activity.name} was archived. Its results and score sheets download from its page.</p>
       </>
     );

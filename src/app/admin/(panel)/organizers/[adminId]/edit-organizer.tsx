@@ -38,7 +38,7 @@ export function EditOrganizer({
   return (
     <div className="mt-6 max-w-4xl">
       <form action={action}>
-        <Section title="Organizer" flush>
+        <Section title="Organizer">
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex flex-col items-center gap-2">
               <div className={photoPending ? "opacity-60" : undefined}>
@@ -77,15 +77,10 @@ export function EditOrganizer({
           <PasswordField label="New password" optional />
         </Section>
 
-        {/*
-          Its own rule, so it reads as saving the whole account (name, email and password), not just the password, and in
-          the fields' column, under what it saves (a Section's grid).
-        */}
-        <div className="grid border-t border-line py-6 md:grid-cols-[14rem_1fr] md:gap-10">
-          <div className="flex flex-wrap items-center gap-4 md:col-start-2">
-            <SubmitButton>Save account details</SubmitButton>
-            <FormMessage state={state} />
-          </div>
+        {/* Under the cards rather than in one, so it reads as saving the whole account (name, email and password). */}
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          <SubmitButton>Save account details</SubmitButton>
+          <FormMessage state={state} />
         </div>
       </form>
 

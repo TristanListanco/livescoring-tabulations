@@ -9,16 +9,16 @@ export type DraftSummary = { id: string; kind: "event" | "pageant"; name: string
 /** Activities still being set up: continue one where it was left, or delete it. */
 export function DraftsList({ drafts }: { drafts: DraftSummary[] }) {
   return (
-    <section aria-labelledby="drafts" className="mt-8">
-      <h2 id="drafts" className="text-xl font-bold">
+    <section aria-labelledby="drafts" className="mt-10">
+      <h2 id="drafts" className="title-sm">
         Drafts
       </h2>
       <p className="hint mt-1">Saved while setting up. Creating the activity clears its draft.</p>
-      <ul className="mt-4 divide-y divide-line border-y border-line">
+      <ul className="card mt-4 divide-y divide-line">
         {drafts.map((d) => {
           const name = d.name || (d.kind === "pageant" ? "Untitled pageant" : "Untitled event");
           return (
-            <li key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+            <li key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5">
               <div className="min-w-0 flex-1">
                 <p className="font-semibold wrap-anywhere">{name}</p>
                 <p className="hint">

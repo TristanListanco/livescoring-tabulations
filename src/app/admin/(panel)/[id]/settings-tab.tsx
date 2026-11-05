@@ -203,7 +203,7 @@ type OrganizerOption = { id: string; name: string; email: string };
 export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
   return (
     <div className="max-w-4xl">
-      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores." flush>
+      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores.">
         <CsvCheck activityId={activityId} className="btn btn-quiet" />
       </Section>
       <Section title="Delete activity">
@@ -274,7 +274,7 @@ export function SettingsTab({
   return (
     <div className="max-w-4xl">
       <form action={action}>
-        <Section title="Details" flush>
+        <Section title="Details">
           <label htmlFor="name" className="label">
             Activity name
           </label>

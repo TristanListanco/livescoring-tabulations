@@ -138,7 +138,7 @@ export function PhotoCropDialog({
       className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
     >
       <div className="p-6">
-        <h2 id={titleId} className="text-xl font-bold">
+        <h2 id={titleId} className="title-sm">
           Crop the photo{name ? ` of ${name}` : ""}
         </h2>
         <p id={hintId} className="mt-1 text-sm text-prussian/80">

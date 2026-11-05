@@ -15,7 +15,7 @@ export default function TermsOfService() {
   const mail = <a href={`mailto:${LEGAL.contact}`}>{LEGAL.contact}</a>;
   return (
     <article>
-      <h1 className="text-[clamp(2rem,5vw,2.75rem)] leading-tight font-bold tracking-tight">Terms of service</h1>
+      <h1 className="title">Terms of service</h1>
       <p className="hint mt-2">Effective {LEGAL.effective}</p>
 
       <p>

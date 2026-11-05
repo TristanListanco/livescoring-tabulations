@@ -8,7 +8,7 @@ const EDITED = `${EVENT} edited`;
 const PAGEANT = `E2E Draft Pageant ${RUN}`;
 
 /** The "Activities" link above the form (not the one in the header). */
-const backToActivities = (page: Page) => page.getByRole("main").getByRole("link", { name: "Activities", exact: true });
+const backToActivities = (page: Page) => page.getByRole("navigation", { name: "Admin" }).getByRole("link", { name: "Activities", exact: true });
 const leaveDialog = (page: Page) => page.getByRole("dialog", { name: "Leave without saving?" });
 /** Whether leaving the page now would get the browser's own "Leave site?" prompt. */
 const promptsOnUnload = (page: Page) =>
