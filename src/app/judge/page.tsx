@@ -40,7 +40,7 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
               This device is judging as {context.judge.name}. Switching signs it out for them, and the organizer has to approve it again
               before it can score.
             </p>
-            <Link href="/judge/score" className="btn mt-8 h-16 w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white">
+            <Link href="/judge/score" className="btn mt-8 h-16 w-full bg-mint text-xl text-prussian hover:bg-white">
               Keep judging as {context.judge.name}
             </Link>
             <p className="mt-8 text-sm font-semibold text-powder">Or switch to the code from the link:</p>

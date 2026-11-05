@@ -303,7 +303,11 @@ html:has(.share-ledger) {
    * it. Light on navy, so the line under the title gets a little more leading than usual.
    */
   .judge-title {
-    @apply text-[1.75rem] leading-[1.15] font-bold tracking-[-0.01em] text-balance md:text-4xl;
+    @apply text-[1.75rem] leading-[1.15] font-normal tracking-[-0.02em] text-balance md:text-4xl;
+  }
+  /* A panel on the judges' navy screens: a hairline lighter than the page, as the session desk's cards. */
+  .judge-card {
+    @apply rounded-[1.25rem] border border-powder/20 bg-oxford/40;
   }
   .judge-lede {
     @apply text-lg leading-relaxed text-powder text-balance;
