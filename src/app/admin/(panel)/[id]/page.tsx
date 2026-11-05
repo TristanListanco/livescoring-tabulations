@@ -21,40 +21,7 @@ import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
 import { ArchivedSettings, SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
-
-/**
- * In the order of an event day: what runs the show (the session desk, the judges and their devices, the LED wall),
- * then what's set up beforehand. The test site tools are in Settings.
- */
-type Tab = {
-  id: "session" | "judges" | "led" | "entries" | "segments" | "settings";
-  label: string;
-  group: "show" | "setup";
-};
-
-const TABS: Tab[] = [
-  { id: "session", label: "Session", group: "show" },
-  { id: "judges", label: "Judges", group: "show" },
-  { id: "led", label: "LED wall", group: "show" },
-  { id: "entries", label: "Entries", group: "setup" },
-  { id: "settings", label: "Settings", group: "setup" },
-];
-
-/**
- * Tabs that were merged into others, so old links still land somewhere sensible. The judges' notes download from the
- * session's results, beside the score sheets.
- */
-const MOVED: Record<string, Tab["id"]> = { access: "judges", developer: "settings", notes: "session" };
-
-/** A pageant's entries are its candidates, and its program (segments and sub-activities) has a tab of its own. */
-const PAGEANT_TABS: Tab[] = TABS.flatMap((t): Tab[] =>
-  t.id === "entries"
-    ? [
-        { ...t, label: "Candidates" },
-        { id: "segments", label: "Segments", group: "setup" },
-      ]
-    : [t],
-);
+import { activityTabs, askedTab } from "./tabs";
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -74,7 +41,7 @@ export async function generateMetadata({ params }: PageProps<"/admin/[id]">): Pr
 export default async function ActivityPage({ params, searchParams }: PageProps<"/admin/[id]">) {
   const id = (await params).id;
   const requested = (await searchParams).tab;
-  const asked = typeof requested === "string" ? (MOVED[requested] ?? requested) : undefined;
+  const asked = askedTab(requested);
   // What the tab reads starts with the board rather than after it: each is a trip to the database, and the desk reloads
   // all of this after every score. Which tab opens can depend on the board (with none asked for, Judges before the
   // session and Session after), so both of those start then; one is left unused. Nothing is shown until the session
@@ -93,13 +60,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const { activity, judges, entries, scores } = board;
   // Before judging starts the organizer needs the judges' codes; once it's live, the session controls.
   const pageant = activity.kind === "pageant";
-  const allTabs = pageant ? PAGEANT_TABS : TABS;
-  // Archived: read-only, so its results (on the Session tab, the judges' notes too) and Settings, to check a CSV or delete it.
   const archived = activity.archivedAt !== null;
-  const tabs = archived
-    ? allTabs.filter((t) => t.id === "session" || t.id === "settings").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
-    : allTabs;
-  const tab = tabs.find((t) => t.id === asked)?.id ?? (activity.sessionState === "draft" ? "judges" : "session");
+  const { tabs, tab } = activityTabs(activity, asked);
   const started = activity.sessionState !== "draft";
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
   // A pageant's progress counts every sub-activity: each judge scoring each candidate still in it.
@@ -177,33 +139,20 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
       {archived && <p className="mt-3 text-sm text-prussian/70">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>}
 
-      <nav
-        aria-label="Activity sections"
-        className="activity-tabs mt-6 -mr-4 overflow-x-auto border-b border-line [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:mr-0 sm:[mask-image:none]"
-      >
-        <ul className="flex min-w-max gap-1">
-          {tabs.map((t, i) => {
-            const active = t.id === tab;
-            const startsGroup = i > 0 && tabs[i - 1].group !== t.group && t.group === "setup";
-            return (
-              <li
-                key={t.id}
-                className={
-                  startsGroup
-                    ? "relative ml-2 pl-2 before:absolute before:top-1/2 before:left-0 before:h-5 before:w-px before:-translate-y-1/2 before:bg-line"
-                    : undefined
-                }
-              >
-                <TabLink href={`/admin/${activity.id}?tab=${t.id}`} active={active}>
-                  {t.label}
-                </TabLink>
-              </li>
-            );
-          })}
+      {/* Without the sidebar (phones and tablets), the tabs are a row of pills under the name. */}
+      <nav aria-label="Activity sections" className="activity-tabs -mx-4 mt-6 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden">
+        <ul className="flex w-max gap-1 rounded-full bg-wash p-1">
+          {tabs.map((t) => (
+            <li key={t.id}>
+              <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} active={t.id === tab}>
+                {t.label}
+              </TabLink>
+            </li>
+          ))}
         </ul>
       </nav>
 
-      <div className="activity-panel pt-6">
+      <div className="activity-panel pt-6 lg:pt-8">
         {tab === "judges" && (
           <JudgesTab
             activityId={activity.id}

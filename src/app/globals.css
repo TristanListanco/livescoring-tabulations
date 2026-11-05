@@ -58,7 +58,7 @@
   --color-danger-ink: #ffb1a9;
   --color-tally: #ff7a75;
 }
-/* Parts that keep their own colours in dark mode: the navy header, and previews of the LED wall and judges' screens. */
+/* Parts that keep their own colours in dark mode: the navy session desk, and previews of the LED wall and judges' screens. */
 [data-theme="dark"] .keep-light {
   color-scheme: light;
   --color-prussian: #0b2545;
@@ -75,10 +75,7 @@
   --color-danger-ink: #8c1d17;
   --color-tally: #e5484d;
 }
-/* The navy header and session desk sit on a nearly-as-dark page in dark mode: a hairline keeps them apart. */
-[data-theme="dark"] .admin-header {
-  box-shadow: 0 1px 0 rgb(159 194 234 / 0.2);
-}
+/* The navy session desk sits on a nearly-as-dark page in dark mode: a hairline keeps them apart. */
 [data-theme="dark"] .admin-desk {
   box-shadow: 0 0 0 1px rgb(159 194 234 / 0.22);
 }
@@ -214,7 +211,7 @@ html:has(.share-ledger) {
 
 @layer components {
   .btn {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-[15px] font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
     @apply bg-regal text-mint hover:bg-oxford;
@@ -230,7 +227,7 @@ html:has(.share-ledger) {
     @apply border border-danger/40 bg-white/60 text-danger hover:bg-danger/10;
   }
   .btn-sm {
-    @apply h-9 rounded-md px-3 text-sm;
+    @apply h-9 px-3.5 text-sm;
   }
   /* On touchscreens the small buttons grow to a full 44px target; on a mouse they keep their compact size. */
   @media (pointer: coarse) {
@@ -259,7 +256,7 @@ html:has(.share-ledger) {
     }
   }
   .field {
-    @apply block h-11 w-full rounded-lg border border-field bg-white px-3 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
+    @apply block h-11 w-full rounded-xl border border-field bg-white px-3.5 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
   }
   .label {
     @apply mb-1.5 block text-sm font-semibold text-prussian;
@@ -299,14 +296,14 @@ html:has(.share-ledger) {
   }
   /* A quiet explanation of the current state, like why a list is locked. Give it role="note". */
   .note {
-    @apply rounded-lg bg-wash px-4 py-3 text-[15px];
+    @apply rounded-xl bg-wash px-4 py-3 text-[15px];
   }
   /*
    * A radio option drawn as a card: the whole card is the target, and the chosen one fills with the accent.
    * Add items-center or a width per use; the focus ring is drawn around the card (see :focus-visible above).
    */
   .choice {
-    @apply flex cursor-pointer gap-2.5 rounded-lg border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed has-disabled:opacity-60;
+    @apply flex cursor-pointer gap-2.5 rounded-xl border border-line bg-white px-3.5 py-2.5 has-checked:border-regal has-checked:bg-regal has-checked:text-mint has-disabled:cursor-not-allowed has-disabled:opacity-60;
   }
   /*
    * A judge's readout, keypad and main button: held at the bottom of the screen while the entry and criteria above
@@ -405,8 +402,8 @@ dialog::backdrop {
 }
 
 /*
- * An activity's tab opening (see TabLink): a bar runs under the tab picked, and after a beat (so a quick switch doesn't
- * flicker) the panel below dims and stops taking clicks until the new one arrives.
+ * An activity's tab opening (see TabLink), from the sidebar or the row of tabs: a bar runs under the tab picked, and after
+ * a beat (so a quick switch doesn't flicker) the panel dims and stops taking clicks until the new one arrives.
  */
 .tab-pending:not([data-tab-pending]) {
   visibility: hidden;
@@ -422,7 +419,7 @@ dialog::backdrop {
     transform: translateX(200%);
   }
 }
-.activity-tabs:has([data-tab-pending]) + .activity-panel {
+:root:has(.activity-tabs [data-tab-pending]) .activity-panel {
   opacity: 0.5;
   pointer-events: none;
   transition: opacity 150ms ease-out 150ms;
@@ -432,7 +429,7 @@ dialog::backdrop {
     width: 100%;
     animation: none;
   }
-  .activity-tabs:has([data-tab-pending]) + .activity-panel {
+  :root:has(.activity-tabs [data-tab-pending]) .activity-panel {
     transition: none;
   }
 }

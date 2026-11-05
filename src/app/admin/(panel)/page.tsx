@@ -237,7 +237,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           )}
 
           {/* Phones and tablets: each activity is one tappable row, what it needs first under its name. */}
-          <ul className={`divide-y divide-line border-y border-line lg:hidden ${isSuper ? "mt-4" : ""}`}>
+          <ul className={`divide-y divide-line border-y border-line xl:hidden ${isSuper ? "mt-4" : ""}`}>
             {sorted.map((a) => (
               <li key={a.id} className="group relative py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -267,7 +267,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
             tabIndex={0}
             role="region"
             aria-label={isSuper ? "Your activities table" : "Activities table"}
-            className={`hidden overflow-x-auto lg:block ${isSuper ? "mt-4" : ""}`}
+            className={`hidden overflow-x-auto xl:block ${isSuper ? "mt-4" : ""}`}
           >
             {/* What each room needs sits beside its name, so a desk running many rooms reads down one column. */}
             <table className="w-full min-w-[48rem] text-left">

@@ -71,9 +71,9 @@ test.describe.serial("feedback survey", () => {
     await expect(page.getByRole("link", { name: "Take the survey (opens in a new tab)" })).toHaveCount(0);
   });
 
-  test("and the organizer, on the desk and at the foot of the panel", async ({ page }) => {
+  test("and the organizer, on the desk and in the panel's sidebar", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    await expectSurvey(page.getByRole("contentinfo").getByRole("link", { name: "Feedback survey (opens in a new tab)" }));
+    await expectSurvey(page.getByRole("banner").getByRole("link", { name: "Take the survey (opens in a new tab)" }));
     await page.goto(`/admin/${activity.id}?tab=session`);
     const desk = page.getByRole("region", { name: "Judging has ended" });
     await expectSurvey(desk.getByRole("link", { name: "Take the survey (opens in a new tab)" }));
