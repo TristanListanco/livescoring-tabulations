@@ -71,7 +71,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
               </p>
             )}
             <h1
-              className="text-[clamp(2rem,5vw,5rem)] leading-[1.02] font-bold tracking-tight text-balance"
+              className="text-[clamp(2rem,5vw,5rem)] leading-[1.04] tracking-[-0.025em] text-balance"
               style={stage ? { fontSize: "min(3.6vw, 6.5vh)" } : undefined}
             >
               {activity.name}
@@ -81,7 +81,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
         </div>
         <div className="flex items-center gap-6" style={stage ? { fontSize: "max(0.875rem, min(1.25vw, 2.3vh))" } : undefined}>
           {!waiting && (
-            <p className={`tabular text-powder ${stage ? "" : "text-[clamp(0.95rem,1.1vw,1.25rem)]"}`}>
+            <p className={`tabular rounded-full border border-powder/25 px-[0.9em] py-[0.3em] text-powder ${stage ? "" : "text-[clamp(0.95rem,1.1vw,1.25rem)]"}`}>
               <span className="text-[1.4em] font-bold text-mint">{submitted}</span> of {progress.possible} scores in
             </p>
           )}

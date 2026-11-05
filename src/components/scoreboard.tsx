@@ -254,7 +254,12 @@ export function Scoreboard({
 
   return (
     <div
-      className={`mx-auto w-full max-w-[120rem] ${stage ? "flex min-h-0 flex-1 flex-col" : ""}`}
+      // On a stage the board runs edge to edge, for the back of the room; elsewhere it's a card on the page.
+      className={
+        stage
+          ? "mx-auto flex min-h-0 w-full max-w-[120rem] flex-1 flex-col"
+          : "mx-auto w-[calc(100%-3rem)] max-w-[118rem] overflow-hidden rounded-[1.25rem] border border-powder/15 bg-oxford/25 lg:pt-5"
+      }
       style={{ "--cols": columns } as React.CSSProperties}
     >
       {/* On a stage, the judges' heading is one line: a small photo beside each name, or the name alone in a narrow column. */}
@@ -275,7 +280,7 @@ export function Scoreboard({
       </div>
 
       <div ref={areaRef} className={stage ? "min-h-0 flex-1 overflow-hidden" : undefined}>
-        <ol ref={listRef} className="relative border-t border-oxford">
+        <ol ref={listRef} className={`relative ${stage ? "border-t border-oxford" : "lg:border-t lg:border-powder/15 [&>li:last-child]:border-b-0"}`}>
           {rows.map((row, i) => {
             const place = placeOf(row, ranked, judges.length);
             const top = place !== "rest";
