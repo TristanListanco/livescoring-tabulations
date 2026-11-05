@@ -16,18 +16,13 @@ export async function ActivityTree({ id, requested, away = false }: { id: string
   const { tabs, tab } = activityTabs(activity, askedTab(requested));
 
   return (
-    <nav aria-label="Activity sections" className="activity-tabs mt-1 mb-2 ml-[1.375rem] border-l border-line pl-3">
+    <nav aria-label="Activity sections" className="activity-tabs sidebar-expanded-only mt-1 mb-2 ml-[1.375rem] border-l border-line pl-3">
       <p className="truncate py-1.5 pl-3 text-sm font-semibold text-prussian/70" title={activity.name}>
         {activity.name}
       </p>
       <ul>
         {tabs.map((t, i) => (
-          <li
-            key={t.id}
-            className={`relative before:absolute before:top-1/2 before:-left-3 before:h-px before:w-2.5 before:bg-line ${
-              i > 0 && tabs[i - 1].group !== t.group ? "mt-2" : ""
-            }`}
-          >
+          <li key={t.id} className={i > 0 && tabs[i - 1].group !== t.group ? "mt-2" : undefined}>
             <TabLink look="tree" href={`/admin/${activity.id}?tab=${t.id}`} active={!away && t.id === tab}>
               {t.label}
             </TabLink>

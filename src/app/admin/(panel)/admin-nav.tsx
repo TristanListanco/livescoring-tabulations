@@ -15,10 +15,11 @@ const ICONS = {
 };
 
 /**
- * The sidebar's sections: Activities (with the open activity's tabs under it, `children`) and, for the super admin,
- * Organizers. Activities also covers each activity's pages; Organizers covers each account's.
+ * The sidebar's sections: Activities (with the open activity's tabs under it, `children`), the archived ones
+ * (`archived`) and, for the super admin, Organizers. Activities also covers each activity's pages; Organizers covers
+ * each account's.
  */
-export function AdminNav({ isSuper, children }: { isSuper: boolean; children?: React.ReactNode }) {
+export function AdminNav({ isSuper, archived, children }: { isSuper: boolean; archived: React.ReactNode; children?: React.ReactNode }) {
   const pathname = usePathname();
   const section = pathname.startsWith("/admin/organizers") ? "organizers" : pathname.startsWith("/admin/profile") ? null : "activities";
   const link = (href: string, id: keyof typeof ICONS, label: string) => {
@@ -27,12 +28,13 @@ export function AdminNav({ isSuper, children }: { isSuper: boolean; children?: R
       <Link
         href={href}
         aria-current={active ? (pathname === href ? "page" : "true") : undefined}
+        title={label}
         className={`${SIDEBAR_ROW} ${active ? SIDEBAR_OPEN : SIDEBAR_IDLE}`}
       >
         <svg viewBox="0 0 20 20" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           {ICONS[id]}
         </svg>
-        {label}
+        <span className="sidebar-label">{label}</span>
       </Link>
     );
   };
@@ -41,6 +43,7 @@ export function AdminNav({ isSuper, children }: { isSuper: boolean; children?: R
     <nav aria-label="Admin" className="flex flex-col gap-1">
       {link("/admin", "activities", "Activities")}
       {children}
+      {archived}
       {isSuper && link("/admin/organizers", "organizers", "Organizers")}
     </nav>
   );

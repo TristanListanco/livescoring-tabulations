@@ -100,8 +100,8 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   // Live shows first, then the newest (or the next page of older ones).
   const organizerActivities = [...organizers.live, ...organizers.activities];
   const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0 && !later;
-  // Archived activities leave the list for their own, below.
-  const archived = activities.filter((a) => a.archivedAt).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+  // Archived activities leave the list for the sidebar's.
+  const archived = activities.filter((a) => a.archivedAt);
   const current = activities.filter((a) => !a.archivedAt);
   // With many rooms running at once, the ones waiting on the organizer go to the top, then the rest of the running
   // shows; otherwise newest first, as the queries return them.
@@ -152,14 +152,14 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
         </div>
       )}
 
-      {/* Everything's archived: the list is empty, and the archived ones are below. */}
+      {/* Everything's archived: the list is empty, and the archived ones are in the sidebar. */}
       {current.length === 0 && archived.length > 0 && drafts.length === 0 && organizerActivities.length === 0 && (
         <p className="hint mt-8">
           No current activities.{" "}
           <Link href="/admin/new" className="text-action">
             Create one
           </Link>
-          , or open an archived one below.
+          , or open an archived one from the sidebar.
         </p>
       )}
 
@@ -334,31 +334,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
         </section>
       )}
 
-      {archived.length > 0 && (
-        <details className="group mt-12">
-          <summary className="tap-target title-sm flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-            <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
-              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Archived activities
-            <span className="tabular rounded-full bg-wash px-2.5 py-0.5 text-sm font-semibold">{archived.length}</span>
-          </summary>
-          <ul className="card mt-4 divide-y divide-line">
-            {archived.map((a) => (
-              <li key={a.id} className="group/row relative px-5 py-3.5">
-                <div className="min-w-0 flex-1">
-                  <Link href={`/admin/${a.id}`} className="font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover/row:underline">
-                    {a.name}
-                  </Link>
-                  <p className="hint tabular mt-0.5">
-                    {scoringOf(a)} · {scoresIn(a)} in · Archived {dateFormat.format(new Date(a.archivedAt!))}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
     </>
   );
 }

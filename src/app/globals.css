@@ -31,8 +31,8 @@
   --color-caution: #fbbf24;
   --color-stop: #f87171;
 
-  /* Avenir ships with Apple devices; Nunito Sans is the closest open fallback elsewhere. */
-  --font-sans: "Avenir Next", Avenir, var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+  /* Inter everywhere, light at the large sizes, as in the panel's reference design. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
 /*
@@ -106,6 +106,108 @@ html {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The admin sidebar collapses to its icons on wide screens ([data-sidebar="collapsed"], see SidebarShell): it narrows
+ * with a quick ease-out (a touch quicker closing than opening), the labels fade as it goes, and what only makes sense
+ * with words (the open activity's tabs, the archived list) steps out. Its rows keep their names for screen readers.
+ */
+.sidebar-label {
+  transition: opacity 180ms ease-out;
+}
+@media (min-width: 64rem) {
+  .admin-sidebar {
+    width: 16rem;
+    transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  [data-sidebar="collapsed"] .admin-sidebar {
+    width: 4.75rem;
+    transition-duration: 240ms;
+  }
+  [data-sidebar="collapsed"] .admin-sidebar .sidebar-label {
+    opacity: 0;
+    transition-duration: 120ms;
+  }
+  [data-sidebar="collapsed"] .admin-sidebar .sidebar-expanded-only {
+    display: none;
+  }
+  /* With the tree out of the sidebar, the activity's tabs come back as the row of pills under its name. */
+  [data-sidebar="collapsed"] .activity-tabs.page-tabs {
+    display: block;
+  }
+}
+
+/* The phones' drawer: it slides in from the left over a fading backdrop, and slides back a little quicker. */
+.sidebar-drawer {
+  transform: translateX(-100%);
+  transition:
+    transform 220ms ease-in,
+    overlay 220ms allow-discrete,
+    display 220ms allow-discrete;
+}
+.sidebar-drawer[open] {
+  transform: none;
+  transition-duration: 320ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+@starting-style {
+  .sidebar-drawer[open] {
+    transform: translateX(-100%);
+  }
+}
+.sidebar-drawer::backdrop {
+  opacity: 0;
+  transition:
+    opacity 220ms ease-out,
+    overlay 220ms allow-discrete,
+    display 220ms allow-discrete;
+}
+.sidebar-drawer[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  .sidebar-drawer[open]::backdrop {
+    opacity: 0;
+  }
+}
+/* Reduced motion: the sidebar and the drawer change at once; the drawer fades rather than slides. */
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar {
+    transition: none;
+  }
+  .sidebar-drawer,
+  .sidebar-drawer[open] {
+    transform: none;
+    transition-property: opacity, overlay, display;
+  }
+  .sidebar-drawer:not([open]) {
+    opacity: 0;
+  }
+  @starting-style {
+    .sidebar-drawer[open] {
+      opacity: 0;
+      transform: none;
+    }
+  }
+}
+
+/* Loading placeholders, in the shape of what's coming: a quiet pulse, held still under reduced motion. */
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+.skeleton {
+  border-radius: 0.5rem;
+  background: var(--color-line);
+  opacity: 0.8;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }
 
 /*
@@ -264,11 +366,11 @@ html:has(.share-ledger) {
   }
   /* Page titles, large and light: the weight is in the size, not the stroke. Bold is for what's acted on. */
   .title {
-    @apply text-[2rem] leading-[1.15] font-normal tracking-[-0.02em] text-balance wrap-anywhere sm:text-[2.375rem];
+    @apply text-[2rem] leading-[1.15] font-light tracking-[-0.025em] text-balance wrap-anywhere sm:text-[2.375rem];
   }
   /* A card's or a section's title, in the same voice. */
   .title-sm {
-    @apply text-xl leading-snug font-normal tracking-[-0.01em] text-balance;
+    @apply text-xl leading-snug font-light tracking-[-0.015em] text-balance;
   }
   /* A table inside a card: small quiet headings, hairline rows, the card's padding at either end. */
   .table {
@@ -303,7 +405,7 @@ html:has(.share-ledger) {
    * it. Light on navy, so the line under the title gets a little more leading than usual.
    */
   .judge-title {
-    @apply text-[1.75rem] leading-[1.15] font-normal tracking-[-0.02em] text-balance md:text-4xl;
+    @apply text-[1.75rem] leading-[1.15] font-light tracking-[-0.025em] text-balance md:text-4xl;
   }
   /* A panel on the judges' navy screens: a hairline lighter than the page, as the session desk's cards. */
   .judge-card {
@@ -318,7 +420,7 @@ html:has(.share-ledger) {
   }
   /* The privacy policy and the terms of service: long reading, so a comfortable measure and open leading. */
   .legal h2 {
-    @apply mt-12 text-2xl font-normal tracking-[-0.015em] text-balance;
+    @apply mt-12 text-2xl font-light tracking-[-0.02em] text-balance;
   }
   .legal h3 {
     @apply mt-6 font-bold;
@@ -440,8 +542,9 @@ dialog::backdrop {
 }
 
 /*
- * An activity's tab opening (see TabLink), from the sidebar or the row of tabs: a bar runs under the tab picked, and after
- * a beat (so a quick switch doesn't flicker) the panel dims and stops taking clicks until the new one arrives.
+ * An activity's tab opening (see TabLink), from the sidebar or the row of tabs: a bar runs under the tab picked, the panel
+ * stops taking clicks, and after a beat (so a quick switch doesn't flicker) the new tab's skeleton fades in over it
+ * until the tab arrives.
  */
 .tab-pending:not([data-tab-pending]) {
   visibility: hidden;
@@ -457,17 +560,22 @@ dialog::backdrop {
     transform: translateX(200%);
   }
 }
+.tab-skeleton {
+  display: none;
+}
 :root:has(.activity-tabs [data-tab-pending]) .activity-panel {
-  opacity: 0.5;
   pointer-events: none;
-  transition: opacity 150ms ease-out 150ms;
+}
+:root:has(.activity-tabs [data-tab-pending]) .tab-skeleton {
+  display: block;
+  animation: fade-in 180ms ease-out 150ms both;
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-pending-run {
     width: 100%;
     animation: none;
   }
-  :root:has(.activity-tabs [data-tab-pending]) .activity-panel {
-    transition: none;
+  :root:has(.activity-tabs [data-tab-pending]) .tab-skeleton {
+    animation: none;
   }
 }

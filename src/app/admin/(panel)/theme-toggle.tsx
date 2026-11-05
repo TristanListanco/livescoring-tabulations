@@ -15,7 +15,7 @@ export function ThemeToggle({ initial }: { initial: AdminTheme }) {
   };
 
   return (
-    <button type="button" onClick={toggle} aria-pressed={theme === "dark"} className={`${SIDEBAR_ROW} ${SIDEBAR_IDLE}`}>
+    <button type="button" onClick={toggle} aria-pressed={theme === "dark"} title="Dark mode" className={`${SIDEBAR_ROW} ${SIDEBAR_IDLE}`}>
       {theme === "dark" ? (
         <svg viewBox="0 0 20 20" className="size-5 shrink-0" aria-hidden>
           <path d="M16.5 12.2A7 7 0 017.8 3.5a7 7 0 108.7 8.7z" fill="currentColor" />
@@ -31,7 +31,7 @@ export function ThemeToggle({ initial }: { initial: AdminTheme }) {
           />
         </svg>
       )}
-      Dark mode
+      <span className="sidebar-label">Dark mode</span>
     </button>
   );
 }

@@ -82,7 +82,7 @@ test.describe.serial("archived activities", () => {
     await expect(dialog).toContainText("can't be reopened, deliberated again or changed");
     await expect(dialog).toContainText("Judges are signed out and their codes stop working");
     await dialog.getByRole("button", { name: "Archive" }).click();
-    await expect(page.getByText("Archived", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByRole("main").getByText("Archived", { exact: true })).toBeVisible(REALTIME);
 
     // Judging is over for good: Ana's phone is signed out, and her code no longer signs in.
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Judge sign-in", REALTIME);
@@ -97,13 +97,13 @@ test.describe.serial("archived activities", () => {
     await page.goto("/admin");
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0, REALTIME);
 
-    // Listed under Archived activities, collapsed until opened.
-    await page.locator("summary", { hasText: "Archived activities" }).click();
-    await page.getByRole("link", { name: NAME }).click();
+    // Listed under Archived in the sidebar, read when it's opened.
+    await page.getByRole("banner").getByRole("button", { name: "Archived" }).click();
+    await page.getByRole("banner").getByRole("link", { name: NAME }).click();
     await expect(page).toHaveURL(new RegExp(`${adminPath}$`));
 
     // Read-only: its results (the judges' notes download with them), nothing to change, and no reopening.
-    await expect(page.getByText("Archived", { exact: true })).toBeVisible();
+    await expect(page.getByRole("main").getByText("Archived", { exact: true })).toBeVisible();
     await expect(page.getByText(/^Archived \w+ \d{1,2}, \d{4}\. Read-only\.$/)).toBeVisible();
     // Its live results are closed, so nothing links to them.
     await expect(page.getByRole("region", { name: "Screens" })).toHaveCount(0);

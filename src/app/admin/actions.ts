@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
-import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
+import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, listArchivedActivities, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
 import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
@@ -235,6 +235,12 @@ async function manageActivity(
   if (!row || !canManageActivity(session, row.owner_id ?? null)) return null;
   if (row.archived_at && !archived) redirect(`/admin/${activityId}`);
   return { session, activity: toActivity(row) };
+}
+
+/** The signed-in admin's archived activities, for the sidebar's Archived list. */
+export async function archivedActivities(): Promise<{ id: string; name: string }[]> {
+  const session = await requireAdmin();
+  return listArchivedActivities(session.kind === "super" ? null : session.admin.id);
 }
 
 /** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */

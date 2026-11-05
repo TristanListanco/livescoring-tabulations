@@ -11,11 +11,14 @@ import Link, { useLinkStatus } from "next/link";
 export function TabLink({ href, active, look, children }: { href: string; active: boolean; look: "tree" | "pill"; children: React.ReactNode }) {
   const shape =
     look === "tree"
-      ? `flex h-9 items-center rounded-lg px-3 text-[15px] pointer-coarse:h-11 ${
-          active ? "bg-white font-semibold text-prussian ring-1 ring-line" : "text-prussian/70 hover:bg-white/60 hover:text-prussian"
+      ? // The open tab's mark sits on the tree's line, beside it.
+        `flex h-9 items-center rounded-lg px-3 text-[15px] pointer-coarse:h-11 ${
+          active
+            ? "bg-white font-medium text-prussian shadow-[0_1px_2px_rgb(11_37_69/0.08)] before:absolute before:inset-y-2 before:-left-[0.8125rem] before:w-0.5 before:rounded-full before:bg-regal"
+            : "text-prussian/70 hover:bg-white/60 hover:text-prussian"
         }`
       : `block rounded-full px-4 py-1.5 text-[15px] font-semibold whitespace-nowrap pointer-coarse:py-2.5 ${
-          active ? "bg-white text-prussian ring-1 ring-line" : "text-prussian/70 hover:text-prussian"
+          active ? "bg-white text-prussian shadow-[0_1px_2px_rgb(11_37_69/0.08)]" : "text-prussian/70 hover:text-prussian"
         }`;
   return (
     <Link
