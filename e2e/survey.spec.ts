@@ -3,9 +3,8 @@ import { devices, expect, test, type Locator } from "@playwright/test";
 import { SURVEY_URL } from "../src/lib/survey";
 import { expectAccessible, openJudgeLink, signInAsSuperAdmin, snap, supabaseAdmin } from "./helpers";
 
-// The feedback survey is offered where people finish using Tabulous: the judge's screen, the organizer's desk and the
-// live results, once judging has ended, and at the foot of the organizer's panel. It opens apart, and isn't told where
-// the link was: the survey is anonymous.
+// The feedback survey is offered where judges and the audience finish using Tabulous: the judge's screen and the live
+// results, once judging has ended. It opens apart, and isn't told where the link was: the survey is anonymous.
 
 const api = supabaseAdmin()!;
 const RUN = Date.now().toString(36);
@@ -71,11 +70,12 @@ test.describe.serial("feedback survey", () => {
     await expect(page.getByRole("link", { name: "Take the survey (opens in a new tab)" })).toHaveCount(0);
   });
 
-  test("and the organizer, on the desk once judging has ended", async ({ page }) => {
+  test("but not the organizer: the ended desk keeps to the results", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`/admin/${activity.id}?tab=session`);
     const desk = page.getByRole("region", { name: "Judging has ended" });
-    await expectSurvey(desk.getByRole("link", { name: "Take the survey (opens in a new tab)" }));
+    await expect(desk).toBeVisible();
+    await expect(page.getByRole("link", { name: "Take the survey (opens in a new tab)" })).toHaveCount(0);
     await snap(page, "desk");
     await expectAccessible(page);
   });

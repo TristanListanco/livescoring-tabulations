@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { TallyMark } from "@/components/brand";
-import { LegalLinks } from "@/components/legal-links";
 import { requireAdmin } from "@/lib/session";
 import { logout } from "../actions";
 import { SIDEBAR_COOKIE, THEME_COOKIE } from "@/lib/theme";
@@ -73,9 +72,6 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
       </header>
       <div className="min-w-0 flex-1">
         <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-10">{children}</main>
-        <footer className="mx-auto max-w-6xl px-4 pb-8 sm:px-6 lg:px-10">
-          <LegalLinks className="text-prussian/70" />
-        </footer>
       </div>
       {/* Judges' calls for help, wherever the organizer is in the panel. */}
       <AssistanceAlerts />

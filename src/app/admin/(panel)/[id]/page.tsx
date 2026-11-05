@@ -7,7 +7,6 @@ import { deliberationResults } from "@/lib/deliberation";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
-import { reportId } from "@/lib/report";
 import { expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
@@ -128,7 +127,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
                   <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
                     <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
                   </svg>
-                  Archived
+                  Archived {dateFormat.format(new Date(activity.archivedAt!))}
                 </span>
               ) : (
                 <Link
@@ -151,8 +150,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             </div>
           </div>
         </div>
-
-        {archived && <p className="mt-3 text-sm text-prussian/70">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>}
       </div>
 
       {/*
@@ -196,7 +193,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               renderedAt={renderedAt}
               devices={devices}
               progress={progress}
-              reportId={reportId(board)}
               liveUrl={liveUrl}
               liveQr={liveQr}
               corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}

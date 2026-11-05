@@ -4,11 +4,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { archiveActivity, deleteActivity } from "../actions";
 
 /**
- * Archive an activity whose session has ended, from the list of activities or its ended desk. Asks first: it can't be
- * undone, and the activity can't be reopened or changed after it. In the list it sits above the row's link, so it's a
- * button of its own.
+ * Archive an activity whose session has ended, from its ended desk or its Settings. Asks first: it can't be undone, and
+ * the activity can't be reopened or changed after it.
  */
-export function ArchiveButton({ activityId, name, className = "btn btn-sm btn-quiet relative z-10" }: { activityId: string; name: string; className?: string }) {
+export function ArchiveButton({ activityId, name, className = "btn btn-quiet" }: { activityId: string; name: string; className?: string }) {
   return (
     <ConfirmDialog
       triggerLabel={
@@ -25,7 +24,7 @@ export function ArchiveButton({ activityId, name, className = "btn btn-sm btn-qu
         <strong>{name}</strong> moves to Archived activities for good. It can&apos;t be reopened, deliberated again or changed after this.
       </p>
       <p className="mt-2">
-        Judges are signed out and their codes stop working, the private tally closes, and the live results stay as they are. You can still open it
+        Judges are signed out and their codes stop working, and the live results stay as they are. You can still open it
         to download its results and score sheets, or delete it.
       </p>
     </ConfirmDialog>

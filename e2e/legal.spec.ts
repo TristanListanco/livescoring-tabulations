@@ -26,8 +26,10 @@ test("the pages people sign in from link to both", async ({ page }) => {
     await expect(legal.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
     await expect(legal.getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
   }
-  // And the organizer's panel, once signed in.
+  // And the organizer's panel, once signed in: from their profile, not at the foot of every page.
   await signInAsSuperAdmin(page);
+  await expect(page.getByRole("navigation", { name: "Legal" })).toHaveCount(0);
+  await page.goto("/admin/profile");
   await page.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Terms of service" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Terms of service");
   await page.getByRole("link", { name: "privacy policy" }).first().click();

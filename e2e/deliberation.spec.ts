@@ -71,9 +71,10 @@ test.describe.serial("deliberation", () => {
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
-    // No LED wall without live scoring: its tab says why, and its page isn't there.
+    // No LED wall without live scoring: no tab for it, and a link to one opens the activity's usual tab.
+    await expect(page.getByRole("navigation", { name: "Activity sections" }).first().getByRole("link", { name: "LED wall" })).toHaveCount(0);
     await page.goto(`${adminPath}?tab=led`);
-    await expect(page.getByRole("note")).toContainText("The LED wall is off for this event.");
+    await expect(page.getByRole("link", { name: "Judges", exact: true }).first()).toHaveAttribute("aria-current", "page");
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();

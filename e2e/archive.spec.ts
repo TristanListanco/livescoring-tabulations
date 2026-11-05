@@ -71,9 +71,12 @@ test.describe.serial("archived activities", () => {
 
   test("archiving moves it to the archived activities, for good", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    // The list offers it once the session has ended.
+    // Settings offers it once the session has ended, and the list no longer does.
     await page.goto("/admin");
-    await expect(page.getByRole("button", { name: `Archive ${NAME}` }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: NAME }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
+    await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toBeVisible();
     // So does the ended desk, for when no more deliberating is needed.
     await page.goto(`${adminPath}?tab=session`);
     const desk = page.getByRole("region", { name: "Judging has ended" });
@@ -82,7 +85,7 @@ test.describe.serial("archived activities", () => {
     await expect(dialog).toContainText("can't be reopened, deliberated again or changed");
     await expect(dialog).toContainText("Judges are signed out and their codes stop working");
     await dialog.getByRole("button", { name: "Archive" }).click();
-    await expect(page.getByRole("main").getByText("Archived", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByRole("main").getByText(/^Archived \w+ \d{1,2}, \d{4}$/)).toBeVisible(REALTIME);
 
     // Judging is over for good: Ana's phone is signed out, and her code no longer signs in.
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Judge sign-in", REALTIME);
@@ -103,8 +106,7 @@ test.describe.serial("archived activities", () => {
     await expect(page).toHaveURL(new RegExp(`${adminPath}$`));
 
     // Read-only: its results (the judges' notes download with them), nothing to change, and no reopening.
-    await expect(page.getByRole("main").getByText("Archived", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^Archived \w+ \d{1,2}, \d{4}\. Read-only\.$/)).toBeVisible();
+    await expect(page.getByRole("main").getByText(/^Archived \w+ \d{1,2}, \d{4}$/)).toBeVisible();
     // Its live results are closed, so nothing links to them.
     await expect(page.getByRole("region", { name: "Screens" })).toHaveCount(0);
     const sections = page.getByRole("navigation", { name: "Activity sections" });

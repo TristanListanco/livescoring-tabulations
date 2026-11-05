@@ -6,7 +6,6 @@ import { Avatar } from "@/components/avatar";
 import { CopyButton } from "@/components/copy-button";
 import { LiveStatusBadge } from "@/components/live-status";
 import { Qr } from "@/components/qr";
-import { SurveyLink } from "@/components/survey-link";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors } from "@/lib/judging";
@@ -15,7 +14,6 @@ import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
-import { SURVEY_URL } from "@/lib/survey";
 import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
@@ -201,7 +199,6 @@ export function SessionTab({
   renderedAt,
   devices,
   progress,
-  reportId,
   liveUrl,
   liveQr,
   corrections,
@@ -216,7 +213,6 @@ export function SessionTab({
   renderedAt: number;
   devices: JudgeDevice[];
   progress: Progress;
-  reportId: string;
   liveUrl: string;
   liveQr: string;
   /** Score corrections, oldest first (empty before migration 019). */
@@ -251,17 +247,16 @@ export function SessionTab({
     "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
 
   /**
-   * The audience's screen, one compact card wherever the desk is: show ranks, and the live results (copy, open, QR
-   * code). The LED wall's link is on its own tab, with its settings. `extra`: what follows them (the results downloads,
-   * mid-show). Not once archived, when the live results close.
+   * The audience's screen, one compact card wherever the desk is: the live results (copy, open, QR code), and under them
+   * whether they show ranks. The LED wall's link is on its own tab, with its settings. `extra`: what follows them (the
+   * results downloads, mid-show). Not once archived, when the live results close.
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
       <h2 id="screens" className="sr-only">
         Screens
       </h2>
-      <div className="mt-1.5 space-y-1">
-        {!archived && <RankingSwitch activity={activity} compact />}
+      <div className="space-y-2">
         {/* Each row says what it is, and each button what it does; screen readers also hear which screen it's for. */}
         <div className="flex flex-wrap items-center gap-x-1">
           <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
@@ -275,19 +270,20 @@ export function SessionTab({
             </button>
           )}
         </div>
-        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. Closed once
-            the activity is archived: its results are final and download below. */}
-        {!activity.liveScoring && !pageant && !archived && (
-          <div className="flex flex-wrap items-center gap-x-1 pt-1">
+        {showQr && !archived && (
+          <div className="pb-1">
+            <Qr svg={liveQr} label="QR code for the live results page" />
+          </div>
+        )}
+        {!archived && <RankingSwitch activity={activity} compact />}
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. Gone once
+            judging has ended: its results are final, and download from the desk. */}
+        {!activity.liveScoring && !pageant && activity.sessionState !== "ended" && (
+          <div className="flex flex-wrap items-center gap-x-1 border-t border-line pt-2">
             <span className="min-w-0 flex-1 font-semibold">Private tally</span>
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
               Open
             </a>
-          </div>
-        )}
-        {showQr && !archived && (
-          <div className="pb-1">
-            <Qr svg={liveQr} label="QR code for the live results page" />
           </div>
         )}
         {/* The judges' notes, for the organizer's reference while the show runs; once it ends they download with the results. */}
@@ -590,7 +586,7 @@ export function SessionTab({
           // Scrolls on its own in the live desk, so it has to be reachable by keyboard.
           tabIndex={compact ? 0 : undefined}
           aria-labelledby={compact ? "running-order" : undefined}
-          className={`card mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
+          className={`card stagger mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
         >
           {entries.map((e, i) => {
             const onAir = e.id === current;
@@ -815,11 +811,8 @@ export function SessionTab({
             {runningOrder(true)}
 
             {screens(progress.complete && !pageant && activity.liveScoring && (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
+                  <div className="border-t border-line pt-2">
                     <ExportMenu activityId={activity.id} options={sheetOptions("", { judges: true })} className="btn btn-primary btn-sm" />
-                    <p className="text-sm">
-                      Report ID <span className="tabular font-bold tracking-wide">{reportId}</span>
-                    </p>
                   </div>
                 ))}
           </aside>
@@ -1050,15 +1043,8 @@ export function SessionTab({
                   )}
                 </div>
                 <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-                {progress.complete ? (
-                  // A pageant's sheets each have their own, with their downloads in the program below.
-                  !pageant && (
-                    <>
-                      <p className="mt-5 text-sm font-semibold text-powder">Report ID</p>
-                      <p className="tabular text-[clamp(1.75rem,4.5vw,2.75rem)] leading-tight font-bold tracking-[0.06em]">{reportId}</p>
-                    </>
-                  )
-                ) : (
+                {/* The report ID is on every PDF and CSV it downloads, so the desk leaves it to them. */}
+                {!progress.complete && (
                   <>
                     <p className="mt-2 text-xl font-bold">
                       {missing} {missing === 1 ? "score is" : "scores are"} missing
@@ -1067,8 +1053,8 @@ export function SessionTab({
                   </>
                 )}
               </div>
-              {/* What's left to do, in one row: download, archive (which closes judging for good), and the survey. */}
-              {(!archived || (progress.complete && !pageant) || SURVEY_URL) && (
+              {/* What's left to do, in one row: download, and archive (which closes judging for good). */}
+              {(!archived || (progress.complete && !pageant)) && (
                 <div className="flex flex-wrap items-center gap-3 border-t border-oxford px-6 py-4">
                   {progress.complete && !pageant && (
                     <ExportMenu
@@ -1083,7 +1069,6 @@ export function SessionTab({
                   {!archived && (
                     <ArchiveButton activityId={activity.id} name={activity.name} className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
                   )}
-                  <SurveyLink className="btn btn-sm text-powder hover:bg-oxford hover:text-mint sm:ml-auto">Take the survey</SurveyLink>
                 </div>
               )}
             </section>

@@ -5,7 +5,6 @@ import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 import type { Activity } from "@/lib/types";
 import { ActivitiesRefresh } from "./activities-refresh";
-import { ArchiveButton } from "./archive-controls";
 import { DraftsList } from "./drafts-list";
 import { SessionStatus } from "./session-status";
 
@@ -153,7 +152,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           {later && organizerActivities.length === 0 && <p className="hint mt-1">No older activities.</p>}
 
           {/* Phones: one stacked row per activity, so nothing scrolls sideways. */}
-          <ul className={`card mt-4 divide-y divide-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
+          <ul className={`card stagger mt-4 divide-y divide-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
             {organizerActivities.map((a) => (
               <li key={a.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
@@ -184,7 +183,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                   <th className="text-right">Created</th>
                 </tr>
               </thead>
-              <tbody className="tabular">
+              <tbody className="stagger tabular">
                 {organizerActivities.map((a) => (
                   <tr key={a.id}>
                     {/* Not a link, so not styled like one: only the organizer can open it. */}
@@ -229,7 +228,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           )}
 
           {/* Phones and tablets: each activity is one tappable row, what it needs first under its name. */}
-          <ul className={`card divide-y divide-line xl:hidden ${isSuper ? "mt-4" : ""}`}>
+          <ul className={`card stagger divide-y divide-line xl:hidden ${isSuper ? "mt-4" : ""}`}>
             {sorted.map((a) => (
               <li key={a.id} className="group relative px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
@@ -246,11 +245,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                 <p className="hint tabular mt-1">
                   {setupOf(a)} · {scoresIn(a)} in
                 </p>
-                {a.sessionState === "ended" && (
-                  <div className="mt-2">
-                    <ArchiveButton activityId={a.id} name={a.name} />
-                  </div>
-                )}
               </li>
             ))}
           </ul>
@@ -270,12 +264,9 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                   <th>Needs you</th>
                   <th className="text-right">Scores in</th>
                   <th className="text-right">Created</th>
-                  <th>
-                    <span className="sr-only">Archive</span>
-                  </th>
                 </tr>
               </thead>
-              <tbody className="tabular">
+              <tbody className="stagger tabular">
                 {sorted.map((a) => (
                   <tr key={a.id} className="group relative align-top hover:bg-mint/60">
                     <td className="py-4">
@@ -299,7 +290,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                     </td>
                     <td className="py-4 text-right whitespace-nowrap">{scoresIn(a, false)}</td>
                     <td className="py-4 text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
-                    <td className="py-3 text-right">{a.sessionState === "ended" && <ArchiveButton activityId={a.id} name={a.name} />}</td>
                   </tr>
                 ))}
               </tbody>
