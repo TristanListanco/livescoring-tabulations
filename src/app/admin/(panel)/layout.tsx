@@ -29,7 +29,6 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
         {nav}
       </AdminNav>
       <div className="mt-auto space-y-1 pt-6">
-        <CollapseToggle />
         {session.kind === "organizer" ? (
           <Link href="/admin/profile" className={`${SIDEBAR_ROW} h-auto! py-2 ${SIDEBAR_IDLE}`} title="Your profile">
             <Avatar name={session.admin.name} src={session.admin.photoUrl} size={24} className="shrink-0" />
@@ -70,6 +69,7 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
         </Link>
         <div className="hidden min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto lg:mt-6 lg:flex">{sidebar}</div>
         <SidebarDrawer>{sidebar}</SidebarDrawer>
+        <CollapseToggle />
       </header>
       <div className="min-w-0 flex-1">
         <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-10">{children}</main>

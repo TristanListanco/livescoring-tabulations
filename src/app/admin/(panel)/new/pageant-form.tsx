@@ -9,6 +9,7 @@ import { photoBatches } from "@/lib/photo-file";
 import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import { addCandidatePhotos, createPageant, type CreateResult } from "../../actions";
+import { listChanged } from "../activities-refresh";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
 import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
@@ -364,6 +365,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     }
     // It's saved now, so nothing is lost by leaving: the photos still to come can be added on the Candidates tab.
     onDirty(false);
+    listChanged();
     const { activityId, entryIds } = result;
     const photos = candidates.flatMap((c, i) => (c.photo && entryIds[i] ? [{ name: cleanName(c.name), photo: c.photo, entryId: entryIds[i] }] : []));
     const missed: string[] = [];

@@ -88,6 +88,8 @@ export const createOrganizer = traced("createOrganizer", async function createOr
       // The account works without a photo; it can be added from the edit page.
     }
   }
+  // Not from the browser's cache, which has the list from before.
+  refresh();
   redirect("/admin/organizers");
 });
 
@@ -201,5 +203,6 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
   const { error } = await db().from("admins").delete().eq("id", adminId);
   if (error) return dbErr(error);
   removeOrganizerPhoto((current as { photo_path: string | null }).photo_path);
+  refresh();
   redirect("/admin/organizers");
 });

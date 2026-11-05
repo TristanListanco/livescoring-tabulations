@@ -772,6 +772,18 @@ const activityIdFor = (publicId: string) =>
   )();
 
 /**
+ * When an activity last changed (activity_changes), for a page to read before anything else of it: the page's own
+ * checks compare with it (see LiveSince). Undefined when it can't be read (before migration 016), and the page's first
+ * check then reloads anyway; null before the activity's first change.
+ */
+export async function activityChangedAt(activityId: string): Promise<string | null | undefined> {
+  if (!isUuid(activityId)) return undefined;
+  const { data, error } = await db().from("activity_changes").select("changed_at").eq("activity_id", activityId).maybeSingle();
+  if (error) return undefined;
+  return (data as { changed_at: string } | null)?.changed_at ?? null;
+}
+
+/**
  * When the activity behind a public link last changed (activity_changes, kept up to date by triggers on everything that
  * shows), or "none" before its first change. One row, read by its key.
  */

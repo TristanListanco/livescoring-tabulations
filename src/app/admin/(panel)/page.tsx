@@ -111,10 +111,13 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   const sorted = [...current].sort((a, b) => urgency(b) - urgency(a));
   // The list keeps itself current while anything could still change: a device asking to judge, a score coming in.
   const changing = current.some((a) => a.sessionState !== "ended");
+  // A Server Component renders once per request, so the clock here is the request time.
+  // eslint-disable-next-line react-hooks/purity
+  const renderedAt = Date.now();
 
   return (
     <>
-      <ActivitiesRefresh active={changing} />
+      <ActivitiesRefresh active={changing} renderedAt={renderedAt} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="title">Activities</h1>
         <Link href="/admin/new" className="btn btn-primary">

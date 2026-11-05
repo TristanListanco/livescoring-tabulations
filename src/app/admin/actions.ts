@@ -670,6 +670,8 @@ export const undoCut = traced("undoCut", async function undoCut(activityId: stri
 export const createActivity = traced("createActivity", async function createActivity(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const result = await createFromForm(formData);
   if (!("activityId" in result)) return result;
+  // The list of activities, if the browser has it cached, now has one more.
+  changed();
   redirect(`/admin/${result.activityId}`);
 });
 
@@ -1082,6 +1084,7 @@ export const setActivityOwner = traced("setActivityOwner", async function setAct
   if (!organizer) return err("That organizer account no longer exists.");
   const { error } = await db().from("activities").update({ owner_id: ownerId }).eq("id", activityId).is("owner_id", null);
   if (error) return dbErr(error);
+  changed();
   redirect("/admin");
 });
 

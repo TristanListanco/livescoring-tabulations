@@ -39,6 +39,10 @@ const nextConfig: NextConfig = {
   // The PDF renderer ships its own layout engine and font data; load it from node_modules as-is.
   serverExternalPackages: ["@react-pdf/renderer"],
   experimental: {
+    // Pages visited in the last five minutes come back at once, from the browser's cache, rather than through their
+    // skeleton: switching between activities and tabs is instant. Each checks as it opens whether its activity changed
+    // (see LiveSince and CatchUp) and reloads only if it did; every change made from the panel empties the cache.
+    staleTimes: { dynamic: 300 },
     serverActions: {
       // New activities upload every judge photo in one request. Photos are resized to ~30 KB in the browser first.
       bodySizeLimit: "8mb",
