@@ -8,8 +8,6 @@ import { SignedInDevices } from "./signed-in-devices";
 
 export const metadata: Metadata = { title: "Profile" };
 
-const DEVICES_HINT =
-  "Every browser signed in to your account. Sign out any you don't recognize or don't use anymore: it ends there at once.";
 
 /**
  * Your own profile: for an organizer, who they are on the results PDF, and their password; for anyone,
@@ -20,10 +18,7 @@ export default async function ProfilePage() {
   const sessions = await listAdminSessions(session);
   const super_ = session.kind !== "organizer";
   const devices = sessions && (
-    <Section
-      title="Signed-in devices"
-      hint={super_ ? `${DEVICES_HINT} Changing ADMIN_PASSWORD signs you out everywhere.` : DEVICES_HINT}
-    >
+    <Section title="Signed-in devices">
       <SignedInDevices sessions={sessions} />
     </Section>
   );
@@ -48,7 +43,7 @@ export default async function ProfilePage() {
       </Link>
       <h1 className="title mt-1">Profile</h1>
       <div className="mt-6 max-w-4xl">
-        <Section title="Organizer" hint="To change your name, email or photo, ask the administrator who set up your account.">
+        <Section title="Organizer">
           <div className="flex items-center gap-4">
             <Avatar name={admin.name} src={admin.photoUrl} size={72} />
             <div className="min-w-0">
@@ -57,7 +52,7 @@ export default async function ProfilePage() {
             </div>
           </div>
         </Section>
-        <Section title="Password" hint="Change the password you were given for one of your own. Your other devices are signed out; this one stays signed in.">
+        <Section title="Password">
           <ChangePassword />
         </Section>
         {devices}

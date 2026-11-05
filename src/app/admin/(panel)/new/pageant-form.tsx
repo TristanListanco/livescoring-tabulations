@@ -24,13 +24,9 @@ type Boards = "one" | "separate";
 /** Each board's chair by row key. One board's chair is `proper`'s. */
 type Chairs = { preliminary: number | null; proper: number | null };
 
-const BOARD_OPTIONS: { value: Boards; label: string; hint: string }[] = [
-  { value: "one", label: "One board for the whole pageant", hint: "The same judges score the preliminary and pageant proper, with one chair." },
-  {
-    value: "separate",
-    label: "Separate boards",
-    hint: "The preliminary has its own judges and pageant proper its own, each board with its own chair.",
-  },
+const BOARD_OPTIONS: { value: Boards; label: string }[] = [
+  { value: "one", label: "One board for the whole pageant" },
+  { value: "separate", label: "Separate boards" },
 ];
 
 
@@ -521,10 +517,6 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           </div>
           <div>
             <h3 className="label">Candidates</h3>
-            <p className="hint mb-4 max-w-2xl">
-              Add each candidate&apos;s photo for the LED wall, shown beside their name and number. Photos are optional and can be added or changed
-              later too.
-            </p>
             <CandidatesFields
               candidates={candidates}
               onChange={(key, patch) => setCandidates((list) => list.map((c) => (c.key === key ? { ...c, ...patch } : c)))}
@@ -553,27 +545,19 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
             <legend className="label">Boards of judges</legend>
             <div className="grid gap-2 sm:grid-cols-2">
               {BOARD_OPTIONS.map((o) => (
-                <label key={o.value} className="choice">
-                  <input type="radio" name="boards" className="mt-1" checked={boards === o.value} onChange={() => chooseBoards(o.value)} />
-                  <span>
-                    <span className="block font-semibold">{o.label}</span>
-                    <span className="block text-sm opacity-80">{o.hint}</span>
-                  </span>
+                <label key={o.value} className="choice items-center">
+                  <input type="radio" name="boards" checked={boards === o.value} onChange={() => chooseBoards(o.value)} />
+                  <span className="font-semibold">{o.label}</span>
                 </label>
               ))}
             </div>
-            <p className="hint mt-3">
-              Pageant proper needs at least three judges. A chair can move judging to the previous or next candidate from their own screen, and
-              can&apos;t be changed later.
-            </p>
           </fieldset>
           {separate ? (
             <>
               <section aria-labelledby="preliminary-board">
-                <h3 id="preliminary-board" className="title-sm text-lg">
+                <h3 id="preliminary-board" className="title-sm mb-4 text-lg">
                   Preliminary board of judges
                 </h3>
-                <p className="hint mt-1 mb-4 max-w-2xl">Judges the preliminary&apos;s sub-activities only. Choose one of them as its chair.</p>
                 <JudgesFields
                   judges={preliminaryBoard}
                   chairKey={chairs.preliminary}
@@ -589,13 +573,9 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
                 />
               </section>
               <section aria-labelledby="proper-board">
-                <h3 id="proper-board" className="title-sm text-lg">
+                <h3 id="proper-board" className="title-sm mb-4 text-lg">
                   Pageant proper board of judges
                 </h3>
-                <p className="hint mt-1 mb-4 max-w-2xl">
-                  Judges pageant proper&apos;s sub-activities and cuts, with its own chair. Someone on both boards is added to each, and gets a judge
-                  code for each.
-                </p>
                 <JudgesFields
                   judges={properBoard}
                   chairKey={chairs.proper}
@@ -625,23 +605,14 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
         </section>
 
         <section hidden={step !== 2} className="mt-5">
-          <p className="hint mb-5 max-w-[65ch]">
-            Each sub-activity&apos;s share is of the overall score, as on the score sheet. One with several deliverables, like an interview and its
-            advocacy, can be scored in parts.
-          </p>
           <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
         </section>
 
         <section hidden={step !== 3} className="mt-5">
-          <p className="hint mb-5 max-w-[65ch]">
-            Add a cut after any sub-activity to narrow the field, like a Top 10 or Top 5. The last one ends in the final cut, which places the
-            winners.
-          </p>
           <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={candidates.length} />
         </section>
 
         <section hidden={step !== 4} className="mt-5 space-y-5">
-          <p className="hint max-w-[65ch]">Check it against your score sheet. Edit takes you back to that step.</p>
           <PageantReview
             name={name}
             draft={draft}
@@ -654,10 +625,6 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
             onResultDecimals={setResultDecimals}
             onEdit={go}
           />
-          <p className="hint max-w-[65ch]">
-            After the session starts, the program and the judges are locked so the rules can&apos;t change mid-show, and they stay that way after
-            it ends.
-          </p>
         </section>
 
         <div className="mt-6 flex flex-wrap items-center gap-4">

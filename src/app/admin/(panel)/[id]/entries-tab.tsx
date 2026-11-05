@@ -191,7 +191,6 @@ function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: E
     <form action={action} className="mt-6 max-w-xl">
       <fieldset>
         <legend className="label">Details for each entry</legend>
-        <p className="hint">Up to three, such as a school, a division or a region. Only you see them, here and on the results.</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
           {slots.map((field, i) => (
             <span key={field?.id ?? i}>
@@ -231,15 +230,8 @@ function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; p
         rows={4}
         required
         className="field h-auto py-2.5 leading-relaxed"
-        aria-describedby="new-entries-hint"
+        placeholder={fields.length ? `Agila | ${fields.map((f) => f.name).join(" | ")}` : undefined}
       />
-      <p id="new-entries-hint" className="hint">
-        {pageant
-          ? "A candidate's name on each line. They join the end of the running order, and every sub-activity before the first cut judges them."
-          : fields.length
-            ? `Each name, then its ${new Intl.ListFormat("en").format(fields.map((f) => f.name))}, separated by | (or paste rows from a spreadsheet). They join the end of the running order.`
-            : "One per line. They join the end of the running order."}
-      </p>
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>
         <FormMessage state={state} small />

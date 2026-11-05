@@ -52,16 +52,11 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
           Show scores only when every judge has scored
         </p>
       </div>
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         <Switch checked={options.anonymous} onChange={(anonymous) => onChange({ anonymous })} labelledBy="anonymous-label" disabled={disabled} />
-        <div>
-          <p id="anonymous-label" className="font-semibold">
-            Keep judges anonymous
-          </p>
-          <p className="hint">
-            On the wall each judge&apos;s name and photo becomes a ?, and on the live results page they&apos;re Judge 1, Judge 2 and so on.
-          </p>
-        </div>
+        <p id="anonymous-label" className="font-semibold">
+          Keep judges anonymous
+        </p>
       </div>
     </div>
   );
@@ -105,7 +100,6 @@ function LookSettings({ options, onChange, disabled }: { options: LedOptions; on
             </label>
           ))}
         </div>
-        <p className="hint mt-2">The green screen stays chroma green with every theme, so it still keys out.</p>
       </fieldset>
       <fieldset>
         <legend className="label">Corners</legend>
@@ -196,7 +190,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
               </span>
             </summary>
             <div className="mt-4 space-y-4">
-              <p className="hint">For the green screen and the full screen alike.</p>
               <LookSettings options={options} onChange={changeOptions} disabled={pending} />
             </div>
           </details>

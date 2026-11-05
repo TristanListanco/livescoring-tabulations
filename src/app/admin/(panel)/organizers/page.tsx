@@ -24,9 +24,6 @@ export default async function OrganizersPage() {
       {organizers.length === 0 ? (
         <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
           <p className="text-lg font-semibold">No organizer accounts yet</p>
-          <p className="hint mx-auto mt-1 max-w-md">
-            Create one for each event organizer. You can hand them existing activities from each activity&apos;s Settings tab.
-          </p>
         </div>
       ) : (
         <ul className="card mt-8 divide-y divide-line overflow-hidden">

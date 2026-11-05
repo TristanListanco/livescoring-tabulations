@@ -72,7 +72,6 @@ export function FinalSignOff({
         <h2 id={titleId} className="title-sm text-2xl">
           Every judge has signed
         </h2>
-        <p className="mt-1 text-prussian/75">Check the results, then sign them to end the session. They go on the live results page once you do.</p>
 
         <table className="mt-5 w-full text-left">
           <caption className="sr-only">The results as they&apos;ll be published</caption>

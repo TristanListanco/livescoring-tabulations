@@ -126,7 +126,6 @@ export function SegmentsTab({ board }: { board: Board }) {
   return (
     <div className="max-w-4xl">
       <h2 className="title-sm">Segments</h2>
-      <p className="hint mt-1 max-w-2xl">Change the program until the session starts. After that it&apos;s locked, so nobody&apos;s scores change meaning.</p>
       <section aria-labelledby="segment-preliminary" className="mt-6">
         <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
           Preliminary

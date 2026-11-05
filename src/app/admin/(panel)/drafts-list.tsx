@@ -13,7 +13,6 @@ export function DraftsList({ drafts }: { drafts: DraftSummary[] }) {
       <h2 id="drafts" className="title-sm">
         Drafts
       </h2>
-      <p className="hint mt-1">Saved while setting up. Creating the activity clears its draft.</p>
       <ul className="card mt-4 divide-y divide-line">
         {drafts.map((d) => {
           const name = d.name || (d.kind === "pageant" ? "Untitled pageant" : "Untitled event");

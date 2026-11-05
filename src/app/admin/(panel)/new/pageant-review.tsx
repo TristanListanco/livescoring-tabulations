@@ -76,7 +76,6 @@ function Deductions({ violations }: { violations: NonNullable<PageantDraft["viol
   return (
     <div className="mt-5">
       <h5 className="text-sm font-semibold text-prussian/80">Deductions for violations</h5>
-      <p className="text-sm text-prussian/75">Points off the preliminary score, given at the desk.</p>
       {listed.length > 0 ? (
         <ul className="mt-2 divide-y divide-line/70 border-y border-line/70">
           {listed.map((v) => (
@@ -214,7 +213,6 @@ function SegmentTable({ draft, segment }: { draft: PageantDraft; segment: Segmen
                 <tr>
                   <th scope="rowgroup" colSpan={3} className="pt-5 pb-2 text-left font-semibold">
                     {`${afterCut(cut)[0].toUpperCase()}${afterCut(cut).slice(1)}`}, scores start over
-                    <span className="block text-sm font-normal text-prussian/75">The shares below are of the score from here, adding up to 100%.</span>
                   </th>
                 </tr>
               )}

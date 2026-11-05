@@ -5,13 +5,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Activity } from "@/lib/types";
 import { deleteActivityNow, resetScores } from "../../actions";
 
-function Tool({ title, children, action }: { title: string; children: React.ReactNode; action: React.ReactNode }) {
+function Tool({ title, action }: { title: string; action: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 py-5 first:pt-0 last:pb-0">
-      <div className="max-w-xl">
-        <h3 className="font-bold">{title}</h3>
-        <p className="hint mt-1">{children}</p>
-      </div>
+      <h3 className="font-bold">{title}</h3>
       {action}
     </div>
   );
@@ -55,10 +52,7 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
               running order can be changed.{activity.kind === "pageant" && " Every cut opens again."}
             </ConfirmDialog>
           }
-        >
-          Deletes all {scoreCount} {scoreCount === 1 ? "score" : "scores"} and the judges&apos; notes, signs every judge out, and puts the session back to
-          not started.
-        </Tool>
+        />
         <Tool
           title="Delete activity"
           action={
@@ -76,9 +70,7 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
               {activity.sessionState === "live" && " Its session is live, so judges' screens and the LED wall stop working right away."}
             </ConfirmDialog>
           }
-        >
-          Deletes it at any time, even mid-session, so a test can start over.
-        </Tool>
+        />
       </div>
     </>
   );

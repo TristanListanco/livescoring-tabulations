@@ -10,17 +10,9 @@ import { FormMessage } from "../../form-message";
 export function TallyLock({ activityId, name, superAdmin, official }: { activityId: string; name: string; superAdmin: boolean; official: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(openTally.bind(null, activityId), null);
   return (
-    <div className="mt-6 max-w-xl rounded-2xl border border-line bg-white px-6 py-8">
+    <div className="card mt-6 max-w-xl px-6 py-8">
       <p className={`text-sm font-bold tracking-wide uppercase ${official ? "text-regal" : "text-danger"}`}>{official ? "Official" : "Partial and unofficial"}</p>
       <h1 className="title mt-1">Private tally: {name}</h1>
-      <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
-        {official
-          ? "Every score as the judges signed it, judge by judge and criterion by criterion: the official results."
-          : "Every score the judges have submitted so far, judge by judge and criterion by criterion, to tabulate by hand if something fails during judging. It isn't the results: only the results the judges sign are official."}
-      </p>
-      <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
-        Your password opens it on this device for 10 minutes. The link opens it for no one else, and every opening is recorded.
-      </p>
       <form action={action} className="mt-6 space-y-4">
         <div>
           <label htmlFor="tally-password" className="label">

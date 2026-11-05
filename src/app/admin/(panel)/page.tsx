@@ -143,9 +143,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
       {nothingAnywhere && (
         <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
           <p className="title-sm">No activities yet</p>
-          <p className="hint mx-auto mt-1 max-w-md">
-            Create one to set the scoring range, add judges and entries, and get judge codes and a live results link.
-          </p>
           <Link href="/admin/new" className="btn btn-primary mt-6">
             Create an activity
           </Link>
@@ -154,13 +151,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
 
       {/* Everything's archived: the list is empty, and the archived ones are in the sidebar. */}
       {current.length === 0 && archived.length > 0 && drafts.length === 0 && organizerActivities.length === 0 && (
-        <p className="hint mt-8">
-          No current activities.{" "}
-          <Link href="/admin/new" className="text-action">
-            Create one
-          </Link>
-          , or open an archived one from the sidebar.
-        </p>
+        <p className="hint mt-8">No current activities.</p>
       )}
 
       {drafts.length > 0 && (
@@ -173,9 +164,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           <h2 id="organizer-activities" className="title-sm scroll-mt-6">
             Organizers&apos; activities
           </h2>
-          <p className="hint mt-1">
-            {later && organizerActivities.length === 0 ? "No older activities." : "Only the organizer who runs an activity can open it."}
-          </p>
+          {later && organizerActivities.length === 0 && <p className="hint mt-1">No older activities.</p>}
 
           {/* Phones: one stacked row per activity, so nothing scrolls sideways. */}
           <ul className={`card mt-4 divide-y divide-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
@@ -250,7 +239,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
               <h2 id="own-activities" className="title-sm">
                 Your activities
               </h2>
-              <p className="hint mt-1">Activities you run yourself. Hand one to an organizer from its Settings tab.</p>
             </>
           )}
 

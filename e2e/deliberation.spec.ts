@@ -34,9 +34,8 @@ test.describe.serial("deliberation", () => {
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("group", { name: "Judges score with" }).getByRole("radio", { name: /^3 decimal places/ }).check();
-    // A new event starts without live scoring, and the form says what that means.
+    // A new event starts without live scoring.
     await expect(page.getByRole("checkbox", { name: /Show scores live/ })).not.toBeChecked();
-    await expect(page.getByText(/The audience sees no scores until the judges have deliberated and signed/)).toBeVisible();
     // Judges seeing the ranking while they deliberate is offered, and off unless ticked (it's turned on later, in Settings).
     await expect(page.getByRole("checkbox", { name: /Judges see the overall ranking while they deliberate/ })).not.toBeChecked();
     await page.getByRole("button", { name: "Remove judge 3" }).click();

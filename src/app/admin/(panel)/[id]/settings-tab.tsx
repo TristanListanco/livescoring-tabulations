@@ -12,7 +12,6 @@ import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
-import { CORRECTION_REASONS_HINT, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, OWN_PACE_HINT } from "../scoring-fields";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
 import { DeleteArchivedButton } from "../archive-controls";
@@ -140,14 +139,11 @@ function LiveScoring({ activity }: { activity: Activity }) {
   };
   return (
     <div className="max-w-2xl space-y-2">
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         {editable && <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending} />}
-        <div>
-          <p id="live-scoring-label" className="font-semibold">
-            {editable ? "Show scores live" : on ? "Scores show live" : "Scores show after the judges sign"}
-          </p>
-          <p className="hint mt-1">{on ? LIVE_SCORING_HINT.on : LIVE_SCORING_HINT.off}</p>
-        </div>
+        <p id="live-scoring-label" className="font-semibold">
+          {editable ? "Show scores live" : on ? "Scores show live" : "Scores show after the judges sign"}
+        </p>
       </div>
       <FormMessage state={result} small />
     </div>
@@ -159,13 +155,11 @@ function OptionSwitch({
   activity,
   option,
   label,
-  hint,
   editable,
 }: {
   activity: Activity;
   option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring";
   label: string;
-  hint: string;
   editable: boolean;
 }) {
   const [on, setOn] = useState(activity[option]);
@@ -183,14 +177,11 @@ function OptionSwitch({
   };
   return (
     <div className="max-w-2xl space-y-2">
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         {editable && <Switch checked={on} onChange={toggle} labelledBy={id} disabled={pending} />}
-        <div>
-          <p id={id} className="font-semibold">
-            {editable ? label : `${label}: ${on ? "on" : "off"}`}
-          </p>
-          <p className="hint mt-1">{hint}</p>
-        </div>
+        <p id={id} className="font-semibold">
+          {editable ? label : `${label}: ${on ? "on" : "off"}`}
+        </p>
       </div>
       <FormMessage state={result} small />
     </div>
@@ -203,7 +194,7 @@ type OrganizerOption = { id: string; name: string; email: string };
 export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
   return (
     <div className="max-w-4xl">
-      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores.">
+      <Section title="Check an exported CSV">
         <CsvCheck activityId={activityId} className="btn btn-quiet" />
       </Section>
       <Section title="Delete activity">
@@ -221,7 +212,7 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
   const [owner, setOwner] = useState("");
   const chosen = organizers.find((o) => o.id === owner);
 
-  if (organizers.length === 0) return <p className="hint">Create organizer accounts on the Organizers page to hand activities over.</p>;
+  if (organizers.length === 0) return <p className="hint">No organizers yet.</p>;
   return (
     <div className="space-y-3">
       <label htmlFor="owner" className="sr-only">
@@ -291,33 +282,30 @@ export function SettingsTab({
       </Section>
 
       {activity.kind === "event" && (
-        <Section title="Live scoring" hint={activity.sessionState === "draft" ? undefined : "Fixed once judging started."}>
+        <Section title="Live scoring">
           <LiveScoring activity={activity} />
         </Section>
       )}
 
       {activity.kind === "event" && !activity.liveScoring && (
-        <Section title="Judging without live scoring" hint={activity.sessionState === "ended" ? "Fixed once judging ended." : undefined}>
+        <Section title="Judging without live scoring">
           <div className="space-y-6">
             <OptionSwitch
               activity={activity}
               option="independentScoring"
               label="Judges score at their own pace"
-              hint={OWN_PACE_HINT}
               editable={activity.sessionState === "draft"}
             />
             <OptionSwitch
               activity={activity}
               option="correctionReasons"
               label="Judges pick a reason from a list when they correct a score"
-              hint={CORRECTION_REASONS_HINT}
               editable={activity.sessionState !== "ended"}
             />
             <OptionSwitch
               activity={activity}
               option="judgesSeeRanking"
               label="Judges see the overall ranking while they deliberate"
-              hint={JUDGES_RANKING_HINT}
               editable={activity.sessionState !== "ended"}
             />
           </div>
@@ -329,33 +317,21 @@ export function SettingsTab({
           activity={activity}
           option="privacyScreen"
           label="Privacy screen on judges' phones and tablets"
-          hint="While judging, a judge's phone or tablet hides its screen when it's tilted away from them, so no one beside them can read their scores. Judges tilt it back to carry on."
           editable={!activity.archivedAt}
         />
       </Section>
 
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
-        <Section
-          title="Guides for judges"
-          hint={
-            activity.sessionState === "draft"
-              ? `Guide questions or what to look for in each criterion, up to ${MAX_GUIDE} characters. Judges see a criterion's guide while they score it.`
-              : "Fixed once judging started, so every entry was judged against the same guides."
-          }
-        >
+        <Section title="Guides for judges">
           <CriterionGuides activity={activity} />
         </Section>
       )}
 
-      <Section
-        id="signatories"
-        title="Results PDF signatories"
-        hint="The Board of Tabulators and anyone else who signs this activity's results. Each gets a signature line on its results PDFs and judges' score sheets."
-      >
+      <Section id="signatories" title="Results PDF signatories">
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
       </Section>
 
-      <Section title="Check an exported CSV" hint="Whether a copy of a results CSV is unchanged and matches the scores now.">
+      <Section title="Check an exported CSV">
         <CsvCheck activityId={activity.id} className="btn btn-quiet" />
       </Section>
 
@@ -366,7 +342,7 @@ export function SettingsTab({
       )}
 
       {developer ? (
-        <Section title="Test site tools" hint="For testing and rehearsals. The live site doesn't have these.">
+        <Section title="Test site tools">
           <TestSiteTools activity={activity} scoreCount={scoreCount} />
         </Section>
       ) : (

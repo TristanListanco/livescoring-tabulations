@@ -20,9 +20,6 @@ export default async function AdminLogin({ searchParams }: PageProps<"/admin/log
         </p>
         <div className="card mt-6 px-6 py-7 sm:px-8">
           <h1 className="title">{asSuper ? "Super admin sign-in" : "Organizer sign-in"}</h1>
-          <p className="hint mt-2">
-            {asSuper ? "For the developer who manages organizer accounts." : "Sign in with the organizer account you were given."}
-          </p>
           <LoginForm key={asSuper ? "super" : "organizer"} asSuper={asSuper} />
         </div>
         <p className="mt-6 text-sm">
