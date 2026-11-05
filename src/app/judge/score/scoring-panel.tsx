@@ -543,7 +543,7 @@ export function ScoringPanel({
               />
               {/* At their own pace: on to the next entry they haven't scored, from one they came back to. */}
               {ownPace && view.kind === "scored" && nextUnscored && (
-                <button type="button" onClick={() => setChosen(null)} className="btn mt-6 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white">
+                <button type="button" onClick={() => setChosen(null)} className="btn mt-6 h-14 w-full bg-mint text-lg text-prussian hover:bg-white">
                   <span className="truncate">Next: {nextUnscored.name}</span>
                 </button>
               )}
@@ -652,7 +652,7 @@ function ScoresSheet({ title, scored, total, children }: { title: string; scored
         type="button"
         onClick={() => ref.current?.showModal()}
         aria-haspopup="dialog"
-        className="tabular flex h-11 shrink-0 items-center rounded-lg border border-oxford px-2.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
+        className="tabular flex h-11 shrink-0 items-center rounded-full border border-oxford px-3.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
       >
         <span>
           <span className="font-bold text-mint">{scored}</span> of {total} scored
@@ -714,7 +714,7 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
       onVoted(agree);
     });
   const where = view.roundName ? ` in ${view.roundName}` : "";
-  const answer = "btn h-auto min-h-14 flex-col gap-0 rounded-xl border-2 border-regal bg-white py-2 text-lg text-regal transition hover:bg-regal hover:text-mint";
+  const answer = "btn h-auto rounded-[1.75rem] min-h-14 flex-col gap-0 border-2 border-regal bg-white py-2 text-lg text-regal transition hover:bg-regal hover:text-mint";
   return (
     <dialog
       ref={ref}
@@ -887,7 +887,7 @@ function UndoBar({ pending, shown, onUndo }: { pending: PendingScore; shown: str
           </span>
         </p>
         {!pending.sending && (
-          <button ref={undoRef} type="button" onClick={onUndo} className="btn h-12 shrink-0 rounded-xl bg-prussian px-6 text-lg text-mint hover:bg-regal">
+          <button ref={undoRef} type="button" onClick={onUndo} className="btn h-12 shrink-0 bg-prussian px-6 text-lg text-mint hover:bg-regal">
             Undo
           </button>
         )}
@@ -934,7 +934,7 @@ function DeviceGateCard({ gate }: { gate: Exclude<DeviceGate, { status: "approve
         The organizer signed it out or approved another one for you. If you&apos;re judging on this one, ask again.
       </p>
       <form action={requestApproval} className="mt-6">
-        <button className="btn h-14 rounded-xl bg-mint px-6 text-lg text-prussian hover:bg-white">Ask for approval again</button>
+        <button className="btn h-14 bg-mint px-6 text-lg text-prussian hover:bg-white">Ask for approval again</button>
       </form>
     </div>
   );
@@ -1007,7 +1007,7 @@ function WaitingCard({
     return (
       <div role="status" className="w-full text-left">
         <h1 className="sr-only">{title}</h1>
-        <div className="rounded-2xl border-2 border-oxford px-5 py-4">
+        <div className="judge-card px-5 py-4">
           {/* The score beside the name where there's room; under it, on the right, where there isn't. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {view.entry.photoUrl && <Avatar name={view.entry.name} src={view.entry.photoUrl} size={48} square className="rounded-lg" />}
@@ -1025,7 +1025,7 @@ function WaitingCard({
   return (
     <div role="status" className="flex w-full flex-col items-center text-center">
       {view.kind === "scored" && (
-        <div className="mb-8 w-full rounded-2xl border-2 border-oxford px-6 py-7">
+        <div className="mb-8 w-full judge-card px-6 py-7">
           <div className="flex items-center justify-center gap-3">
             {view.entry.photoUrl && <Avatar name={view.entry.name} src={view.entry.photoUrl} size={40} square className="rounded-lg" />}
             <p className="text-powder">
@@ -1043,7 +1043,7 @@ function WaitingCard({
       {view.kind === "ended" && SURVEY_URL && (
         <div className="mt-10 flex max-w-sm flex-col items-center">
           <p className="text-powder">How was judging with Tabulous? A short anonymous survey, about 8 minutes, helps make it better.</p>
-          <SurveyLink className="btn mt-4 h-14 rounded-xl border border-oxford px-6 text-lg text-mint hover:bg-oxford">Take the survey</SurveyLink>
+          <SurveyLink className="btn mt-4 h-14 border border-oxford px-6 text-lg text-mint hover:bg-oxford">Take the survey</SurveyLink>
         </div>
       )}
     </div>
@@ -1150,7 +1150,7 @@ function DeliberationView({
 /** The overall ranking in the deliberation, when the organizer lets judges see it: rank, entry and average only. */
 function OverallRanking({ ranking }: { ranking: DeliberationRank[] }) {
   return (
-    <section aria-labelledby="overall-ranking" className="mt-6 rounded-2xl border-2 border-oxford px-5 py-4">
+    <section aria-labelledby="overall-ranking" className="mt-6 judge-card px-5 py-4">
       <h2 id="overall-ranking" className="text-lg font-bold">
         Overall ranking
       </h2>
@@ -1207,7 +1207,7 @@ function TieCard({ tie, isChair, chairName }: { tie: DeliberationTie; isChair: b
   const open = !tie.broken;
 
   return (
-    <div className={`rounded-2xl px-5 py-4 text-left ${open ? "border-2 border-caution bg-caution/10" : "border-2 border-oxford"}`}>
+    <div className={`rounded-[1.25rem] px-5 py-4 text-left ${open ? "border-2 border-caution bg-caution/10" : "border border-powder/20 bg-oxford/40"}`}>
       <h3 className={`flex items-center gap-2 text-lg font-bold ${open ? "text-caution" : "text-mint"}`}>
         <svg viewBox="0 0 20 20" className="size-5 shrink-0" aria-hidden>
           <path d="M3 7.5h14M3 12.5h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -1345,7 +1345,7 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
     });
 
   return (
-    <section aria-labelledby="sign-off" className="mt-8 rounded-2xl bg-oxford px-5 py-5">
+    <section aria-labelledby="sign-off" className="judge-card mt-8 px-5 py-5">
       <h2 id="sign-off" className="text-lg font-bold">
         Your signature
       </h2>
@@ -1392,7 +1392,7 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
           <button
             type="submit"
             disabled={!ready || pending}
-            className="btn mt-4 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white disabled:bg-prussian disabled:text-powder disabled:opacity-100"
+            className="btn mt-4 h-14 w-full bg-mint text-lg text-prussian hover:bg-white disabled:bg-prussian disabled:text-powder disabled:opacity-100"
           >
             {pending ? "Signing…" : "Sign"}
           </button>
@@ -1409,14 +1409,14 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
  */
 function ChairStartsDeliberation({ ready }: { ready: boolean }) {
   return (
-    <section aria-labelledby="chair-deliberation" className="mt-5 w-full rounded-2xl border-2 border-oxford p-5 text-left">
+    <section aria-labelledby="chair-deliberation" className="mt-5 w-full judge-card p-5 text-left">
       <h2 id="chair-deliberation" className="text-lg font-bold">
         Chair of the board of judges
       </h2>
       {ready ? (
         <ConfirmDialog
           triggerLabel="Start deliberation"
-          triggerClassName="btn mt-4 h-14 w-full rounded-xl bg-mint text-lg text-prussian hover:bg-white"
+          triggerClassName="btn mt-4 h-14 w-full bg-mint text-lg text-prussian hover:bg-white"
           title="Start the deliberation?"
           confirmLabel="Start deliberation"
           onConfirm={() => startDeliberation().catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }))}
@@ -1465,7 +1465,7 @@ function EntryControls({
     });
 
   return (
-    <section aria-labelledby="move-entries" className="mt-5 w-full rounded-2xl border-2 border-oxford p-5 text-left">
+    <section aria-labelledby="move-entries" className="mt-5 w-full judge-card p-5 text-left">
       <h2 id="move-entries" className="text-lg font-bold">
         Chair of the board of judges
       </h2>
@@ -1484,7 +1484,7 @@ function EntryControls({
           type="button"
           onClick={() => previous && go(previous.id)}
           disabled={!previous || pending}
-          className="btn h-auto min-h-14 rounded-xl border border-oxford px-5 text-lg text-mint hover:bg-oxford disabled:opacity-40"
+          className="btn h-auto rounded-[1.75rem] min-h-14 border border-oxford px-5 text-lg text-mint hover:bg-oxford disabled:opacity-40"
         >
           Previous
         </button>
@@ -1492,7 +1492,7 @@ function EntryControls({
           // The last entry is in: the chair can open the deliberation, as the organizer can from the desk.
           <ConfirmDialog
             triggerLabel="Start deliberation"
-            triggerClassName="btn h-auto min-h-14 min-w-0 rounded-xl bg-mint text-lg text-prussian hover:bg-white"
+            triggerClassName="btn h-auto rounded-[1.75rem] min-h-14 min-w-0 bg-mint text-lg text-prussian hover:bg-white"
             triggerDisabled={pending}
             title="Start the deliberation?"
             confirmLabel="Start deliberation"
@@ -1505,7 +1505,7 @@ function EntryControls({
           // As on the organizer's desk: moving on with judges still scoring asks first.
           <ConfirmDialog
             triggerLabel={<span className="line-clamp-2 text-balance">Next: {next.name}</span>}
-            triggerClassName="btn h-auto min-h-14 min-w-0 rounded-xl border border-oxford py-2 text-lg leading-snug whitespace-normal text-mint hover:bg-oxford disabled:bg-oxford disabled:text-powder disabled:opacity-100"
+            triggerClassName="btn h-auto rounded-[1.75rem] min-h-14 min-w-0 border border-oxford py-2 text-lg leading-snug whitespace-normal text-mint hover:bg-oxford disabled:bg-oxford disabled:text-powder disabled:opacity-100"
             triggerDisabled={pending}
             title={`Move on to ${next.name}?`}
             confirmLabel="Move on anyway"
@@ -1519,7 +1519,7 @@ function EntryControls({
             type="button"
             onClick={() => next && go(next.id)}
             disabled={!next || pending}
-            className={`btn h-auto min-h-14 min-w-0 rounded-xl py-2 text-lg leading-snug whitespace-normal ${
+            className={`btn h-auto rounded-[1.75rem] min-h-14 min-w-0 py-2 text-lg leading-snug whitespace-normal ${
               allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-oxford text-mint hover:bg-oxford"
             } disabled:bg-oxford disabled:text-powder disabled:opacity-100`}
           >
@@ -1597,7 +1597,7 @@ function KeypadKey({ label, onPress, ariaLabel, disabled = false }: { label: Rea
       onClick={onPress}
       aria-label={ariaLabel}
       disabled={disabled}
-      className="tabular h-[clamp(2.75rem,6.5vh,5.5rem)] rounded-2xl bg-oxford disabled:pointer-events-none disabled:opacity-40 md:h-[clamp(3.25rem,8.5vh,5.5rem)] text-[clamp(1.75rem,4.5vh,2.5rem)] font-semibold text-mint transition-colors select-none hover:bg-regal active:scale-[0.97] active:bg-regal"
+      className="tabular h-[clamp(2.75rem,6.5vh,5.5rem)] rounded-2xl bg-oxford ring-1 ring-powder/15 ring-inset disabled:pointer-events-none disabled:opacity-40 md:h-[clamp(3.25rem,8.5vh,5.5rem)] text-[clamp(1.75rem,4.5vh,2.5rem)] font-semibold text-mint transition-colors select-none hover:bg-regal active:scale-[0.97] active:bg-regal"
     >
       {label}
     </button>
@@ -1662,10 +1662,10 @@ function ConfirmScore({
         <p className="mt-3 text-prussian/75">{note}</p>
       </div>
       <div className="grid grid-cols-2 gap-3 px-6 pb-6">
-        <button type="button" className="btn btn-quiet h-14 rounded-xl text-lg" onClick={() => dialogRef.current?.close()} autoFocus>
+        <button type="button" className="btn btn-quiet h-14 text-lg" onClick={() => dialogRef.current?.close()} autoFocus>
           Go back
         </button>
-        <button type="button" className="btn btn-primary h-14 rounded-xl text-lg" onClick={onConfirm} disabled={confirmDisabled}>
+        <button type="button" className="btn btn-primary h-14 text-lg" onClick={onConfirm} disabled={confirmDisabled}>
           {confirmLabel}
         </button>
       </div>
@@ -1855,7 +1855,7 @@ type KeypadProps = {
 
 /** The keypad's main button: Submit score, Next criterion, Review correction. */
 const PRIMARY =
-  "btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full rounded-2xl bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)]";
+  "btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)]";
 
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 

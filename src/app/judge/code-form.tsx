@@ -50,7 +50,7 @@ export function CodeForm({
       )}
       <SubmitButton
         pendingLabel="Checking…"
-        className={`btn mt-6 h-16 w-full rounded-2xl text-xl ${quiet ? "border-2 border-oxford text-mint hover:bg-oxford" : "bg-mint text-prussian hover:bg-white"}`}
+        className={`btn mt-6 h-16 w-full text-xl ${quiet ? "border-2 border-oxford text-mint hover:bg-oxford" : "bg-mint text-prussian hover:bg-white"}`}
       >
         {submitLabel}
       </SubmitButton>
