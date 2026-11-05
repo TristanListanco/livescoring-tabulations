@@ -16,10 +16,10 @@ export default async function OrganizerPage({ params }: PageProps<"/admin/organi
 
   return (
     <>
-      <Link href="/admin/organizers" className="text-action">
+      <Link href="/admin/organizers" className="text-action lg:hidden">
         Organizers
       </Link>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">{organizer.name}</h1>
+      <h1 className="title mt-1">{organizer.name}</h1>
       <p className="hint mt-1">{organizer.email}</p>
       <EditOrganizer
         organizer={organizer}

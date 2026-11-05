@@ -23,7 +23,7 @@ export function OrganizerForm() {
 
   return (
     <form onSubmit={submit} className="mt-6 max-w-4xl">
-      <Section title="Organizer" flush>
+      <Section title="Organizer">
         <div className="flex flex-wrap items-start gap-6">
           <PhotoPicker name={name} currentUrl={photo?.url ?? null} size={80} onPick={(blob, url) => setPhoto({ blob, url })} />
           <div className="min-w-64 flex-1 space-y-4">
@@ -55,7 +55,7 @@ export function OrganizerForm() {
         <PasswordField label="Password" />
       </Section>
 
-      <div className="flex flex-wrap items-center gap-4 border-t border-line pt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Creating…" : "Create organizer"}
         </button>

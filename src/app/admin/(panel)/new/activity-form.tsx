@@ -250,7 +250,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         </p>
       </Section>
 
-      <div className="flex flex-wrap items-center gap-4 border-t border-line pt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Creating…" : "Create activity"}
         </button>

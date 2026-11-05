@@ -207,7 +207,7 @@ export function AssistanceAlerts() {
         className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl backdrop:bg-prussian/50 backdrop:backdrop-blur-md"
       >
         <div className="px-6 pt-6">
-          <h2 id="assist-title" className="flex items-center gap-2.5 text-xl font-bold">
+          <h2 id="assist-title" className="title-sm flex items-center gap-2.5">
             <span className="flex size-10 items-center justify-center rounded-full bg-regal text-mint">
               <HandIcon className="size-5" />
             </span>

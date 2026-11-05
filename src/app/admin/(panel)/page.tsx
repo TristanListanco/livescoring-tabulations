@@ -111,20 +111,38 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   const sorted = [...current].sort((a, b) => urgency(b) - urgency(a));
   // The list keeps itself current while anything could still change: a device asking to judge, a score coming in.
   const changing = current.some((a) => a.sessionState !== "ended");
+  // Where the activities this admin runs stand, at a glance: counted from the list below.
+  const tally = [
+    { label: "Running now", count: current.filter((a) => running(a.sessionState)).length },
+    { label: "Needs you", count: attention.size },
+    { label: "Not started", count: current.filter((a) => a.sessionState === "draft").length },
+    { label: "Ended", count: current.filter((a) => a.sessionState === "ended").length },
+  ];
 
   return (
     <>
       <ActivitiesRefresh active={changing} />
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-3xl font-bold tracking-tight">Activities</h1>
+        <h1 className="title">Activities</h1>
         <Link href="/admin/new" className="btn btn-primary">
           New activity
         </Link>
       </div>
 
+      {current.length > 0 && (
+        <dl className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {tally.map((t) => (
+            <div key={t.label} className="card px-4 py-3 sm:px-5 sm:py-4">
+              <dt className="text-[13px] text-prussian/70">{t.label}</dt>
+              <dd className="tabular mt-1.5 text-[1.75rem] leading-none tracking-[-0.02em] sm:text-[2rem]">{t.count}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {nothingAnywhere && (
-        <div className="mt-10 rounded-2xl border border-dashed border-powder px-6 py-14 text-center">
-          <p className="text-lg font-semibold">No activities yet</p>
+        <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
+          <p className="title-sm">No activities yet</p>
           <p className="hint mx-auto mt-1 max-w-md">
             Create one to set the scoring range, add judges and entries, and get judge codes and a live results link.
           </p>
@@ -151,8 +169,8 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
 
       {/* The super admin watches organizers' shows: whether judging has started and how far it has got. */}
       {(organizerActivities.length > 0 || later) && (
-        <section aria-labelledby="organizer-activities" className="mt-8">
-          <h2 id="organizer-activities" className="scroll-mt-6 text-xl font-bold">
+        <section aria-labelledby="organizer-activities" className="mt-10">
+          <h2 id="organizer-activities" className="title-sm scroll-mt-6">
             Organizers&apos; activities
           </h2>
           <p className="hint mt-1">
@@ -160,9 +178,9 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           </p>
 
           {/* Phones: one stacked row per activity, so nothing scrolls sideways. */}
-          <ul className={`mt-4 divide-y divide-line border-y border-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
+          <ul className={`card mt-4 divide-y divide-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
             {organizerActivities.map((a) => (
-              <li key={a.id} className="py-3">
+              <li key={a.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 font-medium wrap-anywhere">{a.name}</p>
                   <SessionStatus state={a.sessionState} pulse className="shrink-0 text-sm" />
@@ -179,29 +197,29 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
             tabIndex={0}
             role="region"
             aria-label="Organizers' activities table"
-            className={`mt-4 hidden overflow-x-auto ${organizerActivities.length === 0 ? "" : "md:block"}`}
+            className={`card mt-4 hidden overflow-x-auto ${organizerActivities.length === 0 ? "" : "md:block"}`}
           >
-            <table className="w-full min-w-[40rem] text-left">
-              <thead className="border-b border-line text-sm text-prussian/70">
+            <table className="table min-w-[40rem]">
+              <thead>
                 <tr>
-                  <th className="py-3 pr-4 font-semibold">Activity</th>
-                  <th className="px-4 py-3 font-semibold">Organizer</th>
-                  <th className="px-4 py-3 font-semibold whitespace-nowrap">Session</th>
-                  <th className="px-4 py-3 text-right font-semibold whitespace-nowrap">Scores in</th>
-                  <th className="py-3 pl-4 text-right font-semibold whitespace-nowrap">Created</th>
+                  <th>Activity</th>
+                  <th>Organizer</th>
+                  <th>Session</th>
+                  <th className="text-right">Scores in</th>
+                  <th className="text-right">Created</th>
                 </tr>
               </thead>
               <tbody className="tabular">
                 {organizerActivities.map((a) => (
-                  <tr key={a.id} className="border-b border-line">
+                  <tr key={a.id}>
                     {/* Not a link, so not styled like one: only the organizer can open it. */}
-                    <td className="py-3.5 pr-4 font-medium">{a.name}</td>
-                    <td className="px-4 py-3.5">{a.organizer}</td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="font-medium">{a.name}</td>
+                    <td>{a.organizer}</td>
+                    <td className="whitespace-nowrap">
                       <SessionStatus state={a.sessionState} pulse />
                     </td>
-                    <td className="px-4 py-3.5 text-right whitespace-nowrap">{scoresIn(a, false)}</td>
-                    <td className="py-3.5 pl-4 text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
+                    <td className="text-right whitespace-nowrap">{scoresIn(a, false)}</td>
+                    <td className="text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -226,10 +244,10 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
       )}
 
       {current.length > 0 && (
-        <section aria-labelledby={isSuper ? "own-activities" : undefined} className={isSuper && organizerActivities.length > 0 ? "mt-12" : "mt-8"}>
+        <section aria-labelledby={isSuper ? "own-activities" : undefined} className="mt-10">
           {isSuper && (
             <>
-              <h2 id="own-activities" className="text-xl font-bold">
+              <h2 id="own-activities" className="title-sm">
                 Your activities
               </h2>
               <p className="hint mt-1">Activities you run yourself. Hand one to an organizer from its Settings tab.</p>
@@ -237,9 +255,9 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           )}
 
           {/* Phones and tablets: each activity is one tappable row, what it needs first under its name. */}
-          <ul className={`divide-y divide-line border-y border-line xl:hidden ${isSuper ? "mt-4" : ""}`}>
+          <ul className={`card divide-y divide-line xl:hidden ${isSuper ? "mt-4" : ""}`}>
             {sorted.map((a) => (
-              <li key={a.id} className="group relative py-3">
+              <li key={a.id} className="group relative px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <Link href={`/admin/${a.id}`} className="min-w-0 font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover:underline">
                     {a.name}
@@ -267,35 +285,35 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
             tabIndex={0}
             role="region"
             aria-label={isSuper ? "Your activities table" : "Activities table"}
-            className={`hidden overflow-x-auto xl:block ${isSuper ? "mt-4" : ""}`}
+            className={`card hidden overflow-x-auto xl:block ${isSuper ? "mt-4" : ""}`}
           >
             {/* What each room needs sits beside its name, so a desk running many rooms reads down one column. */}
-            <table className="w-full min-w-[48rem] text-left">
-              <thead className="border-b border-line text-sm text-prussian/70">
+            <table className="table min-w-[48rem]">
+              <thead>
                 <tr>
-                  <th className="py-3 pr-3 font-semibold">Activity</th>
-                  <th className="px-3 py-3 font-semibold">Session</th>
-                  <th className="px-3 py-3 font-semibold">Needs you</th>
-                  <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Scores in</th>
-                  <th className="py-3 pl-3 text-right font-semibold">Created</th>
-                  <th className="py-3 pl-3">
+                  <th>Activity</th>
+                  <th>Session</th>
+                  <th>Needs you</th>
+                  <th className="text-right">Scores in</th>
+                  <th className="text-right">Created</th>
+                  <th>
                     <span className="sr-only">Archive</span>
                   </th>
                 </tr>
               </thead>
               <tbody className="tabular">
                 {sorted.map((a) => (
-                  <tr key={a.id} className="group relative border-b border-line align-top hover:bg-white/70">
-                    <td className="py-4 pr-3">
+                  <tr key={a.id} className="group relative align-top hover:bg-mint/60">
+                    <td className="py-4">
                       <Link href={`/admin/${a.id}`} className="font-semibold text-regal after:absolute after:inset-0 group-hover:underline">
                         {a.name}
                       </Link>
                       <p className="hint mt-0.5">{setupOf(a)}</p>
                     </td>
-                    <td className="px-3 py-4 whitespace-nowrap">
+                    <td className="py-4 whitespace-nowrap">
                       <SessionStatus state={a.sessionState} pulse />
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="py-4">
                       {attention.has(a.id) ? (
                         <NeedsYou activity={a} items={attention.get(a.id)!} />
                       ) : (
@@ -305,9 +323,9 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-4 text-right whitespace-nowrap">{scoresIn(a, false)}</td>
-                    <td className="py-4 pl-3 text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
-                    <td className="py-3 pl-3 text-right">{a.sessionState === "ended" && <ArchiveButton activityId={a.id} name={a.name} />}</td>
+                    <td className="py-4 text-right whitespace-nowrap">{scoresIn(a, false)}</td>
+                    <td className="py-4 text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
+                    <td className="py-3 text-right">{a.sessionState === "ended" && <ArchiveButton activityId={a.id} name={a.name} />}</td>
                   </tr>
                 ))}
               </tbody>
@@ -318,16 +336,16 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
 
       {archived.length > 0 && (
         <details className="group mt-12">
-          <summary className="tap-target flex cursor-pointer list-none items-center gap-2 text-xl font-bold [&::-webkit-details-marker]:hidden">
+          <summary className="tap-target title-sm flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
             <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
               <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Archived activities
-            <span className="text-base font-semibold text-prussian/60">{archived.length}</span>
+            <span className="tabular rounded-full bg-wash px-2.5 py-0.5 text-sm font-semibold">{archived.length}</span>
           </summary>
-          <ul className="mt-4 divide-y divide-line border-y border-line">
+          <ul className="card mt-4 divide-y divide-line">
             {archived.map((a) => (
-              <li key={a.id} className="group/row relative py-3">
+              <li key={a.id} className="group/row relative px-5 py-3.5">
                 <div className="min-w-0 flex-1">
                   <Link href={`/admin/${a.id}`} className="font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover/row:underline">
                     {a.name}

@@ -83,7 +83,7 @@ function LeaveDialog({ open, onStay, onLeave, onSave }: { open: boolean; onStay:
       className="m-auto w-[min(35rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
     >
       <div className="p-6">
-        <h2 id="leave-title" className="text-xl font-bold">
+        <h2 id="leave-title" className="title-sm">
           Leave without saving?
         </h2>
         <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">

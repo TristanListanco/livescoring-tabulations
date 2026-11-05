@@ -9,10 +9,10 @@ export default async function NewOrganizerPage() {
   await requireSuperAdmin();
   return (
     <>
-      <Link href="/admin/organizers" className="text-action">
+      <Link href="/admin/organizers" className="text-action lg:hidden">
         Organizers
       </Link>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">New organizer</h1>
+      <h1 className="title mt-1">New organizer</h1>
       <OrganizerForm />
     </>
   );

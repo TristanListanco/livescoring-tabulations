@@ -69,7 +69,7 @@ export function FinalSignOff({
           if (signed && password && !pending) end();
         }}
       >
-        <h2 id={titleId} className="text-2xl font-bold tracking-tight">
+        <h2 id={titleId} className="title-sm text-2xl">
           Every judge has signed
         </h2>
         <p className="mt-1 text-prussian/75">Check the results, then sign them to end the session. They go on the live results page once you do.</p>

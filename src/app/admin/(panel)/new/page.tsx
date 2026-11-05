@@ -16,10 +16,10 @@ export default async function NewActivityPage({ searchParams }: PageProps<"/admi
   const draft = draftId ? await getDraft(draftId, session.kind === "organizer" ? session.admin.id : null) : null;
   return (
     <>
-      <Link href="/admin" className="text-action">
+      <Link href="/admin" className="text-action lg:hidden">
         Activities
       </Link>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">{draft?.name ? draft.name : "New activity"}</h1>
+      <h1 className="title mt-1">{draft?.name ? draft.name : "New activity"}</h1>
       <NewActivity
         // A fresh form for each draft opened, so its saved state is what the form starts from.
         key={draft?.id ?? "new"}

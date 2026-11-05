@@ -16,8 +16,8 @@ export default function AdminError({ error, retry }: { error: Error & { digest?:
   }, [error]);
 
   return (
-    <div role="alert" className="max-w-xl rounded-2xl border border-line bg-white px-6 py-8">
-      <h1 className="text-2xl font-bold">This screen hit a problem</h1>
+    <div role="alert" className="card max-w-xl px-6 py-8">
+      <h1 className="title">This screen hit a problem</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
         Scores that judges have already submitted are saved. It&apos;s usually the connection: try again, and if it keeps happening, check this
         screen&apos;s Wi-Fi.

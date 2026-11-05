@@ -42,11 +42,11 @@ function LockedProgram({ board }: { board: Board }) {
           <h3 className="font-bold">
             {segmentLabel(segment)}, {percent(segment === "preliminary" ? activity.preliminaryWeight : 100 - activity.preliminaryWeight)} of the overall score
           </h3>
-          <ol className="mt-2 divide-y divide-line border-y border-line">
+          <ol className="card mt-2 divide-y divide-line">
             {order
               .filter((r) => r.segment === segment)
               .map((r) => (
-                <li key={r.id} className="space-y-2 py-4">
+                <li key={r.id} className="space-y-2 px-5 py-4">
                   <p>
                     <span className="font-semibold">{r.name}</span> <span className="tabular hint">{share(r, r)}</span>
                   </p>
@@ -107,7 +107,7 @@ export function SegmentsTab({ board }: { board: Board }) {
   if (activity.sessionState !== "draft") {
     return (
       <div className="max-w-3xl">
-        <h2 className="text-xl font-bold">Segments</h2>
+        <h2 className="title-sm">Segments</h2>
         <LockedProgram board={board} />
       </div>
     );
@@ -125,21 +125,21 @@ export function SegmentsTab({ board }: { board: Board }) {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-xl font-bold">Segments</h2>
+      <h2 className="title-sm">Segments</h2>
       <p className="hint mt-1 max-w-2xl">Change the program until the session starts. After that it&apos;s locked, so nobody&apos;s scores change meaning.</p>
       <section aria-labelledby="segment-preliminary" className="mt-6">
-        <h3 id="segment-preliminary" className="mb-3 text-lg font-bold">
+        <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
           Preliminary
         </h3>
         <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
       </section>
       <section aria-labelledby="segment-proper" className="mt-10">
-        <h3 id="segment-proper" className="mb-3 text-lg font-bold">
+        <h3 id="segment-proper" className="title-sm mb-3 text-lg">
           Pageant proper
         </h3>
         <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={board.entries.length} />
       </section>
-      <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>
           {pending ? "Saving…" : "Save program"}
         </button>

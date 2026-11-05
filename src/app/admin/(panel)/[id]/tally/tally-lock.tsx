@@ -12,7 +12,7 @@ export function TallyLock({ activityId, name, superAdmin, official }: { activity
   return (
     <div className="mt-6 max-w-xl rounded-2xl border border-line bg-white px-6 py-8">
       <p className={`text-sm font-bold tracking-wide uppercase ${official ? "text-regal" : "text-danger"}`}>{official ? "Official" : "Partial and unofficial"}</p>
-      <h1 className="mt-1 text-2xl font-bold">Private tally: {name}</h1>
+      <h1 className="title mt-1">Private tally: {name}</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-prussian/80">
         {official
           ? "Every score as the judges signed it, judge by judge and criterion by criterion: the official results."

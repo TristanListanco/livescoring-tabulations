@@ -26,7 +26,7 @@ export function CorrectionsPanel({ activityId, corrections, onDark = false }: { 
   return (
     <section
       aria-label="Score corrections"
-      className={onDark ? "shrink-0 border-t border-oxford px-6 py-3" : "rounded-2xl border border-line bg-white/60 px-5 py-4"}
+      className={onDark ? "shrink-0 border-t border-oxford px-6 py-3" : "card px-5 py-4"}
     >
       <h2 className={`text-sm font-semibold ${muted}`}>
         Score corrections{open.length > 0 && <span className={onDark ? "text-mint" : "text-prussian"}> · {open.length} waiting</span>}

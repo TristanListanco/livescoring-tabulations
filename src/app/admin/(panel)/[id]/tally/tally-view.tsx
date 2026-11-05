@@ -81,7 +81,7 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
             >
               {official ? "Official tally" : "Partial and unofficial tally"}
             </p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight wrap-anywhere">{activity.name}</h1>
+            <h1 className="title mt-2">{activity.name}</h1>
             <p className="hint mt-1 max-w-2xl">{about}</p>
           </div>
           <div className="space-y-1 text-sm sm:text-right">
@@ -96,7 +96,7 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
         {/* Its own layer, so the watermark can sit behind the scores (under every digit) yet above the page. */}
         <div className={`relative isolate mt-8 transition-[filter] duration-150 ${hidden ? "blur-xl" : ""}`}>
           <section aria-labelledby="tally-by-entry">
-            <h2 id="tally-by-entry" className="text-xl font-bold">
+            <h2 id="tally-by-entry" className="title-sm">
               By entry
             </h2>
             <div tabIndex={0} role="region" aria-label="Scores by entry" className="mt-3 overflow-x-auto">
@@ -140,13 +140,13 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
 
           {criteria.length > 0 && (
             <section aria-labelledby="tally-by-criterion" className="mt-12">
-              <h2 id="tally-by-criterion" className="text-xl font-bold">
+              <h2 id="tally-by-criterion" className="title-sm">
                 By judge and criterion
               </h2>
               <p className="hint mt-1">Each judge&apos;s points for each criterion, as they entered them.</p>
               {judges.map((j) => (
                 <div key={j.id} className="mt-6">
-                  <h3 className="text-lg font-bold">{j.name}</h3>
+                  <h3 className="title-sm text-lg">{j.name}</h3>
                   <div tabIndex={0} role="region" aria-label={`${j.name}'s points by criterion`} className="mt-2 overflow-x-auto">
                     <table className="w-full min-w-[36rem] text-left">
                       <thead className="border-b border-line text-sm text-prussian/70">

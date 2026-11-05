@@ -492,7 +492,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           </ol>
         </nav>
 
-        <h2 ref={heading} tabIndex={-1} className="mt-8 scroll-mt-6 text-2xl font-bold tracking-tight outline-none">
+        <h2 ref={heading} tabIndex={-1} className="title-sm mt-8 scroll-mt-6 text-2xl outline-none">
           <span className="sr-only">
             Step {step + 1} of {STEPS.length}:{" "}
           </span>
@@ -570,7 +570,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           {separate ? (
             <>
               <section aria-labelledby="preliminary-board">
-                <h3 id="preliminary-board" className="text-lg font-bold">
+                <h3 id="preliminary-board" className="title-sm text-lg">
                   Preliminary board of judges
                 </h3>
                 <p className="hint mt-1 mb-4 max-w-2xl">Judges the preliminary&apos;s sub-activities only. Choose one of them as its chair.</p>
@@ -589,7 +589,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
                 />
               </section>
               <section aria-labelledby="proper-board">
-                <h3 id="proper-board" className="text-lg font-bold">
+                <h3 id="proper-board" className="title-sm text-lg">
                   Pageant proper board of judges
                 </h3>
                 <p className="hint mt-1 mb-4 max-w-2xl">
@@ -660,7 +660,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           </p>
         </section>
 
-        <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-6">
+        <div className="mt-6 flex flex-wrap items-center gap-4">
           {step > 0 && (
             <button type="button" className="btn btn-quiet" onClick={() => go(step - 1)} disabled={pending}>
               Back

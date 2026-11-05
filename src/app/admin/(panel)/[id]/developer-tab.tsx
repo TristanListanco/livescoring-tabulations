@@ -7,7 +7,7 @@ import { deleteActivityNow, resetScores } from "../../actions";
 
 function Tool({ title, children, action }: { title: string; children: React.ReactNode; action: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 py-5">
+    <div className="flex flex-wrap items-center justify-between gap-4 py-5 first:pt-0 last:pb-0">
       <div className="max-w-xl">
         <h3 className="font-bold">{title}</h3>
         <p className="hint mt-1">{children}</p>
@@ -32,7 +32,7 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
         </p>
       )}
 
-      <div className="divide-y divide-danger/25 rounded-2xl border border-danger/40 px-5">
+      <div className="divide-y divide-danger/25">
         <Tool
           title="Reset scores"
           action={

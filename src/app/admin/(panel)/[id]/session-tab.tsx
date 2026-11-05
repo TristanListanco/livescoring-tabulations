@@ -256,8 +256,8 @@ export function SessionTab({
    * mid-show). Not once archived, when the live results close.
    */
   const screens = (extra?: React.ReactNode) => (
-    <section aria-labelledby="screens" className="shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm">
-      <h2 id="screens" className="text-base font-bold">
+    <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
+      <h2 id="screens" className="title-sm text-lg">
         Screens
       </h2>
       <div className="mt-1.5 space-y-1">
@@ -586,7 +586,7 @@ export function SessionTab({
   const runningOrder = (compact: boolean) =>
     entries.length > 0 && (
       <section aria-labelledby="running-order" className={compact ? "flex min-h-0 flex-1 flex-col" : undefined}>
-        <h2 id="running-order" className="font-bold">
+        <h2 id="running-order" className="title-sm">
           {round ? `Running order: ${round.name}` : "Running order"}
         </h2>
         <ol
@@ -594,7 +594,7 @@ export function SessionTab({
           // Scrolls on its own in the live desk, so it has to be reachable by keyboard.
           tabIndex={compact ? 0 : undefined}
           aria-labelledby={compact ? "running-order" : undefined}
-          className={`mt-3 divide-y divide-line border-y border-line ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
+          className={`card mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
         >
           {entries.map((e, i) => {
             const onAir = e.id === current;
@@ -602,7 +602,7 @@ export function SessionTab({
               <li
                 key={e.id}
                 data-on-air={onAir && live ? "true" : undefined}
-                className={`flex items-center ${compact ? "gap-3 px-2 py-2" : "gap-4 px-3 py-3"} ${onAir && live ? "bg-white" : ""}`}
+                className={`flex items-center ${compact ? "gap-3 px-3 py-2" : "gap-4 px-4 py-3"} ${onAir && live ? "bg-wash" : ""}`}
               >
                 <span className={`tabular text-right font-semibold text-prussian/70 ${compact ? "w-6" : "w-8"}`}>{e.number ?? i + 1}</span>
                 <span className="min-w-0 flex-1 truncate font-semibold" title={e.name}>
@@ -644,7 +644,7 @@ export function SessionTab({
                       </>
                     ),
                     // Quiet text, not a column of bordered buttons down every row: the next entry has the desk's own button.
-                    className: "btn btn-sm text-regal hover:bg-white",
+                    className: "btn btn-sm text-regal hover:bg-wash",
                     title: fullyScored(e) ? `Show ${e.name} again?` : `Show ${e.name} now?`,
                     confirmLabel: fullyScored(e) ? "Show it again" : "Show this entry",
                   })
@@ -666,7 +666,7 @@ export function SessionTab({
     return (
       <PdfHold value={held}>
         <div className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-11rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
-          <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-2xl bg-prussian text-mint">
+          <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
             {offline}
             <div className="flex items-start justify-between gap-4 px-6 pt-4">
               <div className="min-w-0 flex-1">
@@ -682,7 +682,7 @@ export function SessionTab({
                       ? "Between sub-activities"
                       : "On judges' screens"}
                 </h2>
-                <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-bold text-balance wrap-anywhere">
+                <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight tracking-[-0.015em] text-balance wrap-anywhere">
                   {ownPace
                     ? `${progress.submitted} of ${progress.possible} scores in`
                     : entry
@@ -843,7 +843,7 @@ export function SessionTab({
            * and the official results once it ends. It looks like the judges' screens, so it keeps their colours in dark mode.
            */}
           {state === "draft" && (
-            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
               {offline}
               <div className="px-6 pt-6 pb-5">
                 <div className="flex items-start justify-between gap-4">
@@ -851,7 +851,7 @@ export function SessionTab({
                     <h2 id="desk-heading" className="text-powder">
                       Before you start
                     </h2>
-                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-bold text-balance">
+                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight tracking-[-0.015em] text-balance">
                       {judges.length === 0
                         ? "Add judges to get started"
                         : unpaired.length === 0
@@ -921,7 +921,7 @@ export function SessionTab({
               const ties = (deliberation?.ties ?? []).map((tie) => ({ tie, settled: breakFor(tie, breaks) }));
               const openTies = ties.filter((t) => !t.settled).length;
               return (
-                <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+                <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
                   {offline}
                   <div className="px-6 pt-6 pb-5">
                     <div className="flex items-start justify-between gap-4">
@@ -929,7 +929,7 @@ export function SessionTab({
                         <h2 id="desk-heading" className="text-powder">
                           Deliberation
                         </h2>
-                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-bold text-balance">
+                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight tracking-[-0.015em] text-balance">
                           {allSigned ? "Every judge has signed" : `${signedIds.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} signed`}
                         </p>
                       </div>
@@ -1015,10 +1015,10 @@ export function SessionTab({
             })()}
 
           {state === "ended" && (
-            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-2xl bg-prussian text-mint">
+            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
               <div className="px-6 pt-6 pb-6">
                 <div className="flex items-start justify-between gap-4">
-                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-bold">
+                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight tracking-[-0.02em]">
                     Judging has ended
                   </h2>
                   {/*

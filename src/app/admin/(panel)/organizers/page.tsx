@@ -14,7 +14,7 @@ export default async function OrganizersPage() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Organizers</h1>
+          <h1 className="title">Organizers</h1>
         </div>
         <Link href="/admin/organizers/new" className="btn btn-primary">
           New organizer
@@ -22,16 +22,16 @@ export default async function OrganizersPage() {
       </div>
 
       {organizers.length === 0 ? (
-        <div className="mt-10 rounded-2xl border border-dashed border-powder px-6 py-14 text-center">
+        <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
           <p className="text-lg font-semibold">No organizer accounts yet</p>
           <p className="hint mx-auto mt-1 max-w-md">
             Create one for each event organizer. You can hand them existing activities from each activity&apos;s Settings tab.
           </p>
         </div>
       ) : (
-        <ul className="mt-8 divide-y divide-line border-y border-line">
+        <ul className="card mt-8 divide-y divide-line overflow-hidden">
           {organizers.map((o) => (
-            <li key={o.id} className="group relative flex items-center gap-4 py-4 hover:bg-white/70">
+            <li key={o.id} className="group relative flex items-center gap-4 px-5 py-4 hover:bg-mint/60">
               <Avatar name={o.name} src={o.photoUrl} size={48} />
               <div className="min-w-0 flex-1">
                 <Link href={`/admin/organizers/${o.id}`} className="font-semibold text-regal after:absolute after:inset-0 group-hover:underline">

@@ -101,13 +101,13 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
   return (
     <>
-      <Link href="/admin" className="text-action">
+      <Link href="/admin" className="text-action lg:hidden">
         Activities
       </Link>
       <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-3xl font-bold tracking-tight text-balance wrap-anywhere">{activity.name}</h1>
+            <h1 className="title">{activity.name}</h1>
             {archived ? (
               <span className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
                 <svg viewBox="0 0 16 16" className="size-4" aria-hidden>

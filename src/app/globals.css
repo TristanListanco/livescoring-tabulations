@@ -258,6 +258,40 @@ html:has(.share-ledger) {
   .field {
     @apply block h-11 w-full rounded-xl border border-field bg-white px-3.5 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
   }
+  /* A surface on the page: a hairline and generous corners. The session desk is the one dark card. */
+  .card {
+    @apply rounded-[1.25rem] border border-line bg-white;
+  }
+  /* Page titles, large and light: the weight is in the size, not the stroke. Bold is for what's acted on. */
+  .title {
+    @apply text-[2rem] leading-[1.15] font-normal tracking-[-0.02em] text-balance wrap-anywhere sm:text-[2.375rem];
+  }
+  /* A card's or a section's title, in the same voice. */
+  .title-sm {
+    @apply text-xl leading-snug font-normal tracking-[-0.01em] text-balance;
+  }
+  /* A table inside a card: small quiet headings, hairline rows, the card's padding at either end. */
+  .table {
+    @apply w-full text-left;
+  }
+  .table thead {
+    @apply border-b border-line;
+  }
+  .table th {
+    @apply px-4 py-3 text-[13px] font-normal whitespace-nowrap text-prussian/70;
+  }
+  .table td {
+    @apply px-4 py-3.5;
+  }
+  .table tbody tr + tr {
+    @apply border-t border-line;
+  }
+  .table :is(th, td):first-child {
+    @apply pl-5;
+  }
+  .table :is(th, td):last-child {
+    @apply pr-5;
+  }
   .label {
     @apply mb-1.5 block text-sm font-semibold text-prussian;
   }
@@ -280,7 +314,7 @@ html:has(.share-ledger) {
   }
   /* The privacy policy and the terms of service: long reading, so a comfortable measure and open leading. */
   .legal h2 {
-    @apply mt-10 text-xl font-bold tracking-tight text-balance;
+    @apply mt-12 text-2xl font-normal tracking-[-0.015em] text-balance;
   }
   .legal h3 {
     @apply mt-6 font-bold;

@@ -299,7 +299,7 @@ export function PageantReview({
       <header className="flex flex-wrap items-end gap-x-6 gap-y-3 border-b border-line px-5 py-6 sm:px-7">
         {/* The name keeps a readable width; the results choice goes under it on a phone. */}
         <div className="min-w-0 flex-1 basis-64">
-          <h3 className="text-2xl font-bold tracking-tight text-balance wrap-anywhere">{name.trim() || "Untitled pageant"}</h3>
+          <h3 className="title-sm text-2xl wrap-anywhere">{name.trim() || "Untitled pageant"}</h3>
           <p className="tabular mt-1 text-prussian/75">
             {candidates.length} {candidates.length === 1 ? "candidate" : "candidates"} · {judgeCount} {judgeCount === 1 ? "judge" : "judges"}
             {separate ? " on two boards" : ""} · Preliminary {share}%, pageant proper {100 - share}%

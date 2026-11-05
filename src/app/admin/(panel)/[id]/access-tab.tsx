@@ -49,7 +49,7 @@ export async function JudgesTab({
   return (
     <div className="max-w-4xl">
       <LiveRefresh activityId={activityId} ended={ended} />
-      <h2 className="text-xl font-bold">Judges</h2>
+      <h2 className="title-sm">Judges</h2>
       <p className="mt-1 max-w-2xl text-[15px] text-prussian/80">
         Judges sign in with their code or QR code, then read out the pairing code their device shows: approve it here.
       </p>
@@ -68,12 +68,12 @@ export async function JudgesTab({
       {judges.length === 0 ? (
         <p className="mt-4 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-line border-y border-line">
+        <ul className="card mt-3 divide-y divide-line">
           {judgeLinks.map(({ judge, code }, i) => {
             const scored = scoredBy.get(judge.id) ?? 0;
             const detail = `${scored} of ${expected?.[judge.id] ?? entryCount} scored`;
             return (
-              <li key={judge.id} className="py-5">
+              <li key={judge.id} className="px-5 py-5">
                 <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                   <div className="min-w-0 flex-1 basis-80">
                     {locked ? (

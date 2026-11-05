@@ -23,7 +23,6 @@ export default async function ProfilePage() {
     <Section
       title="Signed-in devices"
       hint={super_ ? `${DEVICES_HINT} Changing ADMIN_PASSWORD signs you out everywhere.` : DEVICES_HINT}
-      flush={super_}
     >
       <SignedInDevices sessions={sessions} />
     </Section>
@@ -32,10 +31,10 @@ export default async function ProfilePage() {
   if (super_) {
     return (
       <>
-        <Link href="/admin" className="text-action">
+        <Link href="/admin" className="text-action lg:hidden">
           Back to activities
         </Link>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight">Profile</h1>
+        <h1 className="title mt-1">Profile</h1>
         <div className="mt-6 max-w-4xl">{devices ?? <p className="hint">Signed-in devices need a database update: run supabase/migrations/022_admin_sessions.sql.</p>}</div>
       </>
     );
@@ -44,12 +43,12 @@ export default async function ProfilePage() {
 
   return (
     <>
-      <Link href="/admin" className="text-action">
+      <Link href="/admin" className="text-action lg:hidden">
         Back to activities
       </Link>
-      <h1 className="mt-1 text-3xl font-bold tracking-tight">Profile</h1>
+      <h1 className="title mt-1">Profile</h1>
       <div className="mt-6 max-w-4xl">
-        <Section title="Organizer" hint="To change your name, email or photo, ask the administrator who set up your account." flush>
+        <Section title="Organizer" hint="To change your name, email or photo, ask the administrator who set up your account.">
           <div className="flex items-center gap-4">
             <Avatar name={admin.name} src={admin.photoUrl} size={72} />
             <div className="min-w-0">

@@ -67,7 +67,7 @@ function EntryRow({
     });
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
       <span className="tabular w-8 text-right font-semibold text-prussian/60">{number}</span>
       <div className={photoPending ? "opacity-60" : undefined}>
         <PhotoPicker
@@ -280,7 +280,7 @@ export function EntriesTab({
   return (
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 className="text-xl font-bold">{pageant ? "Candidates" : "Entries"}</h2>
+        <h2 className="title-sm">{pageant ? "Candidates" : "Entries"}</h2>
         {canShuffle && (
           <ConfirmDialog
             triggerLabel="Shuffle order"
@@ -305,11 +305,11 @@ export function EntriesTab({
             Judging has ended, so {pageant ? "candidates" : "entries"} can&apos;t be changed.
           </p>
           {/* Like the locked judges: a list to read, not a page of disabled forms. */}
-          <ol className="mt-4 divide-y divide-line border-y border-line">
+          <ol className="card mt-4 divide-y divide-line">
             {entries.map((e, i) => {
               const scored = scoredFor[e.id] ?? 0;
               return (
-                <li key={e.id} className="flex items-center gap-4 py-3">
+                <li key={e.id} className="flex items-center gap-4 px-5 py-3">
                   <span className="tabular w-8 text-right font-semibold text-prussian/70">{i + 1}</span>
                   {e.photoUrl && <Avatar name={e.name} src={e.photoUrl} size={48} square />}
                   <span className="min-w-0 flex-1">
@@ -340,7 +340,7 @@ export function EntriesTab({
               {pageant ? "No candidates yet. Add them below." : "No entries yet. Add them below."}
             </p>
           ) : (
-            <ol className="mt-4 divide-y divide-line border-y border-line">
+            <ol className="card mt-4 divide-y divide-line">
               {entries.map((e, i) => (
                 <EntryRow
                   key={e.id}

@@ -194,7 +194,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
     const progress = roundProgress(board, r);
     const current = isCurrent(r);
     return (
-      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-3 py-2.5"} ${current ? "bg-white" : ""}`}>
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-5 py-2.5"} ${current ? "bg-wash" : ""}`}>
         <span className={`min-w-0 flex-1 truncate ${part ? "" : "font-semibold"}`} title={label}>
           {r.name}
           <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
@@ -220,8 +220,8 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
   };
 
   return (
-    <section aria-labelledby="program" className={compact ? "shrink-0 rounded-2xl border border-line bg-white/60 px-4 py-3 text-sm" : ""}>
-      <h2 id="program" className={compact ? "text-base font-bold" : "font-bold"}>
+    <section aria-labelledby="program" className={compact ? "card shrink-0 px-5 py-4 text-sm" : ""}>
+      <h2 id="program" className={compact ? "title-sm text-lg" : "title-sm"}>
         Program
       </h2>
       <FormMessage state={result} small className="mt-1" />
@@ -249,7 +249,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                 </div>
               )}
             </div>
-            <ol className={`mt-1 divide-y divide-line border-y border-line ${compact ? "" : "bg-white/40"}`}>
+            <ol className={`mt-1 divide-y divide-line ${compact ? "border-y border-line" : "card overflow-hidden"}`}>
               {rounds.map((round) => {
                 const parts = partsOf(board.rounds, round.id);
                 const plan = round.cutSize !== null ? cutPlan(board, round) : null;
@@ -364,7 +364,7 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
     >
       <div className="space-y-5 p-6">
         <div>
-          <h2 id="deductions-title" className="text-2xl font-bold">
+          <h2 id="deductions-title" className="title-sm text-2xl">
             Deductions
           </h2>
           <p className="hint mt-1 max-w-[65ch]">
@@ -587,7 +587,7 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
           <div className="space-y-4 p-6">
             <div>
               <p className="text-sm font-semibold text-regal">After {round.name}</p>
-              <h2 id="cut-title" className="text-2xl font-bold">
+              <h2 id="cut-title" className="title-sm text-2xl">
                 {plan.final ? `Final cut: Top ${plan.size}` : `Cut: Top ${plan.size}`}
               </h2>
               <p className="hint mt-1">
