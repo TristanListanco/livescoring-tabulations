@@ -517,8 +517,11 @@ test.describe.serial("a full event", () => {
     // A copy is checked on the Settings tab: as downloaded it checks out; with a name changed it doesn't.
     await page.goto(`${adminPath}?tab=settings`);
     const check = page.getByLabel("Check a CSV");
-    await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
-    await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.");
+    // Chosen again if the page hadn't hydrated yet to hear it.
+    await expect(async () => {
+      await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+      await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.", { timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
     await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
     await expect(page.getByRole("alert").filter({ hasText: "changed" })).toHaveText(
       "This file was changed after it was exported: its rows no longer match its fingerprint.",
