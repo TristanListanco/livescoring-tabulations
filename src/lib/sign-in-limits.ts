@@ -1,4 +1,5 @@
 import "server-only";
+import { createHmac } from "node:crypto";
 import { headers } from "next/headers";
 import { after } from "next/server";
 import { db } from "./supabase/server";
@@ -28,10 +29,16 @@ export async function clientAddress(): Promise<string> {
 
 const since = () => new Date(Date.now() - WINDOW_MS).toISOString();
 
+/**
+ * What's stored for a key: a one-way code for it, keyed by the server's secret. Counting needs only to tell keys apart,
+ * so the network address and the email address tried are never kept, and the codes can't be turned back into them.
+ */
+const stored = (key: string) => createHmac("sha256", process.env.SESSION_SECRET ?? "").update(key).digest("hex");
+
 /** Whether any of these keys has reached its limit of failures within the window. */
 export async function tooManyFailures(limits: [key: string, limit: number][]): Promise<boolean> {
   for (const [key, limit] of limits) {
-    const { count, error } = await db().from("sign_in_failures").select("id", { count: "exact", head: true }).eq("key", key).gte("created_at", since());
+    const { count, error } = await db().from("sign_in_failures").select("id", { count: "exact", head: true }).eq("key", stored(key)).gte("created_at", since());
     if (error) return false; // before migration 017: no limit rather than no sign-in
     if ((count ?? 0) >= limit) return true;
   }
@@ -42,7 +49,7 @@ export async function tooManyFailures(limits: [key: string, limit: number][]): P
 export async function recordFailure(keys: string[]): Promise<void> {
   const { error } = await db()
     .from("sign_in_failures")
-    .insert(keys.map((key) => ({ key: key.slice(0, 300) })));
+    .insert(keys.map((key) => ({ key: stored(key) })));
   if (error) return;
   after(async () => {
     await db().from("sign_in_failures").delete().lt("created_at", new Date(Date.now() - 24 * 60 * 60_000).toISOString());

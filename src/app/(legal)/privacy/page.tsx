@@ -72,8 +72,9 @@ export default function PrivacyPolicy() {
       </p>
       <h3>Everyone, for security</h3>
       <p>
-        Failed sign-in attempts are recorded with the network address and, for organizer sign-in, the email address tried, to stop
-        anyone guessing passwords or judge codes. Records older than a day are deleted. Our logs record which action ran, when, how long it
+        Failed sign-in attempts are counted against the network address and, for organizer sign-in, the email address tried, to stop
+        anyone guessing passwords or judge codes. Neither is kept: only a one-way code for each, which can’t be turned back into it.
+        Records older than a day are deleted. Our logs record which action ran, when, how long it
         took and whether it failed, with its error message (which can include a name, such as a judge who hasn’t signed yet). When a
         screen reports a problem, the log records the page and a device label. Logs never record passwords, judge codes or session
         cookies. Opening an activity’s private tally is logged with who opened it and on what kind of device.
@@ -125,26 +126,14 @@ export default function PrivacyPolicy() {
       </p>
 
       <h2>Cookies and storage on your device</h2>
-      <p>Tabulous uses only these cookies, all its own:</p>
-      <ul>
-        <li>
-          <code>ls_admin</code> keeps an organizer signed in, for 12 hours.
-        </li>
-        <li>
-          <code>ls_judge</code> keeps a judge’s device signed in, for 3 days.
-        </li>
-        <li>
-          <code>ls_tally</code> keeps the private tally open for 10 minutes after the organizer’s password.
-        </li>
-        <li>
-          <code>ls_theme</code> remembers the light or dark theme of the organizer’s panel, for a year.
-        </li>
-      </ul>
       <p>
-        Your browser also remembers whether a judge’s notes panel is open, whether an organizer has answered the offer of alerts for
-        judges’ calls for help, and for that tab only, the LED wall’s display and when a page last reloaded itself after an update. Those
-        alerts, when an organizer turns them on, are notifications their own browser shows. There are no analytics, advertising or
-        third-party cookies.
+        Tabulous uses only its own cookies, to keep organizers and judges signed in and to remember the organizer’s panel settings, and
+        keeps a few settings in your browser’s own storage. Our{" "}
+        <Link href="/cookies" replace>
+          cookie policy
+        </Link>{" "}
+        lists each one, what it does and how long it lasts. Alerts for judges’ calls for help, when an organizer turns them on, are
+        notifications their own browser shows. There are no analytics, advertising or third-party cookies.
       </p>
 
       <h2>How long it’s kept</h2>
@@ -186,7 +175,9 @@ export default function PrivacyPolicy() {
       <h2>Changes</h2>
       <p>
         We’ll post any change here with a new effective date, and tell organizers directly about significant ones. Our{" "}
-        <Link href="/terms">terms of service</Link> cover the rest of using Tabulous.
+        <Link href="/terms" replace>
+          terms of service
+        </Link> cover the rest of using Tabulous.
       </p>
 
       <h2>Contact</h2>
