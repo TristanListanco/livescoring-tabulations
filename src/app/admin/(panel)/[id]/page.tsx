@@ -122,14 +122,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h1 className="title">{activity.name}</h1>
-              {archived ? (
-                <span className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
-                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                    <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-                  </svg>
-                  Archived {dateFormat.format(new Date(activity.archivedAt!))}
-                </span>
-              ) : (
+              {/* An archived activity's date sits under its name (below); a running one's state, beside it. */}
+              {!archived && (
                 <Link
                   href={`/admin/${activity.id}?tab=session`}
                   scroll={false}
@@ -148,6 +142,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
                 </Link>
               )}
             </div>
+            {archived && (
+              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
+                <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                  <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                </svg>
+                Archived {dateFormat.format(new Date(activity.archivedAt!))}
+              </p>
+            )}
           </div>
         </div>
       </div>
