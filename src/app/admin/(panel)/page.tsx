@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listActivities, listAttention, listDrafts, listOrganizerActivities, type ActivitySummary, type Attention } from "@/lib/data";
+import { listActivities, listArchivedActivities, listAttention, listDrafts, listOrganizerActivities, type ActivitySummary, type Attention } from "@/lib/data";
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 import type { Activity } from "@/lib/types";
@@ -85,23 +85,46 @@ function NeedsYou({ activity, items }: { activity: ActivitySummary; items: Atten
   );
 }
 
+/**
+ * The list with nothing in it: Tabulous's tally gate drawn large, a stroke at a time with the slash that counts the
+ * fifth last (see .tally-draw), over the page's title type, and the way to start.
+ */
+function Empty({ title, action }: { title: string; action: string }) {
+  return (
+    <section aria-labelledby="empty-title" className="card mt-10 flex flex-col items-center px-6 py-16 text-center sm:py-24">
+      <svg viewBox="0 0 48 48" className="tally-draw size-28 sm:size-36" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" aria-hidden>
+        <path pathLength={1} className="text-powder" d="M12 11v26" />
+        <path pathLength={1} className="text-powder" d="M20 11v26" />
+        <path pathLength={1} className="text-powder" d="M28 11v26" />
+        <path pathLength={1} className="text-powder" d="M36 11v26" />
+        <path pathLength={1} className="text-regal" d="M5.5 33.5 42.5 14.5" />
+      </svg>
+      <h2 id="empty-title" className="title mt-8">
+        {title}
+      </h2>
+      <Link href="/admin/new" className="btn btn-primary mt-8">
+        {action}
+      </Link>
+    </section>
+  );
+}
+
 export default async function ActivitiesPage({ searchParams }: PageProps<"/admin">) {
   const session = await requireAdmin();
   const isSuper = session.kind === "super";
   // A later page of organizers' activities: those created before this.
   const before = isSuper ? (await searchParams).before : undefined;
   const later = typeof before === "string";
-  const [activities, organizers, drafts] = await Promise.all([
+  const [current, organizers, drafts] = await Promise.all([
     listActivities(isSuper ? null : session.admin.id),
     isSuper ? listOrganizerActivities(later ? before : undefined) : { live: [], activities: [], older: null },
     listDrafts(isSuper ? null : session.admin.id),
   ]);
   // Live shows first, then the newest (or the next page of older ones).
   const organizerActivities = [...organizers.live, ...organizers.activities];
-  const nothingAnywhere = activities.length === 0 && organizerActivities.length === 0 && drafts.length === 0 && !later;
-  // Archived activities leave the list for the sidebar's.
-  const archived = activities.filter((a) => a.archivedAt);
-  const current = activities.filter((a) => !a.archivedAt);
+  // Archived activities are the sidebar's, not this list's: only with nothing else here does it matter if there are any.
+  const empty = current.length === 0 && organizerActivities.length === 0 && drafts.length === 0 && !later;
+  const allArchived = empty && (await listArchivedActivities(isSuper ? null : session.admin.id)).length > 0;
   // With many rooms running at once, the ones waiting on the organizer go to the top, then the rest of the running
   // shows; otherwise newest first, as the queries return them.
   const attention = await listAttention(current);
@@ -125,19 +148,8 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
       </div>
 
 
-      {nothingAnywhere && (
-        <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
-          <p className="title-sm">No activities yet</p>
-          <Link href="/admin/new" className="btn btn-primary mt-6">
-            Create an activity
-          </Link>
-        </div>
-      )}
-
-      {/* Everything's archived: the list is empty, and the archived ones are in the sidebar. */}
-      {current.length === 0 && archived.length > 0 && drafts.length === 0 && organizerActivities.length === 0 && (
-        <p className="hint mt-8">No current activities.</p>
-      )}
+      {/* Nothing yet, or everything archived (the archived ones are in the sidebar). */}
+      {empty && <Empty title={allArchived ? "No current activities" : "No activities yet"} action={allArchived ? "New activity" : "Create an activity"} />}
 
       {drafts.length > 0 && (
         <DraftsList drafts={drafts.map((d) => ({ id: d.id, kind: d.kind, name: d.name, saved: dateFormat.format(new Date(d.updatedAt)) }))} />

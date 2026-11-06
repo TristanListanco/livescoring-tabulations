@@ -12,6 +12,7 @@ import { SidebarDrawer } from "./sidebar-drawer";
 import { CollapseToggle, SidebarShell } from "./sidebar-shell";
 import { SIDEBAR_IDLE, SIDEBAR_ROW } from "./sidebar-styles";
 import { ThemeToggle } from "./theme-toggle";
+import { Toaster } from "./toaster";
 
 /**
  * The panel: a sidebar beside the page from tablet-landscape width up, which collapses to its icons, and a slim bar
@@ -75,6 +76,7 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
       </div>
       {/* Judges' calls for help, wherever the organizer is in the panel. */}
       <AssistanceAlerts />
+      <Toaster />
     </SidebarShell>
   );
 }

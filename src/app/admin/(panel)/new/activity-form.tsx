@@ -8,6 +8,7 @@ import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
+import { toastOnRedirect } from "../toaster";
 import { MAX_FIELD_NAME } from "@/lib/entry-details";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
@@ -41,7 +42,7 @@ function opened(data: unknown) {
 export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: DraftHostProps) {
   const [state, dispatch] = useActionState<FormResult, FormData>(async (previous, data) => {
     try {
-      return await createActivity(previous, data);
+      return await toastOnRedirect(createActivity(previous, data), `${String(data.get("name") ?? "").trim() || "Event"} created`);
     } catch (error) {
       // Going to the new activity arrives as a thrown signal: it carries on.
       unstable_rethrow(error);

@@ -183,7 +183,7 @@ export function CsvCheck({ activityId, className, onDark = false }: { activityId
         }}
       />
       <label htmlFor={id} className={`${className} cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2`}>
-        {pending ? "Checking…" : "Check a CSV"}
+        {pending ? "Checking…" : "Check an exported CSV"}
       </label>
       <FormMessage state={result} small onDark={onDark} />
     </div>
