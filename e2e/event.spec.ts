@@ -513,7 +513,7 @@ test.describe.serial("a full event", () => {
 
     // A copy is checked on the Settings tab: as downloaded it checks out; with a name changed it doesn't.
     await page.goto(`${adminPath}?tab=settings`);
-    const check = page.getByLabel("Check a CSV");
+    const check = page.getByLabel("Check an exported CSV");
     // Chosen again if the page hadn't hydrated yet to hear it.
     await expect(async () => {
       await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });

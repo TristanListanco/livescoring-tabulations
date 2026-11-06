@@ -7,6 +7,7 @@ import type { ActionResult } from "@/lib/types";
 import { changeOwnPassword } from "../../account-actions";
 import { FormMessage } from "../form-message";
 import { PasswordField } from "../password-field";
+import { toast } from "../toaster";
 
 type Saved = (ActionResult & { saves: number }) | null;
 
@@ -15,6 +16,7 @@ export function ChangePassword() {
   // Counted, so the fields start empty after each change that goes through.
   const [state, action] = useActionState<Saved, FormData>(async (previous, data) => {
     const result: ActionResult = (await changeOwnPassword(previous, data)) ?? { ok: false, error: "That didn't go through. Try again." };
+    if (result.ok) toast("Password changed");
     return { ...result, saves: (previous?.saves ?? 0) + (result.ok ? 1 : 0) };
   }, null);
 

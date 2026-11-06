@@ -2,6 +2,7 @@
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { archiveActivity, deleteActivity } from "../actions";
+import { toast, toastOnRedirect } from "./toaster";
 
 /**
  * Archive an activity whose session has ended, from its ended desk or its Settings. Asks first: it can't be undone, and
@@ -18,7 +19,11 @@ export function ArchiveButton({ activityId, name, className = "btn btn-quiet" }:
       triggerClassName={className}
       title="Archive this activity?"
       confirmLabel="Archive"
-      onConfirm={() => archiveActivity(activityId)}
+      onConfirm={async () => {
+        const result = await archiveActivity(activityId);
+        if (result.ok) toast(`${name} archived`);
+        return result;
+      }}
     >
       <p>
         <strong>{name}</strong> moves to Archived activities for good. It can&apos;t be reopened, deliberated again or changed after this.
@@ -31,13 +36,13 @@ export function ArchiveButton({ activityId, name, className = "btn btn-quiet" }:
   );
 }
 
-/** Delete an archived activity: the one change it still allows. As on Settings, typing its name confirms. */
+/** Delete an archived activity: the one change it still allows. As on Settings, typing its name confirms, and a toast says it's gone. */
 export function DeleteArchivedButton({ activityId, name, className = "btn btn-danger-quiet" }: { activityId: string; name: string; className?: string }) {
   return (
     <ConfirmDialog
       triggerLabel={
         <>
-          Delete<span className="sr-only"> {name}</span>
+          Delete activity<span className="sr-only"> {name}</span>
         </>
       }
       triggerClassName={className}
@@ -45,7 +50,7 @@ export function DeleteArchivedButton({ activityId, name, className = "btn btn-da
       tone="danger"
       confirmLabel="Delete activity"
       requireText={name}
-      onConfirm={() => deleteActivity(activityId)}
+      onConfirm={() => toastOnRedirect(deleteActivity(activityId), `${name} deleted`)}
     >
       This permanently deletes <strong>{name}</strong> with its judges, entries, scores and photos. Its results can&apos;t be downloaded after this,
       and the live results link stops working.

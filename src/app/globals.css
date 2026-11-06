@@ -262,6 +262,65 @@ html {
 .stagger > :nth-child(7) {
   animation-delay: 240ms;
 }
+/*
+ * The empty list's tally gate draws itself: four strokes one after another, then the slash that counts the fifth. Each
+ * path is drawn whole by default (pathLength 1), so with no animation it simply stands there.
+ */
+@keyframes tally-stroke {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+.tally-draw path {
+  stroke-dasharray: 1;
+  animation: tally-stroke 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.tally-draw path:nth-child(2) {
+  animation-delay: 110ms;
+}
+.tally-draw path:nth-child(3) {
+  animation-delay: 220ms;
+}
+.tally-draw path:nth-child(4) {
+  animation-delay: 330ms;
+}
+.tally-draw path:nth-child(5) {
+  animation-delay: 560ms;
+  animation-duration: 520ms;
+}
+/*
+ * The panel's toasts (see Toaster): one drops in from above and settles, its tick drawing itself a beat later, then it
+ * lifts away a little quicker. Beside the sidebar on a wide screen, following it as it collapses.
+ */
+@keyframes toast-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.96);
+  }
+}
+@media (min-width: 64rem) {
+  .toaster {
+    left: 16rem;
+    transition: left 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  [data-sidebar="collapsed"] .toaster {
+    left: 4.75rem;
+  }
+}
+.toast {
+  animation: toast-drop 340ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    opacity 200ms ease-in,
+    transform 200ms ease-in;
+}
+.toast-leaving {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+}
+.toast-tick path {
+  stroke-dasharray: 1;
+  animation: tally-stroke 320ms cubic-bezier(0.16, 1, 0.3, 1) 180ms backwards;
+}
 /* A dialog rises into place over its fading backdrop, and a menu drops open from its button; both go at once. */
 @keyframes dialog-in {
   from {
@@ -288,8 +347,16 @@ html {
   [data-admin-theme] main > :not(.activity-head, .activity-tabs, [role="status"]) {
     animation: fade-in 160ms ease-out;
   }
-  .stagger > * {
+  .stagger > *,
+  .tally-draw path,
+  .toast-tick path {
     animation: none;
+  }
+  .toast {
+    animation-name: fade-in;
+  }
+  .toast-leaving {
+    transform: none;
   }
   [data-admin-theme] dialog[open]:not(.sidebar-drawer),
   [data-admin-theme] [popover]:popover-open {

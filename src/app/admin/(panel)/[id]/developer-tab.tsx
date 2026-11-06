@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { Activity } from "@/lib/types";
 import { deleteActivityNow, resetScores } from "../../actions";
+import { toastOnRedirect } from "../toaster";
 
 /**
  * Reset scores and delete at any time, for test sites only, in Settings: rehearsals can run again from the start, or a
@@ -40,7 +41,7 @@ export function TestSiteTools({ activity, scoreCount }: { activity: Activity; sc
         tone="danger"
         confirmLabel="Delete activity"
         requireText={activity.name}
-        onConfirm={() => deleteActivityNow(activity.id)}
+        onConfirm={() => toastOnRedirect(deleteActivityNow(activity.id), `${activity.name} deleted`)}
       >
         This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results link stop
         working.

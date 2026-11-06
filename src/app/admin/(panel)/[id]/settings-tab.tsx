@@ -14,6 +14,7 @@ import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
+import { toastOnRedirect } from "../toaster";
 import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
@@ -359,7 +360,7 @@ export function SettingsTab({
               tone="danger"
               confirmLabel="Delete activity"
               requireText={activity.name}
-              onConfirm={() => deleteActivity(activity.id)}
+              onConfirm={() => toastOnRedirect(deleteActivity(activity.id), `${activity.name} deleted`)}
             >
               This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results
               link stop working.

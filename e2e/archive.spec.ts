@@ -120,8 +120,8 @@ test.describe.serial("archived activities", () => {
     await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
     // Its Settings: a CSV to check, and deleting it; nothing to change.
     await page.goto(`${adminPath}?tab=settings`);
-    await expect(page.getByLabel("Check a CSV")).toBeAttached();
-    await expect(page.getByRole("button", { name: `Delete ${NAME}` })).toBeVisible();
+    await expect(page.getByLabel("Check an exported CSV")).toBeAttached();
+    await expect(page.getByRole("button", { name: `Delete activity ${NAME}` })).toBeVisible();
     await expect(page.getByLabel("Activity name")).toHaveCount(0);
     await expectAccessible(page);
   });
@@ -137,7 +137,7 @@ test.describe.serial("archived activities", () => {
     await signInAsSuperAdmin(page);
     // From its Settings, the only place it's offered.
     await page.goto(`${adminPath}?tab=settings`);
-    await page.getByRole("button", { name: `Delete ${NAME}` }).click();
+    await page.getByRole("button", { name: `Delete activity ${NAME}` }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(NAME);
     await dialog.getByRole("button", { name: "Delete activity" }).click();

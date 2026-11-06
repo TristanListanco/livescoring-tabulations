@@ -239,6 +239,11 @@ export async function listArchivedActivities(ownerId: string | null): Promise<{ 
   return (data ?? []) as { id: string; name: string }[];
 }
 
+/**
+ * The activities still in use, newest first, with how many judges, entries and scores each has. Archived ones are left
+ * to listArchivedActivities: an organizer's archive only grows, and this list is read again every few seconds while
+ * shows run.
+ */
 export async function listActivities(ownerId: string | null): Promise<ActivitySummary[]> {
   await connection();
   let query = db()
@@ -246,6 +251,7 @@ export async function listActivities(ownerId: string | null): Promise<ActivitySu
     .select(
       `${ACTIVITY_COLUMNS}, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)`,
     )
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
   query = ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null);
   const { data, error } = await query;
@@ -546,7 +552,15 @@ export const getAdminBoard = cache(async (id: string): Promise<Board | null> => 
  * The board with each score's points per criterion, for the judges' score sheets. Only the organizer's export reads
  * them: the boards the judges' screens and public pages use never carry them.
  */
-export async function withBreakdowns(board: Board): Promise<Board> {
+export function withBreakdowns(board: Board): Promise<Board> {
+  // Once per board: checking a CSV builds every sheet of a pageant in turn, and each judges' sheet wants them.
+  let loaded = breakdowns.get(board);
+  if (!loaded) breakdowns.set(board, (loaded = readBreakdowns(board)));
+  return loaded;
+}
+const breakdowns = new WeakMap<Board, Promise<Board>>();
+
+async function readBreakdowns(board: Board): Promise<Board> {
   const pageant = board.activity.kind === "pageant";
   const { data, error } = await readAll((from, to) =>
     db()
