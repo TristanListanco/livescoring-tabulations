@@ -15,7 +15,9 @@ test("signing out ends the session, even for a copy of its cookie", async ({ bro
   await expect(elsewhere).toHaveURL(/\/admin$/);
 
   // The admin signs out on the laptop, and the copy stops working too.
+  // Signing out asks first.
   await laptop.getByRole("button", { name: "Sign out" }).click();
+  await laptop.getByRole("dialog", { name: "Sign out?" }).getByRole("button", { name: "Sign out" }).click();
   await expect(laptop).toHaveURL(/\/admin\/login/);
   await elsewhere.goto("/admin");
   await expect(elsewhere).toHaveURL(/\/admin\/login$/);

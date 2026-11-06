@@ -5,6 +5,7 @@ import { reach } from "@/lib/reach";
 import type { ActionResult } from "@/lib/types";
 import { checkExport } from "../../actions";
 import { FormMessage } from "../form-message";
+import { toast } from "../toaster";
 
 /**
  * Why results downloads are held back, or null: while a score correction is being voted on, a score may still change,
@@ -123,6 +124,8 @@ export function ExportMenu({
                     onClick={(e) => {
                       e.currentTarget.href = `${href}${option.query ? "&" : "?"}tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
                       panel.current?.hidePopover?.();
+                      // It starts at once; a big PDF takes a moment to arrive, so this says it's on its way.
+                      toast(`Downloading ${option.label}${context ? ` for ${context}` : ""}`);
                     }}
                     className={itemClass}
                     download

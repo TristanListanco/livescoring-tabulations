@@ -3,12 +3,12 @@ import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { TallyMark } from "@/components/brand";
 import { requireAdmin } from "@/lib/session";
-import { logout } from "../actions";
 import { SIDEBAR_COOKIE, THEME_COOKIE } from "@/lib/theme";
 import { AdminNav } from "./admin-nav";
 import { ArchivedNav } from "./archived-nav";
 import { AssistanceAlerts } from "./assistance-alerts";
 import { SidebarDrawer } from "./sidebar-drawer";
+import { SignOut } from "./sign-out";
 import { CollapseToggle, SidebarShell } from "./sidebar-shell";
 import { SIDEBAR_IDLE, SIDEBAR_ROW } from "./sidebar-styles";
 import { ThemeToggle } from "./theme-toggle";
@@ -47,23 +47,24 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
           </Link>
         )}
         <ThemeToggle initial={theme} />
-        <form action={logout}>
-          <button className={`${SIDEBAR_ROW} ${SIDEBAR_IDLE}`} title="Sign out">
-            <svg viewBox="0 0 20 20" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M8 4H5.5A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8M12.5 7l3 3-3 3M15.5 10H8" />
-            </svg>
-            <span className="sidebar-label">Sign out</span>
-          </button>
-        </form>
+        <SignOut />
       </div>
     </>
   );
 
   return (
     <SidebarShell theme={theme} initialCollapsed={jar.get(SIDEBAR_COOKIE)?.value === "collapsed"}>
+      {/* The first thing a keyboard reaches: past the sidebar's links straight to the page. Hidden until it has focus. */}
+      <a
+        href="#main"
+        className="btn btn-primary sr-only z-[60] focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3"
+      >
+        Skip to content
+      </a>
       {/* Its edge is a shadow, not a border, so nothing shifts as it narrows and the hairline runs its full height. */}
       <header className="admin-sidebar flex items-center justify-between gap-4 bg-mint px-4 py-2.5 shadow-[0_1px_0_var(--color-line)] sm:px-6 lg:sticky lg:top-0 lg:h-dvh lg:shrink-0 lg:flex-col lg:items-stretch lg:justify-start lg:px-4 lg:py-6 lg:shadow-[1px_0_0_var(--color-line)]">
-        <Link href="/admin" aria-label="Tabulous" className="tap-target flex items-center gap-[0.35em] self-start px-3 text-lg font-bold tracking-tight whitespace-nowrap">
+        {/* In the sidebar, level with its rows' icons; in the phones' bar, with the menu button and the page's edge. */}
+        <Link href="/admin" aria-label="Tabulous" className="tap-target flex items-center gap-[0.35em] text-lg font-bold tracking-tight whitespace-nowrap lg:self-start lg:px-3">
           <TallyMark className="size-[1.25em] shrink-0" />
           <span className="sidebar-label">Tabulous</span>
         </Link>
@@ -72,7 +73,9 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
         <CollapseToggle />
       </header>
       <div className="min-w-0 flex-1">
-        <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-10">{children}</main>
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 outline-none sm:px-6 sm:py-10 lg:px-10">
+          {children}
+        </main>
       </div>
       {/* Judges' calls for help, wherever the organizer is in the panel. */}
       <AssistanceAlerts />

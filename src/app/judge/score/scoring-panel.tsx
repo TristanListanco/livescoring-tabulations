@@ -378,7 +378,7 @@ export function ScoringPanel({
             {round && ` · ${round.name}`}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-4 sm:gap-6">
+        <div className="ml-auto flex items-center gap-2.5 sm:gap-6">
           {approved && !offPanel && !deliberating && (
             <>
               <p className="tabular hidden text-powder md:block">
@@ -396,8 +396,8 @@ export function ScoringPanel({
             // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
             // stray tap mid-show would stall the panel.
             <ConfirmDialog
-              triggerLabel="Sign out"
-              triggerClassName="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint"
+              triggerLabel={signOutLabel}
+              triggerClassName={SIGN_OUT}
               title="Sign out of judging?"
               confirmLabel="Sign out"
               tone="danger"
@@ -409,7 +409,7 @@ export function ScoringPanel({
             </ConfirmDialog>
           ) : (
             <form action={leavePortal}>
-              <button className="btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint">Sign out</button>
+              <button className={SIGN_OUT}>{signOutLabel}</button>
             </form>
           )}
         </div>
@@ -1740,12 +1740,15 @@ function ReasonField({ value, onChange, error, choices }: { value: string; onCha
     />
   );
   const problem = error && (
-    <p role="alert" className="mt-2 text-sm font-semibold text-danger">
+    // Nudged as it appears, so a refusal isn't missed under the buttons.
+    <p role="alert" className="nudge mt-2 text-sm font-semibold text-danger">
       {error}
     </p>
   );
   if (choices) {
-    const option = "flex items-start gap-3 rounded-xl border border-powder bg-white px-3 py-2.5 text-[15px] leading-snug text-prussian has-checked:border-regal has-checked:ring-2 has-checked:ring-regal";
+    // The one picked takes its ring as it's chosen, rather than snapping to it.
+    const option =
+      "flex items-start gap-3 rounded-xl border border-powder bg-white px-3 py-2.5 text-[15px] leading-snug text-prussian transition-[border-color,box-shadow] duration-200 ease-out has-checked:border-regal has-checked:ring-2 has-checked:ring-regal";
     return (
       <fieldset className="mt-4 text-left">
         <legend className="text-sm font-semibold">Why does it need correcting?</legend>
@@ -1779,7 +1782,7 @@ function ReasonField({ value, onChange, error, choices }: { value: string; onCha
             Other reason
           </label>
         </div>
-        {other && typed}
+        {other && <div className="judge-reveal">{typed}</div>}
         {problem}
       </fieldset>
     );
@@ -1804,7 +1807,7 @@ function FromTo({ from, to }: { from: string; to: string }) {
         →
       </span>
       <span className="sr-only">to</span>
-      <span className="text-6xl font-bold text-regal">{to}</span>
+      <span className="settle-in text-6xl font-bold text-regal">{to}</span>
     </p>
   );
 }
@@ -1816,7 +1819,8 @@ function FromTo({ from, to }: { from: string; to: string }) {
  */
 function EntryTitle({ entry, number }: { entry: Entry; number: number }) {
   return (
-    <div className="flex items-center gap-3 sm:gap-4">
+    // Keyed by the entry: the next one's name rises into place when the organizer shows it, so the change is noticed.
+    <div key={entry.id} className="judge-arrive flex items-center gap-3 sm:gap-4">
       {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl" />}
       {/* A div, not a p: a heading can't sit inside a paragraph. */}
       <div className="judge-title min-w-0 flex-1 wrap-anywhere">
@@ -1852,6 +1856,20 @@ type KeypadProps = {
   /** The timer has run out: no submitting until the organizer reopens scoring. */
   closed?: boolean;
 };
+
+/**
+ * Sign out, in the judge's header: on a phone just its icon, leaving room for the judge's name and Assist me (signing
+ * out is rare mid-show; asking for help shouldn't be hard to find).
+ */
+const SIGN_OUT = "btn btn-sm border border-oxford text-powder hover:bg-oxford hover:text-mint max-sm:size-11 max-sm:px-0";
+const signOutLabel = (
+  <>
+    <svg viewBox="0 0 20 20" className="size-5 shrink-0 sm:hidden" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8 4H5.5A1.5 1.5 0 004 5.5v9A1.5 1.5 0 005.5 16H8M12.5 7l3 3-3 3M15.5 10H8" />
+    </svg>
+    <span className="max-sm:sr-only">Sign out</span>
+  </>
+);
 
 /** The keypad's main button: Submit score, Next criterion, Review correction. */
 const PRIMARY =

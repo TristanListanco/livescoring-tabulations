@@ -17,8 +17,9 @@ const askForPermission = () =>
  * on the device only: nothing about it is sent. Where the browser asks first (iOS), a banner offers to turn it on.
  */
 export function PrivacyScreen({ active }: { active: boolean }) {
-  // Phones and tablets: a laptop on the judges' table has no sensor to read, and no one tilts it.
-  const touch = useMediaQuery("(pointer: coarse)");
+  // Phones and tablets, a tablet in a keyboard case on its kickstand included (its trackpad makes the main pointer fine,
+  // but it still has a touchscreen and the sensor): a laptop on the judges' table has no sensor to read.
+  const touch = useMediaQuery("(any-pointer: coarse)");
   const on = active && touch;
   // Where the browser asks first: null until the judge has answered.
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -75,9 +76,10 @@ export function PrivacyScreen({ active }: { active: boolean }) {
       {on && hidden && (
         <div
           role="alert"
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-prussian/90 px-8 text-center text-mint backdrop-blur-2xl"
+          // A phone on its side has little height: it scrolls rather than cutting the button off.
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center-safe gap-3 overflow-y-auto bg-prussian/90 px-8 py-6 text-center text-mint backdrop-blur-2xl [@media(max-height:26rem)]:gap-2"
         >
-          <svg viewBox="0 0 24 24" className="size-12 text-powder" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+          <svg viewBox="0 0 24 24" className="size-12 text-powder [@media(max-height:26rem)]:size-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
             <path d="M3 3l18 18M10.6 5.1A10.9 10.9 0 0 1 12 5c5 0 9 4.5 10 7a13.7 13.7 0 0 1-3.2 4.3M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7 1.9 0 3.6-.6 5.1-1.5M9.9 9.9a3 3 0 0 0 4.2 4.2" />
           </svg>
           <p className="text-2xl font-bold">Privacy screen</p>

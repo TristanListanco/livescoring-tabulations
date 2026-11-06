@@ -26,6 +26,7 @@ import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Board, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
+import { toast } from "../toaster";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 
 /** A weight or share: "30%", "33.33%". */
@@ -49,6 +50,7 @@ export function PdfLink({ activityId, query, className, children }: { activityId
       href={href}
       onClick={(e) => {
         e.currentTarget.href = `${href}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
+        toast("Downloading the PDF");
       }}
       className={className}
       download

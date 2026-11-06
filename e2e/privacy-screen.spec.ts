@@ -34,8 +34,16 @@ async function approve(judgeId: string) {
 }
 
 /** The device's orientation, as its sensor reports it: turned about the vertical, tipped, and rolled, in degrees. */
-const orient = (page: Page, alpha: number, beta: number, gamma: number) =>
-  page.evaluate(([a, b, g]) => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: a, beta: b, gamma: g })), [alpha, beta, gamma]);
+/**
+ * The device held in a position: its readings, as a device keeps sending them while it's held still, here twice a
+ * quarter of a second apart (a turn has to last a moment to count, so a jolt doesn't hide the screen).
+ */
+const orient = async (page: Page, alpha: number, beta: number, gamma: number) => {
+  for (let i = 0; i < 2; i++) {
+    if (i) await page.waitForTimeout(250);
+    await page.evaluate(([a, b, g]) => window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", { alpha: a, beta: b, gamma: g })), [alpha, beta, gamma]);
+  }
+};
 
 const privacy = (page: Page) => page.getByRole("alert").filter({ hasText: "Privacy screen" });
 

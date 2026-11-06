@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { getDraft } from "@/lib/data";
 import { pageantsAvailable } from "@/lib/environment";
 import { requireAdmin } from "@/lib/session";
 import { NewActivity } from "./new-activity";
+import { BackLink } from "../back-link";
 
 export const metadata: Metadata = { title: "New activity" };
 
@@ -16,9 +16,7 @@ export default async function NewActivityPage({ searchParams }: PageProps<"/admi
   const draft = draftId ? await getDraft(draftId, session.kind === "organizer" ? session.admin.id : null) : null;
   return (
     <>
-      <Link href="/admin" className="text-action lg:hidden">
-        Activities
-      </Link>
+      <BackLink href="/admin">Activities</BackLink>
       <h1 className="title mt-1">{draft?.name ? draft.name : "New activity"}</h1>
       <NewActivity
         // A fresh form for each draft opened, so its saved state is what the form starts from.

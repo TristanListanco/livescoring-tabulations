@@ -40,14 +40,14 @@ export const askedTab = (requested: string | string[] | undefined) => (typeof re
 /**
  * An activity's tabs, and the one open: the one asked for if it has it, otherwise Judges before the session (the
  * organizer needs the judges' codes) and Session after. An event without live scoring has no LED wall: its scores stay
- * with the judges until they've signed. Archived: read-only, so its results (on the Session tab, the judges' notes too)
- * and Settings, to check a CSV or delete it.
+ * with the judges until they've signed. Archived: read-only, so only its results (on the Session tab, the judges' notes
+ * too), with checking a CSV and deleting it under them.
  */
 export function activityTabs(activity: Pick<Activity, "kind" | "archivedAt" | "sessionState" | "liveScoring">, asked: string | undefined) {
   const all = activity.kind === "pageant" ? PAGEANT_TABS : activity.liveScoring ? TABS : TABS.filter((t) => t.id !== "led");
   const tabs =
     activity.archivedAt !== null
-      ? all.filter((t) => t.id === "session" || t.id === "settings").map((t) => (t.id === "session" ? { ...t, label: "Results" } : t))
+      ? all.filter((t) => t.id === "session").map((t) => ({ ...t, label: "Results" }))
       : all;
   const tab = tabs.find((t) => t.id === asked)?.id ?? (activity.sessionState === "draft" ? "judges" : "session");
   return { tabs, tab };

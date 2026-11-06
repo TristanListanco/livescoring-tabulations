@@ -46,6 +46,11 @@ export type TiltGuardOptions = {
   settleWithin?: number;
   /** How slowly where it's held follows the device, in ms (the time it takes to move most of the way). */
   settleMs?: number;
+  /**
+   * A turn must last this long, in ms, before the screen hides: a deliberate turn does, but a jolt doesn't (a tablet on
+   * a kickstand rocking as the keypad is tapped, a phone knocked on the table).
+   */
+  outlastMs?: number;
 };
 
 /**
@@ -54,8 +59,10 @@ export type TiltGuardOptions = {
  * neighbour, away from them or face up on the table, hides the screen until it's turned back. `hold()` makes where the
  * device is now the place it's held: the judge's own choice to carry on in a new position.
  */
-export function createTiltGuard({ hideAt = 35, showAt = 25, settleWithin = 15, settleMs = 10_000 }: TiltGuardOptions = {}) {
+export function createTiltGuard({ hideAt = 35, showAt = 25, settleWithin = 15, settleMs = 10_000, outlastMs = 200 }: TiltGuardOptions = {}) {
   let held: Vec | null = null;
+  // When the screen first turned past hideAt, while it stays turned (null: it isn't).
+  let turnedAt: number | null = null;
   let last: Vec | null = null;
   let lastAt: number | null = null;
   let hidden = false;
@@ -72,7 +79,12 @@ export function createTiltGuard({ hideAt = 35, showAt = 25, settleWithin = 15, s
         return hidden;
       }
       const off = angle(held, now);
-      hidden = hidden ? off > showAt : off > hideAt;
+      if (hidden) hidden = off > showAt;
+      else if (off > hideAt) {
+        turnedAt ??= at;
+        hidden = at - turnedAt >= outlastMs;
+      }
+      if (off <= hideAt) turnedAt = null;
       if (!hidden && off <= settleWithin && lastAt !== null) {
         const step = 1 - Math.exp(-Math.max(0, at - lastAt) / settleMs);
         held = normalize([held[0] + (now[0] - held[0]) * step, held[1] + (now[1] - held[1]) * step, held[2] + (now[2] - held[2]) * step]);
@@ -84,6 +96,7 @@ export function createTiltGuard({ hideAt = 35, showAt = 25, settleWithin = 15, s
     hold(): void {
       if (last) held = last;
       hidden = false;
+      turnedAt = null;
     },
     get hidden() {
       return hidden;

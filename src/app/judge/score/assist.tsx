@@ -5,10 +5,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { JudgeAssistance } from "@/lib/assistance";
 import { cancelAssistance, requestAssistance } from "../actions";
 
-/** A raised hand. */
-function HandIcon() {
+/** A raised hand. `wave`: it waves once as it appears (see .wave). */
+function HandIcon({ wave = false }: { wave?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg viewBox="0 0 24 24" className={`size-5 shrink-0 ${wave ? "wave" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-8a1.5 1.5 0 0 1 3 0V12M14 12V5.5a1.5 1.5 0 0 1 3 0V14M17 9.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1a7 7 0 0 1-5.6-2.8L3.6 15.4a1.6 1.6 0 0 1 2.5-2l1.9 2" />
     </svg>
   );
@@ -16,8 +16,9 @@ function HandIcon() {
 
 /**
  * Assist me, in the judge's header: the organizer is alerted wherever they are in the admin panel, and comes over.
- * Asked first, so a stray tap mid-show doesn't call them. Not while a call is waiting (the bar under the header says
- * so, with Cancel).
+ * The one filled button in the header, its hand waving once as the screen opens, so a judge who needs help finds it
+ * without looking. Asked first, so a stray tap mid-show doesn't call them. Not while a call is waiting (the bar under
+ * the header says so, with Cancel).
  */
 export function AssistButton({ current }: { current: JudgeAssistance | null }) {
   if (current?.status === "open") return null;
@@ -25,11 +26,11 @@ export function AssistButton({ current }: { current: JudgeAssistance | null }) {
     <ConfirmDialog
       triggerLabel={
         <>
-          <HandIcon />
-          <span className="max-sm:sr-only">Assist me</span>
+          <HandIcon wave />
+          Assist me
         </>
       }
-      triggerClassName="btn btn-sm gap-1.5 border border-oxford text-powder hover:bg-oxford hover:text-mint max-sm:px-2.5"
+      triggerClassName="btn btn-sm gap-1.5 bg-mint text-prussian shadow-[0_0_0_4px_rgb(238_244_237/0.14)] hover:bg-white max-sm:px-3"
       title="Ask the organizer for help?"
       confirmLabel="Ask for help"
       onConfirm={() => requestAssistance()}

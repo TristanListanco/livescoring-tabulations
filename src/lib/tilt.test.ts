@@ -32,6 +32,9 @@ describe("the tilt guard", () => {
     const turn = (alpha: number) => guard.reading(alpha, 80, 0, (t += 50));
     expect(turn(0)).toBe(false);
     expect(turn(30)).toBe(false);
+    // Turned past 35, it hides once the turn has lasted a moment (200 ms), not on the first reading.
+    expect(turn(40)).toBe(false);
+    for (let i = 0; i < 3; i++) turn(40);
     expect(turn(40)).toBe(true);
     // Back to 30 isn't enough: it shows once it's within 25.
     expect(turn(30)).toBe(true);
@@ -46,18 +49,34 @@ describe("the tilt guard", () => {
     for (let i = 0; i < 1200; i++) guard.reading(10, 80, 0, (t += 50));
     // 42 degrees from the start is only 32 from where it's held now: it shows.
     expect(guard.reading(42, 80, 0, (t += 100))).toBe(false);
-    // A quick turn well past that hides it.
-    expect(guard.reading(60, 80, 0, (t += 100))).toBe(true);
+    // A quick turn well past that hides it, once it lasts.
+    expect(guard.reading(60, 80, 0, (t += 100))).toBe(false);
+    expect(guard.reading(60, 80, 0, (t += 250))).toBe(true);
+  });
+
+  it("isn't hidden by a jolt that settles straight back (a tablet rocking on its kickstand)", () => {
+    const guard = createTiltGuard();
+    let t = 0;
+    guard.reading(0, 70, 0, t);
+    // Knocked 45 degrees for a tenth of a second, then back.
+    expect(guard.reading(0, 25, 0, (t += 50))).toBe(false);
+    expect(guard.reading(0, 30, 0, (t += 50))).toBe(false);
+    expect(guard.reading(0, 68, 0, (t += 50))).toBe(false);
+    // And the next turn is timed from its own start, not the jolt's.
+    expect(guard.reading(0, 25, 0, (t += 1_000))).toBe(false);
+    expect(guard.reading(0, 25, 0, (t += 150))).toBe(false);
+    expect(guard.reading(0, 25, 0, (t += 100))).toBe(true);
   });
 
   it("can be held in a new position by the judge", () => {
     const guard = createTiltGuard();
     guard.reading(0, 80, 0, 0);
     // Laid flat on the table: hidden, until the judge says to carry on there.
-    expect(guard.reading(0, 0, 0, 100)).toBe(true);
+    guard.reading(0, 0, 0, 100);
+    expect(guard.reading(0, 0, 0, 400)).toBe(true);
     guard.hold();
     expect(guard.hidden).toBe(false);
-    expect(guard.reading(0, 2, 1, 200)).toBe(false);
+    expect(guard.reading(0, 2, 1, 500)).toBe(false);
   });
 
   it("ignores readings without the sensor", () => {
