@@ -257,7 +257,7 @@ export function SessionTab({
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
-      <h2 id="screens" className="title-sm text-lg">
+      <h2 id="screens" className="sr-only">
         Screens
       </h2>
       <div className="mt-1.5 space-y-1">
@@ -275,9 +275,6 @@ export function SessionTab({
             </button>
           )}
         </div>
-        {!activity.liveScoring && !activity.signedOffAt && !archived && (
-          <p className="hint">Scores show there once every judge has signed and the session has ended.</p>
-        )}
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. Closed once
             the activity is archived: its results are final and download below. */}
         {!activity.liveScoring && !pageant && !archived && (
@@ -286,7 +283,6 @@ export function SessionTab({
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
               Open
             </a>
-            <p className="hint w-full">Every score so far, unofficial, for you alone: it asks for your password each time.</p>
           </div>
         )}
         {showQr && !archived && (
@@ -586,7 +582,7 @@ export function SessionTab({
   const runningOrder = (compact: boolean) =>
     entries.length > 0 && (
       <section aria-labelledby="running-order" className={compact ? "flex min-h-0 flex-1 flex-col" : undefined}>
-        <h2 id="running-order" className="title-sm">
+        <h2 id="running-order" className="sr-only">
           {round ? `Running order: ${round.name}` : "Running order"}
         </h2>
         <ol

@@ -41,10 +41,11 @@ test("an event's entries carry details only the organizer sees, in the results t
   await page.getByLabel("Judge 1 first name").fill("Ana");
   await page.getByLabel("Judge 1 last name").fill("Cruz");
   await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-  // Two details, then each entry's name and its details on one line.
+  // Two details (folded away until asked for), then each entry's name and its details on one line.
+  await page.getByText("Details for each entry", { exact: true }).click();
   await page.getByLabel("Detail 1 name").fill("School");
   await page.getByLabel("Detail 2 name").fill("Division");
-  await expect(page.getByText("Each name, then its School and Division, separated by |")).toBeVisible();
+  await expect(page.getByLabel("Entries, one per line")).toHaveAttribute("placeholder", "Agila | School | Division");
   await page.getByLabel("Entries, one per line").fill("Agila | Xavier University | Division 2\nBagwis | MSU-IIT");
   await page.getByRole("checkbox", { name: /Show scores live/ }).check();
   await page.getByRole("button", { name: "Create activity" }).click();

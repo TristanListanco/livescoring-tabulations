@@ -111,13 +111,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   const sorted = [...current].sort((a, b) => urgency(b) - urgency(a));
   // The list keeps itself current while anything could still change: a device asking to judge, a score coming in.
   const changing = current.some((a) => a.sessionState !== "ended");
-  // Where the activities this admin runs stand, at a glance: counted from the list below.
-  const tally = [
-    { label: "Running now", count: current.filter((a) => running(a.sessionState)).length },
-    { label: "Needs you", count: attention.size },
-    { label: "Not started", count: current.filter((a) => a.sessionState === "draft").length },
-    { label: "Ended", count: current.filter((a) => a.sessionState === "ended").length },
-  ];
 
   return (
     <>
@@ -129,23 +122,10 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
         </Link>
       </div>
 
-      {current.length > 0 && (
-        <dl className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {tally.map((t) => (
-            <div key={t.label} className="card px-4 py-3 sm:px-5 sm:py-4">
-              <dt className="text-[13px] text-prussian/70">{t.label}</dt>
-              <dd className="tabular mt-1.5 text-[1.75rem] leading-none tracking-[-0.02em] sm:text-[2rem]">{t.count}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
 
       {nothingAnywhere && (
         <div className="card mt-10 border-dashed border-powder px-6 py-14 text-center">
           <p className="title-sm">No activities yet</p>
-          <p className="hint mx-auto mt-1 max-w-md">
-            Create one to set the scoring range, add judges and entries, and get judge codes and a live results link.
-          </p>
           <Link href="/admin/new" className="btn btn-primary mt-6">
             Create an activity
           </Link>
@@ -154,13 +134,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
 
       {/* Everything's archived: the list is empty, and the archived ones are in the sidebar. */}
       {current.length === 0 && archived.length > 0 && drafts.length === 0 && organizerActivities.length === 0 && (
-        <p className="hint mt-8">
-          No current activities.{" "}
-          <Link href="/admin/new" className="text-action">
-            Create one
-          </Link>
-          , or open an archived one from the sidebar.
-        </p>
+        <p className="hint mt-8">No current activities.</p>
       )}
 
       {drafts.length > 0 && (
@@ -173,9 +147,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
           <h2 id="organizer-activities" className="title-sm scroll-mt-6">
             Organizers&apos; activities
           </h2>
-          <p className="hint mt-1">
-            {later && organizerActivities.length === 0 ? "No older activities." : "Only the organizer who runs an activity can open it."}
-          </p>
+          {later && organizerActivities.length === 0 && <p className="hint mt-1">No older activities.</p>}
 
           {/* Phones: one stacked row per activity, so nothing scrolls sideways. */}
           <ul className={`card mt-4 divide-y divide-line md:hidden ${organizerActivities.length === 0 ? "hidden" : ""}`}>
@@ -250,7 +222,6 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
               <h2 id="own-activities" className="title-sm">
                 Your activities
               </h2>
-              <p className="hint mt-1">Activities you run yourself. Hand one to an organizer from its Settings tab.</p>
             </>
           )}
 

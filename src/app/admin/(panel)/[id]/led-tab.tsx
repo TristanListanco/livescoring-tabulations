@@ -52,16 +52,11 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
           Show scores only when every judge has scored
         </p>
       </div>
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         <Switch checked={options.anonymous} onChange={(anonymous) => onChange({ anonymous })} labelledBy="anonymous-label" disabled={disabled} />
-        <div>
-          <p id="anonymous-label" className="font-semibold">
-            Keep judges anonymous
-          </p>
-          <p className="hint">
-            On the wall each judge&apos;s name and photo becomes a ?, and on the live results page they&apos;re Judge 1, Judge 2 and so on.
-          </p>
-        </div>
+        <p id="anonymous-label" className="font-semibold">
+          Keep judges anonymous
+        </p>
       </div>
     </div>
   );
@@ -105,7 +100,6 @@ function LookSettings({ options, onChange, disabled }: { options: LedOptions; on
             </label>
           ))}
         </div>
-        <p className="hint mt-2">The green screen stays chroma green with every theme, so it still keys out.</p>
       </fieldset>
       <fieldset>
         <legend className="label">Corners</legend>
@@ -165,7 +159,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
   if (activity.kind === "event" && !activity.liveScoring) {
     return (
       <div className="max-w-2xl">
-        <h2 className="title-sm">LED wall</h2>
+        <h2 className="sr-only">LED wall</h2>
         <p role="note" className="note mt-3">
           The LED wall is off for this event. Without live scoring, the scores stay with the judges until they&apos;ve deliberated and signed, so
           there&apos;s nothing to put on the wall. The live results page shows them once they&apos;re signed.
@@ -177,7 +171,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="title-sm">LED wall</h2>
+        <h2 className="sr-only">LED wall</h2>
         <LinkField url={ledUrl} openLabel="LED wall" className="mt-4" />
       </div>
 
@@ -196,7 +190,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
               </span>
             </summary>
             <div className="mt-4 space-y-4">
-              <p className="hint">For the green screen and the full screen alike.</p>
               <LookSettings options={options} onChange={changeOptions} disabled={pending} />
             </div>
           </details>

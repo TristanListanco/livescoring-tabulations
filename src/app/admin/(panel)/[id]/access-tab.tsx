@@ -49,10 +49,7 @@ export async function JudgesTab({
   return (
     <div className="max-w-4xl">
       <LiveRefresh activityId={activityId} ended={ended} />
-      <h2 className="title-sm">Judges</h2>
-      <p className="mt-1 max-w-2xl text-[15px] text-prussian/80">
-        Judges sign in with their code or QR code, then read out the pairing code their device shows: approve it here.
-      </p>
+      <h2 className="sr-only">Judges</h2>
       <p className="label mt-4">Judge portal</p>
       <LinkField url={`${origin}/judge`} />
       {pageant && <BoardsSummary judges={judges} />}

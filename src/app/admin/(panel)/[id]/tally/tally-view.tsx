@@ -62,11 +62,6 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
   // Official once the judges have signed (which ends the session); a correction after that voids their signatures.
   const official = activity.signedOffAt !== null;
   const mark = watermark(`${official ? "Official" : "Unofficial"} · ${viewer}${minute === null ? "" : ` · ${stampFormat.format(new Date(minute * 60_000))}`}`);
-  const about = official
-    ? "Every score as the judges signed it, after deliberating: the official results, the same as on the results PDF."
-    : activity.sessionState === "deliberation"
-      ? "Every score so far. The judges are deliberating: a score can still be corrected, and these become the official results only once every judge has signed."
-      : "Every score as the judges submitted it, before they've deliberated and signed: for tabulating by hand if something fails during judging. A score can still be corrected, and only the results the judges sign are official.";
   const refuse = (e: React.SyntheticEvent) => e.preventDefault();
   const empty = <span className="text-prussian/40">—</span>;
 
@@ -82,7 +77,6 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
               {official ? "Official tally" : "Partial and unofficial tally"}
             </p>
             <h1 className="title mt-2">{activity.name}</h1>
-            <p className="hint mt-1 max-w-2xl">{about}</p>
           </div>
           <div className="space-y-1 text-sm sm:text-right">
             <p className="tabular">
@@ -143,7 +137,6 @@ export function TallyView({ board, viewer, until }: { board: Board; viewer: stri
               <h2 id="tally-by-criterion" className="title-sm">
                 By judge and criterion
               </h2>
-              <p className="hint mt-1">Each judge&apos;s points for each criterion, as they entered them.</p>
               {judges.map((j) => (
                 <div key={j.id} className="mt-6">
                   <h3 className="title-sm text-lg">{j.name}</h3>

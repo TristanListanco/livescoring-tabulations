@@ -73,7 +73,7 @@ export function EditOrganizer({
           </div>
         </Section>
 
-        <Section title="Password" hint="Leave blank to keep their current password. A new one signs them out on their other devices.">
+        <Section title="Password">
           <PasswordField label="New password" optional />
         </Section>
 
@@ -86,7 +86,7 @@ export function EditOrganizer({
 
       <Section title="Activities">
         {activities.length === 0 ? (
-          <p className="hint">None yet. Activities they create appear here.</p>
+          <p className="hint">None yet.</p>
         ) : (
           <ul className="list-disc space-y-1.5 pl-5">
             {activities.map((a, i) => (

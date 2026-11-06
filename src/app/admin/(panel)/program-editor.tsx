@@ -207,13 +207,10 @@ function ScoredFields({
                   onChange={(e) => onTimer(e.target.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "").slice(0, 4) || "0")}
                   inputMode="numeric"
                   className={`field tabular w-20 ${problemBorder(problems, `${id}timer`)}`}
-                  {...problemProps(problems, `${id}timer`, `${id}timer-hint`)}
+                  {...problemProps(problems, `${id}timer`)}
                 />
                 <span className="text-sm">seconds per candidate</span>
                 <FieldProblem fieldId={`${id}timer`} className="basis-full" />
-                <p id={`${id}timer-hint`} className="hint basis-full max-w-[65ch]">
-                  It starts when you show each candidate. You can give more time from the session desk.
-                </p>
               </div>
             )}
           </div>
@@ -650,7 +647,7 @@ function RoundCard({
         <div className={`mt-4 ${cut ? "rounded-xl bg-wash/60 p-4" : ""}`}>
           {final ? (
             <p className="font-semibold">
-              Final cut<span className="hint ml-2 font-normal">Its order is the final placement, winner first.</span>
+              Final cut
             </p>
           ) : (
             // What a cut does to the scores after it is said once, where its stage starts.
@@ -748,13 +745,9 @@ function DeductionsFields({ violations, onChange }: { violations: ViolationDraft
           className="size-5 shrink-0"
           checked={violations !== null}
           onChange={(e) => onChange(e.target.checked ? [blank()] : null)}
-          aria-describedby="deductions-hint"
         />
         Deductions for violations
       </label>
-      <p id="deductions-hint" className="hint mt-1 ml-7.5 max-w-[65ch]">
-        Points off a candidate&apos;s preliminary score, given at the desk until pageant proper starts.
-      </p>
       {violations && (
         <div className="mt-4 ml-7.5">
           {violations.length > 0 && (
@@ -824,9 +817,6 @@ function DeductionsFields({ violations, onChange }: { violations: ViolationDraft
           >
             Add a violation
           </button>
-          <p className="hint mt-2 max-w-[65ch]">
-            {violations.length ? "At the desk you can also deduct for another violation, typing its reason and points." : "With none listed, each deduction's reason and points are typed at the desk."}
-          </p>
         </div>
       )}
     </section>
@@ -1000,18 +990,11 @@ export function SegmentEditor({
             of={`${segment === "preliminary" ? "preliminary" : "pageant proper"} shares${groups.length > 1 ? " up to the first cut" : ""}`}
           />
         );
-        const ranks = last ? "the final cut" : "the next cut";
         return (
           <div key={group.rounds[0]?.key ?? g} className={cut ? "space-y-4 border-t-2 border-dashed border-line pt-5" : "space-y-4"}>
             {cut && (
               <div>
                 <p className="font-bold">{`${afterCut(cut)[0].toUpperCase()}${afterCut(cut).slice(1)}, scores start over`}</p>
-                <p className="hint mt-1 max-w-[65ch]">
-                  Only those who go through are judged from here.{" "}
-                  {lone
-                    ? `${group.rounds[0].name.trim() || "This sub-activity"} counts for 100% and ranks ${ranks}.`
-                    : `These shares add up to 100% and rank ${ranks}.`}
-                </p>
               </div>
             )}
             <ol className="space-y-4" aria-label={cut ? `Sub-activities ${afterCut(cut)}` : undefined}>

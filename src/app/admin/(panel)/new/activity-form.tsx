@@ -9,7 +9,7 @@ import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
 import { MAX_FIELD_NAME } from "@/lib/entry-details";
-import { blankEventScoring, CORRECTION_REASONS_HINT, DEFAULT_RESULT_DECIMALS, JUDGES_RANKING_HINT, LIVE_SCORING_HINT, OWN_PACE_HINT, ScoringFields } from "../scoring-fields";
+import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
@@ -62,6 +62,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [correctionReasons, setCorrectionReasons] = useState(start.correctionReasons);
   const [independentScoring, setIndependentScoring] = useState(start.independentScoring);
   const [entryFields, setEntryFields] = useState<string[]>(start.entryFields);
+  // Optional, so folded away until asked for (or a draft already has some).
+  const [showDetails, setShowDetails] = useState(() => start.entryFields.some((f) => f.trim() !== ""));
   const named = entryFields.map((f) => f.trim()).filter(Boolean);
   // Row keys count up within this form (never a module-wide counter, which the server would keep across requests).
   const nextKey = useRef(start.judges.length);
@@ -119,7 +121,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
   return (
     <form ref={formRef} onSubmit={submit} className="mt-6">
-      <Section title="Activity">
+      <Section quiet title="Activity">
         <label htmlFor="name" className="label">
           Name
         </label>
@@ -135,69 +137,54 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         />
       </Section>
 
-      <Section title="Scoring" hint="Scoring can't be changed after the activity is created.">
+      <Section quiet title="Scoring">
         <ScoringFields value={scoring} onChange={setScoring} resultDecimals={resultDecimals} onResultDecimals={setResultDecimals} />
       </Section>
 
-      <Section title="Live scoring" hint="You can change this until the session starts.">
+      <Section quiet title="Live scoring">
         <input type="hidden" name="live_scoring" value={liveScoring ? "on" : "off"} />
-        <label className="flex max-w-xl items-start gap-3">
-          <input type="checkbox" checked={liveScoring} onChange={(e) => setLiveScoring(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-regal" />
-          <span>
-            <span className="font-semibold">Show scores live</span>
-            <span className="hint mt-1 block">{liveScoring ? LIVE_SCORING_HINT.on : LIVE_SCORING_HINT.off}</span>
-          </span>
+        <label className="flex max-w-xl items-center gap-3">
+          <input type="checkbox" checked={liveScoring} onChange={(e) => setLiveScoring(e.target.checked)} className="size-5 shrink-0 accent-regal" />
+          <span className="font-semibold">Show scores live</span>
         </label>
         {/* Only an event without live scoring has a deliberation. */}
         {!liveScoring && (
           <>
             <input type="hidden" name="independent_scoring" value={independentScoring ? "on" : "off"} />
-            <label className="mt-4 flex max-w-xl items-start gap-3">
+            <label className="mt-4 flex max-w-xl items-center gap-3">
               <input
                 type="checkbox"
                 checked={independentScoring}
                 onChange={(e) => setIndependentScoring(e.target.checked)}
-                className="mt-0.5 size-5 shrink-0 accent-regal"
+                className="size-5 shrink-0 accent-regal"
               />
-              <span>
-                <span className="font-semibold">Judges score at their own pace</span>
-                <span className="hint mt-1 block">{OWN_PACE_HINT}</span>
-              </span>
+              <span className="font-semibold">Judges score at their own pace</span>
             </label>
             <input type="hidden" name="judges_see_ranking" value={judgesSeeRanking ? "on" : "off"} />
-            <label className="mt-4 flex max-w-xl items-start gap-3">
+            <label className="mt-4 flex max-w-xl items-center gap-3">
               <input
                 type="checkbox"
                 checked={judgesSeeRanking}
                 onChange={(e) => setJudgesSeeRanking(e.target.checked)}
-                className="mt-0.5 size-5 shrink-0 accent-regal"
+                className="size-5 shrink-0 accent-regal"
               />
-              <span>
-                <span className="font-semibold">Judges see the overall ranking while they deliberate</span>
-                <span className="hint mt-1 block">{JUDGES_RANKING_HINT}</span>
-              </span>
+              <span className="font-semibold">Judges see the overall ranking while they deliberate</span>
             </label>
             <input type="hidden" name="correction_reasons" value={correctionReasons ? "on" : "off"} />
-            <label className="mt-4 flex max-w-xl items-start gap-3">
+            <label className="mt-4 flex max-w-xl items-center gap-3">
               <input
                 type="checkbox"
                 checked={correctionReasons}
                 onChange={(e) => setCorrectionReasons(e.target.checked)}
-                className="mt-0.5 size-5 shrink-0 accent-regal"
+                className="size-5 shrink-0 accent-regal"
               />
-              <span>
-                <span className="font-semibold">Judges pick a reason from a list when they correct a score</span>
-                <span className="hint mt-1 block">{CORRECTION_REASONS_HINT}</span>
-              </span>
+              <span className="font-semibold">Judges pick a reason from a list when they correct a score</span>
             </label>
           </>
         )}
       </Section>
 
-      <Section
-        title="Judges"
-        hint="The chair moves judging between entries from their own screen. Another judge can take over on the Judges tab until the session starts."
-      >
+      <Section quiet title="Judges">
         <JudgesFields
           judges={judges}
           chairKey={chairKey}
@@ -208,11 +195,15 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         />
       </Section>
 
-      <Section title="Entries">
-        <fieldset className="mb-6 max-w-xl">
-          <legend className="label">Details for each entry (optional)</legend>
-          <p className="hint">Up to three, such as a school, a division or a region. Only you see them, here and on the results.</p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+      <Section quiet title="Entries">
+        <details open={showDetails} onToggle={(e) => setShowDetails(e.currentTarget.open)} className="group mb-6 max-w-xl">
+          <summary className="text-action tap-target inline-flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
+            <svg viewBox="0 0 16 16" className="size-4 transition-transform group-open:rotate-90" aria-hidden>
+              <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Details for each entry
+          </summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {["e.g. School", "e.g. Division", "e.g. Region"].map((example, i) => (
               <input
                 key={example}
@@ -226,7 +217,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
               />
             ))}
           </div>
-        </fieldset>
+        </details>
         <label htmlFor="entries" className="label">
           {named.length ? "Entries, one per line" : "Entry names, one per line"}
         </label>
@@ -240,13 +231,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
           aria-describedby="entries-hint"
           placeholder={named.length ? `Agila | ${named.map((f) => f).join(" | ")}` : undefined}
         />
-        {named.length > 0 && (
-          <p className="hint mt-2 max-w-xl">
-            Each name, then its {new Intl.ListFormat("en").format(named)}, separated by | (or paste rows from a spreadsheet).
-          </p>
-        )}
         <p id="entries-hint" className="hint tabular mt-2">
-          {entryCount} {entryCount === 1 ? "entry" : "entries"}, in running order. You can reorder or shuffle them, rename them and add more later.
+          {entryCount} {entryCount === 1 ? "entry" : "entries"}
         </p>
       </Section>
 

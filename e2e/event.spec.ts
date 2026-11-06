@@ -544,7 +544,6 @@ test.describe.serial("a full event", () => {
     await expect(row).toContainText(ORGANIZER.name);
     await expect(row).toContainText("Ended");
     await expect(row).toContainText("6 of 6");
-    await expect(theirs).toContainText("Only the organizer who runs an activity can open it.");
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
 
     // Not openable or exportable by address either.

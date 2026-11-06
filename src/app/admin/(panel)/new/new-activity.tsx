@@ -7,13 +7,9 @@ import { ActivityForm } from "./activity-form";
 import { PageantForm } from "./pageant-form";
 import type { OpenedDraft } from "./use-draft";
 
-const KINDS: { value: ActivityKind; label: string; hint: string }[] = [
-  { value: "event", label: "Event", hint: "One round of judging. Every judge scores every entry." },
-  {
-    value: "pageant",
-    label: "Pageant",
-    hint: "Candidates go through a preliminary and pageant proper, each with its own sub-activities, and cuts down to the winners.",
-  },
+const KINDS: { value: ActivityKind; label: string }[] = [
+  { value: "event", label: "Event" },
+  { value: "pageant", label: "Pageant" },
 ];
 
 /**
@@ -49,11 +45,10 @@ export function NewActivity({
         <legend className="label">What are you scoring?</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {KINDS.map((k) => (
-            <label key={k.value} className="choice">
+            <label key={k.value} className="choice items-center">
               <input
                 type="radio"
                 name="activity-kind"
-                className="mt-1"
                 checked={kind === k.value}
                 // Switching starts the other form blank, so unsaved changes here ask first.
                 onChange={() =>
@@ -63,12 +58,9 @@ export function NewActivity({
                   })
                 }
               />
-              <span>
-                <span className="flex flex-wrap items-center gap-x-2 font-semibold">
-                  {k.label}
-                  {k.value === "pageant" && !pageantsOpen && <span className="text-sm font-semibold opacity-80">· Coming soon</span>}
-                </span>
-                <span className="block text-sm opacity-80">{k.hint}</span>
+              <span className="flex flex-wrap items-center gap-x-2 font-semibold">
+                {k.label}
+                {k.value === "pageant" && !pageantsOpen && <span className="text-sm font-semibold opacity-80">· Coming soon</span>}
               </span>
             </label>
           ))}
@@ -83,10 +75,6 @@ export function NewActivity({
           <h2 id="pageant-soon" className="title-sm text-2xl">
             Pageant mode is coming soon
           </h2>
-          <p className="hint mx-auto mt-2 max-w-md">
-            Pageants, with a preliminary and pageant proper, sub-activities and cuts, aren&apos;t available here yet. For now, an event scores one round
-            of judging.
-          </p>
         </section>
       )}
       {guard.dialog}

@@ -5,24 +5,6 @@ import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
-/** What live scoring on or off means, said the same way wherever it's chosen. */
-/** Judges seeing the ranking in the deliberation: what they see, and what two judges could work out. */
-export const JUDGES_RANKING_HINT =
-  "Each entry's rank and average, beside their own scores, never another judge's. With two judges, each could work out the other's scores from the averages.";
-
-/** Judges scoring at their own pace: what changes for them and the chair. */
-export const OWN_PACE_HINT =
-  "Each judge scores the entries in any order, without waiting for the next one to be shown. The chair starts the deliberation once every judge has scored every entry.";
-
-/** Correction reasons from a list: what judges choose from. */
-export const CORRECTION_REASONS_HINT =
-  "Instead of typing why, they choose a reason (a wrong number, a misread criterion, and the like), or Other to type one. Every correction still keeps its reason.";
-
-export const LIVE_SCORING_HINT = {
-  on: "The audience sees each score as it's submitted, and a submitted score is final.",
-  off: "The audience sees no scores until the judges have deliberated and signed, and the LED wall is off. A judge can correct their own score, saying why, until they sign.",
-};
-
 const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 0, label: "Whole numbers", example: "9" },
   { value: 1, label: "1 decimal place", example: "9.5" },
@@ -116,22 +98,18 @@ export function ScoringEditor({
         <div className="grid gap-2 sm:grid-cols-2">
           {(
             [
-              { value: "simple", label: "Simple", hint: "One score per judge, from a minimum to a maximum." },
-              { value: "criteria", label: "Criteria", hint: "Judges score each criterion. The criteria add up to 100 points." },
+              { value: "simple", label: "Simple" },
+              { value: "criteria", label: "Criteria" },
             ] as const
           ).map((o) => (
-            <label key={o.value} className="choice">
+            <label key={o.value} className="choice items-center">
               <input
                 type="radio"
                 name={`${idPrefix}scoring-mode-choice`}
-                className="mt-1"
                 checked={mode === o.value}
                 onChange={() => set({ mode: o.value, criteria: o.value === "criteria" && rows.length === 0 ? blankCriteria(0) : rows })}
               />
-              <span>
-                <span className="block font-semibold">{o.label}</span>
-                <span className="block text-sm opacity-80">{o.hint}</span>
-              </span>
+              <span className="font-semibold">{o.label}</span>
             </label>
           ))}
         </div>
@@ -228,7 +206,6 @@ export function ScoringEditor({
                     inputMode="decimal"
                     placeholder="None"
                     className="field tabular"
-                    aria-describedby={`${idPrefix}lowest-hint`}
                   />
                 </div>
                 {rows.length > 1 && (
@@ -261,7 +238,6 @@ export function ScoringEditor({
                         maxLength={MAX_GUIDE}
                         rows={3}
                         placeholder="Guide questions or what to look for, e.g. Is the idea new? Does it solve a real problem?"
-                        aria-describedby={`${idPrefix}guide-hint`}
                         className="field min-h-20 resize-y py-2 leading-relaxed sm:max-w-[42rem]"
                       />
                     </div>
@@ -295,12 +271,6 @@ export function ScoringEditor({
               </span>
             </p>
           </div>
-          <p id={`${idPrefix}lowest-hint`} className="hint mt-3 max-w-[65ch]">
-            Lowest score: the least a judge can give, like 28 for a criterion worth 40. Leave it blank for none.
-          </p>
-          <p id={`${idPrefix}guide-hint`} className="hint mt-1 max-w-[65ch]">
-            A guide shows on the judge&apos;s screen while they score that criterion. Up to {MAX_GUIDE} characters.
-          </p>
         </fieldset>
       )}
 

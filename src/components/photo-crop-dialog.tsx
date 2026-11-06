@@ -141,7 +141,7 @@ export function PhotoCropDialog({
         <h2 id={titleId} className="title-sm">
           Crop the photo{name ? ` of ${name}` : ""}
         </h2>
-        <p id={hintId} className="mt-1 text-sm text-prussian/80">
+        <p id={hintId} className="sr-only">
           Drag the photo, or use the arrow keys, to choose what shows. Zoom to make it bigger or smaller.
         </p>
         <div

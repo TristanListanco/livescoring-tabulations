@@ -221,7 +221,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
 
   return (
     <section aria-labelledby="program" className={compact ? "card shrink-0 px-5 py-4 text-sm" : ""}>
-      <h2 id="program" className={compact ? "title-sm text-lg" : "title-sm"}>
+      <h2 id="program" className="sr-only">
         Program
       </h2>
       <FormMessage state={result} small className="mt-1" />
@@ -367,14 +367,11 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
           <h2 id="deductions-title" className="title-sm text-2xl">
             Deductions
           </h2>
-          <p className="hint mt-1 max-w-[65ch]">
-            Points off a candidate&apos;s preliminary score for a violation.{" "}
-            {open
-              ? "You can add or take them back until pageant proper starts."
-              : activity.sessionState === "ended"
-                ? "The session has ended, so they're final."
-                : "Pageant proper has started, so they're final."}
-          </p>
+          {!open && (
+            <p className="hint mt-1 max-w-[65ch]">
+              {activity.sessionState === "ended" ? "The session has ended, so they're final." : "Pageant proper has started, so they're final."}
+            </p>
+          )}
         </div>
 
         {open && (
@@ -591,8 +588,7 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
                 {plan.final ? `Final cut: Top ${plan.size}` : `Cut: Top ${plan.size}`}
               </h2>
               <p className="hint mt-1">
-                Ranked by {plan.weights.map((w) => `${w.round.name} ${percent(w.weight)}`).join(", ")}. Each counts as a candidate&apos;s average as a
-                percentage of its maximum score.
+                Ranked by {plan.weights.map((w) => `${w.round.name} ${percent(w.weight)}`).join(", ")}.
               </p>
             </div>
 

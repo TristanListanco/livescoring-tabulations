@@ -201,7 +201,6 @@ export function AssistanceAlerts() {
         ref={dialog}
         role="alertdialog"
         aria-labelledby="assist-title"
-        aria-describedby="assist-hint"
         // Escape doesn't dismiss it: each call is answered.
         onCancel={(e) => e.preventDefault()}
         className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl backdrop:bg-prussian/50 backdrop:backdrop-blur-md"
@@ -213,9 +212,6 @@ export function AssistanceAlerts() {
             </span>
             {count === 1 ? "A judge needs help" : `${count} judges need help`}
           </h2>
-          <p id="assist-hint" className="mt-2 text-[15px] text-prussian/75">
-            Tap On my way so they know you&apos;re coming, then go to them.
-          </p>
         </div>
         <ul aria-label="Judges asking for help" className="mt-3 max-h-[55vh] divide-y divide-line overflow-y-auto border-t border-line px-6">
           {requests.map((r) => (
