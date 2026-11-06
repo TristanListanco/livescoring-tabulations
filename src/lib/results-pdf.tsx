@@ -7,7 +7,7 @@ import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreTe
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
-import type { ActivitySignoff, Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
+import type { Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
 import { INTER_ITALIC, INTER_LIGHT, INTER_REGULAR, INTER_SEMIBOLD } from "./pdf-fonts";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
@@ -69,14 +69,20 @@ const s = StyleSheet.create({
   // As the panel's section titles: a size up from the text, and regular.
   sectionTitle: { fontWeight: 400, fontSize: 14, letterSpacing: -0.2, marginTop: 30 },
   sectionNote: { marginTop: 3, color: C.muted },
-  signatures: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
-  signature: { width: "33.33%", paddingRight: 24, marginTop: 30 },
-  signLine: { borderBottomWidth: 0.75, borderBottomColor: C.prussian, height: 22 },
-  signName: { fontWeight: 600, marginTop: 5 },
-  signed: { fontStyle: "italic", marginTop: 3 },
+  // The sign-off: a group to a row (Certified correct, Tabulated by, Noted by), each name under its line.
+  signOff: { marginTop: 30 },
+  signGroup: { marginTop: 18 },
+  signGroupTitle: { fontWeight: 600, fontSize: 9, color: C.muted, letterSpacing: 0.3 },
+  signatures: { flexDirection: "row", flexWrap: "wrap" },
+  signature: { width: "33.33%", paddingRight: 24, marginTop: 14 },
+  // What's above the name, on its line: a drawn signature, "(Sgd.)", or nothing, to sign on paper. Always this tall, so
+  // every name in a row lines up.
+  signMark: { height: 34, justifyContent: "flex-end", alignItems: "flex-start", borderBottomWidth: 0.75, borderBottomColor: C.prussian, paddingBottom: 3 },
+  signName: { fontWeight: 600, marginTop: 5, textTransform: "uppercase", letterSpacing: 0.2 },
+  signed: { fontStyle: "italic" },
   signRole: { color: C.muted, marginTop: 2 },
   // A judge's drawn signature, at the width of a short signature line (600 × 200, scaled).
-  drawn: { width: 105, height: 35, marginBottom: -10 },
+  drawn: { width: 105, height: 35, marginBottom: -6 },
   // Narrower than the total: "−12.50" at two decimal places.
   deducted: { width: 64, textAlign: "right" },
   deductionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
@@ -104,7 +110,7 @@ export type EntryDetailsSheet = { fields: EntryField[]; byEntry: Record<string, 
 /**
  * `reportId`: the scores' report ID, or null on a sheet that isn't part of the results (the judges' notes).
  * `signatures`: the judges' signatures from the deliberation (an event without live scoring); absent otherwise.
- * `signoff`: the organizer's signature on a deliberated session's results, given as they ended it. `signatories`: the
+ * `signatories`: the
  * activity's signature lines (the Board of Tabulators and whoever else signs its results).
  */
 type ReportInfo = {
@@ -113,7 +119,6 @@ type ReportInfo = {
   organizer: ReportOrganizer | null;
   signatories?: Signatory[];
   signatures?: JudgeSignature[] | null;
-  signoff?: ActivitySignoff | null;
 };
 
 /**
@@ -164,92 +169,82 @@ function Header({
 const roleOf = (judge: Judge) => (judge.isChair ? "Chair, Board of Judges" : "Judge");
 
 /**
- * The judges' sign-offs and the signatories' signature lines. `inline`: all in one row, the judge's name level with
- * the signatories' (a judge's score sheet, which one judge signs); otherwise the judges, then the signatories.
+ * One person on the sign-off: above their name a drawn signature or "(Sgd.)" (a judge, who signed in Tabulous) or
+ * nothing (a line to sign on paper: the signatories), then their name in capitals and their role.
+ */
+type Signer = { key: string; name: string; role?: string | null; signed?: { drawing: string | null } };
+
+function SignBlock({ signer }: { signer: Signer }) {
+  const drawing = signer.signed?.drawing;
+  return (
+    <View style={s.signature}>
+      <View style={s.signMark}>
+        {drawing ? (
+          <Svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} style={s.drawn}>
+            <Path d={drawing} stroke={C.prussian} strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        ) : (
+          signer.signed && <Text style={s.signed}>(Sgd.)</Text>
+        )}
+      </View>
+      <Text style={s.signName}>{signer.name || " "}</Text>
+      {signer.role && <Text style={s.signRole}>{signer.role}</Text>}
+    </View>
+  );
+}
+
+/** A group of the sign-off, its heading and its people a row at a time, kept together on one page. */
+function SignGroup({ title, signers }: { title: string; signers: Signer[] }) {
+  if (signers.length === 0) return null;
+  return (
+    <View style={s.signGroup} wrap={false}>
+      <Text style={s.signGroupTitle}>{title}</Text>
+      <View style={s.signatures}>
+        {signers.map((signer) => (
+          <SignBlock key={signer.key} signer={signer} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Who stands behind the sheet, in two groups: Certified correct (the judges, or on a judge's own score sheet that
+ * judge) and Tabulated by (the activity's signatories, who sign on paper).
  */
 function SignOff({
   judges,
   signatories,
-  inline = false,
   signatures,
-  signoff,
 }: {
   judges: Board["judges"];
   signatories: Signatory[];
-  inline?: boolean;
   /** From the deliberation: a judge who drew their signature has it above their name rather than "(Sgd.)". */
   signatures?: JudgeSignature[] | null;
-  /** The organizer's signature, after the judges', on a deliberated session's results. */
-  signoff?: ActivitySignoff | null;
 }) {
-  const mark = (drawing: string | null | undefined) =>
-    drawing ? (
-      <Svg viewBox={`0 0 ${SIGNATURE_BOX.width} ${SIGNATURE_BOX.height}`} style={s.drawn}>
-        <Path d={drawing} stroke={C.prussian} strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      </Svg>
-    ) : null;
-  const organizerSigned = signoff && (
-    <View key="organizer" style={s.signature}>
-      {mark(signoff.method === "drawn" ? signoff.drawing : null)}
-      <Text style={s.signName}>{signoff.signedBy}</Text>
-      {signoff.method !== "drawn" && <Text style={s.signed}>(Sgd.)</Text>}
-      <Text style={s.signRole}>Organizer</Text>
-    </View>
-  );
-  const signed = judges.map((j) => {
-    const drawing = signatures?.find((sig) => sig.judgeId === j.id && sig.method === "drawn")?.drawing;
-    return (
-      <View key={j.id} style={s.signature}>
-        {/* Without a drawing, level with the signatories' names, under their signature lines. */}
-        {drawing ? mark(drawing) : inline && <View style={{ height: s.signLine.height }} />}
-        <Text style={s.signName}>{j.name}</Text>
-        {!drawing && <Text style={s.signed}>(Sgd.)</Text>}
-        <Text style={s.signRole}>{roleOf(j)}</Text>
-      </View>
-    );
-  });
-  const lines =
-    signatories.length > 0 ? (
-      signatories.map((p, i) => (
-        <View key={i} style={s.signature}>
-          <View style={s.signLine} />
-          <Text style={s.signName}>{p.name}</Text>
-          {p.designation && <Text style={s.signRole}>{p.designation}</Text>}
-        </View>
-      ))
-    ) : (
-      <View style={s.signature}>
-        <View style={s.signLine} />
-        <Text style={s.signName}> </Text>
-        <Text style={s.signRole}>Tabulator</Text>
-      </View>
-    );
+  const certified: Signer[] = judges.map((j) => ({
+    key: j.id,
+    name: j.name,
+    role: roleOf(j),
+    signed: { drawing: signatures?.find((sig) => sig.judgeId === j.id && sig.method === "drawn")?.drawing ?? null },
+  }));
+  const tabulated: Signer[] = signatories.length
+    ? signatories.map((p, i) => ({ key: `signatory-${i}`, name: p.name, role: p.designation }))
+    : [{ key: "tabulator", name: "", role: "Tabulator" }];
   return (
-    <View wrap={false}>
-      <Text style={s.sectionTitle}>Certified correct</Text>
-      {inline ? (
-        <View style={s.signatures}>
-          {signed}
-          {lines}
-        </View>
-      ) : (
-        <>
-          <View style={s.signatures}>
-            {signed}
-            {organizerSigned}
-          </View>
-          <View style={s.signatures}>{lines}</View>
-        </>
-      )}
+    <View style={s.signOff}>
+      <SignGroup title="Certified correct" signers={certified} />
+      <SignGroup title="Tabulated by" signers={tabulated} />
     </View>
   );
 }
 
 /** `perSheet`: count pages within each judge's sheet rather than the whole document, so each sheet stands alone. */
-function Footer({ label, info, perSheet = false }: { label: string; info: ReportInfo; perSheet?: boolean }) {
+function Footer({ info, perSheet = false }: { info: ReportInfo; perSheet?: boolean }) {
   return (
     <View style={s.footer} fixed>
-      <Text style={s.footerLabel}>{`${label}${info.reportId ? `, report ${info.reportId}` : ""}, generated ${info.generatedAt}`}</Text>
+      {/* When it was made: the sheet and its report ID are already in its header. */}
+      <Text style={s.footerLabel}>{`Generated ${info.generatedAt}`}</Text>
       <View style={s.footerEnd}>
         {/* What made the sheet, quietly: Tabulous's mark and name, before the page number. */}
         <Svg viewBox="0 0 48 48" style={{ width: 8, height: 8 }}>
@@ -279,7 +274,8 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
         <View key={c.id} style={s.deductionRow} wrap={false}>
           <Text style={s.deductionWho}>{`${c.judgeName}, No. ${c.entryNumber} ${c.entryName}`}</Text>
           <Text style={s.deductionWhy}>{`${c.from} to ${c.to}. ${c.reason}`}</Text>
-          <Text style={s.deductionPoints}>{c.decidedBy === "judge" ? "Corrected by the judge" : c.decidedBy === "organizer" ? "Organizer approved" : "Every other judge agreed"}</Text>
+          {/* Who agreed to it, where someone other than the judge did. */}
+          <Text style={s.deductionPoints}>{c.decidedBy === "organizer" ? "Organizer approved" : c.decidedBy === "judge" ? "" : "Every other judge agreed"}</Text>
         </View>
       ))}
     </View>
@@ -373,8 +369,8 @@ function ResultsDocument({
           </View>
         )}
         <CorrectionsList corrections={corrections ?? []} />
-        <SignOff judges={judges} signatories={info.signatories ?? []} signatures={info.signatures} signoff={info.signoff} />
-        <Footer label={label} info={info} />
+        <SignOff judges={judges} signatories={info.signatories ?? []} signatures={info.signatures} />
+        <Footer info={info} />
       </Page>
     </Document>
   );
@@ -407,7 +403,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
         {fix && (
           <Text
             style={s.note}
-          >{`Corrected from ${fix.from} (${fix.decidedBy === "judge" ? "by the judge" : fix.decidedBy === "organizer" ? "the organizer approved" : "every other judge agreed"}): ${fix.reason}`}</Text>
+          >{`Corrected from ${fix.from}${fix.decidedBy === "judge" ? "" : fix.decidedBy === "organizer" ? " (the organizer approved)" : " (every other judge agreed)"}: ${fix.reason}`}</Text>
         )}
       </View>
     );
@@ -448,11 +444,11 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
               {rows.slice(0, rows.length - kept.length).map((r) => row(judge, r))}
               <View wrap={false}>
                 {kept.map((r) => row(judge, r))}
-                <SignOff inline judges={[judge]} signatories={info.signatories ?? []} signatures={info.signatures} />
+                <SignOff judges={[judge]} signatories={info.signatories ?? []} signatures={info.signatures} />
               </View>
             </View>
 
-            <Footer label={`${judge.name}'s score sheet`} info={info} perSheet />
+            <Footer info={info} perSheet />
           </Page>
         );
       })}
@@ -563,7 +559,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
         )}
 
         <SignOff judges={judges} signatories={info.signatories ?? []} />
-        <Footer label={`${activity.name}, ${sheet.title}`} info={info} />
+        <Footer info={info} />
       </Page>
     </Document>
   );
@@ -600,7 +596,6 @@ export function renderResultsPdf(
     part,
     corrections = null,
     signatures = null,
-    signoff = null,
     details = null,
   }: {
     timeZone?: string;
@@ -610,7 +605,6 @@ export function renderResultsPdf(
     part?: string;
     corrections?: CorrectionView[] | null;
     signatures?: JudgeSignature[] | null;
-    signoff?: ActivitySignoff | null;
     details?: EntryDetailsSheet | null;
   },
 ): Promise<Buffer> {
@@ -620,7 +614,7 @@ export function renderResultsPdf(
       part={part}
       corrections={corrections}
       details={details}
-      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, signoff }}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }}
     />,
   );
 }
@@ -694,7 +688,7 @@ function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[
                 <Text style={mine.has(entry.id) ? s.noteBody : [s.noteBody, { color: C.muted }]}>{mine.get(entry.id) ?? "No note."}</Text>
               </View>
             ))}
-            <Footer label={`${activity.name}, ${judge.name}'s notes`} info={info} />
+            <Footer info={info} />
           </Page>
         );
       })}

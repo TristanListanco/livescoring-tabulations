@@ -137,6 +137,40 @@ html {
     display: block;
   }
 }
+/* The theme toggle's icon: the sun turns away as the moon turns in, and back (see ThemeToggle). */
+.theme-sun,
+.theme-moon {
+  transition:
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 240ms ease-out;
+}
+.theme-moon,
+.theme-icon[data-dark] .theme-sun {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.4);
+}
+.theme-icon[data-dark] .theme-sun {
+  transform: rotate(90deg) scale(0.4);
+}
+.theme-icon[data-dark] .theme-moon {
+  opacity: 1;
+  transform: none;
+}
+/* The switch between them spreads from the toggle as a widening circle: only the new theme moves, over the old. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+/* The cookie notice fades in, once the browser has said it hasn't been seen (see CookieNotice). */
+.cookie-notice {
+  animation: fade-in 260ms ease-out;
+}
+/* The archived list fades in when it arrives, and so does each activity added to it. */
+.archived-list > li,
+p.archived-list {
+  animation: fade-in 240ms ease-out;
+}
 /* The collapse button's chevron turns with the sidebar: pointing in to collapse it, out to open it again. */
 .sidebar-chevron {
   transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -181,7 +215,9 @@ html {
 /* Reduced motion: the sidebar and the drawer change at once; the drawer fades rather than slides. */
 @media (prefers-reduced-motion: reduce) {
   .admin-sidebar,
-  .sidebar-chevron {
+  .sidebar-chevron,
+  .theme-sun,
+  .theme-moon {
     transition: none;
   }
   .sidebar-drawer,
@@ -334,11 +370,64 @@ html {
     transform: translateY(-4px);
   }
 }
-[data-admin-theme] dialog[open]:not(.sidebar-drawer) {
+dialog[open]:not(.sidebar-drawer) {
   animation: dialog-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-[data-admin-theme] dialog[open]:not(.sidebar-drawer)::backdrop {
+dialog[open]:not(.sidebar-drawer)::backdrop {
   animation: fade-in 200ms ease-out;
+}
+/*
+ * The judges' screens: the next entry's name rises into place when the organizer shows it; Other reason's box slides
+ * open; a refusal nudges as it appears; a corrected score settles in beside the old one; and Assist me's hand waves
+ * once as the screen opens, so a judge knows where help is.
+ */
+.judge-arrive {
+  animation: enter 380ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.judge-reveal {
+  animation: enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes nudge {
+  20% {
+    transform: translateX(-5px);
+  }
+  45% {
+    transform: translateX(4px);
+  }
+  70% {
+    transform: translateX(-2px);
+  }
+}
+.nudge {
+  animation: nudge 360ms ease-out;
+}
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+.settle-in {
+  display: inline-block;
+  animation: settle 440ms cubic-bezier(0.16, 1, 0.3, 1) 120ms backwards;
+}
+@keyframes wave {
+  20% {
+    rotate: -16deg;
+  }
+  40% {
+    rotate: 12deg;
+  }
+  60% {
+    rotate: -8deg;
+  }
+  80% {
+    rotate: 4deg;
+  }
+}
+.wave {
+  transform-origin: 60% 90%;
+  animation: wave 1s ease-in-out 600ms;
 }
 [data-admin-theme] [popover]:popover-open {
   animation: menu-in 160ms ease-out;
@@ -358,9 +447,16 @@ html {
   .toast-leaving {
     transform: none;
   }
-  [data-admin-theme] dialog[open]:not(.sidebar-drawer),
-  [data-admin-theme] [popover]:popover-open {
+  dialog[open]:not(.sidebar-drawer),
+  [data-admin-theme] [popover]:popover-open,
+  .judge-arrive,
+  .judge-reveal,
+  .settle-in {
     animation-name: fade-in;
+  }
+  .nudge,
+  .wave {
+    animation: none;
   }
 }
 

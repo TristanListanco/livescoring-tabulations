@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 const CLOSING_MS = 220;
 
 /**
- * The sidebar on phones and tablets, where there's no room to keep it open: a Menu button that opens it as a drawer
+ * The sidebar on phones and tablets, where there's no room to keep it open: a menu button (its icon) that opens it as a drawer
  * from the left (.sidebar-drawer). Following any link in it closes it, as does Escape or a tap outside it. Its contents
  * are only there while it's open, so the page never has the sidebar twice.
  */
@@ -24,12 +24,12 @@ export function SidebarDrawer({ children }: { children: React.ReactNode }) {
           ref.current?.showModal();
         }}
         aria-haspopup="dialog"
-        className="btn btn-sm btn-quiet lg:hidden"
+        aria-label="Menu"
+        className="btn btn-quiet size-11 px-0 lg:hidden"
       >
         <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
           <path d="M3.5 6h13M3.5 10h13M3.5 14h13" />
         </svg>
-        Menu
       </button>
       <dialog
         ref={ref}

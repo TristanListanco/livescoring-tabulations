@@ -109,21 +109,23 @@ test.describe.serial("archived activities", () => {
     await expect(page.getByRole("main").getByText(/^Archived \w+ \d{1,2}, \d{4}$/)).toBeVisible();
     // Its live results are closed, so nothing links to them.
     await expect(page.getByRole("region", { name: "Screens" })).toHaveCount(0);
-    const sections = page.getByRole("navigation", { name: "Activity sections" });
-    await expect(sections.getByRole("link")).toHaveText(["Results", "Settings"]);
+    // One page, its results: no tabs, and its link in the sidebar marks it.
+    await expect(page.getByRole("navigation", { name: "Activity sections" })).toHaveCount(0);
+    await expect(page.getByRole("banner").getByRole("link", { name: NAME })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     await expect(page.getByRole("switch", { name: /rank/i })).toHaveCount(0);
-    // A tab it doesn't have shows its results instead.
-    await page.goto(`${adminPath}?tab=entries`);
-    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
-    await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
-    // Its Settings: a CSV to check, and deleting it; nothing to change.
-    await page.goto(`${adminPath}?tab=settings`);
+    // Under its results, a CSV to check and deleting it; nothing to change.
     await expect(page.getByLabel("Check an exported CSV")).toBeAttached();
     await expect(page.getByRole("button", { name: `Delete activity ${NAME}` })).toBeVisible();
     await expect(page.getByLabel("Activity name")).toHaveCount(0);
     await expectAccessible(page);
+    // A tab it doesn't have (an old link to its Settings, say) shows its results instead.
+    for (const tab of ["entries", "settings"]) {
+      await page.goto(`${adminPath}?tab=${tab}`);
+      await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
+      await expect(page.getByRole("button", { name: `Archive ${NAME}` })).toHaveCount(0);
+    }
   });
 
   test("once archived, the live results link no longer works", async ({ page }) => {
@@ -135,8 +137,8 @@ test.describe.serial("archived activities", () => {
 
   test("an archived activity can still be deleted", async ({ page }) => {
     await signInAsSuperAdmin(page);
-    // From its Settings, the only place it's offered.
-    await page.goto(`${adminPath}?tab=settings`);
+    // From under its results, the only place it's offered.
+    await page.goto(adminPath);
     await page.getByRole("button", { name: `Delete activity ${NAME}` }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(NAME);

@@ -10,6 +10,7 @@ import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import { addCandidatePhotos, createPageant, type CreateResult } from "../../actions";
 import { listChanged } from "../activities-refresh";
+import { filledSignatories, openSignatories, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { toast } from "../toaster";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
@@ -133,6 +134,7 @@ function opened(data: unknown) {
     chairs: { preliminary: boards === "separate" ? keyAt(savedChairs.preliminary) : null, proper: keyAt(savedChairs.proper ?? d.chair) } as Chairs,
     program: program && program.rounds.length ? program : startingProgram(),
     resultDecimals: (Number.isInteger(places) && places >= 0 && places <= 4 ? places : DEFAULT_RESULT_DECIMALS) as ResultDecimals,
+    signatories: openSignatories(d.signatories),
   };
 }
 
@@ -159,6 +161,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const focusNext = useRef<string | null>(null);
   const [name, setName] = useState(start.name);
   const [candidates, setCandidates] = useState<DraftCandidate[]>(start.candidates);
+  const [signatories, setSignatories] = useState<SignatoryRow[]>(start.signatories);
   const nextCandidate = useRef(start.candidates.length);
   /**
    * A list pasted into a candidate's name: that row takes the first name, then the blank rows right after it, then
@@ -222,6 +225,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
       chairPositions,
       draft,
       resultDecimals,
+      filledSignatories(signatories),
     ]),
     collect: async (note) => {
       const savedJudges = await saveJudges(ordered);
@@ -231,7 +235,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           `${dropped === 1 ? "One candidate's photo" : `${dropped} candidates' photos`} didn't fit in the draft. Add ${dropped === 1 ? "it" : "them"} again before creating the pageant, or later on its Candidates tab.`,
         );
       }
-      return { step, name, candidates: saved, boards, judges: savedJudges, chairs: chairPositions, program: draft, resultDecimals };
+      return { step, name, candidates: saved, boards, judges: savedJudges, chairs: chairPositions, program: draft, resultDecimals, signatories: filledSignatories(signatories) };
     },
   });
   const heading = useRef<HTMLHeadingElement>(null);
@@ -336,6 +340,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     data.set("kind", "pageant");
     data.set("entries", candidates.map((c) => cleanName(c.name)).join("\n"));
     data.set("pageant", JSON.stringify(draft));
+    data.set("signatories", JSON.stringify(filledSignatories(signatories)));
     data.set("judgeCount", String(ordered.length));
     ordered.forEach((j, i) => {
       data.set(`judge-${i}-panel`, j.panel);
@@ -629,6 +634,11 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
             onResultDecimals={setResultDecimals}
             onEdit={go}
           />
+          {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}
+          <div className="card p-5 sm:p-7">
+            <h3 className="sr-only">Signatories</h3>
+            <SignatoryRows rows={signatories} setRows={setSignatories} />
+          </div>
         </section>
 
         <div className="mt-6 flex flex-wrap items-center gap-4">

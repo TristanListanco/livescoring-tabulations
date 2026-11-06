@@ -160,7 +160,8 @@ export function PhotoCropDialog({
           {/* eslint-disable-next-line @next/next/no-img-element -- a local photo being cropped, not a page image */}
           <img
             src={src}
-            alt=""
+            // The dialog is about this photo, so it's named (drag it or use the arrow keys to place it).
+            alt={name ? `Photo of ${name}` : "The photo"}
             draggable={false}
             className="pointer-events-none absolute top-0 left-0 max-w-none"
             style={{ width: shown.w, height: shown.h, transform: `translate(${spot.x}px, ${spot.y}px)` }}

@@ -105,7 +105,9 @@ test.describe.serial("a full event", () => {
     await expect(page.getByText("Results PDF signatories")).toHaveCount(0);
     await page.goto("/admin");
 
-    await page.getByRole("link", { name: "New activity" }).first().click();
+    // An empty list offers it once, under its title.
+    await expect(page.getByRole("link", { name: "New activity" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Create an activity" }).click();
     await page.getByLabel("Name", { exact: true }).fill(NAME);
     await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
@@ -119,6 +121,10 @@ test.describe.serial("a full event", () => {
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
     // New events start without live scoring; this one scores live.
     await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+    // Who signs the results on paper can be added now, so they're on the first PDF.
+    await page.getByRole("button", { name: "Add signatory" }).click();
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+    await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
     await page.getByRole("button", { name: "Create activity" }).click();
 
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
@@ -127,17 +133,19 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     adminPath = new URL(page.url()).pathname;
 
-    // Signatories print on this activity's results PDFs, set on its Settings tab.
+    // Signatories print on this activity's results PDFs: the one added on the create form is on its Settings tab, where
+    // more can be added.
     await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByLabel("Signatory 1 full name")).toHaveValue("Maria Reyes");
     await page.getByRole("button", { name: "Add signatory" }).click();
-    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
-    await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
+    await page.getByLabel("Signatory 2 full name").fill("Jose Rizal");
+    await page.getByLabel("Signatory 2 designation").fill("Member, Board of Tabulators");
     // A row left empty isn't saved, and disappears once the rest are.
     await page.getByRole("button", { name: "Add signatory" }).click();
-    await expect(page.getByLabel("Signatory 2 full name")).toBeVisible();
+    await expect(page.getByLabel("Signatory 3 full name")).toBeVisible();
     await page.getByRole("button", { name: "Save signatories" }).click();
-    await expect(page.getByText("Saved. 1 signatory prints on the results PDF.")).toBeVisible();
-    await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
+    await expect(page.getByText("Saved. 2 signatories print on the results PDF.")).toBeVisible();
+    await expect(page.getByLabel("Signatory 3 full name")).toHaveCount(0);
     await page.goto(adminPath);
 
     codes = await judgeCodes(page);

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { TallyGate } from "@/components/brand";
 import { listActivities, listArchivedActivities, listAttention, listDrafts, listOrganizerActivities, type ActivitySummary, type Attention } from "@/lib/data";
 import { formatBound } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
@@ -87,18 +88,12 @@ function NeedsYou({ activity, items }: { activity: ActivitySummary; items: Atten
 
 /**
  * The list with nothing in it: Tabulous's tally gate drawn large, a stroke at a time with the slash that counts the
- * fifth last (see .tally-draw), over the page's title type, and the way to start.
+ * fifth last, over the page's title type, and the way to start.
  */
 function Empty({ title, action }: { title: string; action: string }) {
   return (
     <section aria-labelledby="empty-title" className="card mt-10 flex flex-col items-center px-6 py-16 text-center sm:py-24">
-      <svg viewBox="0 0 48 48" className="tally-draw size-28 sm:size-36" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" aria-hidden>
-        <path pathLength={1} className="text-powder" d="M12 11v26" />
-        <path pathLength={1} className="text-powder" d="M20 11v26" />
-        <path pathLength={1} className="text-powder" d="M28 11v26" />
-        <path pathLength={1} className="text-powder" d="M36 11v26" />
-        <path pathLength={1} className="text-regal" d="M5.5 33.5 42.5 14.5" />
-      </svg>
+      <TallyGate className="size-28 sm:size-36" strokes="text-powder" slash="text-regal" />
       <h2 id="empty-title" className="title mt-8">
         {title}
       </h2>
@@ -142,9 +137,12 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
       <ActivitiesRefresh active={changing} renderedAt={renderedAt} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="title">Activities</h1>
-        <Link href="/admin/new" className="btn btn-primary">
-          New activity
-        </Link>
+        {/* An empty list offers it under its title instead (see Empty). */}
+        {!empty && (
+          <Link href="/admin/new" className="btn btn-primary">
+            New activity
+          </Link>
+        )}
       </div>
 
 

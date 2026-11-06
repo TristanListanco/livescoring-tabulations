@@ -34,6 +34,8 @@ test.describe.serial("drafts", () => {
     await page.getByLabel("Name", { exact: true }).fill(EVENT);
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
+    await page.getByRole("button", { name: "Add signatory" }).click();
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await expect.poll(() => promptsOnUnload(page)).toBe(true);
 
     // Leaving through a link asks first; staying keeps everything.
@@ -58,6 +60,7 @@ test.describe.serial("drafts", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(EVENT);
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(EVENT);
     await expect(page.getByLabel("Judge 1 first name")).toHaveValue("Ana");
+    await expect(page.getByLabel("Signatory 1 full name")).toHaveValue("Maria Reyes");
 
     // Changes since the draft: leaving can save them on the way out.
     await page.getByLabel("Name", { exact: true }).fill(EDITED);

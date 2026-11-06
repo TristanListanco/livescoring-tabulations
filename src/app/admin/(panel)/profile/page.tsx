@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { LegalLinks } from "@/components/legal-links";
 import { listAdminSessions, requireAdmin } from "@/lib/session";
 import { Section } from "../section";
 import { ChangePassword } from "./change-password";
 import { SignedInDevices } from "./signed-in-devices";
+import { BackLink } from "../back-link";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -29,9 +29,7 @@ export default async function ProfilePage() {
   if (super_) {
     return (
       <>
-        <Link href="/admin" className="text-action lg:hidden">
-          Back to activities
-        </Link>
+        <BackLink href="/admin">Activities</BackLink>
         <h1 className="title mt-1">Profile</h1>
         <div className="mt-6 max-w-4xl">{devices ?? <p className="hint">Signed-in devices need a database update: run supabase/migrations/022_admin_sessions.sql.</p>}</div>
         {legal}
@@ -42,9 +40,7 @@ export default async function ProfilePage() {
 
   return (
     <>
-      <Link href="/admin" className="text-action lg:hidden">
-        Back to activities
-      </Link>
+      <BackLink href="/admin">Activities</BackLink>
       <h1 className="title mt-1">Profile</h1>
       <div className="mt-6 max-w-4xl">
         <Section title="Organizer">

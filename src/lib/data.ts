@@ -11,7 +11,7 @@ import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
 import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
-import type { Activity, ActivitySignoff, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
+import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 export type ActivityRow = {
   id: string;
@@ -640,20 +640,6 @@ export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, 
   return Object.fromEntries(rows.flatMap((r) => (r.breakdown ? [[r.entry_id, toBreakdown(r.breakdown)!]] : [])));
 }
 
-/** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */
-/**
- * The organizer's signature on a deliberated session's results, given as they ended it (migration 026). Null before
- * they've signed, or on a database without the table.
- */
-export async function getActivitySignoff(activityId: string): Promise<ActivitySignoff | null> {
-  await connection();
-  if (!isUuid(activityId)) return null;
-  const { data, error } = await db().from("activity_signoffs").select("signed_by, method, drawing, signed_at").eq("activity_id", activityId).maybeSingle();
-  if (error || !data) return null;
-  const row = data as { signed_by: string; method: "drawn" | "checked"; drawing: string | null; signed_at: string };
-  return { signedBy: row.signed_by, method: row.method, drawing: row.drawing, signedAt: row.signed_at };
-}
-
 /**
  * An event's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
  * pages and the results only: never part of a board, which judges and the public pages are sent. Null before migration
@@ -670,6 +656,7 @@ export async function getEntryDetails(activityId: string): Promise<{ fields: Ent
   return { fields, byEntry };
 }
 
+/** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */
 export async function getSignatures(activityId: string): Promise<JudgeSignature[] | null> {
   const { data, error } = await db().from("judge_signatures").select("judge_id, method, drawing, signed_at").eq("activity_id", activityId);
   if (error) return null;

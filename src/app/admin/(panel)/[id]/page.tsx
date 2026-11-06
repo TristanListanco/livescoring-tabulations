@@ -12,6 +12,7 @@ import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { LiveSince } from "@/lib/use-live-refresh";
+import { BackLink } from "../back-link";
 
 import { SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
@@ -115,9 +116,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     <LiveSince changedAt={since}>
       {/* The name stays put as tabs change; only the tab below it arrives (see main > * in globals.css). */}
       <div className="activity-head">
-        <Link href="/admin" className="text-action lg:hidden">
-          Activities
-        </Link>
+        <BackLink href="/admin">Activities</BackLink>
         <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -158,17 +157,19 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         Without the sidebar's tree (phones and tablets, or the sidebar collapsed), the tabs sit under the name: on phones
         a grid, every tab in reach at once with nothing to scroll sideways; wider, one row of pills.
       */}
-      <nav aria-label="Activity sections" className="activity-tabs page-tabs mt-6 lg:hidden">
-        <ul className="grid grid-cols-6 gap-1 rounded-[1.375rem] bg-wash p-1 md:flex md:w-max md:max-w-full md:flex-wrap md:rounded-full">
-          {tabs.map((t) => (
-            <li key={t.id} className={span.get(t.id)}>
-              <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} active={t.id === tab}>
-                {t.label}
-              </TabLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {tabs.length > 1 && (
+        <nav aria-label="Activity sections" className="activity-tabs page-tabs mt-6 lg:hidden">
+          <ul className="grid grid-cols-6 gap-1 rounded-[1.375rem] bg-wash p-1 md:flex md:w-max md:max-w-full md:flex-wrap md:rounded-full">
+            {tabs.map((t) => (
+              <li key={t.id} className={span.get(t.id)}>
+                <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} active={t.id === tab}>
+                  {t.label}
+                </TabLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
 
       {/* While another tab opens, its skeleton covers this one (see .tab-skeleton in globals.css). */}
       <div className="relative">
@@ -218,7 +219,12 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           )}
           {tab === "segments" && pageant && <SegmentsTab board={board} />}
           {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
-          {tab === "settings" && archived && <ArchivedSettings activityId={activity.id} name={activity.name} />}
+          {/* Archived: the results, then what can still be done with it (check a CSV, delete it), there rather than a tab. */}
+          {tab === "session" && archived && (
+            <div className="mt-6">
+              <ArchivedSettings activityId={activity.id} name={activity.name} />
+            </div>
+          )}
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}

@@ -1,6 +1,6 @@
 import "server-only";
 import { correctionView, type Correction, type CorrectionView } from "./corrections";
-import { getActivityNotes, getActivitySignatories, getActivitySignoff, getAdmin, getCorrections, getEntryDetails, getSignatures, withBreakdowns } from "./data";
+import { getActivityNotes, getActivitySignatories, getAdmin, getCorrections, getEntryDetails, getSignatures, withBreakdowns } from "./data";
 import { reportId } from "./report";
 import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "./pageant";
 // Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
@@ -232,15 +232,15 @@ async function sheetFor(board: Board, search: URLSearchParams, corrections: Corr
   if (!activity.liveScoring && !activity.signedOffAt) return notYet("The results PDF is ready once every judge has signed, at the end of the deliberation.");
 
   const id = reportId(board);
-  // Signed in the deliberation: by every judge, then the organizer, who signed as they ended it.
-  const signed = async () => (activity.liveScoring ? [null, null] : await Promise.all([getSignatures(activity.id), getActivitySignoff(activity.id)]));
+  // Signed in the deliberation, by every judge (each drawn or "(Sgd.)").
+  const signed = async () => (activity.liveScoring ? null : await getSignatures(activity.id));
   if (wantsJudgeSheets(search)) {
     return {
       label: "Judges' scores",
       reportId: id,
       files: sheetsFiles(activity.name),
       pdf: async (timeZone) => {
-        const [signatures] = await signed();
+        const signatures = await signed();
         return renderJudgeSheetsPdf(await withBreakdowns(board), {
           timeZone,
           reportId: id,
@@ -257,13 +257,12 @@ async function sheetFor(board: Board, search: URLSearchParams, corrections: Corr
     reportId: id,
     files: resultsFiles(activity.name),
     pdf: async (timeZone) => {
-      const [[signatures, signoff], details] = await Promise.all([signed(), getEntryDetails(activity.id)]);
+      const [signatures, details] = await Promise.all([signed(), getEntryDetails(activity.id)]);
       return renderResultsPdf(board, {
         timeZone,
         reportId: id,
         ...(await reportPeople(activity)),
         signatures,
-        signoff,
         corrections: appliedTo(board, corrections, null),
         details,
       });

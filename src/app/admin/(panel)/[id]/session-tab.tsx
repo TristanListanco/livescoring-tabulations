@@ -20,6 +20,7 @@ import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-re
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { ArchiveButton } from "../archive-controls";
 import { FormMessage } from "../form-message";
+import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
@@ -98,6 +99,7 @@ export function DownloadResults({
       href={href}
       onClick={(e) => {
         e.currentTarget.href = `${href}${sheet ? "&" : "?"}tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
+        toast(label.replace(/^Download/, "Downloading"));
       }}
       className={className}
       download
@@ -1004,11 +1006,12 @@ export function SessionTab({
             })()}
 
           {state === "ended" && (
-            <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
-              {/* One row on a wide screen: what happened, then what's left to do. The report ID is on every PDF and CSV it
-                  downloads, so the desk leaves it to them. */}
+            <section aria-labelledby="desk-heading" className="card overflow-hidden">
+              {/* One row on a wide screen: what happened, then what's left to do. Quiet once the show is over: a plain card
+                  rather than the live desk's navy, its one filled button the download. The report ID is on every PDF and
+                  CSV it downloads, so the desk leaves it to them. */}
               <div className="flex flex-wrap items-center gap-x-6 gap-y-4 px-6 py-5">
-                <h2 id="desk-heading" className="mr-auto text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-light tracking-[-0.025em]">
+                <h2 id="desk-heading" className="title-sm mr-auto">
                   Judging has ended
                 </h2>
                 <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
@@ -1019,12 +1022,12 @@ export function SessionTab({
                         ...sheetOptions("", { judges: true }),
                         ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
                       ]}
-                      className="btn bg-mint text-prussian hover:bg-white max-sm:w-full"
+                      className="btn btn-primary max-sm:w-full"
                     />
                   )}
                   {/* Archiving closes judging for good: once archived, nothing here but the downloads. */}
                   {!archived && (
-                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1" />
+                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-quiet max-sm:flex-1" />
                   )}
                   {/*
                     A deliberated session deliberates again, with the password ending took: it reopens the signed record. Any
@@ -1033,7 +1036,7 @@ export function SessionTab({
                   {!archived && activity.signedOffAt && !activity.liveScoring && !pageant && (
                     <ConfirmDialog
                       triggerLabel="Redeliberate"
-                      triggerClassName="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1"
+                      triggerClassName="btn btn-quiet max-sm:flex-1"
                       title="Deliberate again?"
                       tone="danger"
                       confirmLabel="Redeliberate"
@@ -1047,7 +1050,7 @@ export function SessionTab({
                   {!archived && !(activity.signedOffAt && !activity.liveScoring && !pageant) && (
                     <ConfirmDialog
                       triggerLabel="Reopen session"
-                      triggerClassName="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1"
+                      triggerClassName="btn btn-quiet max-sm:flex-1"
                       title="Reopen the session?"
                       confirmLabel="Reopen session"
                       onConfirm={() => changeState("live")}
@@ -1059,13 +1062,13 @@ export function SessionTab({
                   )}
                 </div>
               </div>
-              <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pb-4 font-semibold"} />
+              <FormMessage state={result} small className={result?.ok ? "sr-only" : "px-6 pb-4 font-semibold"} />
               {!progress.complete && (
-                <div className="border-t border-oxford px-6 py-4">
-                  <p className="text-xl font-bold">
+                <div className="border-t border-line px-6 py-4">
+                  <p className="font-semibold">
                     {missing} {missing === 1 ? "score is" : "scores are"} missing
                   </p>
-                  {!archived && <p className="mt-1 text-[15px] text-powder">Reopen the session so the judges can finish.</p>}
+                  {!archived && <p className="mt-1 text-[15px] text-prussian/70">Reopen the session so the judges can finish.</p>}
                 </div>
               )}
             </section>

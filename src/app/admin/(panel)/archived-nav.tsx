@@ -28,7 +28,7 @@ export function ArchivedHere({ id, name, children }: { id: string; name: string;
 }
 
 /**
- * Archived activities, in the sidebar: closed until opened, and read then (skeleton rows while they arrive), so the
+ * Archived activities, in the sidebar: closed until opened, and read then (fading in as they arrive), so the
  * panel's other pages never wait on them. With an archived activity open, it opens by itself, and that activity's tabs
  * hang under it. With the sidebar down to its icons, opening it opens the sidebar too.
  */
@@ -88,25 +88,26 @@ export function ArchivedNav() {
               Couldn&apos;t load them.
             </p>
           ) : items === null ? (
-            <ul aria-busy="true" aria-label="Loading archived activities" className="space-y-1 py-1">
-              {[0, 1, 2].map((i) => (
-                <li key={i} className="skeleton mx-3 my-2.5 h-4" style={{ width: `${[72, 56, 64][i]}%` }} />
-              ))}
-            </ul>
+            // Nothing to show until they arrive, then they fade in (no placeholder rows for a short list).
+            <p role="status" className="sr-only">
+              Loading archived activities
+            </p>
           ) : items.length === 0 ? (
-            <p className="py-1.5 pl-3 text-sm text-prussian/70">None yet</p>
+            <p className="archived-list py-1.5 pl-3 text-sm text-prussian/70">None yet</p>
           ) : (
-            <ul>
+            <ul className="archived-list">
               {items.map((a) => {
                 const open = here?.id === a.id;
                 return (
                   <li key={a.id}>
                     <Link
                       href={`/admin/${a.id}`}
-                      // The open one's tab, under it, is the page; the activity is the way to it.
-                      aria-current={open ? "true" : undefined}
+                      // With tabs under it, the open tab is the page and the activity the way to it; without, it's the page.
+                      aria-current={open ? (here.tree ? "true" : "page") : undefined}
                       title={a.name}
-                      className={`block truncate rounded-lg px-3 py-2 text-sm ${open ? "font-semibold text-prussian" : "text-prussian/70 hover:bg-white/60 hover:text-prussian"}`}
+                      className={`block truncate rounded-lg px-3 py-2 text-sm ${
+                        open ? `font-semibold text-prussian ${here.tree ? "" : SIDEBAR_OPEN}` : "text-prussian/70 hover:bg-white/60 hover:text-prussian"
+                      }`}
                     >
                       {a.name}
                     </Link>

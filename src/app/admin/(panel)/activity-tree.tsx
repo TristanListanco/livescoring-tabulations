@@ -24,12 +24,15 @@ export async function ActivityTree({ id, requested, away = false }: { id: string
     </li>
   ));
 
+  // An archived one with a single tab (its results) has no branches: its own link in the list is the page.
   if (activity.archivedAt) {
     return (
       <ArchivedHere id={activity.id} name={activity.name}>
-        <nav aria-label="Activity sections" className="activity-tabs mb-1 ml-3 border-l border-line pl-3">
-          <ul>{links}</ul>
-        </nav>
+        {tabs.length > 1 && (
+          <nav aria-label="Activity sections" className="activity-tabs mb-1 ml-3 border-l border-line pl-3">
+            <ul>{links}</ul>
+          </nav>
+        )}
       </ArchivedHere>
     );
   }

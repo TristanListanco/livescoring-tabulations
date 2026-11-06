@@ -12,6 +12,7 @@ import { toastOnRedirect } from "../toaster";
 import { MAX_FIELD_NAME } from "@/lib/entry-details";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
 import { Section } from "../section";
+import { filledSignatories, openSignatories, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
 
@@ -36,6 +37,7 @@ function opened(data: unknown) {
     // The names of up to three details kept about each entry.
     entryFields: [0, 1, 2].map((i) => (Array.isArray(d.entryFields) && typeof d.entryFields[i] === "string" ? d.entryFields[i] : "")),
     entries: typeof d.entries === "string" ? d.entries : "",
+    signatories: openSignatories(d.signatories),
   };
 }
 
@@ -71,6 +73,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [judges, setJudges] = useState<DraftJudge[]>(start.judges);
   const [chairKey, setChairKey] = useState<number | null>(start.chairKey);
   const [entriesText, setEntriesText] = useState(start.entries);
+  const [signatories, setSignatories] = useState<SignatoryRow[]>(start.signatories);
   const entryCount = entriesText.split(/\r?\n/).filter((l) => l.trim()).length;
   const chairIndex = judges.findIndex((j) => j.key === chairKey);
 
@@ -80,7 +83,20 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     saveRef,
     kind: "event",
     name,
-    snapshot: JSON.stringify([name, scoring, resultDecimals, liveScoring, judgesSeeRanking, correctionReasons, independentScoring, entryFields, judges.map((j) => [j.first, j.last, j.preview]), chairIndex, entriesText]),
+    snapshot: JSON.stringify([
+      name,
+      scoring,
+      resultDecimals,
+      liveScoring,
+      judgesSeeRanking,
+      correctionReasons,
+      independentScoring,
+      entryFields,
+      judges.map((j) => [j.first, j.last, j.preview]),
+      chairIndex,
+      entriesText,
+      filledSignatories(signatories),
+    ]),
     collect: async () => ({
       name,
       scoring,
@@ -93,6 +109,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
       judges: await saveJudges(judges),
       chair: chairIndex < 0 ? null : chairIndex,
       entries: entriesText,
+      signatories: filledSignatories(signatories),
     }),
   });
 
@@ -235,6 +252,12 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         <p id="entries-hint" className="hint tabular mt-2">
           {entryCount} {entryCount === 1 ? "entry" : "entries"}
         </p>
+      </Section>
+
+      {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}
+      <Section quiet title="Signatories">
+        <input type="hidden" name="signatories" value={JSON.stringify(filledSignatories(signatories))} />
+        <SignatoryRows rows={signatories} setRows={setSignatories} />
       </Section>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">

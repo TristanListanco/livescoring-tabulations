@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-/** The privacy policy and the terms of service, quietly, at the foot of the pages people sign in from. Colour from `className`. */
+/** The privacy policy, the terms of service and the cookie policy, quietly, where people sign in. Colour from `className`. */
 export function LegalLinks({ className = "" }: { className?: string }) {
   return (
     <nav aria-label="Legal" className={`flex flex-wrap gap-x-5 gap-y-1 text-sm pointer-coarse:gap-y-3 ${className}`}>
@@ -9,6 +9,9 @@ export function LegalLinks({ className = "" }: { className?: string }) {
       </Link>
       <Link href="/terms" className="tap-target hover:underline">
         Terms of service
+      </Link>
+      <Link href="/cookies" className="tap-target hover:underline">
+        Cookie policy
       </Link>
     </nav>
   );

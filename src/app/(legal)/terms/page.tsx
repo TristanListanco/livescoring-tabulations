@@ -21,7 +21,9 @@ export default function TermsOfService() {
       <p>
         These terms are an agreement between you and {LEGAL.operator} (“we”), who runs Tabulous. They apply whenever you use it: as an
         organizer, as a judge, or watching the results. By using Tabulous you agree to them. Our{" "}
-        <Link href="/privacy">privacy policy</Link> says how we handle personal information.
+        <Link href="/privacy" replace>
+          privacy policy
+        </Link> says how we handle personal information.
       </p>
 
       <h2>What Tabulous does</h2>

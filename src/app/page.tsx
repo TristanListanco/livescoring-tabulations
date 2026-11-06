@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { TallyMark } from "@/components/brand";
+import { CookieNotice } from "@/components/cookie-notice";
 import { LegalLinks } from "@/components/legal-links";
 
 export default function Home() {
   return (
     <main className="flex min-h-dvh items-center bg-prussian px-4 py-16 text-mint sm:px-10">
       <div className="mx-auto w-full max-w-3xl">
+        <CookieNotice dark className="mb-10 max-w-xl" />
         <TallyMark className="size-[clamp(3.5rem,9vw,6rem)] text-powder" />
         <h1 className="mt-4 text-[clamp(2.75rem,8vw,5.5rem)] leading-[0.95] font-bold tracking-tight">Tabulous</h1>
         <p className="mt-5 max-w-xl text-xl leading-relaxed text-powder">
