@@ -1005,19 +1005,35 @@ export function SessionTab({
 
           {state === "ended" && (
             <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
-              <div className="px-6 pt-6 pb-6">
-                <div className="flex items-start justify-between gap-4">
-                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-light tracking-[-0.025em]">
-                    Judging has ended
-                  </h2>
+              {/* One row on a wide screen: what happened, then what's left to do. The report ID is on every PDF and CSV it
+                  downloads, so the desk leaves it to them. */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-4 px-6 py-5">
+                <h2 id="desk-heading" className="mr-auto text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-light tracking-[-0.025em]">
+                  Judging has ended
+                </h2>
+                <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
+                  {progress.complete && !pageant && (
+                    <ExportMenu
+                      activityId={activity.id}
+                      options={[
+                        ...sheetOptions("", { judges: true }),
+                        ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
+                      ]}
+                      className="btn bg-mint text-prussian hover:bg-white max-sm:w-full"
+                    />
+                  )}
+                  {/* Archiving closes judging for good: once archived, nothing here but the downloads. */}
+                  {!archived && (
+                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1" />
+                  )}
                   {/*
                     A deliberated session deliberates again, with the password ending took: it reopens the signed record. Any
-                    other reopens, and at least asks. Never once archived.
+                    other reopens, and at least asks.
                   */}
                   {!archived && activity.signedOffAt && !activity.liveScoring && !pageant && (
                     <ConfirmDialog
                       triggerLabel="Redeliberate"
-                      triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
+                      triggerClassName="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1"
                       title="Deliberate again?"
                       tone="danger"
                       confirmLabel="Redeliberate"
@@ -1031,7 +1047,7 @@ export function SessionTab({
                   {!archived && !(activity.signedOffAt && !activity.liveScoring && !pageant) && (
                     <ConfirmDialog
                       triggerLabel="Reopen session"
-                      triggerClassName="btn btn-sm shrink-0 border border-oxford text-mint hover:bg-oxford"
+                      triggerClassName="btn border border-oxford text-mint hover:bg-oxford max-sm:flex-1"
                       title="Reopen the session?"
                       confirmLabel="Reopen session"
                       onConfirm={() => changeState("live")}
@@ -1042,33 +1058,14 @@ export function SessionTab({
                     </ConfirmDialog>
                   )}
                 </div>
-                <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-                {/* The report ID is on every PDF and CSV it downloads, so the desk leaves it to them. */}
-                {!progress.complete && (
-                  <>
-                    <p className="mt-2 text-xl font-bold">
-                      {missing} {missing === 1 ? "score is" : "scores are"} missing
-                    </p>
-                    {!archived && <p className="mt-2 text-[15px] text-powder">Reopen the session so the judges can finish.</p>}
-                  </>
-                )}
               </div>
-              {/* What's left to do, in one row: download, and archive (which closes judging for good). */}
-              {(!archived || (progress.complete && !pageant)) && (
-                <div className="flex flex-wrap items-center gap-3 border-t border-oxford px-6 py-4">
-                  {progress.complete && !pageant && (
-                    <ExportMenu
-                      activityId={activity.id}
-                      options={[
-                        ...sheetOptions("", { judges: true }),
-                        ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
-                      ]}
-                      className="btn bg-mint text-prussian hover:bg-white max-sm:w-full"
-                    />
-                  )}
-                  {!archived && (
-                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn border border-oxford text-mint hover:bg-oxford max-sm:w-full" />
-                  )}
+              <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pb-4 font-semibold"} />
+              {!progress.complete && (
+                <div className="border-t border-oxford px-6 py-4">
+                  <p className="text-xl font-bold">
+                    {missing} {missing === 1 ? "score is" : "scores are"} missing
+                  </p>
+                  {!archived && <p className="mt-1 text-[15px] text-powder">Reopen the session so the judges can finish.</p>}
                 </div>
               )}
             </section>

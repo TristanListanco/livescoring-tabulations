@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { OpenArchivedContext, type OpenArchived } from "./archived-nav";
 import { SIDEBAR_IDLE, SIDEBAR_OPEN, SIDEBAR_ROW } from "./sidebar-styles";
 
 const ICONS = {
@@ -16,12 +18,17 @@ const ICONS = {
 
 /**
  * The sidebar's sections: Activities (with the open activity's tabs under it, `children`), the archived ones
- * (`archived`) and, for the super admin, Organizers. Activities also covers each activity's pages; Organizers covers
- * each account's.
+ * (`archived`) and, for the super admin, Organizers. Activities also covers each activity's pages, except an archived
+ * one's: its tabs go under it in the Archived list (see ArchivedHere). Organizers covers each account's.
  */
 export function AdminNav({ isSuper, archived, children }: { isSuper: boolean; archived: React.ReactNode; children?: React.ReactNode }) {
   const pathname = usePathname();
-  const section = pathname.startsWith("/admin/organizers") ? "organizers" : pathname.startsWith("/admin/profile") ? null : "activities";
+  const [openArchived, setOpenArchived] = useState<OpenArchived | null>(null);
+  const section = pathname.startsWith("/admin/organizers")
+    ? "organizers"
+    : pathname.startsWith("/admin/profile") || openArchived
+      ? null
+      : "activities";
   const link = (href: string, id: keyof typeof ICONS, label: string) => {
     const active = section === id;
     return (
@@ -40,11 +47,13 @@ export function AdminNav({ isSuper, archived, children }: { isSuper: boolean; ar
   };
 
   return (
-    <nav aria-label="Admin" className="flex flex-col gap-1">
-      {link("/admin", "activities", "Activities")}
-      {children}
-      {archived}
-      {isSuper && link("/admin/organizers", "organizers", "Organizers")}
-    </nav>
+    <OpenArchivedContext value={{ open: openArchived, setOpen: setOpenArchived }}>
+      <nav aria-label="Admin" className="flex flex-col gap-1">
+        {link("/admin", "activities", "Activities")}
+        {children}
+        {archived}
+        {isSuper && link("/admin/organizers", "organizers", "Organizers")}
+      </nav>
+    </OpenArchivedContext>
   );
 }
