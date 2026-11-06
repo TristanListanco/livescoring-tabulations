@@ -1,6 +1,7 @@
 "use server";
 
 import { changed } from "@/lib/live-cache";
+import { cleanSignatories } from "@/lib/signatories";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
@@ -741,6 +742,17 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       columns.entry_fields = entryFields;
     }
   }
+  // Who signs the results on paper, added on the create form (and changed later in Settings). Written only when there
+  // are some, as an activity without them has always been created.
+  let sent: unknown;
+  try {
+    sent = JSON.parse(String(formData.get("signatories") ?? "[]"));
+  } catch {
+    return err("The signatories couldn't be read. Try again.");
+  }
+  const signatories = cleanSignatories(sent);
+  if ("error" in signatories) return err(signatories.error);
+  if (signatories.length) columns.signatories = signatories;
 
   const judgeCount = Number(formData.get("judgeCount"));
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
@@ -998,8 +1010,6 @@ export const checkExport = traced("checkExport", async function checkExport(acti
   return ok(`It matches the official ${match.label} sheet.`);
 });
 
-const MAX_SIGNATORIES = 12;
-
 /**
  * Names and designations printed as signature lines on this activity's results PDFs: its Board of Tabulators and
  * whoever else signs them. Each activity has its own; they can change until it's archived.
@@ -1009,14 +1019,8 @@ export const saveSignatories = traced("saveSignatories", async function saveSign
   const activity = await getActivity(activityId);
   if (!activity) return NOT_FOUND;
   if (activity.archivedAt) return err("This activity is archived, so its signatories can't change.");
-  const clean = (Array.isArray(signatories) ? signatories : [])
-    .map((s) => ({
-      name: String(s?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
-      designation: String(s?.designation ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
-    }))
-    .filter((s) => s.name || s.designation);
-  if (clean.some((s) => !s.name)) return err("Every signatory needs a name.");
-  if (clean.length > MAX_SIGNATORIES) return err(`Up to ${MAX_SIGNATORIES} signatories fit on the sheet.`);
+  const clean = cleanSignatories(signatories);
+  if ("error" in clean) return err(clean.error);
   const { error } = await db().from("activities").update({ signatories: clean }).eq("id", activityId);
   if (error) return /signatories/.test(error.message) ? needsMigration("Signatories for each activity need a database update. Run supabase/migrations/027_activity_signatories.sql.") : dbErr(error);
   changed();
