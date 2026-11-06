@@ -8,9 +8,21 @@ import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
 import type { ActivitySignoff, Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
+import { INTER_ITALIC, INTER_LIGHT, INTER_REGULAR, INTER_SEMIBOLD } from "./pdf-fonts";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
+
+// The panel's typeface, in the weights its pages use: light titles, regular text, semibold for what stands out.
+Font.register({
+  family: "Inter",
+  fonts: [
+    { src: INTER_LIGHT, fontWeight: 300 },
+    { src: INTER_REGULAR, fontWeight: 400 },
+    { src: INTER_SEMIBOLD, fontWeight: 600 },
+    { src: INTER_ITALIC, fontWeight: 400, fontStyle: "italic" },
+  ],
+});
 
 const C = {
   prussian: "#0b2545",
@@ -23,27 +35,29 @@ const C = {
 };
 
 const s = StyleSheet.create({
-  page: { paddingTop: 40, paddingBottom: 56, paddingHorizontal: 40, fontFamily: "Helvetica", fontSize: 10, color: C.prussian },
+  page: { paddingTop: 40, paddingBottom: 56, paddingHorizontal: 40, fontFamily: "Inter", fontSize: 9.5, color: C.prussian },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
   photo: { width: 52, height: 52, borderRadius: 26, objectFit: "cover" },
   headerText: { flexGrow: 1, flexBasis: 0 },
   topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  eyebrow: { fontFamily: "Helvetica-Bold", fontSize: 10, color: C.regal },
-  reportId: { fontFamily: "Helvetica-Bold", fontSize: 10, letterSpacing: 0.5 },
-  reportLabel: { fontFamily: "Helvetica", color: C.muted },
-  title: { fontFamily: "Helvetica-Bold", fontSize: 22, marginTop: 4 },
-  subtitle: { fontFamily: "Helvetica-Bold", fontSize: 14, marginTop: 2, color: C.regal },
-  byline: { fontFamily: "Helvetica-Bold", fontSize: 13, marginTop: 6 },
-  bylineRole: { fontFamily: "Helvetica", color: C.muted },
+  eyebrow: { fontWeight: 600, fontSize: 9, color: C.regal },
+  reportId: { fontWeight: 600, fontSize: 9, letterSpacing: 0.4 },
+  reportLabel: { fontWeight: 400, color: C.muted },
+  // As the panel's page titles: large and light, set a little tight.
+  title: { fontWeight: 300, fontSize: 26, lineHeight: 1.15, letterSpacing: -0.5, marginTop: 6 },
+  subtitle: { fontWeight: 400, fontSize: 14, marginTop: 3, color: C.regal },
+  byline: { fontWeight: 600, fontSize: 12, marginTop: 8 },
+  bylineRole: { fontWeight: 400, color: C.muted },
   meta: { marginTop: 6, color: C.muted, maxWidth: 480 },
   table: { marginTop: 22 },
-  headRow: { flexDirection: "row", backgroundColor: C.prussian, color: C.mint, fontFamily: "Helvetica-Bold", fontSize: 9 },
+  // As the panel's tables: small muted headings over a hairline, hairlines between the rows.
+  headRow: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.prussian, color: C.muted, fontWeight: 600, fontSize: 8 },
   row: { flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.line, alignItems: "center" },
   // A judge's score sheet row: the scores, with a correction to one under them.
   sheetRow: { borderBottomWidth: 0.75, borderBottomColor: C.line },
   sheetCells: { flexDirection: "row", alignItems: "center" },
-  note: { marginLeft: 46, marginRight: 6, marginTop: -3, marginBottom: 7, fontFamily: "Helvetica-Oblique", fontSize: 9, color: C.muted },
-  podiumRow: { backgroundColor: C.podium, fontFamily: "Helvetica-Bold" },
+  note: { marginLeft: 46, marginRight: 6, marginTop: -3, marginBottom: 7, fontStyle: "italic", fontSize: 9, color: C.muted },
+  podiumRow: { backgroundColor: C.podium, fontWeight: 600 },
   cell: { paddingVertical: 7, paddingHorizontal: 6 },
   rank: { width: 42 },
   number: { width: 34, color: C.muted },
@@ -51,32 +65,34 @@ const s = StyleSheet.create({
   detail: { flexGrow: 2, flexBasis: 0, color: C.muted },
   judge: { flexGrow: 1, flexBasis: 0, textAlign: "center" },
   // Wide enough for "100.0000%" at four decimal places.
-  average: { width: 72, textAlign: "right", fontFamily: "Helvetica-Bold" },
-  sectionTitle: { fontFamily: "Helvetica-Bold", fontSize: 12, marginTop: 30 },
+  average: { width: 72, textAlign: "right", fontWeight: 600 },
+  // As the panel's section titles: a size up from the text, and regular.
+  sectionTitle: { fontWeight: 400, fontSize: 14, letterSpacing: -0.2, marginTop: 30 },
   sectionNote: { marginTop: 3, color: C.muted },
   signatures: { flexDirection: "row", flexWrap: "wrap", marginTop: 8 },
   signature: { width: "33.33%", paddingRight: 24, marginTop: 30 },
   signLine: { borderBottomWidth: 0.75, borderBottomColor: C.prussian, height: 22 },
-  signName: { fontFamily: "Helvetica-Bold", marginTop: 5 },
-  signed: { fontFamily: "Helvetica-Oblique", marginTop: 3 },
+  signName: { fontWeight: 600, marginTop: 5 },
+  signed: { fontStyle: "italic", marginTop: 3 },
   signRole: { color: C.muted, marginTop: 2 },
   // A judge's drawn signature, at the width of a short signature line (600 × 200, scaled).
   drawn: { width: 105, height: 35, marginBottom: -10 },
   // Narrower than the total: "−12.50" at two decimal places.
   deducted: { width: 64, textAlign: "right" },
   deductionRow: { flexDirection: "row", gap: 8, marginTop: 4 },
-  deductionWho: { width: 150, fontFamily: "Helvetica-Bold" },
+  deductionWho: { width: 150, fontWeight: 600 },
   deductionWhy: { flexGrow: 1, flexBasis: 0 },
   deductionPoints: { width: 90, textAlign: "right", color: C.muted },
   footer: { position: "absolute", bottom: 26, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: C.muted },
   // A long label wraps rather than running into the page number.
-  footerLabel: { flexShrink: 1, marginRight: 16 },
-  footerPage: { flexShrink: 0 },
+  footerLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 0, marginRight: 16 },
+  // Page numbers are filled in after the layout, which can't measure them: room for "· Page 10 of 12".
+  footerPage: { width: 72 },
   footerEnd: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3 },
   // A judge's notes: each entry in running order, beside what they noted on it.
-  noteEntryNumber: { fontFamily: "Helvetica", color: C.muted },
+  noteEntryNumber: { fontWeight: 400, color: C.muted },
   noteRow: { flexDirection: "row", gap: 12, paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: C.line },
-  noteEntry: { width: 170, fontFamily: "Helvetica-Bold" },
+  noteEntry: { width: 170, fontWeight: 600 },
   noteBody: { flexGrow: 1, flexBasis: 0 },
 });
 
@@ -239,10 +255,11 @@ function Footer({ label, info, perSheet = false }: { label: string; info: Report
         <Svg viewBox="0 0 48 48" style={{ width: 8, height: 8 }}>
           <Path d="M12 11v26M20 11v26M28 11v26M36 11v26M5.5 33.5 42.5 14.5" stroke={C.muted} strokeWidth={5} strokeLinecap="round" fill="none" />
         </Svg>
+        <Text>Tabulous</Text>
         <Text
           style={s.footerPage}
           render={({ pageNumber, totalPages, subPageNumber, subPageTotalPages }) =>
-            `Tabulous · ${perSheet ? `Page ${subPageNumber} of ${subPageTotalPages}` : `Page ${pageNumber} of ${totalPages}`}`
+            `· ${perSheet ? `Page ${subPageNumber} of ${subPageTotalPages}` : `Page ${pageNumber} of ${totalPages}`}`
           }
         />
       </View>
@@ -304,10 +321,10 @@ function ResultsDocument({
         <View style={s.table}>
           <View style={s.headRow} fixed>
             <Text style={[s.cell, s.rank]}>Rank</Text>
-            <Text style={[s.cell, s.number, { color: C.mint }]}>No.</Text>
+            <Text style={[s.cell, s.number]}>No.</Text>
             <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
             {fields.map((f) => (
-              <Text key={f.id} style={[s.cell, s.detail, { color: C.mint }]}>
+              <Text key={f.id} style={[s.cell, s.detail]}>
                 {f.name}
               </Text>
             ))}
@@ -419,7 +436,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
 
             <View style={s.table}>
               <View style={s.headRow} fixed>
-                <Text style={[s.cell, s.number, { color: C.mint }]}>No.</Text>
+                <Text style={[s.cell, s.number]}>No.</Text>
                 <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
                 {criteria.map((c) => (
                   <Text key={c.id} style={[s.cell, s.judge]}>
@@ -497,7 +514,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
           <View style={s.headRow} fixed>
             {statusHead && <Text style={[s.cell, s.rank]}>{statusHead}</Text>}
             <Text style={[s.cell, s.rank]}>Rank</Text>
-            <Text style={[s.cell, s.number, { color: C.mint }]}>No.</Text>
+            <Text style={[s.cell, s.number]}>No.</Text>
             <Text style={[s.cell, s.entry]}>Candidate</Text>
             {sheet.weights.map((w) => (
               <Text key={w.round.id} style={[s.cell, s.judge]}>
