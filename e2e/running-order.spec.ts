@@ -61,7 +61,8 @@ test.describe.serial("running order", () => {
       await expect(page.getByLabel("Entry 1 name")).toHaveValue(first);
       const order = await stored();
       expect([...order].sort()).toEqual(NAMES);
-      expect(await listed(page)).toEqual(order);
+      // The message can come a moment before the list it describes: wait for the list.
+      await expect.poll(() => listed(page)).toEqual(order);
     }
     await snap(page, "shuffled");
     await expectAccessible(page);

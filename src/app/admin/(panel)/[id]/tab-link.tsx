@@ -3,10 +3,9 @@
 import Link, { useLinkStatus } from "next/link";
 
 /**
- * One of an activity's tabs: a branch of its tree in the sidebar, or (on phones and tablets, without the sidebar) a pill
- * in the row under its name. Opening a tab can take a moment (each reads the activity afresh), so the tab picked shows
- * it at once: it lights up with a bar running under it, and the panel dims until the new one arrives (see
- * .activity-tabs in globals.css).
+ * One of an activity's tabs: a branch of its tree in the sidebar, or (without the sidebar's tree) a pill under its name.
+ * Opening a tab can take a moment when it isn't cached, so the tab picked shows it at once: it lights up with a bar
+ * running under it, and the panel dims until the new one arrives (see .activity-tabs in globals.css).
  */
 export function TabLink({ href, active, look, children }: { href: string; active: boolean; look: "tree" | "pill"; children: React.ReactNode }) {
   const shape =
@@ -17,7 +16,8 @@ export function TabLink({ href, active, look, children }: { href: string; active
             ? "bg-white font-medium text-prussian shadow-[0_1px_2px_rgb(11_37_69/0.08)] before:absolute before:inset-y-2 before:-left-[0.8125rem] before:w-0.5 before:rounded-full before:bg-regal"
             : "text-prussian/70 hover:bg-white/60 hover:text-prussian"
         }`
-      : `block rounded-full px-4 py-1.5 text-[15px] font-semibold whitespace-nowrap pointer-coarse:py-2.5 ${
+      : // A cell of the phones' grid, filling it (a narrow phone shortens a long name rather than overflow); a pill wider.
+        `flex h-9 items-center justify-center rounded-full px-2 text-[15px] font-semibold whitespace-nowrap pointer-coarse:h-11 md:px-4 ${
           active ? "bg-white text-prussian shadow-[0_1px_2px_rgb(11_37_69/0.08)]" : "text-prussian/70 hover:text-prussian"
         }`;
   return (
@@ -27,7 +27,7 @@ export function TabLink({ href, active, look, children }: { href: string; active
       aria-current={active ? "page" : undefined}
       className={`relative transition-colors has-[[data-tab-pending]]:text-regal ${shape}`}
     >
-      {children}
+      {look === "pill" ? <span className="min-w-0 truncate">{children}</span> : children}
       <Pending />
     </Link>
   );

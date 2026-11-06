@@ -2,19 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
-import { reportId } from "@/lib/report";
 import { expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
+import { LiveSince } from "@/lib/use-live-refresh";
 
 import { SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
+import { CatchUp } from "./judge-devices";
 import { EntriesTab } from "./entries-tab";
 import { LedTab } from "./led-tab";
 import { SessionTab } from "./session-tab";
@@ -30,6 +31,9 @@ import { PanelSkeleton } from "../skeletons";
  */
 const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
 
+/** A tab's width in the phones' grid of six columns: a row of three, two, or one. */
+const COL_SPAN: Record<number, string> = { 1: "col-span-6", 2: "col-span-3", 3: "col-span-2" };
+
 function canSee(session: AdminSession | null, board: Board | null): board is Board {
   return !!board && canManageActivity(session, board.activity.ownerId);
 }
@@ -43,6 +47,9 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const id = (await params).id;
   const requested = (await searchParams).tab;
   const asked = askedTab(requested);
+  // When the activity last changed, read before anything else on the page. The page's live checks compare with it, so
+  // a page shown again from the browser's cache (staleTimes in next.config.ts) reloads only if something has changed.
+  const since = await activityChangedAt(id);
   // What the tab reads starts with the board rather than after it: each is a trip to the database, and the desk reloads
   // all of this after every score. Which tab opens can depend on the board (with none asked for, Judges before the
   // session and Session after), so both of those start then; one is left unused. Nothing is shown until the session
@@ -100,51 +107,59 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     scoredFor.set(s.entryId, (scoredFor.get(s.entryId) ?? 0) + 1);
   }
 
+  // On phones, a row of tabs for running the show and one for setting it up (or one row, for an archived activity's two).
+  const rows = tabs.length > 3 ? [tabs.filter((t) => t.group === "show"), tabs.filter((t) => t.group === "setup")] : [tabs];
+  const span = new Map(rows.flatMap((row) => row.map((t) => [t.id, COL_SPAN[row.length] ?? "col-span-2"] as const)));
+
   return (
-    <>
-      <Link href="/admin" className="text-action lg:hidden">
-        Activities
-      </Link>
-      <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="title">{activity.name}</h1>
-            {archived ? (
-              <span className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
-                <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                  <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-                </svg>
-                Archived
-              </span>
-            ) : (
-              <Link
-                href={`/admin/${activity.id}?tab=session`}
-                scroll={false}
-                className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
-              >
-                <SessionStatus state={activity.sessionState} pulse />
-              </Link>
-            )}
-            {!archived && waitingDevices > 0 && (
-              <Link
-                href={`/admin/${activity.id}?tab=judges`}
-                scroll={false}
-                className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
-              >
-                {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
-              </Link>
-            )}
+    <LiveSince changedAt={since}>
+      {/* The name stays put as tabs change; only the tab below it arrives (see main > * in globals.css). */}
+      <div className="activity-head">
+        <Link href="/admin" className="text-action lg:hidden">
+          Activities
+        </Link>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="title">{activity.name}</h1>
+              {archived ? (
+                <span className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
+                  <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                    <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                  Archived {dateFormat.format(new Date(activity.archivedAt!))}
+                </span>
+              ) : (
+                <Link
+                  href={`/admin/${activity.id}?tab=session`}
+                  scroll={false}
+                  className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
+                >
+                  <SessionStatus state={activity.sessionState} pulse />
+                </Link>
+              )}
+              {!archived && waitingDevices > 0 && (
+                <Link
+                  href={`/admin/${activity.id}?tab=judges`}
+                  scroll={false}
+                  className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
+                >
+                  {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {archived && <p className="mt-3 text-sm text-prussian/70">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>}
-
-      {/* Without the sidebar's tree (phones and tablets, or the sidebar collapsed), the tabs are a row of pills under the name. */}
-      <nav aria-label="Activity sections" className="activity-tabs page-tabs -mx-4 mt-6 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden">
-        <ul className="flex w-max gap-1 rounded-full bg-wash p-1">
+      {/*
+        Without the sidebar's tree (phones and tablets, or the sidebar collapsed), the tabs sit under the name: on phones
+        a grid, every tab in reach at once with nothing to scroll sideways; wider, one row of pills.
+      */}
+      <nav aria-label="Activity sections" className="activity-tabs page-tabs mt-6 lg:hidden">
+        <ul className="grid grid-cols-6 gap-1 rounded-[1.375rem] bg-wash p-1 md:flex md:w-max md:max-w-full md:flex-wrap md:rounded-full">
           {tabs.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className={span.get(t.id)}>
               <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} active={t.id === tab}>
                 {t.label}
               </TabLink>
@@ -178,7 +193,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               renderedAt={renderedAt}
               devices={devices}
               progress={progress}
-              reportId={reportId(board)}
               liveUrl={liveUrl}
               liveQr={liveQr}
               corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}
@@ -215,6 +229,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         </div>
         <PanelSkeleton className="tab-skeleton absolute inset-x-0 top-0 min-h-full bg-mint pt-6 lg:pt-8" />
       </div>
-    </>
+      {/* The tabs that don't keep themselves live check once, as they open, that they're current. */}
+      {(tab === "entries" || tab === "segments" || (tab === "settings" && !archived)) && <CatchUp activityId={activity.id} since={since} />}
+    </LiveSince>
   );
 }

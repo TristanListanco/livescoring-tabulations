@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState } from "react";
 import { SIDEBAR_COOKIE, type AdminTheme } from "@/lib/theme";
-import { SIDEBAR_IDLE, SIDEBAR_ROW } from "./sidebar-styles";
 
 const Collapse = createContext<{ collapsed: boolean; setCollapsed: (collapsed: boolean) => void }>({ collapsed: false, setCollapsed: () => {} });
 
@@ -29,23 +28,25 @@ export function SidebarShell({ theme, initialCollapsed, children }: { theme: Adm
   );
 }
 
-/** Collapses the sidebar to its icons, or opens it again. Wide screens only. */
+/**
+ * Collapses the sidebar to its icons, or opens it again: a small round button on the sidebar's edge, beside the logo,
+ * whose chevron turns as the sidebar narrows. Wide screens only.
+ */
 export function CollapseToggle() {
   const { collapsed, setCollapsed } = useSidebar();
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
   return (
     <button
       type="button"
       onClick={() => setCollapsed(!collapsed)}
       aria-expanded={!collapsed}
-      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      className={`${SIDEBAR_ROW} ${SIDEBAR_IDLE} max-lg:hidden`}
+      aria-label={label}
+      title={label}
+      className="absolute top-6 -right-3.5 z-10 grid size-7 place-items-center rounded-full border border-line bg-white text-prussian/70 shadow-[0_1px_3px_rgb(11_37_69/0.1)] transition-colors after:absolute after:-inset-2 hover:border-field hover:text-prussian max-lg:hidden"
     >
-      <svg viewBox="0 0 20 20" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <rect x="3" y="3.5" width="14" height="13" rx="3" />
-        <path d="M8 3.5v13" />
-        <path d={collapsed ? "M11 8.5l1.75 1.5L11 11.5" : "M13 8.5L11.25 10 13 11.5"} />
+      <svg viewBox="0 0 16 16" className="sidebar-chevron size-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M9.75 4.5L6.25 8l3.5 3.5" />
       </svg>
-      <span className="sidebar-label">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</span>
     </button>
   );
 }

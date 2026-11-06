@@ -3,6 +3,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import type { JudgePanel } from "@/lib/types";
 import { saveDraft } from "../../actions";
+import { listChanged } from "../activities-refresh";
 import type { DraftCandidate } from "./candidates-fields";
 import type { DraftJudge } from "./judges-fields";
 
@@ -141,6 +142,7 @@ export function useDraft({
     }
     setDraftId(result.id);
     setSaved(taken);
+    listChanged();
     setStatus({ ok: true, text: `Draft saved at ${timeFormat.format(new Date(result.savedAt))}.${note ? ` ${note}` : ""}` });
     window.history.replaceState(null, "", `/admin/new?draft=${result.id}`);
     return true;

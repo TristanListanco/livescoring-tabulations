@@ -439,8 +439,7 @@ test.describe.serial("a full event", () => {
   test("the results PDF downloads with a report ID", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=session`);
-    await expect(page.getByText(/^Report ID LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/)).toBeVisible();
-    // Every download is in one menu.
+    // Every download is in one menu, which the desk offers once every score is in.
     const download = await exportFile(page, "Results (PDF)");
     expect(download.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.pdf$/);
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
@@ -470,10 +469,10 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("dialog")).toContainText("the report ID changes");
     await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
-    // The desk turns into the results: the report ID and the PDF, right where the show ended.
+    // The desk turns into the results, right where the show ended: their downloads (each carries the report ID).
     const desk = page.getByRole("region", { name: "Judging has ended" });
     await expect(desk).not.toContainText("missing");
-    await expect(desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/)).toBeVisible();
+    await expect(desk).not.toContainText("Report ID");
     await expect(desk.getByRole("button", { name: "Export", exact: true })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Judging has ended", REALTIME);
     await expect(heading(judge2)).toHaveText("Judging has ended", REALTIME);
@@ -497,14 +496,12 @@ test.describe.serial("a full event", () => {
 
   test("the results download as CSV too, and a copy is checked against the scores", async ({ page }) => {
     await openSession(page);
-    const desk = page.getByRole("region", { name: "Judging has ended" });
-    const shownId = (await desk.getByText(/^LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/).textContent())!;
     const csv = await exportFile(page, "Results (CSV)");
     expect(csv.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.csv$/);
     const text = readFileSync(await csv.path(), "utf8");
-    // What it is and its report ID, as on the desk and the PDF; a fingerprint of its rows; then the rows.
+    // What it is and its report ID, as on the PDF; a fingerprint of its rows; then the rows.
     expect(text.startsWith("\uFEFFActivity,")).toBe(true);
-    expect(text).toContain(`Report ID,${shownId}`);
+    expect(text).toMatch(/Report ID,LS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}/);
     expect(text).toMatch(/Fingerprint \(SHA-256\),[0-9a-f]{64}/);
     expect(text).toContain("Rank,No.,Entry,Ana Cruz,Ben Torres,Average");
 

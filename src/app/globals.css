@@ -132,10 +132,17 @@ html {
   [data-sidebar="collapsed"] .admin-sidebar .sidebar-expanded-only {
     display: none;
   }
-  /* With the tree out of the sidebar, the activity's tabs come back as the row of pills under its name. */
-  [data-sidebar="collapsed"] .activity-tabs.page-tabs {
+  /* With the tree out of the sidebar, the activity's tabs come back under its name (and in its skeleton). */
+  [data-sidebar="collapsed"] .page-tabs {
     display: block;
   }
+}
+/* The collapse button's chevron turns with the sidebar: pointing in to collapse it, out to open it again. */
+.sidebar-chevron {
+  transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-sidebar="collapsed"] .sidebar-chevron {
+  transform: rotate(180deg);
 }
 
 /* The phones' drawer: it slides in from the left over a fading backdrop, and slides back a little quicker. */
@@ -173,7 +180,8 @@ html {
 }
 /* Reduced motion: the sidebar and the drawer change at once; the drawer fades rather than slides. */
 @media (prefers-reduced-motion: reduce) {
-  .admin-sidebar {
+  .admin-sidebar,
+  .sidebar-chevron {
     transition: none;
   }
   .sidebar-drawer,
@@ -207,6 +215,85 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .skeleton {
     animation: none;
+  }
+}
+
+/*
+ * A page of the admin panel that has to load (one not in the browser's cache) shows nothing for a beat, then its
+ * skeleton fades in: a quick load never flashes one. What arrives, from the server or the cache, settles in with a
+ * short fade and a rise of a few pixels, rather than snapping in. An activity's name and tabs stay put as its tabs
+ * change (they're drawn again each time), so only the tab below them arrives.
+ */
+.skeleton-enter {
+  animation: fade-in 220ms ease-out 100ms both;
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+[data-admin-theme] main > :not(.activity-head, .activity-tabs, [role="status"]) {
+  animation: enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* A list's rows follow it in, one a beat after another (the first eight; the rest with the eighth). */
+.stagger > * {
+  animation: enter 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: 280ms;
+}
+.stagger > :nth-child(1) {
+  animation-delay: 40ms;
+}
+.stagger > :nth-child(2) {
+  animation-delay: 75ms;
+}
+.stagger > :nth-child(3) {
+  animation-delay: 110ms;
+}
+.stagger > :nth-child(4) {
+  animation-delay: 145ms;
+}
+.stagger > :nth-child(5) {
+  animation-delay: 180ms;
+}
+.stagger > :nth-child(6) {
+  animation-delay: 210ms;
+}
+.stagger > :nth-child(7) {
+  animation-delay: 240ms;
+}
+/* A dialog rises into place over its fading backdrop, and a menu drops open from its button; both go at once. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+[data-admin-theme] dialog[open]:not(.sidebar-drawer) {
+  animation: dialog-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-admin-theme] dialog[open]:not(.sidebar-drawer)::backdrop {
+  animation: fade-in 200ms ease-out;
+}
+[data-admin-theme] [popover]:popover-open {
+  animation: menu-in 160ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-admin-theme] main > :not(.activity-head, .activity-tabs, [role="status"]) {
+    animation: fade-in 160ms ease-out;
+  }
+  .stagger > * {
+    animation: none;
+  }
+  [data-admin-theme] dialog[open]:not(.sidebar-drawer),
+  [data-admin-theme] [popover]:popover-open {
+    animation-name: fade-in;
   }
 }
 
@@ -312,8 +399,9 @@ html:has(.share-ledger) {
 }
 
 @layer components {
+  /* A press gives a little under the finger or the pointer (not with reduced motion). */
   .btn {
-    @apply inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold whitespace-nowrap transition-[color,background-color,border-color,scale] disabled:cursor-not-allowed disabled:opacity-50 motion-safe:active:not-disabled:scale-97;
   }
   .btn-primary {
     @apply bg-regal text-mint hover:bg-oxford;

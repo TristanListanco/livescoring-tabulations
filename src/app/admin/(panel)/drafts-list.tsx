@@ -13,7 +13,7 @@ export function DraftsList({ drafts }: { drafts: DraftSummary[] }) {
       <h2 id="drafts" className="title-sm">
         Drafts
       </h2>
-      <ul className="card mt-4 divide-y divide-line">
+      <ul className="card stagger mt-4 divide-y divide-line">
         {drafts.map((d) => {
           const name = d.name || (d.kind === "pageant" ? "Untitled pageant" : "Untitled event");
           return (

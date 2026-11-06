@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { reach } from "@/lib/reach";
+import { browserClient } from "@/lib/supabase/browser";
 import type { ActionResult, Judge, JudgeDevice } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { approveDevice, revokeDevice } from "../../actions";
@@ -10,6 +12,31 @@ import { approveDevice, revokeDevice } from "../../actions";
 /** Keeps the Judges tab current, so a judge's request for approval appears within seconds. */
 export function LiveRefresh({ activityId, ended = false }: { activityId: string; ended?: boolean }) {
   useLiveRefresh(activityId, ended ? JUDGING_OVER : {});
+  return null;
+}
+
+/**
+ * For a tab that doesn't keep itself live (Entries, Settings): one check as it opens, reloading only if the activity
+ * changed after the server read it (`since`, see activityChangedAt), as a tab shown again from the browser's cache may
+ * have. Offline, it leaves the tab as it is rather than reload into an error.
+ */
+export function CatchUp({ activityId, since }: { activityId: string; since: string | null | undefined }) {
+  const router = useRouter();
+  useEffect(() => {
+    let stopped = false;
+    void browserClient()
+      .from("activity_changes")
+      .select("changed_at")
+      .eq("activity_id", activityId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (stopped || (error && !error.code)) return;
+        if (error || since === undefined || ((data as { changed_at: string } | null)?.changed_at ?? null) !== since) router.refresh();
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [activityId, since, router]);
   return null;
 }
 

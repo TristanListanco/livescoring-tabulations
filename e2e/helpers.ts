@@ -88,10 +88,11 @@ export async function settle(page: Page) {
  * resting design. The Next.js dev overlay is not part of the app.
  */
 export async function expectAccessible(page: Page) {
-  await settle(page);
-  // A page streams in after its skeleton, and its title with it: check what arrives, not the placeholder.
+  // A page streams in after its skeleton, and its title with it: check what arrives, not the placeholder, once it has
+  // settled in.
   await expect(page.locator('[aria-label="Loading"][aria-busy="true"]:visible')).toHaveCount(0, { timeout: 20_000 });
   await expect(page).toHaveTitle(/\S/);
+  await settle(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude("nextjs-portal").analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([]);
 }

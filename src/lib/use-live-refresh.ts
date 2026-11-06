@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { checkInterval, createRefresher } from "./refresh-schedule";
 import { reportProblem } from "./report-problem";
@@ -61,6 +61,18 @@ type Options = {
  */
 export const JUDGING_OVER = { pollMs: 30_000, realtime: false } satisfies Options;
 
+const ChangedAt = createContext<string | null | undefined>(undefined);
+
+/**
+ * When the page's activity last changed, as the server read it before the rest of the page (activityChangedAt). With it,
+ * the page's first check reloads only if the activity has changed since, rather than to be sure: a page shown again
+ * from the browser's cache of pages isn't reloaded for nothing, and a reload, which empties that cache, doesn't send the
+ * next page back to its skeleton either.
+ */
+export function LiveSince({ changedAt, children }: { changedAt: string | null | undefined; children: ReactNode }) {
+  return createElement(ChangedAt, { value: changedAt }, children);
+}
+
 /**
  * Re-render the current page whenever this activity's data changes.
  *
@@ -86,13 +98,20 @@ export function useLiveRefresh(
 ): LiveStatus {
   const router = useRouter();
   const [status, setStatus] = useState<LiveStatus>("connecting");
+  // The latest page's, for when the checks start (again): it moves with every reload, which mustn't restart them.
+  const changedAt = useContext(ChangedAt);
+  const since = useRef(changedAt);
+  useEffect(() => {
+    since.current = changedAt;
+  });
 
   useEffect(() => {
     if (!enabled) return;
     let stopped = false;
     let subscribed = false;
-    // The last change this page knows about: undefined until the first check, then the row's time (null: none yet).
-    let seen: string | null | undefined;
+    // The last change this page knows about: the server's (see LiveSince), or undefined until the first check; then the
+    // row's time (null: none yet).
+    let seen: string | null | undefined = since.current;
     const refresher = createRefresher(() => router.refresh(), { minGapMs });
     const refresh = refresher.request;
     const supabase = browserClient();
@@ -124,8 +143,8 @@ export function useLiveRefresh(
       }
       failures = 0;
       const at = (data as { changed_at: string } | null)?.changed_at ?? null;
-      // The first check can't tell whether a change came between the server rendering this page and now (the time it
-      // took to load and start up), so it catches up once; after that, only a change does.
+      // Without the server's time, the first check can't tell whether a change came between the server rendering this
+      // page and now (the time it took to load and start up), so it catches up once; after that, only a change does.
       const moved = seen === undefined || at !== seen;
       unchanged = moved ? 0 : unchanged + 1;
       if (catchUp || moved) refresh();
@@ -180,7 +199,7 @@ export function useLiveRefresh(
         if (state === "SUBSCRIBED") {
           subscribed = true;
           setStatus("live");
-          refresh(); // catch anything that changed while connecting
+          void check(); // catch anything that changed while connecting
           scheduleCheck();
         } else if (state === "CHANNEL_ERROR" || state === "TIMED_OUT" || state === "CLOSED") {
           subscribed = false;

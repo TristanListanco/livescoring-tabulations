@@ -155,19 +155,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     },
   };
 
-  // An event without live scoring has no LED wall: its scores stay with the judges until they've signed.
-  if (activity.kind === "event" && !activity.liveScoring) {
-    return (
-      <div className="max-w-2xl">
-        <h2 className="sr-only">LED wall</h2>
-        <p role="note" className="note mt-3">
-          The LED wall is off for this event. Without live scoring, the scores stay with the judges until they&apos;ve deliberated and signed, so
-          there&apos;s nothing to put on the wall. The live results page shows them once they&apos;re signed.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-8">
       <div>

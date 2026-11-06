@@ -14,7 +14,7 @@ import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
-import { DeleteArchivedButton } from "../archive-controls";
+import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -122,7 +122,7 @@ function CriterionGuides({ activity }: { activity: Activity }) {
   );
 }
 
-/** An event's live scoring: a switch until judging starts, then fixed. */
+/** An event's live scoring: a switch until judging starts, then fixed (the switch stays, locked, to show which). */
 function LiveScoring({ activity }: { activity: Activity }) {
   const [on, setOn] = useState(activity.liveScoring);
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -138,11 +138,11 @@ function LiveScoring({ activity }: { activity: Activity }) {
     });
   };
   return (
-    <div className="max-w-2xl space-y-2">
+    <div className="space-y-2">
       <div className="flex items-center gap-4">
-        {editable && <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending} />}
+        <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending || !editable} />
         <p id="live-scoring-label" className="font-semibold">
-          {editable ? "Show scores live" : on ? "Scores show live" : "Scores show after the judges sign"}
+          Show scores live
         </p>
       </div>
       <FormMessage state={result} small />
@@ -150,7 +150,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
   );
 }
 
-/** One of the options for judges' screens (see setActivityOption), switched straight away. */
+/** One of the options for judges' screens (see setActivityOption), switched straight away; locked once it can't change. */
 function OptionSwitch({
   activity,
   option,
@@ -176,11 +176,11 @@ function OptionSwitch({
     });
   };
   return (
-    <div className="max-w-2xl space-y-2">
+    <div className="space-y-2">
       <div className="flex items-center gap-4">
-        {editable && <Switch checked={on} onChange={toggle} labelledBy={id} disabled={pending} />}
+        <Switch checked={on} onChange={toggle} labelledBy={id} disabled={pending || !editable} />
         <p id={id} className="font-semibold">
-          {editable ? label : `${label}: ${on ? "on" : "off"}`}
+          {label}
         </p>
       </div>
       <FormMessage state={result} small />
@@ -190,16 +190,29 @@ function OptionSwitch({
 
 type OrganizerOption = { id: string; name: string; email: string };
 
+/**
+ * What's done with the activity as a whole, on one line: check a CSV against it, archive it once judging has ended, and,
+ * at the far end, delete it (or a test site's tools).
+ */
+function ManageActivity({ children, end }: { children: React.ReactNode; end: React.ReactNode }) {
+  return (
+    <section aria-labelledby="manage-activity" className="card mt-4 flex flex-wrap items-start gap-3 p-5 sm:p-7">
+      <h2 id="manage-activity" className="sr-only">
+        Manage activity
+      </h2>
+      {children}
+      <div className="flex flex-wrap items-center gap-3 sm:ml-auto">{end}</div>
+    </section>
+  );
+}
+
 /** An archived activity's Settings: nothing to change, but a CSV to check, and deleting it. */
 export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
   return (
     <div className="max-w-4xl">
-      <Section quiet title="Check an exported CSV">
+      <ManageActivity end={<DeleteArchivedButton activityId={activityId} name={name} />}>
         <CsvCheck activityId={activityId} className="btn btn-quiet" />
-      </Section>
-      <Section quiet title="Delete activity">
-        <DeleteArchivedButton activityId={activityId} name={name} />
-      </Section>
+      </ManageActivity>
     </div>
   );
 }
@@ -281,45 +294,38 @@ export function SettingsTab({
         <ScoringSummary activity={activity} />
       </Section>
 
-      {activity.kind === "event" && (
-        <Section quiet title="Live scoring">
-          <LiveScoring activity={activity} />
-        </Section>
-      )}
-
-      {activity.kind === "event" && !activity.liveScoring && (
-        <Section quiet title="Judging without live scoring">
-          <div className="space-y-6">
-            <OptionSwitch
-              activity={activity}
-              option="independentScoring"
-              label="Judges score at their own pace"
-              editable={activity.sessionState === "draft"}
-            />
-            <OptionSwitch
-              activity={activity}
-              option="correctionReasons"
-              label="Judges pick a reason from a list when they correct a score"
-              editable={activity.sessionState !== "ended"}
-            />
-            <OptionSwitch
-              activity={activity}
-              option="judgesSeeRanking"
-              label="Judges see the overall ranking while they deliberate"
-              editable={activity.sessionState !== "ended"}
-            />
-          </div>
-        </Section>
-      )}
-
-      <Section quiet title="Judges' screens">
-        <OptionSwitch
-          activity={activity}
-          option="privacyScreen"
-          label="Privacy screen on judges' phones and tablets"
-          editable={!activity.archivedAt}
-        />
-      </Section>
+      {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
+      <section aria-labelledby="judging-options" className="card mt-4 p-5 sm:p-7">
+        <h2 id="judging-options" className="title-sm">
+          {activity.kind === "pageant" ? "Pageant settings" : "Event settings"}
+        </h2>
+        <div className="mt-5 space-y-5">
+          {activity.kind === "event" && <LiveScoring activity={activity} />}
+          {activity.kind === "event" && !activity.liveScoring && (
+            <>
+              <OptionSwitch
+                activity={activity}
+                option="independentScoring"
+                label="Judges score at their own pace"
+                editable={activity.sessionState === "draft"}
+              />
+              <OptionSwitch
+                activity={activity}
+                option="correctionReasons"
+                label="Judges pick a reason from a list when they correct a score"
+                editable={activity.sessionState !== "ended"}
+              />
+              <OptionSwitch
+                activity={activity}
+                option="judgesSeeRanking"
+                label="Judges see the overall ranking while they deliberate"
+                editable={activity.sessionState !== "ended"}
+              />
+            </>
+          )}
+          <OptionSwitch activity={activity} option="privacyScreen" label="Privacy screen on judges' phones and tablets" editable={!activity.archivedAt} />
+        </div>
+      </section>
 
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
         <Section quiet title="Guides for judges">
@@ -331,25 +337,19 @@ export function SettingsTab({
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
       </Section>
 
-      <Section quiet title="Check an exported CSV">
-        <CsvCheck activityId={activity.id} className="btn btn-quiet" />
-      </Section>
-
       {organizers && (
         <Section quiet title="Organizer">
           <OwnerPicker activity={activity} organizers={organizers} />
         </Section>
       )}
 
-      {developer ? (
-        <Section quiet title="Test site tools">
-          <TestSiteTools activity={activity} scoreCount={scoreCount} />
-        </Section>
-      ) : (
-        <Section quiet title="Delete activity">
-          {activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
-            <p role="note" className="note max-w-xl">
-              The session is running. End it on the Session tab before deleting the activity.
+      <ManageActivity
+        end={
+          developer ? (
+            <TestSiteTools activity={activity} scoreCount={scoreCount} />
+          ) : activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
+            <p role="note" className="hint">
+              End the session to delete this activity.
             </p>
           ) : (
             <ConfirmDialog
@@ -364,9 +364,12 @@ export function SettingsTab({
               This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results
               link stop working.
             </ConfirmDialog>
-          )}
-        </Section>
-      )}
+          )
+        }
+      >
+        <CsvCheck activityId={activity.id} className="btn btn-quiet" />
+        {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} />}
+      </ManageActivity>
     </div>
   );
 }
