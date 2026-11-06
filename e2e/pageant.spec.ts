@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -271,7 +271,7 @@ test.describe.serial("a pageant", () => {
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
 
     adminPath = new URL(page.url()).pathname;
-    codes = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Judge code ", ""));
+    codes = await judgeCodes(page);
     // In board order: the preliminary's Dina, then Ana, Ben and Cara.
     expect(codes).toHaveLength(4);
     // A pageant calls its entries candidates, and its program has its own tab.

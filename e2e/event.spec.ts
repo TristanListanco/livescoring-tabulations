@@ -1,20 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
-import {
-  boardOrder,
-  choosePhoto,
-  deleteActivityNamed,
-  deleteOrganizerByEmail,
-  expectAccessible,
-  exportFile,
-  openJudgeLink,
-  screenPath,
-  signInAsOrganizer,
-  signInAsSuperAdmin,
-  snap,
-  submitScore,
-  tapScore,
-} from "./helpers";
+import { boardOrder, choosePhoto, deleteActivityNamed, deleteOrganizerByEmail, expectAccessible, exportFile, judgeCodes, openJudgeLink, screenPath, signInAsOrganizer, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // One event from account setup to teardown, against a real database. Each step builds on the last.
 // The organizer drives judging: judges wait for the session to start and score the entry they're shown.
@@ -154,8 +140,7 @@ test.describe.serial("a full event", () => {
     await expect(page.getByLabel("Signatory 2 full name")).toHaveCount(0);
     await page.goto(adminPath);
 
-    const codeTexts = await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents();
-    codes = codeTexts.map((t) => t.replace("Judge code ", ""));
+    codes = await judgeCodes(page);
     expect(codes).toHaveLength(2);
     // Judges' codes show without copy buttons or links; the header has no live results button or rules line.
     await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
@@ -532,8 +517,11 @@ test.describe.serial("a full event", () => {
     // A copy is checked on the Settings tab: as downloaded it checks out; with a name changed it doesn't.
     await page.goto(`${adminPath}?tab=settings`);
     const check = page.getByLabel("Check a CSV");
-    await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
-    await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.");
+    // Chosen again if the page hadn't hydrated yet to hear it.
+    await expect(async () => {
+      await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
+      await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.", { timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
     await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
     await expect(page.getByRole("alert").filter({ hasText: "changed" })).toHaveText(
       "This file was changed after it was exported: its rows no longer match its fingerprint.",

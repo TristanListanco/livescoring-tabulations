@@ -22,6 +22,7 @@ import { SegmentsTab } from "./segments-tab";
 import { ArchivedSettings, SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 import { activityTabs, askedTab } from "./tabs";
+import { PanelSkeleton } from "../skeletons";
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -139,8 +140,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
 
       {archived && <p className="mt-3 text-sm text-prussian/70">Archived {dateFormat.format(new Date(activity.archivedAt!))}. Read-only.</p>}
 
-      {/* Without the sidebar (phones and tablets), the tabs are a row of pills under the name. */}
-      <nav aria-label="Activity sections" className="activity-tabs -mx-4 mt-6 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden">
+      {/* Without the sidebar's tree (phones and tablets, or the sidebar collapsed), the tabs are a row of pills under the name. */}
+      <nav aria-label="Activity sections" className="activity-tabs page-tabs -mx-4 mt-6 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden">
         <ul className="flex w-max gap-1 rounded-full bg-wash p-1">
           {tabs.map((t) => (
             <li key={t.id}>
@@ -152,63 +153,67 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         </ul>
       </nav>
 
-      <div className="activity-panel pt-6 lg:pt-8">
-        {tab === "judges" && (
-          <JudgesTab
-            activityId={activity.id}
-            devices={devices}
-            origin={origin}
-            judges={judges}
-            codes={codes}
-            scoredBy={scoredBy}
-            entryCount={entries.length}
-            // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
-            expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
-            locked={started}
-            ended={activity.sessionState === "ended"}
-            pageant={pageant}
-          />
-        )}
-        {tab === "session" && (
-          <SessionTab
-            board={deskBoard}
-            renderedAt={renderedAt}
-            devices={devices}
-            progress={progress}
-            reportId={reportId(board)}
-            liveUrl={liveUrl}
-            liveQr={liveQr}
-            corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}
-            deliberation={activity.sessionState === "deliberation" ? deliberationResults(board, signatures) : undefined}
-            archived={archived}
-            hasNotes={(notes?.length ?? 0) > 0}
-            signatures={signatures}
-          />
-        )}
-        {tab === "entries" && (
-          <EntriesTab
-            activityId={activity.id}
-            entries={entries}
-            scoredFor={Object.fromEntries(scoredFor)}
-            started={started}
-            ended={activity.sessionState === "ended"}
-            deliberating={activity.sessionState === "deliberation"}
-            pageant={pageant}
-            details={entryDetails}
-          />
-        )}
-        {tab === "segments" && pageant && <SegmentsTab board={board} />}
-        {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
-        {tab === "settings" && archived && <ArchivedSettings activityId={activity.id} name={activity.name} />}
-        {tab === "settings" && !archived && (
-          <SettingsTab
-            activity={activity}
-            developer={testToolsAllowed()}
-            scoreCount={scores.length}
-            signatories={settingsSignatories ?? []}
-            organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}
-          />
-        )}
+      {/* While another tab opens, its skeleton covers this one (see .tab-skeleton in globals.css). */}
+      <div className="relative">
+        <div className="activity-panel pt-6 lg:pt-8">
+          {tab === "judges" && (
+            <JudgesTab
+              activityId={activity.id}
+              devices={devices}
+              origin={origin}
+              judges={judges}
+              codes={codes}
+              scoredBy={scoredBy}
+              entryCount={entries.length}
+              // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
+              expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
+              locked={started}
+              ended={activity.sessionState === "ended"}
+              pageant={pageant}
+            />
+          )}
+          {tab === "session" && (
+            <SessionTab
+              board={deskBoard}
+              renderedAt={renderedAt}
+              devices={devices}
+              progress={progress}
+              reportId={reportId(board)}
+              liveUrl={liveUrl}
+              liveQr={liveQr}
+              corrections={corrections?.map((c) => (held ? withoutValues(correctionView(board, c)) : correctionView(board, c))) ?? []}
+              deliberation={activity.sessionState === "deliberation" ? deliberationResults(board, signatures) : undefined}
+              archived={archived}
+              hasNotes={(notes?.length ?? 0) > 0}
+              signatures={signatures}
+            />
+          )}
+          {tab === "entries" && (
+            <EntriesTab
+              activityId={activity.id}
+              entries={entries}
+              scoredFor={Object.fromEntries(scoredFor)}
+              started={started}
+              ended={activity.sessionState === "ended"}
+              deliberating={activity.sessionState === "deliberation"}
+              pageant={pageant}
+              details={entryDetails}
+            />
+          )}
+          {tab === "segments" && pageant && <SegmentsTab board={board} />}
+          {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
+          {tab === "settings" && archived && <ArchivedSettings activityId={activity.id} name={activity.name} />}
+          {tab === "settings" && !archived && (
+            <SettingsTab
+              activity={activity}
+              developer={testToolsAllowed()}
+              scoreCount={scores.length}
+              signatories={settingsSignatories ?? []}
+              organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}
+            />
+          )}
+        </div>
+        <PanelSkeleton className="tab-skeleton absolute inset-x-0 top-0 min-h-full bg-mint pt-6 lg:pt-8" />
       </div>
     </>
   );

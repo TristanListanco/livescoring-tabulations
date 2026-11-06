@@ -226,6 +226,19 @@ const toAdmin = (row: AdminRow): AdminAccount => ({
 export type ActivitySummary = Activity & { judgeCount: number; entryCount: number; scoreCount: number; organizer: string | null };
 
 /** An organizer's activities, or with null the super admin's own (activities no organizer owns). */
+/**
+ * The archived activities this admin owns (`ownerId`, or the super admin's own with null), newest archived first: just
+ * what the sidebar lists, read when it's opened.
+ */
+export async function listArchivedActivities(ownerId: string | null): Promise<{ id: string; name: string }[]> {
+  await connection();
+  let query = db().from("activities").select("id, name").not("archived_at", "is", null).order("archived_at", { ascending: false });
+  query = ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null);
+  const { data, error } = await query;
+  fail(error);
+  return (data ?? []) as { id: string; name: string }[];
+}
+
 export async function listActivities(ownerId: string | null): Promise<ActivitySummary[]> {
   await connection();
   let query = db()

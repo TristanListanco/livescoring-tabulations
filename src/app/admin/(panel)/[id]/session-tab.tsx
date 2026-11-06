@@ -682,7 +682,7 @@ export function SessionTab({
                       ? "Between sub-activities"
                       : "On judges' screens"}
                 </h2>
-                <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight tracking-[-0.015em] text-balance wrap-anywhere">
+                <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
                   {ownPace
                     ? `${progress.submitted} of ${progress.possible} scores in`
                     : entry
@@ -851,7 +851,7 @@ export function SessionTab({
                     <h2 id="desk-heading" className="text-powder">
                       Before you start
                     </h2>
-                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight tracking-[-0.015em] text-balance">
+                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.02em] text-balance">
                       {judges.length === 0
                         ? "Add judges to get started"
                         : unpaired.length === 0
@@ -929,7 +929,7 @@ export function SessionTab({
                         <h2 id="desk-heading" className="text-powder">
                           Deliberation
                         </h2>
-                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight tracking-[-0.015em] text-balance">
+                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.02em] text-balance">
                           {allSigned ? "Every judge has signed" : `${signedIds.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} signed`}
                         </p>
                       </div>
@@ -1018,7 +1018,7 @@ export function SessionTab({
             <section aria-labelledby="desk-heading" className="admin-desk keep-light overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
               <div className="px-6 pt-6 pb-6">
                 <div className="flex items-start justify-between gap-4">
-                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight tracking-[-0.02em]">
+                  <h2 id="desk-heading" className="text-[clamp(1.6rem,3vw,2.25rem)] leading-tight font-light tracking-[-0.025em]">
                     Judging has ended
                   </h2>
                   {/*

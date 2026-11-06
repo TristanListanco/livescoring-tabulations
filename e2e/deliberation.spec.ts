@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // An event without live scoring, scored to three decimal places. The audience sees no scores until the judges have
 // deliberated and signed, and there's no LED wall; a judge corrects their own score, saying why, until they sign.
@@ -50,7 +50,7 @@ test.describe.serial("deliberation", () => {
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
 
     adminPath = new URL(page.url()).pathname;
-    codes = (await page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ }).allTextContents()).map((t) => t.replace("Judge code ", ""));
+    codes = await judgeCodes(page);
     expect(codes).toHaveLength(2);
     // Settings says so, and it can still change before the session starts.
     await page.goto(`${adminPath}?tab=settings`);

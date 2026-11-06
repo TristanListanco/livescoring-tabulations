@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Nunito_Sans } from "next/font/google";
+import { Inter } from "next/font/google";
 import { connection } from "next/server";
 import { RequestGuard } from "@/components/request-guard";
 import "./globals.css";
 
-const nunito = Nunito_Sans({
-  variable: "--font-nunito",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -23,7 +23,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // built ahead of time would carry none, and the policy would stop its scripts.
   await connection();
   return (
-    <html lang="en" className={`${nunito.variable} h-full`}>
+    <html lang="en" className={`${inter.variable} h-full`}>
       <body className="min-h-full bg-mint text-prussian">
         {children}
         {/* Every request to the server: actions given up if they hang, refreshes asked again while the server fails

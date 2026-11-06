@@ -13,8 +13,12 @@ export const PHOTO = {
 
 /** Choose a photo with the photo button labelled `label`, and keep the crop its dialog starts with. */
 export async function choosePhoto(page: Page, label: string) {
-  await page.getByLabel(label).setInputFiles(PHOTO);
   const crop = page.getByRole("dialog", { name: /^Crop the photo/ });
+  // A photo chosen before the page has hydrated goes unnoticed (a page now streams in after its skeleton): choose again.
+  await expect(async () => {
+    await page.getByLabel(label).setInputFiles(PHOTO);
+    await expect(crop).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   await crop.getByRole("button", { name: "Use photo" }).click();
   await expect(crop).toBeHidden();
 }
@@ -85,6 +89,9 @@ export async function settle(page: Page) {
  */
 export async function expectAccessible(page: Page) {
   await settle(page);
+  // A page streams in after its skeleton, and its title with it: check what arrives, not the placeholder.
+  await expect(page.locator('[aria-label="Loading"][aria-busy="true"]:visible')).toHaveCount(0, { timeout: 20_000 });
+  await expect(page).toHaveTitle(/\S/);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude("nextjs-portal").analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([]);
 }
@@ -97,6 +104,13 @@ export async function exportFile(page: Page, file: string, menu = "Export") {
   await page.getByRole("button", { name: menu, exact: true }).click();
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: file, exact: true }).click()]);
   return download;
+}
+
+/** The judges' codes on an activity's Judges tab, once they're there: a new activity opens on its skeleton first. */
+export async function judgeCodes(page: Page): Promise<string[]> {
+  const codes = page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ });
+  await expect(codes.first()).toBeVisible({ timeout: 20_000 });
+  return (await codes.allTextContents()).map((t) => t.replace("Judge code ", ""));
 }
 
 /** Save a screenshot into the test report, for reviewing what each screen looked like in the run. */
