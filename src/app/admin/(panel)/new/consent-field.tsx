@@ -29,17 +29,35 @@ export function ConsentField({ checked, onChange, children = NAMED_CONSENT }: { 
   const flagged = problems.has(CONSENT_ID);
   return (
     <div className="mt-6 max-w-2xl">
-      <label className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${flagged ? "border-danger ring-2 ring-danger/15" : "border-line bg-white"}`}>
-        <input
-          id={CONSENT_ID}
-          type="checkbox"
-          name="consent"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          aria-describedby={describedBy(flagged && problemId(CONSENT_ID))}
-          className="mt-0.5 size-5 shrink-0 accent-regal"
-        />
-        <span className="text-[15px] leading-relaxed">{children}</span>
+      {/*
+        On the panel's wash, like a note to read before the button: a short lead, then the statement. The box is drawn
+        to match: it fills navy and its tick draws itself as it's ticked (.tick-box), and a missing tick outlines it.
+      */}
+      <label
+        className={`flex cursor-pointer items-start gap-3.5 rounded-[1.25rem] bg-wash px-5 py-4 transition-shadow ${
+          flagged ? "ring-2 ring-danger/50" : checked ? "ring-1 ring-regal/35" : ""
+        }`}
+      >
+        <span className="relative mt-0.5 grid size-[22px] shrink-0 place-items-center">
+          <input
+            id={CONSENT_ID}
+            type="checkbox"
+            name="consent"
+            checked={checked}
+            onChange={(e) => onChange(e.target.checked)}
+            aria-describedby={describedBy(flagged && problemId(CONSENT_ID))}
+            className={`tick-box absolute inset-0 size-full cursor-pointer appearance-none rounded-md border-2 bg-white transition-colors checked:border-regal checked:bg-regal ${
+              flagged ? "border-danger" : "border-field"
+            }`}
+          />
+          <svg viewBox="0 0 16 16" className="pointer-events-none relative size-3.5 text-mint" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path pathLength={1} d="M3.2 8.6l3 3 6.6-7.2" className={checked ? "" : "opacity-0"} />
+          </svg>
+        </span>
+        <span className="min-w-0">
+          <span className="block font-semibold">Consent</span>
+          <span className="mt-1 block text-[15px] leading-relaxed text-prussian/80">{children}</span>
+        </span>
       </label>
       <FieldProblem fieldId={CONSENT_ID} className="mt-2" />
     </div>

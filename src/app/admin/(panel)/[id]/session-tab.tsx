@@ -9,7 +9,7 @@ import { LiveStatusBadge } from "@/components/live-status";
 import { QrDialog } from "@/components/qr-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
-import { atOwnPace, entryNeighbors } from "@/lib/judging";
+import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
@@ -25,7 +25,7 @@ import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
-import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
@@ -383,6 +383,8 @@ export function SessionTab({
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
   const missing = progress.possible - progress.submitted;
   const missingLine = `${missing} ${missing === 1 ? "score is" : "scores are"} missing`;
+  // An event with live scoring that ended with every score in: by itself, and for good (see setSessionState).
+  const endedForGood = state === "ended" && activity.kind === "event" && activity.liveScoring && progress.complete;
   /** Once judging has ended, every download in one menu; a pageant's are in its program instead. */
   const exportMenu = (className: string) =>
     progress.complete &&
@@ -748,7 +750,8 @@ export function SessionTab({
                   : (!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
               </div>
             </div>
-            {round && <DeskTimer activity={activity} round={round} renderedAt={renderedAt} />}
+            {/* A pageant's timer is its sub-activity's; an event's, its own (an entry at a time). */}
+            <DeskTimer activity={activity} timerSeconds={round ? round.timerSeconds : eventTimer(activity)} renderedAt={renderedAt} />
             {/* A success ("The session has ended…") is what the desk now shows anyway, so it's announced, not repeated on screen. */}
             <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
             <CorrectionsPanel activityId={activity.id} corrections={corrections} onDark />
@@ -1067,9 +1070,13 @@ export function SessionTab({
                   rather than the live desk's navy, its one filled button the download. The report ID is on every PDF and
                   CSV it downloads, so the desk leaves it to them. */}
               <div className="flex flex-wrap items-center gap-x-6 gap-y-4 px-6 py-5">
-                <h2 id="desk-heading" className="title-sm mr-auto">
-                  Judging has ended
-                </h2>
+                <div className="mr-auto">
+                  <h2 id="desk-heading" className="title-sm">
+                    Judging has ended
+                  </h2>
+                  {/* With live scoring, the last score ended it: final, so there's nothing to reopen. */}
+                  {endedForGood && <p className="mt-1 text-[15px] text-prussian/70">Every judge scored every entry, so it ended by itself.</p>}
+                </div>
                 <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
                   {exportMenu("btn btn-primary max-sm:w-full")}
                   <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-quiet max-sm:flex-1" />
@@ -1090,7 +1097,7 @@ export function SessionTab({
                       The judges review their scores and sign again, then you sign the results to end the session again. Until then the results
                       come off the live results page. Judges whose devices were signed out sign in again with their code, and you approve them.
                     </ConfirmDialog>
-                  ) : (
+                  ) : endedForGood ? null : (
                     <ConfirmDialog
                       triggerLabel="Reopen session"
                       triggerClassName="btn btn-quiet max-sm:flex-1"
@@ -1119,13 +1126,11 @@ export function SessionTab({
           {/*
             Archived, nothing is left to run: no heading to say judging ended (the archived mark under the name says it),
             only what can still be done with it, straight on the page. The download leads, larger, as the reason to come
-            back; checking a CSV beside it; deleting it at the far end.
+            back; deleting it at the far end (on a phone, under it, across the width).
           */}
           {archived && (
             <div className="bare-actions flex flex-wrap items-center gap-3">
               {exportMenu("btn btn-primary h-12 px-7 text-base max-sm:w-full")}
-              {/* On a phone, one under another across the width, as the download. */}
-              <CsvCheck activityId={activity.id} className="btn btn-quiet max-sm:w-full" wrapClassName="max-sm:w-full" />
               <div className="max-sm:w-full sm:ml-auto">
                 <DeleteArchivedButton activityId={activity.id} name={activity.name} className="btn btn-danger-quiet max-sm:w-full" />
               </div>

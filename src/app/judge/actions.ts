@@ -9,7 +9,7 @@ import { cleanSignature } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
-import { atOwnPace, scoreWindowOpen, showColumns } from "@/lib/judging";
+import { atOwnPace, chairMovesEntries, eventTimer, scoreWindowOpen, showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
@@ -132,6 +132,7 @@ export const moveToEntry = traced("moveToEntry", async function moveToEntry(entr
 
   const board = await getBoard(context.activityId);
   if (!board || board.activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now." };
+  if (!chairMovesEntries(board.activity)) return { ok: false, error: "With live scoring, only the organizer moves between entries." };
   if (!board.entries.some((e) => e.id === entryId)) return { ok: false, error: "That entry isn't part of this activity." };
   // In a pageant, only a chair on the panel of the sub-activity being judged moves it.
   const round = board.rounds.find((r) => r.id === board.activity.currentRoundId);
@@ -161,6 +162,7 @@ export const saveNote = traced("saveNote", async function saveNote(entryId: stri
   if (!entry) return { ok: false, error: "This entry was removed by the organizer." };
   // An archived activity is kept as it was.
   if (context.activity.archivedAt) return { ok: false, error: "This activity is archived, so notes can't change." };
+  if (context.activity.kind === "event" && context.activity.liveScoring) return { ok: false, error: "With live scoring there are no notes: each score is final as it goes in." };
 
   const text = cleanNote(body);
   const notes = db().from("judge_notes");
@@ -189,6 +191,11 @@ export const submitScore = traced("submitScore", async function submitScore(entr
   // from, for a score confirmed before the move), and only while the session is live. The database checks the session too.
   if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
   if (!scoreWindowOpen(activity, entryId, Date.now())) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
+
+  // An event with a timer scores only while it runs (and the few seconds a score can take to arrive).
+  if (eventTimer(activity) && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
+    return { ok: false, error: "Time's up, so scoring has closed for this entry. Ask the organizer to reopen it." };
+  }
 
   // A pageant scores in the sub-activity being judged, with its rules, and only while its timer runs.
   let rules = activity;
@@ -248,9 +255,34 @@ export const submitScore = traced("submitScore", async function submitScore(entr
     return { ok: false, error: "The score didn't save. Check your connection and try again." };
   }
 
+  // With live scoring every score is final the moment it's in: the last one ends judging by itself.
+  if (activity.kind === "event" && activity.liveScoring) await endWhenEveryScoreIsIn(activity.id);
   changed(context.activity.publicId);
   return { ok: true };
 });
+
+/**
+ * An event with live scoring ends once every judge has scored every entry: there's nothing left to judge, and nothing to
+ * change (its scores are final), so no one needs to end it, and it can't be reopened after (see setSessionState). Scores
+ * are one per judge and entry, so a count that matches means all of them are in. Each score counts after it's written, so
+ * of two last scores arriving together, the second sees both; ending only what's still live keeps a repeat harmless.
+ */
+async function endWhenEveryScoreIsIn(activityId: string): Promise<void> {
+  const [judges, entries, scores] = await Promise.all([
+    db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
+    db().from("entries").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
+    db().from("scores").select("id", { count: "exact", head: true }).eq("activity_id", activityId).is("round_id", null),
+  ]);
+  const expected = (judges.count ?? 0) * (entries.count ?? 0);
+  if (!expected || scores.count !== expected) return;
+  const { error } = await db()
+    .from("activities")
+    .update({ session_state: "ended", session_ended_at: new Date().toISOString() })
+    .eq("id", activityId)
+    .eq("session_state", "live");
+  if (error) log("error", "session_not_ended", { activity: activityId, code: error.code, error: error.message });
+  else log("info", "session_ended_every_score_in", { activity: activityId });
+}
 
 const CORRECTIONS_UNAVAILABLE = "Score corrections need an update to the database. Ask the organizer.";
 const sameBreakdown = (a: Record<string, number> | null, b: Record<string, number> | null) =>

@@ -23,13 +23,14 @@
    */
   --color-danger-soft: #f4b4ae;
   /*
-   * A pageant's scoring timer, on the judges' screens and the session desk: green while judges can score, yellow
+   * The scoring timer, on the judges' screens and the session desk: green while judges can score, yellow
    * as it's about to close, red once it has. Always under navy text (at least 5:1), and always with words and the
    * time left, so the colour is never the only cue. Those surfaces keep their colours in dark mode.
    */
   --color-go: #4ade80;
   --color-caution: #fbbf24;
-  --color-stop: #f87171;
+  /* A signal red rather than a pink one, as a judge's whole screen takes it: still 5.3:1 under navy. */
+  --color-stop: #fe6555;
 
   /* Inter everywhere, light at the large sizes, as in the panel's reference design. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
@@ -353,6 +354,11 @@ p.archived-list {
   opacity: 0;
   transform: translateY(-8px) scale(0.98);
 }
+/* A consent box ticked: its tick draws itself, as a tally stroke does. */
+.tick-box:checked + svg path {
+  stroke-dasharray: 1;
+  animation: tally-stroke 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 .toast-tick path {
   stroke-dasharray: 1;
   animation: tally-stroke 320ms cubic-bezier(0.16, 1, 0.3, 1) 180ms backwards;
@@ -449,7 +455,8 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
 @media (prefers-reduced-motion: reduce) {
   .stagger > *,
   .tally-draw path,
-  .toast-tick path {
+  .toast-tick path,
+  .tick-box:checked + svg path {
     animation: none;
   }
   .toast {
@@ -728,6 +735,9 @@ html:has(.share-ledger) {
     padding-top: 0.75rem;
     padding-bottom: 1rem;
   }
+  .timer-dock {
+    padding-bottom: 1rem;
+  }
   /*
    * Sticky only where the judge's column is tall enough for the entry's name above it: measured on the column itself
    * (.judge-main), not the window, so a bar under the header (the organizer's on the way, the privacy screen's offer)
@@ -742,8 +752,93 @@ html:has(.share-ledger) {
       bottom: 0;
       z-index: 1;
       padding-top: 1.25rem;
-      background: linear-gradient(to bottom, transparent, var(--color-prussian) 1.25rem);
+      /* A little wider than the column, so a selected criterion's ring scrolling under it doesn't show at the sides. */
+      margin-inline: -0.25rem;
+      padding-inline: 0.25rem;
+      background: linear-gradient(to bottom, transparent, var(--judge-screen, var(--color-prussian)) 1.25rem);
     }
+    /*
+     * The scoring timer held at the top the same way, so the time left stays in view while the criteria scroll: just
+     * under the header (a sticky top counts from inside the column's 1.25rem padding), with a little colour above it.
+     */
+    .timer-dock {
+      position: sticky;
+      top: -1.25rem;
+      z-index: 1;
+      margin-top: -0.5rem;
+      padding-top: 0.5rem;
+      padding-bottom: 0.75rem;
+      margin-inline: -0.25rem;
+      padding-inline: 0.25rem;
+      background: linear-gradient(to top, transparent, var(--judge-screen, var(--color-prussian)) 0.75rem);
+    }
+  }
+  /*
+   * A judge's screen. While the entry on it has a scoring timer running, the whole screen takes the timer's colour
+   * (green, yellow as it's about to close, red once it has), so a judge sees where it stands without reading it, even
+   * from the corner of their eye; it's navy before the entry is shown and again once they've scored it.
+   *
+   * On the colour, text, hairlines and hover fills are in that colour's own deep ink (--judge-ink), so each screen reads
+   * as one colour printed in its own ink: navy text beside it looks like a second ink, and navy mixed into green, yellow
+   * or red turns muddy. The pieces set on it (.navy: the keypad, the readout, the criteria, the notes box) turn light,
+   * the colour seen through white, with the ink on them: dark navy blocks on a bright colour strain the eye. The few
+   * dark things are in the ink too: the timer bar, the main button, Assist me. Dialogs keep their usual colours.
+   */
+  .judge-screen {
+    --judge-screen: var(--color-prussian);
+    background-color: var(--judge-screen);
+    transition: background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .judge-screen[data-timer] {
+    --color-mint: var(--judge-ink);
+    --color-powder: color-mix(in srgb, var(--judge-ink) 85%, var(--judge-screen));
+    --color-oxford: color-mix(in srgb, var(--judge-ink) 40%, transparent);
+    --color-danger-soft: #8c1d17;
+  }
+  /* Each ink is 6:1 or more on its colour, and the quieter text (85% of it) 4.8:1 or more; errors are 5.2:1. */
+  .judge-screen[data-timer="open"] {
+    --judge-screen: var(--color-go);
+    --judge-ink: #0a371b;
+  }
+  .judge-screen[data-timer="closing"] {
+    --judge-screen: var(--color-caution);
+    --judge-ink: #462400;
+  }
+  /* On red, an error in red wouldn't read: in the ink, with its warning sign. */
+  .judge-screen[data-timer="closed"] {
+    --judge-screen: var(--color-stop);
+    --judge-ink: #2e100d;
+    --color-danger-soft: var(--judge-ink);
+  }
+  .judge-screen[data-timer] dialog {
+    --color-mint: #eef4ed;
+    --color-powder: #8da9c4;
+    --color-oxford: #13315c;
+    --color-danger-soft: #f4b4ae;
+  }
+  /*
+   * Inside a piece the palette turns over: mint (its text, and the main button's fill) is the ink; prussian (text on
+   * that fill, and light fills) is white; oxford, the keys' and rows' fill, is white over the colour; regal, a pressed
+   * key or the chosen criterion, nearly white.
+   */
+  .judge-screen[data-timer] :is(.navy, textarea) {
+    --color-mint: var(--judge-ink);
+    --color-prussian: #fff;
+    --color-oxford: rgb(255 255 255 / 0.6);
+    --color-regal: rgb(255 255 255 / 0.9);
+    --color-powder: color-mix(in srgb, var(--judge-ink) 80%, #fff);
+    --color-white: color-mix(in srgb, var(--judge-ink) 82%, #fff);
+    --color-danger-soft: #8c1d17;
+    color: var(--color-mint);
+  }
+  /*
+   * The main button while it can't be pressed (nothing typed yet, or time's up): only its outline, in the colour's shade,
+   * so it isn't taken for one more navy key. It fills white once there's a score to submit.
+   */
+  .judge-screen[data-timer] .navy:disabled {
+    --color-oxford: transparent;
+    --color-powder: var(--judge-ink);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--judge-ink) 45%, transparent);
   }
 }
 
@@ -794,6 +889,25 @@ dialog::backdrop {
 .undo-drain {
   transform-origin: left;
   animation: undo-drain linear forwards;
+}
+/* A score on its way that the network is holding up: a stripe that keeps moving, rather than a bar with an end. */
+@keyframes send-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.send-sweep {
+  animation: send-sweep 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .send-sweep {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
 }
 
 /* A plain fade, for what would otherwise slide in under reduced motion. */

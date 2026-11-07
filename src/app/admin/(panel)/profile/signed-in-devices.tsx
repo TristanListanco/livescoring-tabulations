@@ -5,6 +5,7 @@ import type { AdminSessionInfo } from "@/lib/session";
 import type { ActionResult } from "@/lib/types";
 import { signOutOtherDevices } from "../../account-actions";
 import { FormMessage } from "../form-message";
+import { toast } from "../toaster";
 
 const signedInFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
 const noSubscription = () => () => {};
@@ -28,9 +29,12 @@ export function SignedInDevices({ sessions }: { sessions: AdminSessionInfo[] }) 
   const [pending, startTransition] = useTransition();
   const others = sessions.filter((s) => !s.current);
   const ordered = [...sessions.filter((s) => s.current), ...others];
-  const signOut = (sessionId: string | null) =>
+  // Done, a toast says so (the device leaves the list as it does); a problem stays here, beside the buttons.
+  const signOut = (sessionId: string | null, label?: string) =>
     startTransition(async () => {
-      setResult(await signOutOtherDevices(sessionId).catch(() => ({ ok: false as const, error: "That didn't go through. Try again." })));
+      const r = await signOutOtherDevices(sessionId).catch(() => ({ ok: false as const, error: "That didn't go through. Try again." }));
+      setResult(r.ok ? null : r);
+      if (r.ok) toast(sessionId ? `${label ?? "That device"} signed out` : "Every other device signed out");
     });
 
   return (
@@ -48,7 +52,7 @@ export function SignedInDevices({ sessions }: { sessions: AdminSessionInfo[] }) 
               </p>
             </div>
             {!s.current && (
-              <button type="button" className="btn btn-quiet btn-sm" disabled={pending} onClick={() => signOut(s.id)}>
+              <button type="button" className="btn btn-quiet btn-sm" disabled={pending} onClick={() => signOut(s.id, s.label)}>
                 Sign out<span className="sr-only"> {s.label}</span>
               </button>
             )}

@@ -225,9 +225,9 @@ test.describe.serial("a full event", () => {
     // Live, the desk takes over the tab; the header's status pill says the session is live.
     await expect(page.getByRole("link", { name: "Live", exact: true })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
-    // Ben chairs the board of judges, so instead of waiting he can show the first entry himself.
-    await expect(heading(judge2)).toHaveText("Ready for the first entry", REALTIME);
-    await expect(judge2.getByRole("region", { name: "Chair of the board of judges" }).getByRole("button", { name: "Show first entry: Agila" })).toBeEnabled();
+    // Ben chairs the board of judges, but with live scoring only the organizer moves between entries: he waits too.
+    await expect(heading(judge2)).toHaveText("Waiting for the first entry", REALTIME);
+    await expect(judge2.getByRole("region", { name: "Chair of the board of judges" })).toHaveCount(0);
 
     // Judges are locked; entries can be added and renamed, but not reordered.
     await page.goto(`${adminPath}?tab=judges`);
@@ -279,7 +279,7 @@ test.describe.serial("a full event", () => {
     await expectAccessible(judge1);
 
     await submitScore(judge2, "Agila", "9.25");
-    await expect(heading(judge2)).toHaveText("Your score is in");
+    await expect(heading(judge2)).toHaveText("Waiting for the next entry");
     await expect(live.locator("li[data-entry]", { hasText: "Agila" })).toContainText("9.25", REALTIME);
     // So does the public live results page, with scores on it.
     await expectAccessible(live);
@@ -295,14 +295,9 @@ test.describe.serial("a full event", () => {
     await expect(moveOn).toContainText("Ana Cruz hasn't scored Agila yet.");
     await moveOn.getByRole("button", { name: "Cancel" }).click();
     await expect(heading(judge1)).toHaveText("Agila");
-    // So does the chair's Next on his own screen.
-    const chair = judge2.getByRole("region", { name: "Chair of the board of judges" });
-    await expect(chair.getByRole("status")).toHaveText("1 of 2 judges have scored.");
-    await chair.getByRole("button", { name: "Next: Bagwis" }).click();
-    const chairMoveOn = judge2.getByRole("dialog", { name: "Move on to Bagwis?" });
-    await expect(chairMoveOn).toContainText("Ana Cruz hasn't scored Agila yet. Their screen will move to Bagwis, and you can come back to Agila later.");
-    await chairMoveOn.getByRole("button", { name: "Cancel" }).click();
-    await expect(heading(judge1)).toHaveText("Agila");
+    // Ben, the chair, has nothing to move on with: with live scoring that's the organizer's alone.
+    await expect(judge2.getByRole("region", { name: "Chair of the board of judges" })).toHaveCount(0);
+    await expect(judge2.getByRole("button", { name: /^Next/ })).toHaveCount(0);
     await snap(judge2, "chair waiting for the next entry");
     await snap(page, "session tab, one judge in");
     await expectAccessible(judge2);
@@ -382,13 +377,9 @@ test.describe.serial("a full event", () => {
     await expect(live.locator("li[data-entry]", { hasText: "Bagwis" })).toContainText("7.28", REALTIME);
     await expect(page.getByText("Every judge has scored Bagwis.")).toBeVisible(REALTIME);
 
-    // Ben, the chair, moves to the next entry from his own screen. Ana can't.
-    await expect(heading(judge2)).toHaveText("Your score is in");
-    const chair = judge2.getByRole("region", { name: "Chair of the board of judges" });
-    await expect(chair.getByRole("status")).toHaveText("Every judge has scored Bagwis.", REALTIME);
+    await expect(heading(judge2)).toHaveText("Waiting for the next entry");
     await snap(judge2, "chair after scoring");
-    await expect(judge1.getByRole("button", { name: /^Next/ })).toHaveCount(0);
-    await chair.getByRole("button", { name: "Next: Kidlat" }).click();
+    await page.getByRole("button", { name: "Show next entry: Kidlat" }).click();
     await expect(heading(judge1)).toHaveText("Kidlat", REALTIME);
     await expect(led.getByText("Kidlat", { exact: true })).toBeVisible(REALTIME);
     await expect(page.getByText("Now judging: No. 3")).toBeVisible(REALTIME);
@@ -396,13 +387,11 @@ test.describe.serial("a full event", () => {
     await submitScore(judge1, "Kidlat", "9", "9.00");
     await expect(heading(judge2)).toHaveText("Kidlat", REALTIME);
     await submitScore(judge2, "Kidlat", "9.5", "9.50");
-    await expect(page.getByText(/That was the last entry/)).toBeVisible(REALTIME);
+    // The last score of the last entry: with live scoring every score is final, so judging ends by itself, with no one
+    // to end it and nothing to reopen.
+    await expect(page.getByRole("region", { name: "Judging has ended" })).toContainText("Every judge scored every entry, so it ended by itself.", REALTIME);
 
     await expect(live.locator("li[data-entry]", { hasText: "Kidlat" })).toContainText("9.50");
-    // With the last entry fully scored, the desk's main button is End session, not a dead "No more entries".
-    const controls = page.getByRole("group", { name: "Show controls" });
-    await expect(controls.getByRole("button", { name: "End session" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "No more entries" })).toHaveCount(0);
 
     // Averages: Agila 9.50, Kidlat 9.25, Bagwis 7.275 shown as 7.28.
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
@@ -417,11 +406,14 @@ test.describe.serial("a full event", () => {
     await page.goto(`${adminPath}?tab=session`);
     const toggle = page.getByRole("switch", { name: "Show ranks on the live results page" });
     const message = page.getByRole("status").filter({ hasText: "Rankings are" });
+    // Judging has ended, so the live results check only every half minute: reloaded here rather than waited for.
     await toggle.click();
     await expect(message).toHaveText("Rankings are hidden on the live results page.");
+    await live.reload();
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
     await toggle.click();
     await expect(message).toHaveText("Rankings are showing on the live results page.");
+    await live.reload();
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
@@ -470,23 +462,11 @@ test.describe.serial("a full event", () => {
     expect(readFileSync(await sheets.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
-  test("ending the session closes the judges' screens", async ({ page }) => {
+  test("with every score in, judging ended by itself: the judges' screens close, and it can't be reopened", async ({ page }) => {
     await openSession(page);
-    // Ending takes the organizer's password. It's ended from the desk, where the fully scored last entry offers it.
-    await page.getByRole("group", { name: "Show controls" }).getByRole("button", { name: "End session" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "End session" })).toBeDisabled();
-    await dialog.getByLabel("Your password").fill("not the password");
-    await dialog.getByRole("button", { name: "End session" }).click();
-    await expect(dialog.getByRole("alert")).toHaveText("That password isn't right.");
-    await dialog.getByLabel("Your password").fill(ORGANIZER.password);
-    await dialog.getByRole("button", { name: "End session" }).click();
-    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
-    // Reopening asks first and warns that new scores change the report ID.
-    await page.getByRole("button", { name: "Reopen session" }).click();
-    await expect(page.getByRole("dialog")).toContainText("the report ID changes");
-    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
+    // No password asked, and nothing to reopen: every score is in, and each is final.
+    await expect(page.getByRole("region", { name: "Judging has ended" })).toContainText("Every judge scored every entry, so it ended by itself.");
+    await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     // The desk turns into the results, right where the show ended: their downloads (each carries the report ID).
     const desk = page.getByRole("region", { name: "Judging has ended" });
     await expect(desk).not.toContainText("missing");
@@ -512,7 +492,7 @@ test.describe.serial("a full event", () => {
   });
 
 
-  test("the results download as CSV too, and a copy is checked against the scores", async ({ page }) => {
+  test("the results download as CSV too", async ({ page }) => {
     await openSession(page);
     const csv = await exportFile(page, "Results (CSV)");
     expect(csv.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-results\.csv$/);
@@ -528,19 +508,6 @@ test.describe.serial("a full event", () => {
     expect(scores.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-scores\.csv$/);
     expect(readFileSync(await scores.path(), "utf8")).toContain("Judge,No.,Entry,Score");
     await expectAccessible(page);
-
-    // A copy is checked on the Settings tab: as downloaded it checks out; with a name changed it doesn't.
-    await page.goto(`${adminPath}?tab=settings`);
-    const check = page.getByLabel("Check an exported CSV");
-    // Chosen again if the page hadn't hydrated yet to hear it.
-    await expect(async () => {
-      await check.setInputFiles({ name: "results.csv", mimeType: "text/csv", buffer: Buffer.from(text) });
-      await expect(page.getByRole("status").filter({ hasText: "matches" })).toHaveText("It matches the official Results sheet.", { timeout: 2_000 });
-    }).toPass({ timeout: 20_000 });
-    await check.setInputFiles({ name: "edited.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila Jr")) });
-    await expect(page.getByRole("alert").filter({ hasText: "changed" })).toHaveText(
-      "This file was changed after it was exported: its rows no longer match its fingerprint.",
-    );
   });
   test("another organizer can't see or export this activity", async ({ page }) => {
     await signInAsOrganizer(page, OTHER.email, OTHER.password);

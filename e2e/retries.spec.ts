@@ -46,7 +46,11 @@ test.beforeAll(async () => {
   await rest("activities", { id: activity.id, name: "E2E Retry scores", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
   await rest("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
   await rest("judge_access", { judge_id: judge, code: CODE });
-  await rest("entries", { id: entry, activity_id: activity.id, name: "Agila", position: 0 });
+  // Two entries, so the one score doesn't end judging by itself (it scores live).
+  await rest("entries", [
+    { id: entry, activity_id: activity.id, name: "Agila", position: 0 },
+    { id: randomUUID(), activity_id: activity.id, name: "Bagwis", position: 1 },
+  ]);
   await rest(`activities?id=eq.${activity.id}`, { current_entry_id: entry }, "PATCH");
 });
 

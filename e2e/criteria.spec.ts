@@ -103,10 +103,8 @@ test.describe.serial("criteria scoring", () => {
     await guide.click();
     await expect(judge.getByText(/^Is the idea new\?\s+Does it solve a real problem\?$/)).toBeVisible();
 
-    // A note on the entry, kept for the judge (and the organizer): saved as it's typed.
-    await judge.getByRole("button", { name: "Add notes" }).click();
-    await judge.getByLabel("Your notes on Agila").fill("Clever use of local materials.");
-    await expect(judge.getByText("Saved", { exact: true })).toBeVisible();
+    // It scores live, so each score is final as it goes in: no notes to keep for a deliberation (see deliberation.spec.ts).
+    await expect(judge.getByRole("button", { name: "Add notes" })).toHaveCount(0);
 
     // Innovativeness is out of 30, so 35 can't go through, and the judge is told why straight away.
     await expect(judge.getByRole("button", { name: /^Innovativeness/ })).toHaveAttribute("aria-pressed", "true");
@@ -143,7 +141,7 @@ test.describe.serial("criteria scoring", () => {
     const dialog = judge.getByRole("dialog");
     await expect(dialog.getByRole("list", { name: "Points for each criterion" }).getByRole("listitem")).toHaveText([/^Innovativeness\s*25\.0\s*\/ 30$/, /^Design\s*62\.5\s*\/ 70$/]);
     // The event scores live, so the score goes in at once: no seconds to undo it.
-    await expect(dialog).toContainText("Once you submit it, it's final.");
+    await expect(dialog).toContainText("Once you submit it, it's final, and it shows on the live results at once.");
     await dialog.getByRole("button", { name: "Submit", exact: true }).click();
     await expect(judge.getByRole("button", { name: "Undo" })).toHaveCount(0);
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
@@ -168,11 +166,9 @@ test.describe.serial("criteria scoring", () => {
     await expect(row).toContainText("87.5000%", REALTIME);
     await live.context().close();
 
-    // The judges' notes download from the desk, as a PDF of their own, apart from the results and score sheets.
+    // Every score is in, so judging ended by itself (it scores live).
     await page.goto(`${adminPath}?tab=session`);
-    const [notesPdf] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download judges' notes" }).click()]);
-    expect(notesPdf.suggestedFilename()).toMatch(/^e2e-criteria-[a-z0-9]+-judges-notes\.pdf$/);
-    expect(readFileSync(await notesPdf.path()).subarray(0, 5).toString()).toBe("%PDF-");
+    await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible();
 
     // How totals show is part of the scoring, so it's fixed now.
     await page.goto(`${adminPath}?tab=settings`);
@@ -214,15 +210,15 @@ test.describe.serial("criteria scoring", () => {
     await led.context().close();
   });
 
-  test("on a test site, Settings resets scores and deletes the activity even mid-session", async ({ page }) => {
+  test("on a test site, Settings resets scores and deletes the activity", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=settings`);
     await expect(page.getByRole("heading", { name: "Test site tools" })).toBeVisible();
 
-    // Deleting asks with the session still live, and says what that stops.
+    // Every score is in, so judging has ended by itself (it scores live). Deleting asks first.
     await page.getByRole("button", { name: "Delete activity" }).click();
     let dialog = page.getByRole("dialog");
-    await expect(dialog).toContainText("Its session is live");
+    await expect(dialog).toContainText("permanently deletes");
     await dialog.getByRole("button", { name: "Cancel" }).click();
 
     // Resetting the scores puts the session back to not started.
