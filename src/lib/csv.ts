@@ -1,8 +1,8 @@
 /**
  * Results as CSV: a header (what the sheet is, its report ID, and a fingerprint of its rows), a blank line, then the
  * rows. A CSV is plain text, so any program can change it; the fingerprint is how a changed copy is caught. It's the
- * SHA-256 of the rows exactly as written, so the browser (checking a copy, see CsvCheck) and the server (writing one)
- * read a file the same way, through readExport. Pure, for both.
+ * SHA-256 of the rows exactly as written, so anything checking a copy reads the file as the server wrote it, through
+ * readExport. Pure.
  */
 
 /** A byte-order mark first, so Excel reads names in UTF-8. */

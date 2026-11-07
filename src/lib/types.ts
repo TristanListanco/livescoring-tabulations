@@ -118,6 +118,11 @@ export type Activity = {
   independentScoring: boolean;
   /** Where it happens, when the organizer gave it ("Bldg 2, Room 204, 3rd floor"). Migration 035; null before it. */
   location: string | null;
+  /**
+   * An event's scoring timer: seconds judges get to score each entry shown (see showColumns and eventTimer), or null for
+   * none. Migration 038. A pageant's are its sub-activities' (Round.timerSeconds).
+   */
+  timerSeconds: number | null;
   /** Judges' phones and tablets hide the screen when tilted off axis while judging. Migration 032; off before it. */
   privacyScreen: boolean;
   /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */

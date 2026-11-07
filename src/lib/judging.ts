@@ -34,6 +34,9 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
 export const atOwnPace = (activity: Pick<Activity, "kind" | "liveScoring" | "independentScoring">) =>
   activity.kind === "event" && !activity.liveScoring && activity.independentScoring;
 
+/** Only the organizer moves an event with live scoring between entries: its chair can't, from their screen. */
+export const chairMovesEntries = (activity: Pick<Activity, "kind" | "liveScoring">) => !(activity.kind === "event" && activity.liveScoring);
+
 /** How long after judges are moved on that a score for the entry they left still counts: the undo window, and ten seconds for it to arrive. */
 export const LATE_SCORE_MS = SCORE_UNDO_MS + 10_000;
 
@@ -76,11 +79,23 @@ export function showEntryColumns(entryId: string | null): Record<string, string 
 }
 
 /**
+ * An event's scoring timer, in seconds, where it runs: judged an entry at a time, with simple or criteria scoring (not at
+ * judges' own pace, where nothing is shown in turn). Null otherwise, or with none set. A pageant's are its sub-activities'.
+ */
+export const eventTimer = (activity: Pick<Activity, "kind" | "liveScoring" | "independentScoring" | "timerSeconds">) =>
+  activity.kind === "event" && !atOwnPace(activity) ? activity.timerSeconds : null;
+
+/**
  * Database columns for showing judges an entry (null: have them wait), or why it can't be shown. In a pageant only
- * a candidate in the sub-activity being judged can be shown, and showing one starts that sub-activity's timer.
+ * a candidate in the sub-activity being judged can be shown, and showing one starts that sub-activity's timer; in an
+ * event with a timer (see eventTimer), showing an entry starts it.
  */
 export function showColumns(board: Board, entryId: string | null, now: number): { columns: Record<string, string | null> } | { error: string } {
-  if (board.activity.kind !== "pageant") return { columns: showEntryColumns(entryId) };
+  if (board.activity.kind !== "pageant") {
+    const seconds = eventTimer(board.activity);
+    // Only an event with a timer writes it, so the rest show entries as they always have.
+    return { columns: seconds ? { ...showEntryColumns(entryId), scoring_closes_at: entryId ? new Date(now + seconds * 1000).toISOString() : null } : showEntryColumns(entryId) };
+  }
   const round = board.rounds.find((r) => r.id === board.activity.currentRoundId);
   if (!round) return { error: "Choose the sub-activity to judge first." };
   if (entryId && !roundPool(board, round.id).entries.some((e) => e.id === entryId)) {

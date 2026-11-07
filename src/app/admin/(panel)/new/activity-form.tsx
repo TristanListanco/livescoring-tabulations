@@ -38,6 +38,8 @@ function opened(data: unknown) {
     correctionReasons: d.correctionReasons === true,
     independentScoring: d.independentScoring === true,
     location: typeof d.location === "string" ? d.location : "",
+    // Seconds per entry, as typed; blank for no timer.
+    timer: typeof d.timer === "string" ? d.timer : "",
     // The names of up to three details kept about each entry.
     entryFields: [0, 1, 2].map((i) => (Array.isArray(d.entryFields) && typeof d.entryFields[i] === "string" ? d.entryFields[i] : "")),
     ...openEntries(d.entries, d.entryDetails),
@@ -85,6 +87,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [start] = useState(() => opened(openedDraft?.data));
   const [name, setName] = useState(start.name);
   const [location, setLocation] = useState(start.location);
+  const [timer, setTimer] = useState(start.timer);
   const [scoring, setScoring] = useState<ScoringDraft>(start.scoring);
   const [resultDecimals, setResultDecimals] = useState<ResultDecimals>(start.resultDecimals);
   const [liveScoring, setLiveScoring] = useState(start.liveScoring);
@@ -140,6 +143,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     snapshot: JSON.stringify([
       name,
       location,
+      timer,
       scoring,
       resultDecimals,
       liveScoring,
@@ -156,6 +160,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
     collect: async () => ({
       name,
       location,
+      timer,
       scoring,
       resultDecimals,
       liveScoring,
@@ -240,6 +245,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
       <Section quiet title="Scoring">
         <ScoringFields value={scoring} onChange={setScoring} resultDecimals={resultDecimals} onResultDecimals={setResultDecimals} />
+        {/* A time limit for each entry, as a pageant's sub-activities have, with either scoring method. */}
+        <TimerField value={timer} onChange={setTimer} ownPace={!liveScoring && independentScoring} />
       </Section>
 
       <Section quiet title="Live scoring">
@@ -248,6 +255,9 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
           <input type="checkbox" checked={liveScoring} onChange={(e) => setLiveScoring(e.target.checked)} className="size-5 shrink-0 accent-regal" />
           <span className="font-semibold">Show scores live</span>
         </label>
+        {liveScoring && (
+          <p className="hint mt-2 max-w-xl pl-8">Each score is final once a judge submits it. Only you move between entries: the chair judges as the others do.</p>
+        )}
         {/* Only an event without live scoring has a deliberation. */}
         {!liveScoring && (
           <>
@@ -389,6 +399,44 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
       </div>
     </form>
     </FieldProblemsProvider>
+  );
+}
+
+/**
+ * An event's scoring timer on the create form, as a pageant sub-activity's: off, or the seconds judges get for each
+ * entry shown (blank means off; a cleared field reads 0 until a number is typed). Sent as `timer_seconds`.
+ */
+function TimerField({ value, onChange, ownPace }: { value: string; onChange: (value: string) => void; ownPace: boolean }) {
+  const timed = value !== "";
+  return (
+    <div className="mt-6">
+      <input type="hidden" name="timer_seconds" value={value} />
+      <label className="flex items-center gap-2.5 font-semibold">
+        <input type="checkbox" className="size-5 shrink-0 accent-regal" checked={timed} onChange={(e) => onChange(e.target.checked ? "60" : "")} />
+        Time limit for scoring
+      </label>
+      {timed && (
+        <div className="mt-2 ml-7.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label htmlFor="timer" className="text-sm">
+            Judges get<span className="sr-only"> this many seconds to score each entry</span>
+          </label>
+          <input
+            id="timer"
+            value={value}
+            onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "").slice(0, 4) || "0")}
+            inputMode="numeric"
+            aria-describedby="timer-hint"
+            className="field tabular w-20"
+          />
+          <span className="text-sm">seconds per entry</span>
+          <p id="timer-hint" className="hint basis-full">
+            {ownPace
+              ? "Judges scoring at their own pace have no timer: it runs only when you show entries one at a time."
+              : "It starts as you show each entry. When it runs out, scoring closes until you give more time from the desk."}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 

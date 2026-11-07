@@ -35,8 +35,9 @@ const row = (page: Page, name: string) => page.getByRole("listitem").filter({ ha
 test.describe.serial("the chair", () => {
   test.beforeAll(async () => {
     await restOk("activities", [
-      { id: event.id, name: `E2E Chair ${RUN}`, public_id: event.publicId, min_score: 1, max_score: 10, decimals: 2, kind: "event" },
-      { id: pageant.id, name: `E2E Chair pageant ${RUN}`, public_id: pageant.publicId, min_score: 1, max_score: 10, decimals: 2, kind: "pageant" },
+      // Without live scoring, so the chair moves between entries (with it, only the organizer does).
+      { id: event.id, name: `E2E Chair ${RUN}`, public_id: event.publicId, min_score: 1, max_score: 10, decimals: 2, kind: "event", live_scoring: false },
+      { id: pageant.id, name: `E2E Chair pageant ${RUN}`, public_id: pageant.publicId, min_score: 1, max_score: 10, decimals: 2, kind: "pageant", live_scoring: true },
     ]);
     const person = (id: string, activityId: string, first: string, last: string, position: number, extra = {}) => ({
       id,

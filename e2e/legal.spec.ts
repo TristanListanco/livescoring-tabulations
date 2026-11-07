@@ -47,10 +47,14 @@ test("the pages people sign in from link to all three", async ({ page }) => {
 });
 
 test("where people first arrive, a notice says Tabulous uses only essential cookies, once per browser", async ({ page }) => {
-  await page.goto("/judge");
+  await page.goto("/");
   const notice = page.getByRole("region", { name: "Cookies" });
   await expect(notice).toContainText("Tabulous uses only essential cookies");
   await expect(notice.getByRole("link", { name: "Cookie policy" })).toHaveAttribute("href", "/cookies");
+  // The judges' sign-in links the policies once, under its button: its notice points there rather than linking again.
+  await page.goto("/judge");
+  await expect(notice).toContainText("The cookie policy below says which.");
+  await expect(page.getByRole("link", { name: /policy|terms/i })).toHaveCount(3);
   await expectAccessible(page);
   await notice.getByRole("button", { name: "OK" }).click();
   await expect(notice).toHaveCount(0);

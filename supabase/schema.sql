@@ -426,6 +426,15 @@ alter table public.activities add column if not exists judges_see_ranking boolea
 alter table public.activities add column if not exists correction_reasons boolean not null default false;
 -- Judges score at their own pace, in any order, without waiting for the next entry to be shown (migration 034).
 alter table public.activities add column if not exists independent_scoring boolean not null default false;
+-- An event's scoring timer, seconds per entry, as a pageant sub-activity's (migration 038). Null: none.
+alter table public.activities add column if not exists timer_seconds integer;
+do $timer$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_timer_seconds_range') then
+    alter table public.activities add constraint activities_timer_seconds_range check (timer_seconds is null or timer_seconds between 5 and 3600);
+  end if;
+end;
+$timer$;
 -- Where it happens, when the organizer gives it ("Bldg 2, Room 204"), to tell breakout rooms apart (migration 035).
 alter table public.activities add column if not exists location text;
 do $location$

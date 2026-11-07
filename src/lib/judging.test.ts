@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { entryNeighbors, judgeView, LATE_SCORE_MS, scoreWindowOpen, showEntryColumns } from "./judging";
+import { entryNeighbors, eventTimer, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns } from "./judging";
+import { activityFixture } from "./test-fixtures";
 
 const entries = [
   { id: "e1", name: "Agila", photoUrl: null, position: 0 },
@@ -98,5 +99,25 @@ describe("scoreWindowOpen", () => {
     const pageant = { ...event, kind: "pageant" as const };
     expect(scoreWindowOpen(pageant, "e2", movedAt + 1_000)).toBe(true);
     expect(scoreWindowOpen(pageant, "e1", movedAt + 1_000)).toBe(false);
+  });
+});
+
+describe("an event's scoring timer", () => {
+  const entries = [{ id: "e1", name: "Agila", photoUrl: null, position: 0 }];
+  const board = (over: Parameters<typeof activityFixture>[0]) => ({ activity: activityFixture(over), judges: [], entries, scores: [], rounds: [] });
+  const now = Date.parse("2026-11-07T00:00:00Z");
+
+  it("starts as an entry is shown, an entry at a time, with simple or criteria scoring", () => {
+    expect(showColumns(board({ timerSeconds: 30 }), "e1", now)).toEqual({
+      columns: { current_entry_id: "e1", led_entry_id: "e1", scoring_closes_at: "2026-11-07T00:00:30.000Z" },
+    });
+    // Judges sent back to wait: no timer running.
+    expect(showColumns(board({ timerSeconds: 30 }), null, now)).toEqual({ columns: { current_entry_id: null, scoring_closes_at: null } });
+    expect(eventTimer(activityFixture({ timerSeconds: 30, scoringMode: "criteria" }))).toBe(30);
+  });
+  it("doesn't run without one, or at judges' own pace", () => {
+    expect(showColumns(board({}), "e1", now)).toEqual({ columns: { current_entry_id: "e1", led_entry_id: "e1" } });
+    expect(eventTimer(activityFixture({ timerSeconds: 30, liveScoring: false, independentScoring: true }))).toBeNull();
+    expect(eventTimer(activityFixture({ timerSeconds: 30, kind: "pageant" }))).toBeNull();
   });
 });

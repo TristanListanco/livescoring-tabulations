@@ -38,7 +38,8 @@ test("an admin signs their account out of another browser from their profile", a
   await expect(list).toContainText("iPad · Safari");
   // The newest iPad session is the tablet's.
   await list.getByRole("button", { name: "Sign out iPad · Safari" }).first().click();
-  await expect(laptop.getByRole("status").filter({ hasText: "signed out" })).toHaveText("That device is signed out.");
+  // A toast says so, as the panel's other confirmations do.
+  await expect(laptop.getByText("iPad · Safari signed out", { exact: true })).toBeVisible();
 
   // The tablet's next click goes to the sign-in page; the laptop carries on.
   await tablet.goto("/admin");

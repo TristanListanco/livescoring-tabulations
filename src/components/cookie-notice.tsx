@@ -25,7 +25,8 @@ const noted = () => {
  * wall, which are on screens in front of an audience and set no cookies. The server renders it as already seen, so a
  * returning visitor never sees it flash.
  */
-export function CookieNotice({ dark = false, className = "" }: { dark?: boolean; className?: string }) {
+/** `linked`: false where the page already links the cookie policy close by (the judges' sign-in), so it isn't there twice. */
+export function CookieNotice({ dark = false, linked = true, className = "" }: { dark?: boolean; linked?: boolean; className?: string }) {
   const seen = useSyncExternalStore(subscribe, noted, () => true);
   const [dismissed, setDismissed] = useState(false);
   if (seen || dismissed) return null;
@@ -48,9 +49,13 @@ export function CookieNotice({ dark = false, className = "" }: { dark?: boolean;
     >
       <p className="min-w-0 flex-1 basis-60">
         Tabulous uses only essential cookies, to keep you signed in and remember your settings.{" "}
-        <Link href="/cookies" className={`font-semibold underline underline-offset-2 ${dark ? "text-mint" : "text-regal"}`}>
-          Cookie policy
-        </Link>
+        {linked ? (
+          <Link href="/cookies" className={`font-semibold underline underline-offset-2 ${dark ? "text-mint" : "text-regal"}`}>
+            Cookie policy
+          </Link>
+        ) : (
+          "The cookie policy below says which."
+        )}
       </p>
       <button type="button" onClick={ok} className={`btn btn-sm shrink-0 ${dark ? "bg-mint text-prussian hover:bg-white" : "btn-quiet"}`}>
         OK

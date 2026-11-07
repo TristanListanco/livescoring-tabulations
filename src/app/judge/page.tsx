@@ -37,7 +37,8 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
   return (
     <main className="flex min-h-dvh items-center justify-center bg-prussian px-4 py-12 text-mint">
       <div className="w-full max-w-md">
-        <CookieNotice dark className="mb-8" />
+        {/* The cookie policy is among the links under the sign-in: the notice points there rather than linking it again. */}
+        <CookieNotice dark linked={false} className="mb-8" />
         {switching && context ? (
           <>
             <h1 className="judge-title">Switch judge?</h1>
@@ -70,21 +71,18 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
               autoFocus={!fromLink}
               initialError={limited ? TOO_MANY : invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined}
             />
-            {/* What starting means, before it's tapped: what's kept about a judge, and where it's said in full. */}
+            {/*
+              What starting means, before it's tapped, and right under it the policies it refers to: the page's one set
+              of links to them, rather than the same three again at the foot of the page.
+            */}
             <p className="mt-5 text-sm leading-relaxed text-powder">
-              By starting, you agree to the{" "}
-              <Link href="/terms" className="font-semibold text-mint underline underline-offset-2">
-                terms
-              </Link>
-              . Tabulous keeps your name, your scores, notes and signature, and a label for this device, as the{" "}
-              <Link href="/privacy" className="font-semibold text-mint underline underline-offset-2">
-                privacy policy
-              </Link>{" "}
-              says.
+              By starting, you agree to the terms of service. Tabulous keeps your name, your scores, notes and signature, and a label for this
+              device, as the privacy policy says.
             </p>
+            <LegalLinks className="mt-2 text-mint" />
           </>
         )}
-        <LegalLinks className="mt-12 text-powder" />
+        {switching && <LegalLinks className="mt-12 text-powder" />}
       </div>
     </main>
   );

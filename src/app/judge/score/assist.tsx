@@ -47,7 +47,7 @@ export function AssistButton({ current }: { current: JudgeAssistance | null }) {
           Assist me
         </>
       }
-      triggerClassName="btn btn-sm gap-1.5 bg-mint text-prussian shadow-[0_0_0_4px_rgb(238_244_237/0.14)] hover:bg-white max-sm:px-3"
+      triggerClassName="navy btn btn-sm gap-1.5 bg-mint text-prussian shadow-[0_0_0_4px_rgb(238_244_237/0.14)] hover:bg-white max-sm:px-3"
       title="Ask the organizer for help?"
       confirmLabel="Ask for help"
       onConfirm={async () => {

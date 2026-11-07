@@ -67,14 +67,18 @@ export function PanelSkeleton({ className = "" }: { className?: string }) {
   );
 }
 
-/** An activity: its name and status, its tabs where the page shows them (as its own tabs do), then its tab. */
+/**
+ * An activity, as its page lays out: the way back to Activities, its name, under it its status (and where it happens),
+ * its tabs where the page shows them (as its own tabs do), then its tab.
+ */
 export function ActivitySkeleton() {
   return (
     <Loading className="skeleton-enter">
-      <div className="skeleton h-4 w-20 lg:hidden" />
-      <div className="mt-2 flex items-center gap-3 lg:mt-1">
-        <div className="skeleton h-10 w-72 max-w-[70%]" />
-        <div className="skeleton h-7 w-20 rounded-full" />
+      <div className="skeleton h-4 w-20" />
+      <div className="skeleton mt-2.5 h-10 w-72 max-w-[70%]" />
+      <div className="mt-3 flex items-center gap-2">
+        <div className="skeleton h-7 w-24 rounded-full" />
+        <div className="skeleton h-4 w-36 max-w-[40%]" />
       </div>
       <div className="page-tabs mt-6 lg:hidden">
         <div className="grid grid-cols-6 gap-1 rounded-[1.375rem] bg-wash p-1 md:flex md:w-max md:rounded-full">
