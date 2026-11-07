@@ -45,6 +45,8 @@ export type ActivityRow = {
   independent_scoring?: boolean;
   /** Migration 035. */
   location?: string | null;
+  /** Migration 038. */
+  timer_seconds?: number | null;
   privacy_screen?: boolean;
   current_entry_id?: string | null;
   /** Migration 028. */
@@ -161,6 +163,7 @@ export function toActivity(row: ActivityRow): Activity {
     correctionReasons: row.correction_reasons ?? false,
     independentScoring: row.independent_scoring ?? false,
     location: row.location ?? null,
+    timerSeconds: row.kind === "pageant" ? null : (row.timer_seconds ?? null),
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,

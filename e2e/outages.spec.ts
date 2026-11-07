@@ -75,6 +75,8 @@ test.describe.serial("outages", () => {
     const phone = await context.newPage();
     await openJudgeLink(phone, CODE);
     await rest(`judge_devices?judge_id=eq.${judge}`, { status: "approved" }, "PATCH");
+    // As approving from the panel does (touchJudge): the change the phone's checks hear of.
+    await rest(`judges?id=eq.${judge}`, { devices_updated_at: new Date().toISOString() }, "PATCH");
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Agila Uno", { timeout: 20_000 });
 
     await context.setOffline(true);
@@ -93,6 +95,8 @@ test.describe.serial("outages", () => {
     // Approving it, as the organizer would: the phone from the test before is signed out (a judge has one approved device).
     await rest(`judge_devices?judge_id=eq.${judge}&status=eq.approved`, { status: "revoked" }, "PATCH");
     await rest(`judge_devices?judge_id=eq.${judge}&status=eq.pending`, { status: "approved" }, "PATCH");
+    // As approving from the panel does (touchJudge): the change the phone's checks and realtime hear of.
+    await rest(`judges?id=eq.${judge}`, { devices_updated_at: new Date().toISOString() }, "PATCH");
     await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Banog", { timeout: 20_000 });
     // The first send is cut off before it reaches the server.
     let cut = false;

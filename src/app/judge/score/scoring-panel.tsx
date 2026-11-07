@@ -9,9 +9,9 @@ import { SurveyLink } from "@/components/survey-link";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { CORRECTION_REASONS, MAX_CORRECTION_REASON, TIE_REASON, type CorrectionView } from "@/lib/corrections";
-import { atOwnPace, entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
+import { atOwnPace, entryNeighbors, eventTimer, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
-import { SCORE_UNDO_MS } from "@/lib/pageant";
+import { clock, SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
 import { SURVEY_URL } from "@/lib/survey";
 import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
@@ -121,6 +121,8 @@ const ERROR_RING = "ring-3 ring-danger-soft";
  * it sits there even when everything fits, where a thumb reaches.
  */
 const DOCK = "keypad-dock max-md:mt-auto";
+/** From 1024px the keypad sits beside the entry instead, nothing held anywhere: there's room for it all. */
+const DOCK_BESIDE = "lg:static lg:bg-none lg:pt-0 lg:pb-5";
 /** How long a correction vote's answers wait after it opens, so a tap meant for what was under it can't cast the vote. */
 const VOTE_ARM_MS = 600;
 
@@ -151,6 +153,8 @@ function WarningIcon() {
  * audience sees each score as it comes in, so it goes in at once.
  */
 const undoable = (activity: Activity) => !(activity.kind === "event" && activity.liveScoring);
+/** With live scoring, what submitting means, said before it's done: final, and in front of the audience at once. */
+const LIVE_SCORE_NOTE = "Once you submit it, it's final, and it shows on the live results at once.";
 
 function myScoreText(value: number, activity: Activity): string {
   return activity.scoringMode === "criteria" ? `${formatScore(value, activity.decimals)} / 100` : formatScore(value, activity.decimals);
@@ -362,19 +366,41 @@ export function ScoringPanel({
   const wide = useWideScreen();
   const noteEntry = view.kind === "scoring" || view.kind === "scored" ? view.entry : null;
   const inlineNotes = noteStore && noteEntry && !wide ? <NotesInline key={noteEntry.id} entry={noteEntry} notes={noteStore} /> : null;
-  // A pageant sub-activity's timer: green while judges can score, yellow as it's about to close, red once it has.
-  const timer = useScoringTimer(view.kind === "scoring" ? activity.scoringClosesAt : null, round?.timerSeconds ?? null, serverNow);
-  const timerBar = timer && round?.timerSeconds && (
-    <div className="mb-4 w-full">
-      <TimerBar state={timer} timerSeconds={round.timerSeconds} closedHint="Ask the organizer to reopen scoring." />
+  // A pageant sub-activity's timer, or an event's: green while judges can score, yellow as it's about to close, red once
+  // it has (and the keypad can't submit until the organizer gives more time).
+  const timerSeconds = round ? round.timerSeconds : eventTimer(activity);
+  const timer = useScoringTimer(view.kind === "scoring" ? activity.scoringClosesAt : null, timerSeconds, serverNow);
+  const timerBar = timer && timerSeconds && (
+    // From 1024px, a banner across both columns (the entry's and the keypad's), not held at the top.
+    <div className="timer-dock lg:static lg:col-span-2">
+      <TimerBar
+        state={timer}
+        timerSeconds={timerSeconds}
+        closingHint="Submit your score now."
+        closedHint="Ask the organizer to reopen scoring."
+        onColour
+        // With criteria the column is long: a slimmer bar, held at the top while the criteria scroll under it.
+        compact={activity.scoringMode === "criteria"}
+      />
     </div>
   );
+  // A score waiting out its few seconds to undo goes at once when the timer is about to close: it was confirmed in
+  // time, and waiting would land it (and any resend) after scoring closed.
+  const closingNow = !!timer && timer.secondsLeft <= 1;
+  useEffect(() => {
+    // With nothing to undo (live scoring), it's already on its way.
+    if (!pending || pending.sending || !closingNow || !undoMs) return;
+    const now = setTimeout(() => send(pending), 0);
+    return () => clearTimeout(now);
+  }, [pending, closingNow, undoMs]);
+  // The whole screen takes the timer's colour while it runs on the keypad (see .judge-screen); navy otherwise.
+  const timerColour = timer && approved && !(correctingEntry && corrections) && !deliberating ? timer.phase : undefined;
 
   return (
-    <div className="flex h-dvh flex-col bg-prussian text-mint">
+    <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
       <header className="flex items-center gap-3 border-b border-oxford px-4 py-3 sm:px-6">
         {/* On a phone the judge's own photo gives way to their name, which the header has little room for. */}
-        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="max-sm:hidden" />
+        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="navy max-sm:hidden" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{judge.name}</p>
           <p className="truncate text-sm text-powder">
@@ -432,7 +458,7 @@ export function ScoringPanel({
             className={
               toastQuiet
                 ? "sr-only"
-                : "toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
+                : "navy toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
             }
           >
             <svg viewBox="0 0 16 16" className="size-5 shrink-0 text-regal" aria-hidden>
@@ -540,6 +566,7 @@ export function ScoringPanel({
                     : null
                 }
                 movesEntries={!!panel && !ownPace}
+                timerSeconds={timerSeconds}
                 ownPace={ownPace}
                 offPanel={offPanel}
                 correction={
@@ -574,9 +601,14 @@ export function ScoringPanel({
         </main>
         {noteStore && wide && !deliberating && <NotesBeside entry={noteEntry} notes={noteStore} />}
       </div>
-      {pending && (undoable(activity) || pending.sending) && (
+      {/*
+        A score with a few seconds to take it back shows them; with live scoring it goes in at once, and the Saved message
+        says so, with nothing in between unless the network keeps it waiting.
+      */}
+      {pending && undoable(activity) && (
         <UndoBar key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} onUndo={() => setPending(null)} />
       )}
+      {pending?.sending && !undoable(activity) && <SlowSend key={pending.entry.id} pending={pending} shown={myScoreText(pending.value, activity)} />}
       {/* Another judge's correction waits for this judge's vote: it can't be put off, only held while they score. */}
       {!busyScoring && toVote.length > 0 && <CorrectionVote key={toVote[0].id} view={toVote[0]} onVoted={(agree) => onVoted(toVote[0], agree)} />}
     </div>
@@ -603,7 +635,7 @@ function ScoreList({
       {entries.map((entry, i) => {
         const value = scores.get(entry.id);
         const current = entry.id === currentId;
-        const row = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${current ? "bg-regal" : onPick ? "hover:bg-oxford" : ""}`;
+        const row = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${current ? "navy bg-regal" : onPick ? "hover:bg-oxford" : ""}`;
         const content = (
           <>
             <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{entry.number ?? i + 1}</span>
@@ -883,7 +915,7 @@ function UndoBar({ pending, shown, onUndo }: { pending: PendingScore; shown: str
     return () => clearInterval(tick);
   }, []);
   return (
-    <div className="toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
+    <div className="navy toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
       {/* Said once; the ticking seconds are only for the eye. */}
       <p role="status" className="sr-only">
         {pending.sending
@@ -905,6 +937,35 @@ function UndoBar({ pending, shown, onUndo }: { pending: PendingScore; shown: str
       </div>
       <div aria-hidden className="h-1.5 bg-powder/40">
         {!pending.sending && <div className="undo-drain h-full bg-regal" style={{ animationDuration: `${SCORE_UNDO_MS}ms` }} />}
+      </div>
+    </div>
+  );
+}
+
+/** How long a live-scoring score can take to go in before the judge is shown it's on its way. */
+const SLOW_SEND_MS = 700;
+
+/**
+ * With live scoring a score goes in the moment it's confirmed, and "Saved" says so: no countdown, no Undo. Only if the
+ * network keeps it waiting does this come up, quietly, so the judge knows it's on its way rather than lost.
+ */
+function SlowSend({ pending, shown }: { pending: PendingScore; shown: string }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_SEND_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  if (!slow) return null;
+  return (
+    <div className="navy toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
+      <p role="status" className="px-4 py-3">
+        <span className="block font-semibold">Submitting…</span>
+        <span className="block truncate text-sm text-prussian/75">
+          <span className="tabular font-semibold text-prussian">{shown}</span> for {pending.entry.name}
+        </span>
+      </p>
+      <div aria-hidden className="h-1.5 overflow-hidden bg-powder/40">
+        <div className="send-sweep h-full w-1/3 bg-regal" />
       </div>
     </div>
   );
@@ -959,12 +1020,15 @@ function WaitingCard({
   scoredCount,
   entryCount,
   movesEntries,
+  timerSeconds,
   ownPace = false,
   offPanel,
   correction,
   points,
 }: {
   view: Exclude<JudgeView, { kind: "scoring" }>;
+  /** Seconds judges get to score each entry once it's shown, or null with no timer: said while they wait. */
+  timerSeconds: number | null;
   /** Scoring at their own pace (see atOwnPace): nothing to wait for but the other judges, before the deliberation. */
   ownPace?: boolean;
   /** Under a submitted score: asking for a correction, or how one stands (null before migration 019). */
@@ -982,6 +1046,8 @@ function WaitingCard({
   movesEntries: boolean;
 }) {
   const firstName = judge.name.split(" ").find((w) => !/\.$/.test(w)) ?? judge.name;
+  // With live scoring a judge's scores are on the live results as they go in, and the last one ends judging by itself.
+  const live = activity.kind === "event" && activity.liveScoring;
   const copy: Record<typeof view.kind, { title: string; body: string }> = {
     "not-started": { title: "Waiting for the organizer to start", body: "Your screen opens by itself when judging begins. Keep this page open." },
     waiting: {
@@ -990,7 +1056,10 @@ function WaitingCard({
     },
     scored: { title: "Waiting for the next entry", body: "The organizer shows it once every judge has scored." },
     deliberation: { title: "The judges are deliberating", body: "Your scores appear here to review and sign." },
-    ended: { title: "Judging has ended", body: `Thank you, ${firstName}. You scored ${scoredCount} of ${entryCount} ${entryCount === 1 ? "entry" : "entries"}.` },
+    ended: {
+      title: "Judging has ended",
+      body: `Thank you, ${firstName}. You scored ${scoredCount} of ${entryCount} ${entryCount === 1 ? "entry" : "entries"}${live && scoredCount ? ", and your scores are on the live results" : ""}.`,
+    },
   };
   const tabulatorCopy: Partial<typeof copy> = {
     waiting: {
@@ -1011,7 +1080,9 @@ function WaitingCard({
       ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
       : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
-  const submitted = correction ?? <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.</p>;
+  const submitted = correction ?? (
+    <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.{live && " It's on the live results now."}</p>
+  );
 
   // The chair, scored: their score kept short, so the controls to move on come straight after it.
   if (view.kind === "scored" && movesEntries && !offPanel) {
@@ -1051,6 +1122,19 @@ function WaitingCard({
       {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
       <h1 className="judge-title">{title}</h1>
       <p className="judge-lede mt-3">{body}</p>
+      {/* So the timer doesn't take a judge by surprise: told before it starts, and how the screen will show it. */}
+      {timerSeconds && view.kind === "waiting" && !ownPace && !offPanel && !betweenRounds && (
+        <p className="mt-6 flex max-w-sm items-start gap-3 rounded-xl border border-powder/25 px-4 py-3 text-left">
+          <svg viewBox="0 0 20 20" className="mt-0.5 size-5 shrink-0 text-go" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden>
+            <circle cx="10" cy="11" r="6.5" />
+            <path d="M10 7.5V11l2.2 1.6M8 2.5h4" />
+          </svg>
+          <span>
+            You have <span className="tabular font-semibold">{clock(timerSeconds)}</span> to score each entry once it&apos;s shown. Your
+            screen turns green while you score, yellow as time runs short, and red when scoring closes.
+          </span>
+        </p>
+      )}
       {view.kind === "ended" && SURVEY_URL && (
         <div className="mt-10 flex max-w-sm flex-col items-center">
           <p className="text-powder">How was judging with Tabulous? A short anonymous survey, about 8 minutes, helps make it better.</p>
@@ -1494,7 +1578,7 @@ function EntryControls({
 /** Digits, decimal point and backspace, sized for thumbs. Dimmed and still while a score waits out its undo window. */
 function KeypadGrid({ decimals, onPress, disabled = false }: { decimals: number; onPress: (key: Key) => void; disabled?: boolean }) {
   return (
-    <div className="mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
+    <div className="navy mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
       {DIGITS.map((d) => (
         <KeypadKey key={d} onPress={() => onPress(d)} label={d} disabled={disabled} />
       ))}
@@ -1528,7 +1612,7 @@ function KeypadKey({ label, onPress, ariaLabel, disabled = false }: { label: Rea
       onClick={onPress}
       aria-label={ariaLabel}
       disabled={disabled}
-      className="tabular h-[clamp(2.75rem,6.5vh,5.5rem)] rounded-2xl bg-oxford ring-1 ring-powder/15 ring-inset disabled:pointer-events-none disabled:opacity-40 md:h-[clamp(3.25rem,8.5vh,5.5rem)] text-[clamp(1.75rem,4.5vh,2.5rem)] font-semibold text-mint transition-colors select-none hover:bg-regal active:scale-[0.97] active:bg-regal"
+      className="tabular h-[clamp(2.75rem,6.5vh,5.5rem)] rounded-2xl bg-oxford ring-1 ring-powder/15 ring-inset disabled:pointer-events-none disabled:opacity-40 md:h-[clamp(3.25rem,8.5vh,5.5rem)] lg:h-[clamp(3rem,7.5vh,5rem)] text-[clamp(1.75rem,4.5vh,2.5rem)] font-semibold text-mint transition-colors select-none hover:bg-regal active:scale-[0.97] active:bg-regal"
     >
       {label}
     </button>
@@ -1759,13 +1843,13 @@ function FromTo({ from, to }: { from: string; to: string }) {
  * has one: the judge sees who's on stage, as the LED wall does. The name runs on from the number, so a long one in a
  * narrow column wraps at full width.
  */
-function EntryTitle({ entry, number }: { entry: Entry; number: number }) {
+function EntryTitle({ entry, number, large = false }: { entry: Entry; number: number; /** Beside the keypad from 1024px, with the column to itself. */ large?: boolean }) {
   return (
     // Keyed by the entry: the next one's name rises into place when the organizer shows it, so the change is noticed.
     <div key={entry.id} className="judge-arrive flex items-center gap-3 sm:gap-4">
       {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl" />}
       {/* A div, not a p: a heading can't sit inside a paragraph. */}
-      <div className="judge-title min-w-0 flex-1 wrap-anywhere">
+      <div className={`judge-title min-w-0 flex-1 wrap-anywhere ${large ? "lg:text-5xl" : ""}`}>
         <span className="tabular font-semibold text-powder">No. {number}</span> <h1 className="inline">{entry.name}</h1>
       </div>
     </div>
@@ -1815,9 +1899,11 @@ const signOutLabel = (
 
 /** The keypad's main button: Submit score, Next criterion, Review correction. */
 const PRIMARY =
-  "btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)]";
+  "navy btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)] lg:h-[clamp(3.25rem,7vh,4.5rem)]";
 
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
+/** The confirmation, if time runs out while it's open: it says so, and can't submit until the organizer reopens scoring. */
+const TIME_UP_DIALOG = { note: TIME_UP, confirmDisabled: true };
 
 /** Simple scoring: one score between min and max. */
 function Keypad({ activity, entry, number, notes, submission, timer, closed = false, correcting }: KeypadProps) {
@@ -1847,7 +1933,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
   const request = useCorrectionRequest(entry, correcting, dialogRef);
   const confirm = () => {
     const parsed = parseScore(buffer, activity);
-    if (busy || !parsed.ok) return;
+    if (busy || !parsed.ok || (closed && !correcting)) return;
     if (correcting) {
       void request.ask(buffer);
       return;
@@ -1865,14 +1951,17 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
   const message = error ?? submission.error ?? (tooHigh ? overMaxMessage(buffer, activity) : null);
 
   return (
-    <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:max-w-lg">
+    // One column, its keypad held at the bottom; from 1024px, the entry beside the keypad, as with criteria.
+    <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
       {timer}
-      {correcting && <CorrectingBar correcting={correcting} />}
-      <EntryTitle entry={entry} number={number} />
-      {notes}
+      <div className="min-w-0">
+        {correcting && <CorrectingBar correcting={correcting} />}
+        <EntryTitle entry={entry} number={number} large />
+        {notes}
+      </div>
 
-      <div className={DOCK}>
-        <div className={`flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
+      <div className={`${DOCK} ${DOCK_BESIDE}`}>
+        <div className={`navy flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
           <output
             aria-label="Score"
             aria-describedby="score-hint"
@@ -1915,7 +2004,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
         </button>
       </div>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: "Once you submit it, it's final." })} {...request.dialog}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: LIVE_SCORE_NOTE })} {...request.dialog} {...(closed && !correcting ? TIME_UP_DIALOG : {})}>
         {correcting ? (
           <>
             <FromTo from={formatScore(correcting.from, activity.decimals)} to={typed.ok ? formatScore(typed.value, activity.decimals) : buffer} />
@@ -1994,7 +2083,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   };
   const request = useCorrectionRequest(entry, correcting, dialogRef);
   const confirm = () => {
-    if (busy || !all.ok) return;
+    if (busy || !all.ok || (closed && !correcting)) return;
     if (correcting) {
       void request.ask(values);
       return;
@@ -2019,13 +2108,13 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   return (
     // One column, its keypad held at the bottom; from 1024px, the entry and its criteria beside the keypad instead.
     <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
+      {timer}
       <div className="min-w-0">
-        {timer}
         {correcting && <CorrectingBar correcting={correcting} />}
         <EntryTitle entry={entry} number={number} />
         {notes}
 
-        <ul className="mt-3 space-y-1.5" aria-label="Criteria">
+        <ul className="navy mt-3 space-y-1.5" aria-label="Criteria">
           {criteria.map((c) => {
             const isActive = c.id === active?.id;
             const value = values[c.id];
@@ -2071,7 +2160,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         </p>
       </div>
 
-      <div className={`${DOCK} lg:static lg:bg-none lg:pt-0 lg:pb-5`}>
+      <div className={`${DOCK} ${DOCK_BESIDE}`}>
         {active?.guide && (
           <div className="rounded-xl border border-oxford">
             <button
@@ -2096,7 +2185,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         )}
 
         {active && (
-          <div className={`flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
+          <div className={`navy flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
             <span className="mr-3 max-w-[40%] truncate text-sm text-powder">{active.name}</span>
             <output
               aria-label={`${active.name} score`}
@@ -2147,7 +2236,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         </button>
       </div>
 
-      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: "Once you submit it, it's final." })} {...request.dialog}>
+      <ConfirmScore dialogRef={dialogRef} entry={entry} onConfirm={confirm} {...(undoable(activity) ? {} : { note: LIVE_SCORE_NOTE })} {...request.dialog} {...(closed && !correcting ? TIME_UP_DIALOG : {})}>
         {all.ok && correcting && (
           <>
             <FromTo from={formatScore(correcting.from, decimals)} to={formatScore(all.total, decimals)} />

@@ -7,13 +7,12 @@ import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOption, setActivityOwner, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
-import { CsvCheck } from "./export-menu";
 import { toastOnRedirect } from "../toaster";
 import { ArchiveButton } from "../archive-controls";
 
@@ -21,6 +20,9 @@ import { ArchiveButton } from "../archive-controls";
 function ScoringSummary({ activity }: { activity: Activity }) {
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   const criteria = activity.scoringMode === "criteria";
+  // An event's timer is changeable until judging starts (see EventTimer); then it's one of the rules, shown here.
+  const timeLimit: [string, React.ReactNode][] =
+    activity.sessionState === "draft" ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
   const rows: [string, React.ReactNode][] = activity.kind === "pageant"
     ? [
         ["Method", "Pageant: each sub-activity has its own scoring, on the Segments tab"],
@@ -61,11 +63,13 @@ function ScoringSummary({ activity }: { activity: Activity }) {
         ["Judges give points in", places(activity.decimals)],
         ["Totals shown", activity.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"],
         ["Results show", places(activity.resultDecimals)],
+        ...timeLimit,
       ]
     : [
         ["Method", `Simple, scores from ${rangeLabel(activity)}`],
         ["Judges score with", places(activity.decimals)],
         ["Results show", places(activity.resultDecimals)],
+        ...timeLimit,
       ];
   return (
     <dl className="grid max-w-2xl gap-x-8 gap-y-3 sm:grid-cols-[auto_1fr]">
@@ -76,6 +80,58 @@ function ScoringSummary({ activity }: { activity: Activity }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * An event's scoring timer, until the session starts: off, or the seconds judges get for each entry shown. Saved on its
+ * own (Save timer shows only once it's changed). After the start, the Scoring summary says what it was set to.
+ */
+function EventTimer({ activity }: { activity: Activity }) {
+  const saved = activity.timerSeconds;
+  const [value, setValue] = useState(saved ? String(saved) : "");
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const seconds = value === "" ? null : Number(value);
+  const save = () =>
+    startTransition(async () => {
+      setResult(await reach(() => setEventTimer(activity.id, seconds)));
+    });
+  return (
+    <div className="mt-6 border-t border-line pt-5">
+      <label className="flex items-center gap-2.5 font-semibold">
+        <input type="checkbox" className="size-5 shrink-0 accent-regal" checked={value !== ""} onChange={(e) => setValue(e.target.checked ? String(saved ?? 60) : "")} />
+        Time limit for scoring
+      </label>
+      {value !== "" && (
+        <div className="mt-2 ml-7.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label htmlFor="timer" className="text-sm">
+            Judges get<span className="sr-only"> this many seconds to score each entry</span>
+          </label>
+          <input
+            id="timer"
+            value={value}
+            onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "").slice(0, 4) || "0")}
+            inputMode="numeric"
+            className="field tabular w-20"
+          />
+          <span className="text-sm">seconds per entry</span>
+        </div>
+      )}
+      <p className="hint mt-2 ml-7.5">
+        {activity.independentScoring && !activity.liveScoring
+          ? "Judges scoring at their own pace have no timer: it runs only when you show entries one at a time."
+          : "It starts as you show each entry. When it runs out, scoring closes until you give more time from the desk."}
+      </p>
+      <div className="mt-3 ml-7.5 flex flex-wrap items-center gap-3">
+        {seconds !== saved && (
+          <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={pending}>
+            {pending ? "Saving…" : "Save timer"}
+          </button>
+        )}
+        <FormMessage state={result} small />
+      </div>
+    </div>
   );
 }
 
@@ -147,7 +203,10 @@ function LiveScoring({ activity }: { activity: Activity }) {
         </p>
       </div>
       {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
-      <p className="hint pl-16">{editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}</p>
+      <p className="hint pl-16">
+        {on && "Only you move between entries: the chair judges as the others do. "}
+        {editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}
+      </p>
       <FormMessage state={result} small className="pl-16" />
     </div>
   );
@@ -206,8 +265,8 @@ type OrganizerOption = { id: string; name: string; email: string };
 
 /**
  * What's done with the activity as a whole, on one line under its settings, straight on the page rather than in a card
- * of its own: check a CSV against it, archive it once judging has ended, and, at the far end, delete it (or a test
- * site's tools). Out of a card, its buttons take the firmer outline of .bare-actions.
+ * of its own: archive it once judging has ended, and, at the far end, delete it (or a test site's tools). Out of a
+ * card, its buttons take the firmer outline of .bare-actions.
  */
 function ManageActivity({ children, end }: { children: React.ReactNode; end: React.ReactNode }) {
   return (
@@ -307,6 +366,7 @@ export function SettingsTab({
 
       <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
+        {activity.kind === "event" && activity.sessionState === "draft" && <EventTimer activity={activity} />}
       </Section>
 
       {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
@@ -401,7 +461,6 @@ export function SettingsTab({
           )
         }
       >
-        <CsvCheck activityId={activity.id} className="btn btn-quiet" />
         {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} />}
       </ManageActivity>
     </div>

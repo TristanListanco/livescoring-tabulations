@@ -728,12 +728,15 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
   );
 }
 
-/** The scoring timer on the desk, with more time or a restart for the candidate on screen. */
-export function DeskTimer({ activity, round, renderedAt }: { activity: Activity; round: Round; renderedAt: number }) {
-  const timer = useScoringTimer(activity.currentEntryId ? activity.scoringClosesAt : null, round.timerSeconds, renderedAt);
+/**
+ * The scoring timer on the desk, with more time or a restart for the entry or candidate on screen. `timerSeconds`: a
+ * pageant sub-activity's, or an event's (see eventTimer); null for none.
+ */
+export function DeskTimer({ activity, timerSeconds, renderedAt }: { activity: Activity; timerSeconds: number | null; renderedAt: number }) {
+  const timer = useScoringTimer(activity.currentEntryId ? activity.scoringClosesAt : null, timerSeconds, renderedAt);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  if (!round.timerSeconds || !activity.currentEntryId) return null;
+  if (!timerSeconds || !activity.currentEntryId) return null;
   const run = (how: "restart" | "more") =>
     start(async () => {
       const r = await reach(() => extendScoring(activity.id, how));
@@ -742,7 +745,7 @@ export function DeskTimer({ activity, round, renderedAt }: { activity: Activity;
   const button = "btn btn-sm border border-oxford text-mint hover:bg-oxford";
   return (
     <div className="flex flex-wrap items-center gap-2 px-6 pt-3">
-      <div className="min-w-48 flex-1">{timer && <TimerBar state={timer} timerSeconds={round.timerSeconds} compact />}</div>
+      <div className="min-w-48 flex-1">{timer && <TimerBar state={timer} timerSeconds={timerSeconds} compact />}</div>
       <button type="button" className={button} onClick={() => run("more")} disabled={pending}>
         {timer?.phase === "closed" ? "Reopen for 15 s" : "+15 s"}
       </button>

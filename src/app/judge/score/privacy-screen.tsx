@@ -66,7 +66,7 @@ export function PrivacyScreen({ active }: { active: boolean }) {
     <>
       {on && asks && allowed === null && (
         // In the page, under the header, so it never covers the keypad or a signature box.
-        <div className="mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl bg-mint px-4 py-3 text-prussian sm:mx-6">
+        <div className="navy mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl bg-mint px-4 py-3 text-prussian sm:mx-6">
           <p className="min-w-0 flex-1 text-sm">Turn on the privacy screen: it hides your screen when your device is turned away from you.</p>
           <button type="button" onClick={ask} className="btn btn-sm shrink-0 bg-prussian text-mint hover:bg-regal">
             Turn on
@@ -77,7 +77,7 @@ export function PrivacyScreen({ active }: { active: boolean }) {
         <div
           role="alert"
           // A phone on its side has little height: it scrolls rather than cutting the button off.
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center-safe gap-3 overflow-y-auto bg-prussian/90 px-8 py-6 text-center text-mint backdrop-blur-2xl [@media(max-height:26rem)]:gap-2"
+          className="navy fixed inset-0 z-50 flex flex-col items-center justify-center-safe gap-3 overflow-y-auto bg-prussian/90 px-8 py-6 text-center text-mint backdrop-blur-2xl [@media(max-height:26rem)]:gap-2"
         >
           <svg viewBox="0 0 24 24" className="size-12 text-powder [@media(max-height:26rem)]:size-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
             <path d="M3 3l18 18M10.6 5.1A10.9 10.9 0 0 1 12 5c5 0 9 4.5 10 7a13.7 13.7 0 0 1-3.2 4.3M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7 1.9 0 3.6-.6 5.1-1.5M9.9 9.9a3 3 0 0 0 4.2 4.2" />

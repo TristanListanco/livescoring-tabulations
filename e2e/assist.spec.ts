@@ -109,9 +109,13 @@ test.describe.serial("judges' calls for help", () => {
     await expect(two.getByRole("listitem")).toHaveText([/Ana Cruz/, /Ben Torres/]);
     await test.info().attach("organizer alerted", { body: await page.screenshot(), contentType: "image/png" });
     await test.info().attach("judge asked", { body: await anaPhone.screenshot(), contentType: "image/png" });
-    // Each call notified once.
+    // Each call notified once. (The judges' phones asked to be approved as they signed in, which notifies too.)
     await expect
-      .poll(() => page.evaluate(() => (window as unknown as { shownNotifications: { title: string }[] }).shownNotifications.map((n) => n.title)))
+      .poll(() =>
+        page.evaluate(() =>
+          (window as unknown as { shownNotifications: { title: string }[] }).shownNotifications.map((n) => n.title).filter((t) => t.endsWith("needs help")),
+        ),
+      )
       .toEqual(["Ana Cruz needs help", "Ben Torres needs help"]);
     // Escape doesn't dismiss it: each call is answered.
     await page.keyboard.press("Escape");

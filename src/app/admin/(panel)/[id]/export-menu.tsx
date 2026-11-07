@@ -1,10 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useRef, useState, useTransition } from "react";
-import { reach } from "@/lib/reach";
-import type { ActionResult } from "@/lib/types";
-import { checkExport } from "../../actions";
-import { FormMessage } from "../form-message";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { toast } from "../toaster";
 
 /**
@@ -155,52 +151,4 @@ export function sheetOptions(query: string, { judges = false, noun = "Results" }
         ]
       : []),
   ];
-}
-
-/**
- * Checks a CSV someone has against this activity's scores: that its rows still match its own fingerprint (nothing was
- * changed after it was exported), and that the fingerprint is one of the sheets the scores give now. The file goes to
- * the server to be checked, so this works on the venue laptop's plain http too.
- */
-export function CsvCheck({
-  activityId,
-  className,
-  wrapClassName = "",
-  onDark = false,
-}: {
-  activityId: string;
-  /** The button's (a label for the hidden file input). */
-  className: string;
-  /** Around the button and the result beside it. */
-  wrapClassName?: string;
-  onDark?: boolean;
-}) {
-  const id = useId();
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [pending, start] = useTransition();
-  return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${wrapClassName}`}>
-      <input
-        id={id}
-        type="file"
-        accept=".csv,text/csv"
-        className="peer sr-only"
-        disabled={pending}
-        onChange={(e) => {
-          const file = e.currentTarget.files?.[0];
-          e.currentTarget.value = "";
-          if (!file) return;
-          start(async () => {
-            setResult(null);
-            const text = await file.text();
-            setResult(await reach(() => checkExport(activityId, text)));
-          });
-        }}
-      />
-      <label htmlFor={id} className={`${className} cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2`}>
-        {pending ? "Checking…" : "Check an exported CSV"}
-      </label>
-      <FormMessage state={result} small onDark={onDark} />
-    </div>
-  );
 }

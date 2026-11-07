@@ -84,6 +84,11 @@ test.describe.serial("deliberation", () => {
 
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
     await expect(ana.getByText("Score from 1 to 10, up to 3 decimal places.")).toBeVisible();
+    // A note on the entry, kept for the judge (and the organizer), saved as it's typed: without live scoring, it's
+    // there to look back on in the deliberation.
+    await ana.getByRole("button", { name: "Add notes" }).click();
+    await ana.getByLabel("Your notes on Agila").fill("Clever use of local materials.");
+    await expect(ana.getByText("Saved", { exact: true })).toBeVisible();
     await submitScore(ana, "Agila", "8.125");
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
 
@@ -133,7 +138,11 @@ test.describe.serial("deliberation", () => {
     await audience.goto(livePath.replace("/live/", "/led/"));
     await expect(audience.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
+    // Without live scoring, Ben, the chair, moves on from his own screen, as the organizer can from the desk. Ana can't.
+    await expect(ana.getByRole("button", { name: /^Next/ })).toHaveCount(0);
+    const chairControls = ben.getByRole("region", { name: "Chair of the board of judges" });
+    await expect(chairControls.getByRole("status")).toHaveText("Every judge has scored Agila.", REALTIME);
+    await chairControls.getByRole("button", { name: "Next: Bagwis" }).click();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Bagwis", REALTIME);
     await submitScore(ana, "Bagwis", "7.75", "7.750");
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Bagwis", REALTIME);
@@ -303,6 +312,10 @@ test.describe.serial("deliberation", () => {
     await page.goto(`${adminPath}?tab=session`);
     const download = await exportFile(page, "Results (PDF)");
     expect(readFileSync(await download.path()).subarray(0, 5).toString()).toBe("%PDF-");
+    // Ana's note downloads beside the results, as a PDF of its own.
+    const notesPdf = await exportFile(page, "Judges' notes (PDF)");
+    expect(notesPdf.suggestedFilename()).toMatch(/judges-notes\.pdf$/);
+    expect(readFileSync(await notesPdf.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   test("the organizer can deliberate again, with their password", async ({ page }) => {

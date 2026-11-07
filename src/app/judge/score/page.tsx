@@ -4,7 +4,7 @@ import { correctionView, correctionVoters, withoutValues } from "@/lib/correctio
 import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, showingBoard } from "@/lib/pageant";
-import { atOwnPace } from "@/lib/judging";
+import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
 import { averageText, formatScore, rankEntries } from "@/lib/scoring";
@@ -60,7 +60,8 @@ export default async function ScorePage() {
       : [];
 
   // Their own notes on the entries, once the device is approved (null when notes aren't available: before migration 018).
-  const notes = gate.status === "approved" && !offPanel ? ownNotes : null;
+  // Not with live scoring: each score is final as it goes in, with no deliberation to review notes in.
+  const notes = gate.status === "approved" && !offPanel && !(board.activity.kind === "event" && board.activity.liveScoring) ? ownNotes : null;
 
   // With criteria, the points this judge gave the entry on screen: listed under their score, and where a correction
   // of it starts.
@@ -166,8 +167,9 @@ export default async function ScorePage() {
   const deliberationReady = gate.status === "approved" && context.judge.isChair && deliberationGap(board) === null;
 
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
+  // With live scoring only the organizer moves on, so the chair judges as the others do.
   const panel =
-    gate.status === "approved" && context.judge.isChair && !offPanel
+    gate.status === "approved" && context.judge.isChair && !offPanel && chairMovesEntries(activity)
       ? showing.judges.map((j) => ({
           id: j.id,
           name: j.name,

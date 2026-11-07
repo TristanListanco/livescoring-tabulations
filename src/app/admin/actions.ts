@@ -11,11 +11,8 @@ import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
 import { shuffle } from "@/lib/shuffle";
-import { FINGERPRINT, readExport } from "@/lib/csv";
 import { detailsFor, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEntryLine, toEntryFields, type EntryDetails, type EntryField } from "@/lib/entry-details";
-import { csvFingerprints } from "@/lib/exports";
 import { getAlertActivityIds, getOpenAssistance, getWaitingDevices, type AssistanceRequest, type WaitingDevice } from "@/lib/assistance";
-import { sha256 } from "@/lib/results-csv";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -35,7 +32,7 @@ import {
 import { touchJudge } from "@/lib/devices";
 import { pageantsAvailable, testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
-import { showColumns, showEntryColumns } from "@/lib/judging";
+import { eventTimer, showColumns, showEntryColumns } from "@/lib/judging";
 import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
@@ -104,6 +101,17 @@ function cleanName(value: FormDataEntryValue | null): string {
 function cleanLocation(value: FormDataEntryValue | null): string | null {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
 }
+
+/** An event's scoring timer as typed: null for none, or seconds from 5 to 3600 (as a pageant sub-activity's). */
+function readTimer(value: FormDataEntryValue | null): number | null | { error: string } {
+  const typed = String(value ?? "").trim();
+  if (!typed) return null;
+  const seconds = Number(typed);
+  return Number.isInteger(seconds) && seconds >= 5 && seconds <= 3600 ? seconds : { error: "Set the timer from 5 to 3600 seconds, or turn it off." };
+}
+
+/** Where an event's timer needs migration 038. */
+const TIMER_HINT = "This needs a database update. Run supabase/migrations/038_event_timer.sql in the Supabase SQL editor.";
 
 /** Where a location needs migration 035. */
 const LOCATION_HINT = "This needs a database update. Run supabase/migrations/035_activity_location.sql in the Supabase SQL editor.";
@@ -549,21 +557,43 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
   return ok();
 });
 
-/** Restart the timer for the candidate on screen, or give judges 15 more seconds. Reopens scoring once it has closed. */
+/**
+ * Restart the timer for the entry or candidate on screen, or give judges 15 more seconds. Reopens scoring once it has
+ * closed. A pageant's timer is its sub-activity's; an event's, its own (see eventTimer).
+ */
 export const extendScoring = traced("extendScoring", async function extendScoring(activityId: string, how: "restart" | "more"): Promise<ActionResult> {
-  const found = await managedPageant(activityId);
-  if (!found) return PAGEANT_NOT_FOUND;
-  const { activity, rounds } = found.board;
-  const round = rounds.find((r) => r.id === activity.currentRoundId);
-  if (activity.sessionState !== "live" || !round || !activity.currentEntryId) return err("Show a candidate first.");
-  if (!round.timerSeconds) return err(`${round.name} has no timer.`);
-  const now = Date.now();
-  const from = Math.max(now, activity.scoringClosesAt ? Date.parse(activity.scoringClosesAt) : now);
-  const closesAt = how === "restart" ? now + round.timerSeconds * 1000 : from + 15_000;
-  const { error } = await db().from("activities").update({ scoring_closes_at: new Date(closesAt).toISOString() }).eq("id", activityId);
-  if (error) return dbErr(error);
-  changed();
-  return ok();
+  const session = await manage(activityId);
+  if (!session) return NOT_FOUND;
+  // The new closing time is worked out from what was read, so it's written only if nothing has moved since: not the
+  // entry on screen (showing the next one starts its own timer, which this would otherwise cut short or stretch), nor
+  // the closing time (two quick +15 s each count). If something has, it's worked out again.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const board = await getAdminBoard(activityId);
+    if (!board) return NOT_FOUND;
+    const { activity, rounds } = board;
+    const pageant = activity.kind === "pageant";
+    const round = pageant ? rounds.find((r) => r.id === activity.currentRoundId) : undefined;
+    if (activity.sessionState !== "live" || (pageant && !round) || !activity.currentEntryId) return err(pageant ? "Show a candidate first." : "Show an entry first.");
+    const seconds = pageant ? round!.timerSeconds : eventTimer(activity);
+    if (!seconds) return err(`${pageant ? round!.name : activity.name} has no timer.`);
+    const now = Date.now();
+    const from = Math.max(now, activity.scoringClosesAt ? Date.parse(activity.scoringClosesAt) : now);
+    const closesAt = how === "restart" ? now + seconds * 1000 : from + 15_000;
+    const update = db()
+      .from("activities")
+      .update({ scoring_closes_at: new Date(closesAt).toISOString() })
+      .eq("id", activityId)
+      .eq("session_state", "live")
+      .eq("current_entry_id", activity.currentEntryId);
+    const unchanged = activity.scoringClosesAt ? update.eq("scoring_closes_at", activity.scoringClosesAt) : update.is("scoring_closes_at", null);
+    const { data, error } = await (round ? unchanged.eq("current_round_id", round.id) : unchanged).select("id");
+    if (error) return dbErr(error);
+    if (data.length) {
+      changed();
+      return ok();
+    }
+  }
+  return err("The timer changed just as you pressed that. Check it, and try again if you still need to.");
 });
 
 /**
@@ -781,6 +811,12 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   // Written only when given, so activities without one create before migration 035.
   const location = cleanLocation(formData.get("location"));
   if (location) columns.location = location;
+  // An event's scoring timer, written only when set, so events create before migration 038.
+  if (!pageant) {
+    const timer = readTimer(formData.get("timer_seconds"));
+    if (timer !== null && typeof timer === "object") return err(timer.error);
+    if (timer !== null) columns.timer_seconds = timer;
+  }
 
   const judgeCount = Number(formData.get("judgeCount"));
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
@@ -840,6 +876,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
     if (error && /independent_scoring/.test(error.message)) return needsMigration(OWN_PACE_HINT);
     if (error && /location/.test(error.message)) return needsMigration(LOCATION_HINT);
+    if (error && /timer_seconds/.test(error.message)) return needsMigration(TIMER_HINT);
     // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
     if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
     // Otherwise its public link was taken: another try, with another.
@@ -949,6 +986,22 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
   return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
 });
 
+/**
+ * An event's scoring timer (seconds judges get for each entry shown, or null for none), until the session starts: it's
+ * one of the rules judges score by, with simple or criteria scoring (see eventTimer).
+ */
+export const setEventTimer = traced("setEventTimer", async function setEventTimer(activityId: string, seconds: number | null): Promise<ActionResult> {
+  if (seconds !== null && !(Number.isInteger(seconds) && seconds >= 5 && seconds <= 3600)) return err("Set the timer from 5 to 3600 seconds, or turn it off.");
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity || activity.kind !== "event") return err("Only an event has a timer of its own: a pageant's are its sub-activities'.");
+  if (activity.sessionState !== "draft") return err("The timer can't change once judging has started.");
+  const { error } = await db().from("activities").update({ timer_seconds: seconds }).eq("id", activityId).eq("session_state", "draft");
+  if (error) return /timer_seconds/.test(error.message) ? needsMigration(TIMER_HINT) : dbErr(error);
+  changed();
+  return ok(seconds ? `Judges get ${seconds} seconds per entry.` : "No time limit.");
+});
+
 /** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
 const OPTIONS_HINT = "This needs a database update. Run supabase/migrations/032_assistance_ranking_privacy.sql in the Supabase SQL editor.";
 /** Where judges scoring at their own pace needs migration 034. */
@@ -1025,27 +1078,6 @@ export const answerAssistance = traced("answerAssistance", async function answer
   if (error) return dbErr(error);
   changed();
   return ok();
-});
-
-/** The longest CSV a check reads: far more than any activity's results. */
-const MAX_CHECKED_CSV = 2_000_000;
-
-/**
- * Checks a CSV someone has (see CsvCheck): its rows still match its own fingerprint, so nothing was changed after it was
- * exported, and the fingerprint is one of the sheets this activity's scores give now. Archived activities too: their
- * results still download.
- */
-export const checkExport = traced("checkExport", async function checkExport(activityId: string, text: string): Promise<ActionResult> {
-  if (typeof text !== "string" || text.length > MAX_CHECKED_CSV) return err("That file is too big to be a CSV exported from Tabulous.");
-  if (!(await manageActivity(activityId, { archived: true }))) return NOT_FOUND;
-  const read = readExport(text);
-  const fingerprint = read?.header.get(FINGERPRINT);
-  if (!read || !fingerprint) return err("That isn't a CSV exported from Tabulous: it has no fingerprint.");
-  if (sha256(read.rows) !== fingerprint) return err("This file was changed after it was exported: its rows no longer match its fingerprint.");
-  const board = await getAdminBoard(activityId);
-  const match = board && (await csvFingerprints(board)).find((f) => f.fingerprint === fingerprint);
-  if (!match) return err("It's unchanged since it was exported, but it doesn't match this activity's scores as they are now: it's from another activity, or a score has changed since.");
-  return ok(`It matches the official ${match.label} sheet.`);
 });
 
 /**
@@ -1188,6 +1220,14 @@ export const setSessionState = traced("setSessionState", async function setSessi
     }
   }
   if (state === "ended" && current.state !== "live" && current.state !== "deliberation") return err("The session isn't running.");
+  // An event with live scoring that ended with every score in (by itself, see endWhenEveryScoreIsIn) is over for good:
+  // its scores are final, so there's nothing to reopen for. One ended early, with scores missing, can still be reopened.
+  if (state === "live" && current.state === "ended") {
+    const board = await getBoard(activityId);
+    if (board && board.activity.kind === "event" && board.activity.liveScoring && scoreProgress(board).complete) {
+      return err("Every judge scored every entry, so judging has ended for good.");
+    }
+  }
   // Without live scoring, a fully scored session ends through the deliberation, once every judge has signed.
   let signedOff = false;
   if (state === "ended") {
@@ -1288,10 +1328,10 @@ export const setCurrentEntry = traced("setCurrentEntry", async function setCurre
   const { activity } = managed;
   if (activity.sessionState !== "live") return err("Start the session first.");
   if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
-  // A pageant shows only candidates in the sub-activity being judged, and starts its timer.
+  // A pageant shows only candidates in the sub-activity being judged, and starts its timer; an event with a timer starts its own.
   const [entry, board] = await Promise.all([
     entryId === null ? null : db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle(),
-    activity.kind === "pageant" ? getBoard(activityId) : null,
+    activity.kind === "pageant" || eventTimer(activity) ? getBoard(activityId) : null,
   ]);
   if (entryId !== null && !entry?.data) return err("That entry isn't part of this activity.");
   const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };

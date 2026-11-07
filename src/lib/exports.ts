@@ -13,7 +13,7 @@ import { PRELIMINARY, type Activity, type Board, type Deduction, type Round, typ
 /**
  * An activity's downloads: its results, judges' score sheets and notes as PDFs, and the results and judges' scores as
  * CSV too (?format=csv). Each sheet is worked out once (see sheetFor), then drawn as a PDF or written as CSV, so both
- * carry the same scores and the same report ID. The CSV checker (csvFingerprints) goes through the same sheets.
+ * carry the same scores and the same report ID.
  */
 
 function slug(name: string): string {
@@ -312,26 +312,3 @@ export async function exportResponse(board: Board, search: URLSearchParams): Pro
   });
 }
 
-/**
- * Every CSV this activity's scores give right now, with its fingerprint: what a copy is checked against (see
- * checkExport). The same sheets as the downloads, so a copy matches only if it's what was downloaded.
- */
-export async function csvFingerprints(board: Board): Promise<{ label: string; fingerprint: string }[]> {
-  const corrections = await getCorrections(board.activity.id);
-  const queries =
-    board.activity.kind === "pageant"
-      ? [
-          ...board.rounds.flatMap((r) => [`round=${r.id}`, ...(partsOf(board.rounds, r.id).length ? [] : [`round=${r.id}&sheet=judges`])]),
-          ...board.rounds.filter((r) => r.cutSize !== null && r.cutEntryIds !== null).map((r) => `cut=${r.id}`),
-          "segment=preliminary",
-        ]
-      : ["", "sheet=judges"];
-  const found: { label: string; fingerprint: string }[] = [];
-  for (const query of queries) {
-    const sheet = await sheetFor(board, new URLSearchParams(query), corrections);
-    if (sheet instanceof Response || !sheet.csv) continue;
-    const { fingerprint } = renderCsv({ activity: board.activity.name, sheet: sheet.label, reportId: sheet.reportId, exportedAt: "" }, await sheet.csv());
-    found.push({ label: sheet.label, fingerprint });
-  }
-  return found;
-}

@@ -54,11 +54,20 @@ test.describe.serial("archived activities", () => {
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
+    // Ended early, before Ana has scored: by hand, with the organizer's password.
     await page.getByRole("button", { name: "End session" }).first().click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "End session" })).toBeDisabled();
+    await dialog.getByLabel("Your password").fill("not the password");
+    await dialog.getByRole("button", { name: "End session" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("That password isn't right.");
     await dialog.getByLabel("Your password").fill(ADMIN_PASSWORD);
     await dialog.getByRole("button", { name: "End session" }).click();
     await expect(page.getByRole("region", { name: "Judging has ended" })).toBeVisible(REALTIME);
+    // With a score missing, it can still be reopened: reopening asks first, warning that new scores change the report ID.
+    await page.getByRole("button", { name: "Reopen session" }).click();
+    await expect(page.getByRole("dialog")).toContainText("the report ID changes");
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Judging has ended", REALTIME);
   });
 
@@ -127,7 +136,6 @@ test.describe.serial("archived activities", () => {
     await expect(page.getByRole("note").filter({ hasText: "1 score is missing" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     await expect(page.getByRole("switch", { name: /rank/i })).toHaveCount(0);
-    await expect(page.getByLabel("Check an exported CSV")).toBeAttached();
     await expect(page.getByRole("button", { name: `Delete activity ${NAME}` })).toBeVisible();
     await expect(page.getByLabel("Activity name")).toHaveCount(0);
     await expectAccessible(page);
