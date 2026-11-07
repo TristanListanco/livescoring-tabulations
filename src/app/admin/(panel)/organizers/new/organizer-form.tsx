@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState, useTransition, type FormEvent } from "react";
 import { PhotoPicker } from "@/components/photo-picker";
+import { FieldProblemsProvider } from "../../field-errors";
+import { CONSENT_ID, ConsentField } from "../../new/consent-field";
 import { createOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
 import { PasswordField } from "../../password-field";
@@ -12,9 +15,18 @@ export function OrganizerForm() {
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  // The organizer's own say-so for their account, confirmed before it's made; said at the box, not in the browser's words.
+  const [consent, setConsent] = useState(false);
+  const [asked, setAsked] = useState(false);
+  const problems = new Map(asked && !consent ? [[CONSENT_ID, "Confirm the organizer agreed to this account."]] : []);
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!consent) {
+      setAsked(true);
+      document.getElementById(CONSENT_ID)?.focus();
+      return;
+    }
     const data = new FormData(e.currentTarget);
     if (photo) data.set("photo", photo.blob, "photo.jpg");
     startTransition(() => dispatch(data));
@@ -54,6 +66,20 @@ export function OrganizerForm() {
       <Section title="Password">
         <PasswordField label="Password" />
       </Section>
+
+      <FieldProblemsProvider value={problems}>
+        <ConsentField checked={consent} onChange={setConsent}>
+          The organizer asked for this account, and agreed to the{" "}
+          <Link href="/terms" className="font-semibold text-regal underline underline-offset-2">
+            terms
+          </Link>{" "}
+          and the{" "}
+          <Link href="/privacy" className="font-semibold text-regal underline underline-offset-2">
+            privacy policy
+          </Link>
+          , which say what&apos;s kept about them.
+        </ConsentField>
+      </FieldProblemsProvider>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className="btn btn-primary" disabled={pending}>

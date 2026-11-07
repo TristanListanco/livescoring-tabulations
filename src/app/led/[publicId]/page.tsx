@@ -17,7 +17,9 @@ const hasWall = (board: Board | null): board is Board =>
 
 export async function generateMetadata({ params }: PageProps<"/led/[publicId]">): Promise<Metadata> {
   const board = await getPublicBoard((await params).publicId);
-  return { title: hasWall(board) ? `${board.activity.name} LED wall` : "LED wall not found" };
+  return hasWall(board)
+    ? { title: `${board.activity.name} LED wall`, description: `The LED wall and broadcast graphic for ${board.activity.name}.` }
+    : { title: "LED wall not found" };
 }
 
 export default async function LedPage({ params }: PageProps<"/led/[publicId]">) {

@@ -251,7 +251,11 @@ function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: N
 export function AddJudgeForm({ activityId, pageant, first }: { activityId: string; pageant: boolean; first: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
     const result = await addJudge(activityId, previous, data);
-    if (result?.ok) toast(result.message ? result.message.replace(/\.$/, "") : "Judge added");
+    if (result?.ok) {
+      toast(result.message ? result.message.replace(/\.$/, "") : "Judge added");
+      // Back to the first name, for the next judge, without reaching for the mouse.
+      requestAnimationFrame(() => document.getElementById("new-judge-first")?.focus());
+    }
     return result;
   }, null);
   return (

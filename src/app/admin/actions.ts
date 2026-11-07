@@ -252,6 +252,19 @@ export async function archivedActivities(): Promise<{ id: string; name: string }
   return listArchivedActivities(session.kind === "super" ? null : session.admin.id);
 }
 
+/**
+ * The signed-in admin's password, asked again before something that can't be undone (ending a session, deliberating
+ * again, archiving). Wrong ones count against the account (LIMITS.adminConfirm): a session someone else got hold of
+ * can't be used to guess it. Null when it's right; the refusal otherwise.
+ */
+async function confirmPassword(session: AdminSession, password: unknown): Promise<ActionResult | null> {
+  const key = `confirm:${session.kind === "super" ? "super" : session.admin.id}`;
+  if (await tooManyFailures([[key, LIMITS.adminConfirm]])) return err(TOO_MANY);
+  if (typeof password === "string" && (await passwordMatches(session, password))) return null;
+  await recordFailure([key]);
+  return err("That password isn't right.");
+}
+
 /** Whether this is the signed-in admin's password: the super admin's, or the organizer's own. */
 async function passwordMatches(session: AdminSession, password: string): Promise<boolean> {
   if (!password) return false;
@@ -702,6 +715,8 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   const session = await requireAdmin();
   const pageant = formData.get("kind") === "pageant";
   if (pageant && !pageantsAvailable()) return err(PAGEANTS_SOON);
+  // The organizer confirms they have the consent of the people they name in it (see ConsentField).
+  if (formData.get("consent") !== "on") return err("Confirm you have the consent of the people named here.");
 
   const name = cleanName(formData.get("name"));
   if (!name) return err(pageant ? "Give the pageant a name." : "Give the activity a name.");
@@ -1145,7 +1160,10 @@ export const setSessionState = traced("setSessionState", async function setSessi
     return beginDeliberation(activityId);
   }
   // Ending judging is final for the judges, so it takes the signed-in admin's password.
-  if (state === "ended" && !(await passwordMatches(session, password))) return err("That password isn't right.");
+  if (state === "ended") {
+    const refused = await confirmPassword(session, password);
+    if (refused) return refused;
+  }
   const current = await sessionOf(activityId);
   if (state === "live" && current.state === "deliberation") return err("The judges are deliberating. The session ends once they've all signed.");
   if (state === "live" && current.state === "ended") {
@@ -1243,7 +1261,8 @@ export const setSessionState = traced("setSessionState", async function setSessi
  * scores; a judge whose device was signed out signs in again with their code, and the organizer approves it.
  */
 async function redeliberate(activityId: string, session: AdminSession, password: string): Promise<ActionResult> {
-  if (!(await passwordMatches(session, password))) return err("That password isn't right.");
+  const refused = await confirmPassword(session, password);
+  if (refused) return refused;
   const board = await getBoard(activityId);
   if (!board) return NOT_FOUND;
   const { activity } = board;
@@ -1762,7 +1781,8 @@ export const archiveActivity = traced("archiveActivity", async function archiveA
   const session = await manage(activityId);
   if (!session) return NOT_FOUND;
   // It can't be undone, and signs every judge out for good: like ending the session, it takes the signed-in admin's password.
-  if (typeof password !== "string" || !(await passwordMatches(session, password))) return err("That password isn't right.");
+  const refused = await confirmPassword(session, password);
+  if (refused) return refused;
   const activity = await getActivity(activityId);
   if (!activity || activity.sessionState !== "ended") return err("Only an activity whose session has ended can be archived.");
   // Its results wait on an open correction, so it's settled first.

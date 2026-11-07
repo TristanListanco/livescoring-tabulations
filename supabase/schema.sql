@@ -906,3 +906,16 @@ on conflict (id) do nothing;
 insert into storage.buckets (id, name, public)
 values ('organizer-photos', 'organizer-photos', true)
 on conflict (id) do nothing;
+
+-- Both take only what the server uploads: a photo (JPEG, PNG or WebP) under 2 MB (migration 037). Where storage has no
+-- such settings, nothing.
+do $buckets$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'storage' and table_name = 'buckets' and column_name = 'allowed_mime_types') then
+    update storage.buckets
+       set file_size_limit = 2 * 1024 * 1024,
+           allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp']
+     where id in ('judge-photos', 'organizer-photos');
+  end if;
+end;
+$buckets$;

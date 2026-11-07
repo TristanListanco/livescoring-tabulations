@@ -36,6 +36,7 @@ export function CodeForm({
         autoFocus={autoFocus}
         autoComplete="off"
         autoCapitalize="characters"
+        enterKeyHint="go"
         spellCheck={false}
         // A hint at the format, not an example code, which looked already typed in.
         placeholder="6 letters or numbers"

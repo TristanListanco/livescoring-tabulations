@@ -11,7 +11,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: { default: "Tabulous", template: "%s | Tabulous" },
-  description: "Live tabulation for judged competitions.",
+  description: "Tabulation for judged events: judges score on their own phones, the results update as they score, and the official results come out signed.",
 };
 
 export const viewport: Viewport = {

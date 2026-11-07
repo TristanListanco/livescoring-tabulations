@@ -266,6 +266,7 @@ test.describe.serial("a pageant", () => {
     await expectAccessible(page);
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await snap(page, "pageant setup review");
+    await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create pageant" }).click();
     // Creating a pageant writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });

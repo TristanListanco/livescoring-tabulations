@@ -64,6 +64,8 @@ const duplicateEmail = (e: { code?: string } | null) => e?.code === "23505";
 
 export const createOrganizer = traced("createOrganizer", async function createOrganizer(_prev: FormResult, formData: FormData): Promise<FormResult> {
   await requireSuperAdmin();
+  // The organizer's own say-so for their account (see OrganizerForm).
+  if (formData.get("consent") !== "on") return err("Confirm the organizer agreed to this account.");
   const profile = readProfile(formData);
   if ("error" in profile) return err(profile.error);
   const password = readPassword(formData, true);

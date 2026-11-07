@@ -92,6 +92,7 @@ test("an activity sent again after its reply was lost is created once", async ({
 
   await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   const lost = loseNextReply(page);
+  await page.getByRole("checkbox", { name: /I have their consent/ }).check();
   await page.getByRole("button", { name: "Create activity" }).click();
   await lost;
   await expect(page.getByText("That didn't reach the server. Check this screen's connection and try again.")).toBeVisible({ timeout: 20_000 });

@@ -15,7 +15,12 @@ const WINDOW_MS = 15 * 60_000;
  * Per address, admin sign-ins allow 10 failures and judge codes 25. Per account, 50: high enough that someone guessing
  * can't easily lock an organizer (or the super admin) out of their own account.
  */
-export const LIMITS = { adminAddress: 10, adminAccount: 50, judgeAddress: 25 } as const;
+/**
+ * Failures allowed per key within the window. adminConfirm: an admin already signed in, asked for their password again
+ * before something that can't be undone (ending a session, deliberating again, archiving): counted for that account
+ * alone, so a session someone else got hold of can't be used to guess the password.
+ */
+export const LIMITS = { adminAddress: 10, adminAccount: 50, judgeAddress: 25, adminConfirm: 10 } as const;
 
 /**
  * The address the request came from: the platform's own header first, then the first hop of the forwarded chain.

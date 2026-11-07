@@ -46,6 +46,7 @@ test.describe.serial("deliberation", () => {
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis");
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+    await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
 

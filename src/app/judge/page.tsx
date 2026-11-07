@@ -9,7 +9,10 @@ import { CookieNotice } from "@/components/cookie-notice";
 import { LegalLinks } from "@/components/legal-links";
 import { CodeForm } from "./code-form";
 
-export const metadata: Metadata = { title: "Judge sign-in" };
+export const metadata: Metadata = {
+  title: "Judge sign-in",
+  description: "Judges sign in with the code from the organizer, then score each entry from their phone or tablet.",
+};
 
 export default async function JudgePortal({ searchParams }: PageProps<"/judge">) {
   const query = await searchParams;
@@ -67,6 +70,18 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
               autoFocus={!fromLink}
               initialError={limited ? TOO_MANY : invalid ? "That code doesn't match any judge. Check it with the organizer." : undefined}
             />
+            {/* What starting means, before it's tapped: what's kept about a judge, and where it's said in full. */}
+            <p className="mt-5 text-sm leading-relaxed text-powder">
+              By starting, you agree to the{" "}
+              <Link href="/terms" className="font-semibold text-mint underline underline-offset-2">
+                terms
+              </Link>
+              . Tabulous keeps your name, your scores, notes and signature, and a label for this device, as the{" "}
+              <Link href="/privacy" className="font-semibold text-mint underline underline-offset-2">
+                privacy policy
+              </Link>{" "}
+              says.
+            </p>
           </>
         )}
         <LegalLinks className="mt-12 text-powder" />

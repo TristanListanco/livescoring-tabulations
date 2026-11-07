@@ -6,7 +6,7 @@ import { Wordmark } from "./brand";
 
 /**
  * The privacy policy or the terms of service, opened from a link in the app: a dialog over the page, its text in the
- * reading styles of the full page (.legal), and one way out, Close (or Escape, or the backdrop), back to where it was
+ * reading styles of the full page (.legal), and one way out, its X (or Escape, or the backdrop), back to where it was
  * opened. Its own address still opens as a full page (see the (legal) layout).
  */
 export function LegalDialog({ label, children }: { label: string; children: React.ReactNode }) {
@@ -35,8 +35,11 @@ export function LegalDialog({ label, children }: { label: string; children: Reac
           <span className="text-regal">
             <Wordmark />
           </span>
-          <button type="button" onClick={close} className="btn btn-quiet btn-sm">
-            Close
+          {/* An X, as dialogs close everywhere; its name says what it does. */}
+          <button type="button" onClick={close} aria-label="Close" title="Close" className="btn btn-quiet size-11 shrink-0 px-0">
+            <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
           </button>
         </div>
         <div className="legal overflow-y-auto px-6 pt-6 pb-10 sm:px-10">{children}</div>

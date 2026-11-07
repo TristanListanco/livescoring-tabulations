@@ -66,6 +66,7 @@ test("twelve candidates' photos go up with the new pageant", async ({ page }) =>
   page.on("request", (request) => {
     if (request.method() === "POST" && request.headers()["next-action"]) requests++;
   });
+  await page.getByRole("checkbox", { name: /I have their consent/ }).check();
   await page.getByRole("button", { name: "Create pageant" }).click();
   await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 30_000 });
   activityId = new URL(page.url()).pathname.split("/").at(-1)!;

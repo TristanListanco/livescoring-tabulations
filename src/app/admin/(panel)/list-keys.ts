@@ -1,7 +1,10 @@
 import type { KeyboardEvent } from "react";
 
-/** Marks a text field as a line of a list that Enter steps through (see enterToNext). */
-export const NEXT_LINE = { "data-next-line": "" } as const;
+/**
+ * Marks a text field as a line of a list that Enter steps through (see enterToNext). A phone's keyboard labels its
+ * Enter key Next to match.
+ */
+export const NEXT_LINE = { "data-next-line": "", enterKeyHint: "next" } as const;
 
 /**
  * Enter in a list's field goes to its next line, the way a score sheet is filled in, rather than submitting the
