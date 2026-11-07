@@ -41,13 +41,16 @@ test("an event's entries carry details only the organizer sees, in the results t
   await page.getByLabel("Judge 1 first name").fill("Ana");
   await page.getByLabel("Judge 1 last name").fill("Cruz");
   await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-  // Two details (folded away until asked for), then each entry's name and its details on one line.
+  // The names, then two details (folded away until asked for), filled in entry by entry.
+  await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis");
   await page.getByText("Details for each entry", { exact: true }).click();
   await page.getByLabel("Detail 1 name").fill("School");
   await page.getByLabel("Detail 2 name").fill("Division");
-  await expect(page.getByLabel("Entries, one per line")).toHaveAttribute("placeholder", "Agila | School | Division");
-  await page.getByLabel("Entries, one per line").fill("Agila | Xavier University | Division 2\nBagwis | MSU-IIT");
+  await page.getByLabel("School for Agila").fill("Xavier University");
+  await page.getByLabel("Division for Agila").fill("Division 2");
+  await page.getByLabel("School for Bagwis").fill("MSU-IIT");
   await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+  await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   await page.getByRole("button", { name: "Create activity" }).click();
   await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
   const adminPath = new URL(page.url()).pathname;

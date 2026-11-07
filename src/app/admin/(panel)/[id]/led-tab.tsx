@@ -1,17 +1,17 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
 import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
 import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
-import type { Board } from "@/lib/types";
+import type { Board, Entry, Judge, Score } from "@/lib/types";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { setLedOptions } from "../../actions";
 import { FormMessage } from "../form-message";
 import { LinkField } from "../link-field";
-import { Switch } from "../switch";
 
 type LedOptions = {
   fullscreen: boolean;
@@ -22,7 +22,10 @@ type LedOptions = {
   shape: LedShape;
 };
 
-/** Display mode, animation, whether scores wait for every judge, and whether judges stay anonymous. Saves on change; the wall follows within seconds. */
+/**
+ * Display mode. Saves on change; the wall follows within seconds. Whether scores wait for every judge, and whether judges
+ * stay anonymous, are with the activity's other settings (they change the live results too).
+ */
 function DisplaySettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
   return (
     <div className="space-y-5">
@@ -46,20 +49,45 @@ function DisplaySettings({ options, onChange, disabled }: { options: LedOptions;
           ))}
         </div>
       </fieldset>
-      <div className="flex items-center gap-4">
-        <Switch checked={options.holdScores} onChange={(holdScores) => onChange({ holdScores })} labelledBy="hold-label" disabled={disabled} />
-        <p id="hold-label" className="font-semibold">
-          Show scores only when every judge has scored
-        </p>
-      </div>
-      <div className="flex items-center gap-4">
-        <Switch checked={options.anonymous} onChange={(anonymous) => onChange({ anonymous })} labelledBy="anonymous-label" disabled={disabled} />
-        <p id="anonymous-label" className="font-semibold">
-          Keep judges anonymous
-        </p>
-      </div>
     </div>
   );
+}
+
+/** How long each beat of the sample lasts: nothing yet, then each judge's score, then the average held a moment. */
+const SAMPLE_BEAT_MS = 1400;
+/** Sample scores, as a share of the way from the lowest score to the highest, judge by judge. */
+const SAMPLE_SHARES = [0.86, 0.92, 0.81, 0.95, 0.88, 0.84, 0.9];
+
+/**
+ * Before the show, the preview plays what the wall does once judging starts: the first entry comes up, each judge's
+ * score arrives in turn (or "Scored", when scores wait for every judge), then the average, and it starts again. With the
+ * activity's own entries and judges where it has them, and the look chosen; the scores are made up. With reduced motion,
+ * it stays on the finished entry.
+ */
+function useSample(board: Board, playing: boolean): Board {
+  const { activity } = board;
+  const still = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const judges: Judge[] = board.judges.length
+    ? board.judges
+    : ["Judge 1", "Judge 2", "Judge 3"].map((name, position) => ({ id: `sample-${position}`, name, firstName: name, lastName: null, photoUrl: null, position, isChair: false, panel: "all" }));
+  const entry: Entry = board.entries[0] ?? { id: "sample-entry", name: "Your first entry", photoUrl: null, position: 0 };
+  const beats = judges.length + 3;
+  const [beat, setBeat] = useState(0);
+  useEffect(() => {
+    if (!playing || still) return;
+    const timer = setInterval(() => setBeat((b) => (b + 1) % beats), SAMPLE_BEAT_MS);
+    return () => clearInterval(timer);
+  }, [playing, still, beats]);
+  if (!playing) return board;
+
+  const criteria = activity.scoringMode === "criteria";
+  const [low, high] = criteria ? [0, 100] : [activity.min, activity.max];
+  const round = (n: number) => Number(n.toFixed(activity.decimals));
+  const scored = still ? judges.length : Math.min(beat, judges.length);
+  const scores: Score[] = judges
+    .slice(0, scored)
+    .map((j, i) => ({ entryId: entry.id, judgeId: j.id, value: round(low + (high - low) * SAMPLE_SHARES[i % SAMPLE_SHARES.length]) }));
+  return { ...board, judges, entries: board.entries.length ? board.entries : [entry], scores, activity: { ...activity, ledEntryId: entry.id } };
 }
 
 /** Corner radius for the small shape on each corner choice, in pixels. */
@@ -142,6 +170,8 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     });
 
   const { index, entry: current } = entryNeighbors(entries, activity.ledEntryId);
+  // Before the session starts, an event's preview plays a sample of the wall at work (a pageant's shows its program).
+  const sampling = activity.sessionState === "draft" && activity.kind === "event";
   const preview: Board = {
     ...board,
     activity: {
@@ -154,6 +184,8 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ledShape: options.shape,
     },
   };
+
+  const shown = useSample(preview, sampling);
 
   return (
     <div className="space-y-8">
@@ -189,11 +221,16 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
             caption rather than every name and score on it again.
           */}
           <div aria-hidden>
-            <LedOutput board={preview} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
+            <LedOutput board={shown} className="keep-light aspect-video w-full rounded-lg ring-1 ring-line" />
           </div>
           <figcaption className="hint mt-2">
             <span className="sr-only">Preview of the LED wall: </span>
-            {current ? (
+            {sampling ? (
+              <>
+                <span className="font-semibold text-prussian">A sample, with made-up scores:</span> once the session starts, the wall follows the entry
+                you show and fills in as the judges score.
+              </>
+            ) : current ? (
               <>
                 Showing <span className="tabular">No. {index + 1}</span> {current.name}
               </>

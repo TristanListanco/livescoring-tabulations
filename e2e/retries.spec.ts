@@ -90,6 +90,7 @@ test("an activity sent again after its reply was lost is created once", async ({
   await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
   await page.getByLabel("Entry names, one per line").fill("Agila");
 
+  await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   const lost = loseNextReply(page);
   await page.getByRole("button", { name: "Create activity" }).click();
   await lost;

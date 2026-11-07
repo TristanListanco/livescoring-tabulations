@@ -10,7 +10,7 @@ import { reportProblem } from "@/lib/report-problem";
 import { newRequestId } from "@/lib/request-id";
 import { addCandidatePhotos, createPageant, type CreateResult } from "../../actions";
 import { listChanged } from "../activities-refresh";
-import { filledSignatories, openSignatories, SignatoryRows, type SignatoryRow } from "../signatories-editor";
+import { filledSignatories, openSignatories, SIGNATORY_ID, signatoryProblem, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { toast } from "../toaster";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
 import { SegmentEditor } from "../program-editor";
@@ -301,6 +301,10 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
       // The preliminary step only answers for itself; pageant proper is the next step's.
       if (!checked.ok && (i === 3 || checked.segment !== "proper")) found.push({ message: checked.error, field: programField(checked.target) });
     }
+    if (i === STEPS.length - 1) {
+      const gap = signatoryProblem(signatories);
+      if (gap) found.push(gap);
+    }
     return found;
   };
 
@@ -329,7 +333,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
       next();
       return;
     }
-    for (let i = 0; i < STEPS.length - 1; i++) {
+    for (let i = 0; i < STEPS.length; i++) {
       const found = problems(i);
       if (found.length) {
         report(i, found);
@@ -636,8 +640,10 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           />
           {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}
           <div className="card p-5 sm:p-7">
-            <h3 className="sr-only">Signatories</h3>
-            <SignatoryRows rows={signatories} setRows={setSignatories} />
+            <h3 className="label">Signatories</h3>
+            <p className="hint mb-4">At least one: who tabulated the results. They sign the results PDFs under “Tabulated by”.</p>
+            <SignatoryRows rows={signatories} setRows={setSignatories} idPrefix={SIGNATORY_ID} />
+            {shownProblems.map((p) => p.field?.startsWith(`${SIGNATORY_ID}-`) && <FieldProblem key={p.field} fieldId={p.field} className="mt-3" />)}
           </div>
         </section>
 

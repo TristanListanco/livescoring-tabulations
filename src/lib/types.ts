@@ -116,6 +116,8 @@ export type Activity = {
   correctionReasons: boolean;
   /** Without live scoring, judges score at their own pace, in any order (see atOwnPace). Migration 034. */
   independentScoring: boolean;
+  /** Where it happens, when the organizer gave it ("Bldg 2, Room 204, 3rd floor"). Migration 035; null before it. */
+  location: string | null;
   /** Judges' phones and tablets hide the screen when tilted off axis while judging. Migration 032; off before it. */
   privacyScreen: boolean;
   /** draft: not started, judges wait. live: judging is open. deliberation: judges review and sign. ended: judging is closed. */
@@ -233,8 +235,9 @@ export type Board = {
   /** The public pages: the organizer's name and logo (the photo on their account), when they've added one. */
   organizer?: { name: string; logoUrl: string } | null;
   /**
-   * An event without live scoring: the ties in its ranking the chair has broken (see ties.ts). Empty for other
-   * activities, and left off the public pages until the results are out.
+   * An event without live scoring deliberated before ties were broken by corrected scores: the ties its chair put in
+   * order (see ties.ts), which still hold for it. Empty for other activities, and left off the public pages until the
+   * results are out.
    */
   tieBreaks?: TieBreak[];
 };

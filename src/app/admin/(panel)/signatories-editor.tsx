@@ -71,11 +71,34 @@ export function SignatoriesEditor({ activityId, initial }: { activityId: string;
 /** A signatory row while it's edited: `key` keeps each row's fields its own as rows come and go. */
 export type SignatoryRow = { key: number; name: string; designation: string };
 
-/** A draft's signatories as rows (anything unreadable left out). */
-export const openSignatories = (data: unknown): SignatoryRow[] =>
-  (Array.isArray(data) ? data : [])
+/**
+ * A draft's signatories as rows (anything unreadable left out). A create form needs at least one, so with none saved it
+ * opens with an empty row to fill in.
+ */
+export const openSignatories = (data: unknown): SignatoryRow[] => {
+  const rows = (Array.isArray(data) ? data : [])
     .filter((s): s is Signatory => typeof s?.name === "string" && typeof s?.designation === "string")
     .map((s, key) => ({ key, name: s.name, designation: s.designation }));
+  return rows.length ? rows : [{ key: 0, name: "", designation: "" }];
+};
+
+/** The ids a create form's signatory rows take (SignatoryRows' `idPrefix`), so a problem can point at one. */
+export const SIGNATORY_ID = "signatory";
+
+/**
+ * What's missing from a create form's signatories, if anything, with the field it's about: at least one, each with a
+ * name. The results PDF prints them under "Tabulated by".
+ */
+export function signatoryProblem(rows: SignatoryRow[]): { message: string; field: string } | null {
+  const filled = rows.filter((r) => !isBlank(r));
+  const unnamed = filled.find((r) => !r.name.trim());
+  if (unnamed) return { message: `Add a name to signatory ${rows.indexOf(unnamed) + 1}, or remove that row.`, field: `${SIGNATORY_ID}-${unnamed.key}` };
+  if (filled.length) return null;
+  return {
+    message: "Add at least one signatory: who tabulated the results and signs them.",
+    field: rows.length ? `${SIGNATORY_ID}-${rows[0].key}` : `${SIGNATORY_ID}-add`,
+  };
+}
 
 /** Rows as saved (or sent with a create form): the filled ones, without their keys. */
 export const filledSignatories = (rows: SignatoryRow[]) => rows.filter((r) => !isBlank(r)).map(({ name, designation }) => ({ name, designation }));
@@ -90,17 +113,21 @@ export function SignatoryRows({
   invalid,
   onNamed,
   after,
+  idPrefix,
 }: {
   rows: SignatoryRow[];
   setRows: React.Dispatch<React.SetStateAction<SignatoryRow[]>>;
   invalid?: Set<number>;
+  /** Fixed ids for the fields (`<prefix>-<key>`, Add signatory `<prefix>-add`), so a create form's problem can point at one. */
+  idPrefix?: string;
   /** A flagged row was given a name. */
   onNamed?: (key: number) => void;
   /** Beside Add signatory: Settings' Save and its message. */
   after?: React.ReactNode;
 }) {
   // Keys build on useId, so the server and the browser render the same ids.
-  const fieldId = useId();
+  const generated = useId();
+  const fieldId = idPrefix ?? generated;
   const update = (key: number, patch: Partial<SignatoryRow>) => {
     setRows((list) => list.map((r) => (r.key === key ? { ...r, ...patch } : r)));
     if (patch.name?.trim()) onNamed?.(key);
@@ -160,7 +187,7 @@ export function SignatoryRows({
         })}
       </ol>
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className="btn btn-quiet btn-sm" onClick={add} disabled={rows.length >= MAX_SIGNATORIES}>
+        <button id={`${fieldId}-add`} type="button" className="btn btn-quiet btn-sm" onClick={add} disabled={rows.length >= MAX_SIGNATORIES}>
           Add signatory
         </button>
         {after}

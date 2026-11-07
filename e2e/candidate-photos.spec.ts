@@ -60,6 +60,7 @@ test("twelve candidates' photos go up with the new pageant", async ({ page }) =>
   await page.getByRole("button", { name: "Continue to review" }).click();
   await expect(page.getByText(`${CANDIDATES.length} in running order, ${CANDIDATES.length} with photos`)).toBeVisible();
 
+  await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   // One request creates the pageant, and the photos follow in two more (ten, then two), rather than one each.
   let requests = 0;
   page.on("request", (request) => {

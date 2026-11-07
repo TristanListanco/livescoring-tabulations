@@ -7,8 +7,8 @@ import { onPanel, showingBoard } from "@/lib/pageant";
 import { atOwnPace } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
-import { averageText, rankEntries } from "@/lib/scoring";
-import { applyTieBreaks, breakFor, tiesIn } from "@/lib/ties";
+import { averageText, formatScore, rankEntries } from "@/lib/scoring";
+import { applyTieBreaks, breakFor, tieStep, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring" };
@@ -121,17 +121,26 @@ export default async function ScorePage() {
           judgeCount: board.judges.length,
           // Before migration 021 there's nowhere to keep a signature.
           canSign: signatures !== null,
-          // Ties in the ranking, for every judge to see before signing: which entries are level and how the chair broke
-          // it. Only who's level: never the scores, which stay each judge's own.
+          // Ties in the ranking, for every judge to see before signing: which entries are level, and how far a score has to
+          // move to change the average shown. Only who's level: never the scores, which stay each judge's own. Broken by a
+          // judge correcting a score; an activity whose chair put one in order before keeps that.
           ties: (() => {
             const ranking = rankEntries(board.entries, board.judges, board.scores, board.activity);
             const row = new Map(ranking.map((r) => [r.entry.id, r]));
+            // How far one score has to move to change the average shown, when a judge's smallest change wouldn't.
+            const step = tieStep(activity, board.judges.length);
             return tiesIn(ranking).map((tie) => {
               const settled = breakFor(tie, board.tieBreaks ?? []);
               return {
                 key: tie.key,
                 place: tie.rank,
-                entries: tie.entryIds.map((id) => ({ id, name: row.get(id)?.entry.name ?? "An entry", number: row.get(id)?.number ?? 0 })),
+                entries: tie.entryIds.map((id) => ({
+                  id,
+                  name: row.get(id)?.entry.name ?? "An entry",
+                  number: row.get(id)?.number ?? 0,
+                  mine: row.get(id)?.scores.has(context.judge.id) ?? false,
+                })),
+                step: step === null ? null : formatScore(step, activity.decimals),
                 broken: settled
                   ? { order: settled.entryIds, reason: settled.reason, by: board.judges.find((j) => j.id === settled.judgeId)?.name ?? null }
                   : null,

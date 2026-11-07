@@ -11,6 +11,7 @@ import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
 import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
+import type { BrokenTie } from "./ties";
 import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
 export type ActivityRow = {
@@ -42,6 +43,8 @@ export type ActivityRow = {
   correction_reasons?: boolean;
   /** Migration 034. */
   independent_scoring?: boolean;
+  /** Migration 035. */
+  location?: string | null;
   privacy_screen?: boolean;
   current_entry_id?: string | null;
   /** Migration 028. */
@@ -157,6 +160,7 @@ export function toActivity(row: ActivityRow): Activity {
     judgesSeeRanking: row.judges_see_ranking ?? false,
     correctionReasons: row.correction_reasons ?? false,
     independentScoring: row.independent_scoring ?? false,
+    location: row.location ?? null,
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
@@ -627,6 +631,15 @@ type CorrectionRow = {
   decided_by: string | null;
   created_at: string;
   decided_at: string | null;
+  /** Migration 036. */
+  broke_tie?: unknown;
+};
+/** A correction's broken tie, as kept: anything unreadable is none. */
+const toBrokenTie = (value: unknown): BrokenTie | null => {
+  const v = value as { place?: unknown; entryIds?: unknown } | null;
+  return v && Number.isInteger(v.place) && Array.isArray(v.entryIds) && v.entryIds.every((id) => typeof id === "string")
+    ? { place: v.place as number, entryIds: v.entryIds as string[] }
+    : null;
 };
 const toBreakdown = (b: Record<string, number | string> | null) => (b ? Object.fromEntries(Object.entries(b).map(([id, v]) => [id, Number(v)])) : null);
 
@@ -703,6 +716,7 @@ export async function getCorrections(activityId: string): Promise<Correction[] |
     decidedBy: r.decided_by === "judge" || r.decided_by === "judges" || r.decided_by === "organizer" ? r.decided_by : null,
     createdAt: r.created_at,
     decidedAt: r.decided_at,
+    brokeTie: toBrokenTie(r.broke_tie),
     votes: votesOf.get(r.id) ?? [],
   }));
 }

@@ -8,7 +8,7 @@ import { SignatureMark, SignaturePad } from "@/components/signature-pad";
 import { SurveyLink } from "@/components/survey-link";
 import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
-import { CORRECTION_REASONS, MAX_CORRECTION_REASON, type CorrectionView } from "@/lib/corrections";
+import { CORRECTION_REASONS, MAX_CORRECTION_REASON, TIE_REASON, type CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, judgeView, type JudgeView } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { SCORE_UNDO_MS } from "@/lib/pageant";
@@ -19,7 +19,7 @@ import { cleanSignature } from "@/lib/deliberation";
 import type { ActionResult, Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
 import { useLiveRefresh } from "@/lib/use-live-refresh";
-import { breakTie, leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
+import { leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, startDeliberation, submitScore, voteOnCorrection, withdrawCorrection } from "../actions";
 import { ordinal } from "@/lib/ties";
 import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
 import { PrivacyScreen } from "./privacy-screen";
@@ -79,9 +79,9 @@ export type Deliberation = {
   judgeCount: number;
   /** False before migration 021, which keeps signatures. */
   canSign: boolean;
-  /** The ties in the ranking, highest place first: every one is broken before anyone signs. */
+  /** The ties in the ranking, highest place first: every one is broken (by a corrected score) before anyone signs. */
   ties: DeliberationTie[];
-  /** This judge is the chair, who breaks the ties. */
+  /** This judge is the chair. */
   isChair: boolean;
   /** The chair's name, for the other judges. */
   chairName: string | null;
@@ -96,13 +96,16 @@ export type Deliberation = {
 export type DeliberationRank = { id: string; rank: number | null; number: number; name: string; average: string };
 
 /**
- * A tie in the ranking, as the judges see it in the deliberation: the place the entries share, the entries (no scores),
- * and how the chair broke it, if they have: the order, highest first, and why.
+ * A tie in the ranking, as the judges see it in the deliberation: the place the entries share, the entries (no scores;
+ * `mine`: this judge scored it, so can correct it), how far a score has to move to change the average shown (when it's
+ * more than a step of what they type), and, for an activity whose chair put it in order before ties were broken by
+ * corrections, that order and why.
  */
 export type DeliberationTie = {
   key: string;
   place: number;
-  entries: { id: string; name: string; number: number }[];
+  entries: { id: string; name: string; number: number; mine: boolean }[];
+  step: string | null;
   broken: { order: string[]; reason: string; by: string | null } | null;
 };
 
@@ -233,14 +236,15 @@ export function ScoringPanel({
   const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(ownPace ? { ...activity, currentEntryId: pick } : activity, entries, scores);
   // A short message at the top: a score saved (`entryId`), a vote cast.
   const [toast, setToast] = useState<{ content: React.ReactNode; entryId?: string } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const approved = gate.status === "approved";
 
-  const showToast = (content: React.ReactNode, entryId?: string) => {
-    setToast({ content, entryId });
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = (content: React.ReactNode, entryId?: string) => setToast({ content, entryId });
+  // Each message stays a few seconds from when it's shown; a newer one starts the time again.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const onSaved = (entry: Entry, value: number, typed: PendingScore["typed"]) => {
     setJustSaved((m) => new Map(m).set(entry.id, value));
     // At their own pace, on to the next entry they haven't scored.
@@ -376,6 +380,8 @@ export function ScoringPanel({
           <p className="truncate text-sm text-powder">
             {activity.name}
             {round && ` · ${round.name}`}
+            {/* Where it happens, so a judge in a breakout room knows they're in the right one. */}
+            {activity.location && ` · ${activity.location}`}
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2.5 sm:gap-6">
@@ -442,7 +448,7 @@ export function ScoringPanel({
           </aside>
         )}
 
-        <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pt-5 sm:px-8 md:justify-center-safe">
+        <main className="judge-main flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 pt-5 sm:px-8 md:justify-center-safe">
 
           {/* A correction waits for this judge's vote, held until they're done here: said, so it doesn't surprise them. */}
           {busyScoring && toVote.length > 0 && (
@@ -467,11 +473,16 @@ export function ScoringPanel({
           ) : correctingEntry && corrections ? (
             (() => {
               const { entry, number } = correctingEntry;
+              const tied = !!deliberation?.ties.some((t) => !t.broken && t.entries.some((e) => e.id === entry.id));
               const fix: Correcting = {
                 from: correctingEntry.value,
                 fromBreakdown: correctingEntry.points,
                 decides: corrections.decides,
-                onDone: () => setCorrectingFor(null),
+                reasons: deliberating || activity.correctionReasons ? (tied ? [TIE_REASON, ...CORRECTION_REASONS] : CORRECTION_REASONS) : undefined,
+                onDone: (message) => {
+                  setCorrectingFor(null);
+                  if (message) showToast(message);
+                },
               };
               return activity.scoringMode === "criteria" ? (
                 <CriteriaKeypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} />
@@ -1107,7 +1118,7 @@ function DeliberationView({
     <div className="w-full max-w-md pb-8 lg:max-w-2xl">
       <h1 className="judge-title">Deliberation</h1>
       <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
-      <TieBreaks ties={deliberation.ties} isChair={deliberation.isChair} chairName={deliberation.chairName} />
+      <TieBreaks ties={deliberation.ties} canCorrect={canCorrect && !deliberation.signature} onCorrect={onCorrect} />
       {deliberation.ranking && <OverallRanking ranking={deliberation.ranking} />}
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
         {entries.map((entry, i) => {
@@ -1172,10 +1183,10 @@ function OverallRanking({ ranking }: { ranking: DeliberationRank[] }) {
 
 /**
  * The ties in the ranking, at the top of the deliberation where no judge can miss them: every tie is broken before
- * anyone signs. The chair puts the tied entries in order and says why; the others see it waiting, then how it was
- * broken. Only who's level, never the scores.
+ * anyone signs, by a judge correcting their score for one of the tied entries, saying why. Only who's level, never the
+ * scores. An activity whose chair put a tie in order, before ties were broken this way, shows that order.
  */
-function TieBreaks({ ties, isChair, chairName }: { ties: DeliberationTie[]; isChair: boolean; chairName: string | null }) {
+function TieBreaks({ ties, canCorrect, onCorrect }: { ties: DeliberationTie[]; canCorrect: boolean; onCorrect: (entryId: string) => void }) {
   if (ties.length === 0) return null;
   return (
     <section aria-labelledby="ties" className="mt-6 space-y-3">
@@ -1183,139 +1194,59 @@ function TieBreaks({ ties, isChair, chairName }: { ties: DeliberationTie[]; isCh
         Ties in the ranking
       </h2>
       {ties.map((tie) => (
-        <TieCard key={`${tie.key}:${tie.broken?.order.join(",") ?? ""}`} tie={tie} isChair={isChair} chairName={chairName} />
+        <TieCard key={tie.key} tie={tie} canCorrect={canCorrect} onCorrect={onCorrect} />
       ))}
     </section>
   );
 }
 
-/** One tie: open (highlighted until broken), or broken, with its order and reason. The chair sets or changes the order. */
-function TieCard({ tie, isChair, chairName }: { tie: DeliberationTie; isChair: boolean; chairName: string | null }) {
-  const [editing, setEditing] = useState(!tie.broken);
-  const [order, setOrder] = useState(tie.broken?.order ?? tie.entries.map((e) => e.id));
-  const [reason, setReason] = useState(tie.broken?.reason ?? "");
-  const reasonId = useId();
+/**
+ * One tie, highlighted until it's broken: who's level, how it's broken, and how far a score has to move when a small
+ * change wouldn't do it (the averages are compared as shown). A judge who scored a tied entry corrects it from here, as
+ * from their scores below.
+ */
+function TieCard({ tie, canCorrect, onCorrect }: { tie: DeliberationTie; canCorrect: boolean; onCorrect: (entryId: string) => void }) {
   const byId = new Map(tie.entries.map((e) => [e.id, e]));
-  const names = listNames(tie.entries);
-  const swap = (i: number, j: number) =>
-    setOrder((list) => {
-      const next = [...list];
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
-  const placed = (ids: string[]) => ids.map((id, i) => `${ordinal(tie.place + i)} ${byId.get(id)?.name ?? "an entry"}`).join(", ");
-  const open = !tie.broken;
-
+  const mine = tie.entries.filter((e) => e.mine);
+  if (tie.broken) {
+    return (
+      <div className="rounded-[1.25rem] border border-powder/20 bg-oxford/40 px-5 py-4 text-left">
+        <h3 className="text-lg font-bold">Tie for {ordinal(tie.place)}, broken</h3>
+        <ol className="mt-2 space-y-1">
+          {tie.broken.order.map((id, i) => (
+            <li key={id} className="flex gap-3">
+              <span className="tabular w-10 shrink-0 font-bold text-powder">{ordinal(tie.place + i)}</span>
+              <span className="font-semibold">{byId.get(id)?.name ?? "An entry"}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-2 text-powder">
+          &ldquo;{tie.broken.reason}&rdquo;{tie.broken.by && <> Broken by {tie.broken.by}.</>}
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className={`rounded-[1.25rem] px-5 py-4 text-left ${open ? "border-2 border-caution bg-caution/10" : "border border-powder/20 bg-oxford/40"}`}>
-      <h3 className={`flex items-center gap-2 text-lg font-bold ${open ? "text-caution" : "text-mint"}`}>
+    <div className="rounded-[1.25rem] border-2 border-caution bg-caution/10 px-5 py-4 text-left">
+      <h3 className="flex items-center gap-2 text-lg font-bold text-caution">
         <svg viewBox="0 0 20 20" className="size-5 shrink-0" aria-hidden>
           <path d="M3 7.5h14M3 12.5h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
         </svg>
-        {open ? `Tie for ${ordinal(tie.place)}` : `Tie for ${ordinal(tie.place)}, broken`}
+        Tie for {ordinal(tie.place)}
       </h3>
-
-      {open && !isChair && (
-        <p className="mt-1">
-          {names} have the same average. {chairName ?? "The chair"} puts them in order before anyone signs.
-        </p>
-      )}
-
-      {tie.broken && !editing && (
-        <>
-          <ol className="mt-2 space-y-1">
-            {tie.broken.order.map((id, i) => (
-              <li key={id} className="flex gap-3">
-                <span className="tabular w-10 shrink-0 font-bold text-powder">{ordinal(tie.place + i)}</span>
-                <span className="font-semibold">{byId.get(id)?.name ?? "An entry"}</span>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 text-powder">
-            &ldquo;{tie.broken.reason}&rdquo;{tie.broken.by && <> Broken by {tie.broken.by}.</>}
-          </p>
-          {isChair && (
-            <button type="button" onClick={() => setEditing(true)} className="btn btn-sm mt-3 border border-regal text-mint hover:bg-regal">
-              Change the order
+      <p className="mt-1">
+        {listNames(tie.entries)} have the same average. A judge breaks the tie by correcting their score for one of them, saying why. Nobody signs until
+        it&apos;s broken.
+      </p>
+      {tie.step && <p className="mt-1.5 text-sm text-powder">A change of {tie.step} or more moves the average: the averages are compared as shown.</p>}
+      {canCorrect && mine.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {mine.map((e) => (
+            <button key={e.id} type="button" onClick={() => onCorrect(e.id)} className="btn btn-sm border border-caution/60 text-mint hover:bg-oxford">
+              Correct your score for {e.name}
             </button>
-          )}
-        </>
-      )}
-
-      {isChair && editing && (
-        <>
-          <p className="mt-1">
-            {open ? `${names} have the same average. Put them in order, highest first, and say why: every judge signs the order you set.` : "Every judge signs again after you change it."}
-          </p>
-          <ol aria-label={`Order for the tie for ${ordinal(tie.place)}`} className="mt-3 space-y-2">
-            {order.map((id, i) => {
-              const entry = byId.get(id);
-              return (
-                <li key={id} className="flex items-center gap-3 rounded-xl bg-oxford px-3 py-2">
-                  <span className="tabular w-10 shrink-0 font-bold text-powder">{ordinal(tie.place + i)}</span>
-                  <span className="min-w-0 flex-1 font-semibold">
-                    <span className="text-powder">No. {entry?.number}</span> {entry?.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => swap(i, i - 1)}
-                    disabled={i === 0}
-                    aria-label={`Move ${entry?.name} up`}
-                    className="btn btn-sm size-11 px-0 text-mint hover:bg-regal disabled:opacity-30"
-                  >
-                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                      <path d="M4 10l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => swap(i, i + 1)}
-                    disabled={i === order.length - 1}
-                    aria-label={`Move ${entry?.name} down`}
-                    className="btn btn-sm size-11 px-0 text-mint hover:bg-regal disabled:opacity-30"
-                  >
-                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                      <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-          <label htmlFor={reasonId} className="mt-4 block text-sm font-semibold">
-            Why they place in this order
-          </label>
-          <textarea
-            id={reasonId}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={MAX_CORRECTION_REASON}
-            rows={2}
-            placeholder="e.g. Stronger choreography, as the panel agreed."
-            className="mt-1 w-full resize-none rounded-xl border border-powder bg-white px-3 py-2 text-base leading-relaxed text-prussian placeholder:text-prussian/70"
-          />
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <ConfirmDialog
-              triggerLabel="Break the tie"
-              triggerClassName="btn bg-mint text-prussian hover:bg-white disabled:opacity-50"
-              triggerDisabled={!reason.trim()}
-              title={`Break the tie for ${ordinal(tie.place)}?`}
-              confirmLabel="Break the tie"
-              onConfirm={async () => {
-                const result = await breakTie(order, reason).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
-                if (result.ok) setEditing(false);
-                return result;
-              }}
-            >
-              {placed(order)}. Your reason is printed with the results, and every judge signs this order{tie.broken ? " again" : ""}.
-            </ConfirmDialog>
-            {tie.broken && (
-              <button type="button" onClick={() => setEditing(false)} className="btn btn-sm text-powder hover:bg-oxford hover:text-mint">
-                Keep the order as it was
-              </button>
-            )}
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1326,7 +1257,7 @@ function TieCard({ tie, isChair, chairName }: { tie: DeliberationTie; isChair: b
  * "(Sgd.)". It waits while any correction is open, so the judges sign the scores as they'll stand.
  */
 function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
-  const { signature, signed, judgeCount, anyOpen, canSign, isChair } = deliberation;
+  const { signature, signed, judgeCount, anyOpen, canSign } = deliberation;
   const tied = deliberation.ties.some((t) => !t.broken);
   // A touchscreen anywhere on the device (a tablet with a keyboard still has one) draws; otherwise the checkbox.
   const touch = useMediaQuery("(any-pointer: coarse)");
@@ -1364,7 +1295,7 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
         </p>
       ) : tied ? (
         <p role="status" className="mt-1 text-powder">
-          {isChair ? "Break the tie above first: every judge signs the order you set." : "A tie in the ranking isn't broken yet. You sign once the chair has broken it."} {count}
+          A tie in the ranking isn&apos;t broken yet. You sign once a judge has corrected a score to break it. {count}
         </p>
       ) : (
         <form
@@ -1677,7 +1608,18 @@ function ConfirmScore({
  * Correcting a submitted score: what was given (with criteria, each criterion's points, which the keypad starts from),
  * who decides it, and what to do once it's made, asked for or cancelled.
  */
-type Correcting = { from: number; fromBreakdown: Record<string, number> | null; decides: CorrectionDecider; onDone: () => void };
+/**
+ * A score being corrected: what it was, who decides, the reasons to pick from (when the judge picks: with the
+ * organizer's say-so while judging, and always in the deliberation, the tie's own first for a tied entry), and the way
+ * back, with anything the correction has to say (it left the entry tied, say).
+ */
+type Correcting = {
+  from: number;
+  fromBreakdown: Record<string, number> | null;
+  decides: CorrectionDecider;
+  reasons?: readonly string[];
+  onDone: (message?: string) => void;
+};
 
 /** Sending a correction request from the confirmation: the reason, whether it's on its way, and why it didn't go. */
 function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, dialogRef: React.RefObject<HTMLDialogElement | null>) {
@@ -1695,7 +1637,7 @@ function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, 
       return;
     }
     dialogRef.current?.close();
-    correcting.onDone();
+    correcting.onDone(result.message);
   };
   const dialog = !correcting
     ? {}
@@ -1835,7 +1777,7 @@ function CorrectingBar({ correcting }: { correcting: Correcting }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-oxford py-1.5 pr-1.5 pl-4">
       <p className="font-semibold">Correcting your score</p>
-      <button type="button" onClick={correcting.onDone} className="btn btn-sm border border-regal text-mint hover:bg-regal">
+      <button type="button" onClick={() => correcting.onDone()} className="btn btn-sm border border-regal text-mint hover:bg-regal">
         Cancel
       </button>
     </div>
@@ -1981,7 +1923,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
               value={request.reason}
               onChange={request.setReason}
               error={request.error}
-              choices={correcting?.decides === "self" && activity.correctionReasons ? CORRECTION_REASONS : undefined}
+              choices={correcting?.decides === "self" ? correcting.reasons : undefined}
             />
           </>
         ) : (
@@ -2236,7 +2178,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
               value={request.reason}
               onChange={request.setReason}
               error={request.error}
-              choices={correcting?.decides === "self" && activity.correctionReasons ? CORRECTION_REASONS : undefined}
+              choices={correcting?.decides === "self" ? correcting.reasons : undefined}
             />
           </>
         )}

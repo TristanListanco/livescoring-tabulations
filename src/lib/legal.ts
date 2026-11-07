@@ -3,5 +3,5 @@ export const LEGAL = {
   operator: "Tristan Listanco",
   contact: "tristan.listanco@g.msuiit.edu.ph",
   /** When the current versions took effect. Change it with any change to either page. */
-  effective: "November 6, 2026",
+  effective: "November 7, 2026",
 } as const;

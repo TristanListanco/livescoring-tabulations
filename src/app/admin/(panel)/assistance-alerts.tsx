@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Avatar } from "@/components/avatar";
-import type { AssistanceRequest } from "@/lib/assistance";
+import type { AssistanceRequest, WaitingDevice } from "@/lib/assistance";
+import { reach } from "@/lib/reach";
 import { browserClient } from "@/lib/supabase/browser";
-import { answerAssistance, assistanceAlerts } from "../actions";
+import { answerAssistance, approveDevice, assistanceAlerts, revokeDevice } from "../actions";
+import { toast } from "./toaster";
 
 /** How often the alert checks for calls, whatever realtime says: the safety net, as on every live screen. */
 const CHECK_MS = 15_000;
@@ -25,16 +27,34 @@ function HandIcon({ className = "size-6" }: { className?: string }) {
   );
 }
 
-/** A two-note chime, twice, made on the spot (no sound file). Only once the page has been tapped: browsers block sound before. */
-function chime(audio: AudioContext | null) {
+/** A phone. */
+function DeviceIcon({ className = "size-6" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={`shrink-0 ${className}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path d="M10.5 18.5h3" />
+    </svg>
+  );
+}
+
+/** A judge's call: a two-note chime, twice, falling. */
+const CALL: [number, number][] = [
+  [880, 0],
+  [660, 0.18],
+  [880, 0.8],
+  [660, 0.98],
+];
+/** A device asking to be approved: one rising pair, gentler than a call for help. */
+const KNOCK: [number, number][] = [
+  [660, 0],
+  [990, 0.16],
+];
+
+/** A chime made on the spot (no sound file). Only once the page has been tapped: browsers block sound before. */
+function chime(audio: AudioContext | null, notes: [number, number][] = CALL) {
   if (!audio || audio.state !== "running") return;
   const start = audio.currentTime;
-  for (const [frequency, at] of [
-    [880, 0],
-    [660, 0.18],
-    [880, 0.8],
-    [660, 0.98],
-  ]) {
+  for (const [frequency, at] of notes) {
     const tone = audio.createOscillator();
     const gain = audio.createGain();
     tone.type = "sine";
@@ -56,24 +76,45 @@ function ago(at: string, now: number): string {
 
 const notificationsOffered = () => typeof window !== "undefined" && "Notification" in window && Notification.permission === "default";
 
+/** The activity whose Judges tab is open, if one is: its devices are approved right there, so they don't pop up over it. */
+const judgesTabOpen = () => document.querySelector("[data-device-approvals]")?.getAttribute("data-device-approvals") ?? null;
+const watchPage = (onChange: () => void) => {
+  const watcher = new MutationObserver(onChange);
+  watcher.observe(document.body, { childList: true, subtree: true });
+  return () => watcher.disconnect();
+};
+
 /**
- * Judges' calls for help, on every page of the admin panel. A judge taps Assist me on their screen: here the page blurs
- * behind a dialog listing every call still waiting (several at once stack, oldest first), a chime plays, and the browser
- * shows a notification, so the organizer knows even from another tab. "On my way" answers a call: the judge's screen
- * says so. The dialog stays until every call is answered or taken back.
+ * Judges' calls for help, and their devices waiting for approval, on every page of the admin panel.
  *
- * It hears of calls the way live screens hear of changes: over realtime, from the organizer's activities (kept while the
+ * A judge taps Assist me on their screen: here the page blurs behind a navy dialog listing every call still waiting
+ * (several at once stack, oldest first), a chime plays, and the browser shows a notification, so the organizer knows even
+ * from another tab. "On my way" answers a call: the judge's screen says so. The dialog stays until every call is answered
+ * or taken back.
+ *
+ * A judge signs in on a device: a dialog asks the organizer to approve it, with a gentler chime, wherever they are (on
+ * that activity's Judges tab the list there does it). It shows the pairing code the judge reads out, so the right device
+ * is approved; Later puts it away until another device asks. A call for help comes first.
+ *
+ * It hears of both the way live screens hear of changes: over realtime, from the organizer's activities (kept while the
  * tab is out of view, unlike a desk, so a call still reaches a background tab), and by checking every 15 seconds anyway.
  */
 export function AssistanceAlerts() {
   const [requests, setRequests] = useState<AssistanceRequest[]>([]);
+  const [devices, setDevices] = useState<WaitingDevice[]>([]);
+  // Devices put off with Later: they wait on the Judges tab, and the dialog comes back only for a new one.
+  const [later, setLater] = useState<ReadonlySet<string>>(new Set());
+  const [deviceErrors, setDeviceErrors] = useState<Record<string, string>>({});
   const [activityIds, setActivityIds] = useState<string[]>([]);
   const [offer, setOffer] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const dialog = useRef<HTMLDialogElement>(null);
+  const deviceDialog = useRef<HTMLDialogElement>(null);
   const audio = useRef<AudioContext | null>(null);
-  // The calls already alerted: null before the first check, when every waiting call alerts once.
+  // The calls and devices already alerted: null before the first check, when every waiting one alerts once.
   const alerted = useRef<Set<string> | null>(null);
+  const knocked = useRef<Set<string> | null>(null);
+  const here = useSyncExternalStore(watchPage, judgesTabOpen, () => null);
 
   // Only refs and state setters inside, so these never change: effects and buttons share them.
   const arrived = useCallback((list: AssistanceRequest[]) => {
@@ -86,6 +127,22 @@ export function AssistanceAlerts() {
     if ("Notification" in window && Notification.permission === "granted") {
       for (const r of fresh) {
         const notice = new Notification(`${r.judgeName} needs help`, { body: `${r.activityName}: they've asked you to come over.`, tag: r.id });
+        notice.onclick = () => window.focus();
+      }
+    }
+  }, []);
+
+  const signedIn = useCallback((list: WaitingDevice[]) => {
+    const fresh = list.filter((d) => !knocked.current?.has(d.id) && d.activityId !== judgesTabOpen());
+    knocked.current = new Set(list.map((d) => d.id));
+    setDevices(list);
+    if (!fresh.length) return;
+    // A new device brings the dialog back, with the ones put off before.
+    setLater(new Set());
+    chime(audio.current, KNOCK);
+    if ("Notification" in window && Notification.permission === "granted") {
+      for (const d of fresh) {
+        const notice = new Notification(`${d.judgeName}'s device is waiting`, { body: `${d.activityName}: approve it when they read out its pairing code.`, tag: d.id });
         notice.onclick = () => window.focus();
       }
     }
@@ -104,7 +161,8 @@ export function AssistanceAlerts() {
       setOffer(ids.length > 0 && notificationsOffered() && !asked);
     }
     if (result.requests) arrived(result.requests);
-  }, [arrived]);
+    if (result.devices) signedIn(result.devices);
+  }, [arrived, signedIn]);
 
   // Checks: at once, then every 15 seconds, and whenever the page comes back into view or online.
   useEffect(() => {
@@ -179,6 +237,32 @@ export function AssistanceAlerts() {
     return () => clearInterval(tick);
   }, [requests.length]);
 
+  // Devices to approve here: not those of the Judges tab that's open, nor those put off with Later. Not over a call for help.
+  const shownDevices = devices.filter((d) => d.activityId !== here);
+  const devicesOpen = requests.length === 0 && shownDevices.some((d) => !later.has(d.id));
+  useEffect(() => {
+    const shown = deviceDialog.current;
+    if (!shown) return;
+    if (devicesOpen && !shown.open) {
+      shown.showModal();
+      // Nothing chosen for the organizer: Approve waits until the judge has read out the code, so focus starts on the dialog.
+      shown.focus();
+    }
+    if (!devicesOpen && shown.open) shown.close();
+  }, [devicesOpen]);
+
+  const decide = async (device: WaitingDevice, approve: boolean) => {
+    const result = await reach(() => (approve ? approveDevice(device.id) : revokeDevice(device.id)));
+    if (!result.ok) {
+      setDeviceErrors((all) => ({ ...all, [device.id]: result.error }));
+      return;
+    }
+    // Approving one signs out the judge's others, so their other requests go too.
+    setDevices((list) => list.filter((d) => d.id !== device.id && !(approve && d.judgeId === device.judgeId)));
+    toast(approve ? `${device.judgeName}'s device approved` : `${device.judgeName}'s request turned away`);
+    void check(false);
+  };
+
   const answer = async (id: string) => {
     setRequests((list) => list.filter((r) => r.id !== id));
     const result = await answerAssistance(id).catch(() => null);
@@ -203,33 +287,100 @@ export function AssistanceAlerts() {
         aria-labelledby="assist-title"
         // Escape doesn't dismiss it: each call is answered.
         onCancel={(e) => e.preventDefault()}
-        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl backdrop:bg-prussian/50 backdrop:backdrop-blur-md"
+        className="keep-light m-auto w-[min(34rem,calc(100vw-2rem))] overflow-hidden rounded-[1.5rem] bg-prussian p-0 text-mint shadow-2xl ring-1 ring-oxford backdrop:bg-prussian/60 backdrop:backdrop-blur-md"
       >
-        <div className="px-6 pt-6">
-          <h2 id="assist-title" className="title-sm flex items-center gap-2.5">
-            <span className="flex size-10 items-center justify-center rounded-full bg-regal text-mint">
-              <HandIcon className="size-5" />
+        <div className="flex items-center gap-4 px-6 pt-7 sm:px-7">
+          {/* The hand rings for attention, the way the call does (still, with reduced motion). */}
+          <span className="relative flex size-14 shrink-0 items-center justify-center">
+            <span aria-hidden className="assist-ring absolute inset-0 rounded-full bg-mint/30" />
+            <span className="relative flex size-14 items-center justify-center rounded-full bg-mint text-prussian">
+              <HandIcon className="wave size-7" />
             </span>
-            {count === 1 ? "A judge needs help" : `${count} judges need help`}
-          </h2>
+          </span>
+          <div className="min-w-0">
+            <h2 id="assist-title" className="text-[1.75rem] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
+              {count === 1 ? `${requests[0].judgeName} needs help` : `${count} judges need help`}
+            </h2>
+            <p className="mt-1 text-[15px] text-powder">{count === 1 ? "They've asked you to come over." : "They've asked you to come over, oldest first."}</p>
+          </div>
         </div>
-        <ul aria-label="Judges asking for help" className="mt-3 max-h-[55vh] divide-y divide-line overflow-y-auto border-t border-line px-6">
+        <ul aria-label="Judges asking for help" className="mt-5 max-h-[55vh] space-y-2 overflow-y-auto px-4 pb-5 sm:px-5">
           {requests.map((r) => (
-            <li key={r.id} className="flex items-center gap-3 py-3.5">
-              <Avatar name={r.judgeName} src={r.judgePhotoUrl} size={44} />
+            <li key={r.id} className="flex items-center gap-3 rounded-2xl bg-oxford/70 px-3 py-3 sm:px-4">
+              <Avatar name={r.judgeName} src={r.judgePhotoUrl} size={48} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{r.judgeName}</p>
-                <p className="truncate text-sm text-prussian/75">
+                <p className="truncate text-[17px] font-semibold">{r.judgeName}</p>
+                <p className="truncate text-sm text-powder">
                   {r.activityName} · {ago(r.askedAt, now)}
                 </p>
               </div>
-              <button type="button" onClick={() => answer(r.id)} className="btn btn-primary btn-sm shrink-0">
+              <button type="button" onClick={() => answer(r.id)} className="btn shrink-0 bg-mint text-prussian hover:bg-white">
                 On my way<span className="sr-only"> to {r.judgeName}</span>
               </button>
             </li>
           ))}
         </ul>
-        <div className="h-3" />
+      </dialog>
+
+      {/* Devices waiting for approval: the light dialog of the panel, quieter than a call for help. */}
+      <dialog
+        ref={deviceDialog}
+        tabIndex={-1}
+        aria-labelledby="devices-title"
+        onCancel={(e) => {
+          e.preventDefault();
+          setLater(new Set(shownDevices.map((d) => d.id)));
+        }}
+        className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
+      >
+        <div className="flex items-start gap-4 px-6 pt-6 sm:px-7 sm:pt-7">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-prussian text-mint">
+            <DeviceIcon className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="devices-title" className="title-sm wrap-anywhere">
+              {shownDevices.length === 1 ? `${shownDevices[0]?.judgeName}'s device is waiting` : `${shownDevices.length} devices are waiting`}
+            </h2>
+            <p className="mt-1 text-[15px] text-prussian/75">Approve a device when its judge reads out the same pairing code.</p>
+          </div>
+        </div>
+        <ul aria-label="Devices waiting for approval" className="mt-4 max-h-[55vh] divide-y divide-line overflow-y-auto border-y border-line px-6 sm:px-7">
+          {shownDevices.map((d) => (
+            <li key={d.id} className="py-3.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+                <Avatar name={d.judgeName} src={d.judgePhotoUrl} size={44} />
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="truncate font-semibold">{d.judgeName}</p>
+                  <p className="truncate text-sm text-prussian/75">
+                    {d.activityName} · {d.label}
+                  </p>
+                </div>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-prussian/70">Pairing code</span>
+                  <span className="tabular rounded-md bg-prussian px-2.5 py-1 text-lg font-bold tracking-[0.2em] text-mint">{d.pairingCode}</span>
+                </span>
+              </div>
+              <div className="mt-3 flex gap-2 sm:pl-14">
+                <button type="button" onClick={() => decide(d, true)} className="btn btn-primary btn-sm" aria-label={`Approve ${d.judgeName}'s device ${d.pairingCode}`}>
+                  Approve
+                </button>
+                <button type="button" onClick={() => decide(d, false)} className="btn btn-quiet btn-sm" aria-label={`Deny ${d.judgeName}'s device ${d.pairingCode}`}>
+                  Deny
+                </button>
+              </div>
+              {deviceErrors[d.id] && (
+                <p role="alert" className="mt-2 text-sm font-semibold text-danger sm:pl-14">
+                  {deviceErrors[d.id]}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end px-6 py-4 sm:px-7">
+          <button type="button" onClick={() => setLater(new Set(shownDevices.map((d) => d.id)))} className="btn btn-quiet">
+            Later
+          </button>
+        </div>
       </dialog>
       {offer && (
         <div

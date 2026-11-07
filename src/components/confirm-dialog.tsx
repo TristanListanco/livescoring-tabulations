@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
 import type { ActionResult } from "@/lib/types";
 
 type Props = {
@@ -18,6 +18,13 @@ type Props = {
   requireText?: string;
   /** When set, asks for a password (with this label) and passes it to onConfirm, which checks it. */
   passwordLabel?: string;
+  /** Opens as soon as it's shown, as if its button had been pressed (the page was opened to do just this). */
+  openOnMount?: boolean;
+  /**
+   * Its button does the thing straight away, without asking; the dialog opens only to say what went wrong. For something
+   * asked about once, then trusted (a judge's second Assist me).
+   */
+  skipAsking?: boolean;
   onConfirm: (password: string) => Promise<ActionResult | void>;
 };
 
@@ -32,6 +39,8 @@ export function ConfirmDialog({
   tone = "primary",
   requireText,
   passwordLabel,
+  openOnMount = false,
+  skipAsking = false,
   onConfirm,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -45,8 +54,22 @@ export function ConfirmDialog({
   const open = () => {
     setTyped("");
     setError(null);
+    if (skipAsking) {
+      startTransition(async () => {
+        const result = await onConfirm("");
+        if (result && !result.ok) {
+          setError(result.error);
+          ref.current?.showModal();
+        }
+      });
+      return;
+    }
     ref.current?.showModal();
   };
+
+  useEffect(() => {
+    if (openOnMount) ref.current?.showModal();
+  }, [openOnMount]);
 
   const confirm = () =>
     startTransition(async () => {
@@ -67,7 +90,7 @@ export function ConfirmDialog({
         type="button"
         onClick={open}
         className={triggerClassName}
-        disabled={triggerDisabled}
+        disabled={triggerDisabled || (skipAsking && pending)}
         aria-keyshortcuts={triggerKeyShortcuts}
       >
         {triggerLabel}

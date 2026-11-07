@@ -12,8 +12,9 @@ import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { atOwnPace, scoreWindowOpen, showColumns } from "@/lib/judging";
 import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
-import { parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
-import { tieKey, tiesIn, unbrokenTies } from "@/lib/ties";
+import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
+import { listNames } from "@/lib/names";
+import { ordinal, tieBrokenBy, tieStep, tiesIn, unbrokenTies, type BrokenTie } from "@/lib/ties";
 import { endJudgeSession, judgeSession } from "@/lib/session";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { db } from "@/lib/supabase/server";
@@ -312,9 +313,17 @@ export const requestCorrection = traced("requestCorrection", async function requ
   if (Number(old.value) === value && sameBreakdown(oldBreakdown, breakdown)) return { ok: false, error: "That's the score you already gave." };
 
   // Signed scores are the ones the judge stands by: they don't change after.
+  // In the deliberation a tie is broken by a correction like this one: whether it ends one (kept with it, for the PDF),
+  // or leaves the entry tied (said, with how far a score has to move), is worked out on the scores before it.
+  let broke: BrokenTie | null = null;
+  let stillTied: string | null = null;
   if (own && deliberating) {
-    const signatures = await getSignatures(activity.id);
+    const [signatures, board] = await Promise.all([getSignatures(activity.id), getBoard(activity.id)]);
     if (signatures?.some((s) => s.judgeId === context.judge.id)) return { ok: false, error: "You've signed your scores, so they can't change now." };
+    if (board) {
+      broke = tieBrokenBy(board, context.judge.id, entryId, value);
+      stillTied = tieLeft(board, context.judge.id, entryId, value);
+    }
   }
 
   const { data: made, error } = await db()
@@ -344,10 +353,37 @@ export const requestCorrection = traced("requestCorrection", async function requ
       log("error", "correction_not_applied", { error: applied.error });
       return { ok: false, error: /Unknown outcome/.test(applied.error) ? CORRECTIONS_UNAVAILABLE : "Your correction didn't go through. Check your connection and try again." };
     }
+    if (broke) {
+      // Before migration 036 there's nowhere to keep it: the tie is broken all the same, and the PDF doesn't say by which.
+      const kept = await db().from("score_corrections").update({ broke_tie: broke }).eq("id", (made as { id: string }).id);
+      if (kept.error) log("warn", "broken_tie_not_kept", { code: kept.error.code, error: kept.error.message });
+    }
   }
   changed(context.activity.publicId);
-  return { ok: true };
+  return stillTied ? { ok: true, message: stillTied } : { ok: true };
 });
+
+/**
+ * After a judge's corrected score, the tie its entry is in, if it's in one, in words: which entries, for which place,
+ * and why a change didn't end it (the averages are compared as shown), with how far a score has to move when that's
+ * more than one step of what judges type. Null when the entry isn't tied.
+ */
+function tieLeft(board: NonNullable<Awaited<ReturnType<typeof getBoard>>>, judgeId: string, entryId: string, value: number): string | null {
+  const { activity } = board;
+  const scores = board.scores.map((s) => (s.judgeId === judgeId && s.entryId === entryId ? { ...s, value } : s));
+  const tie = tiesIn(rankEntries(board.entries, board.judges, scores, activity)).find((t) => t.entryIds.includes(entryId));
+  if (!tie) return null;
+  const before = tiesIn(rankEntries(board.entries, board.judges, board.scores, activity)).some((t) => t.key === tie.key);
+  const name = (id: string) => board.entries.find((e) => e.id === id)?.name ?? "an entry";
+  const places = activity.resultDecimals === 0 ? "as whole numbers" : `to ${activity.resultDecimals} decimal place${activity.resultDecimals === 1 ? "" : "s"}`;
+  const step = tieStep(activity, board.judges.length);
+  return [
+    `Changed. ${name(entryId)} is ${before ? "still" : "now"} level with ${listNames(tie.entryIds.filter((id) => id !== entryId).map((id) => ({ name: name(id) })))} for ${ordinal(tie.rank)}: their averages are the same ${places}.`,
+    step ? `A change of ${formatScore(step, activity.decimals)} or more moves the average.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /** Another judge's vote on a correction: final once cast. Any judge disagreeing turns it down; every judge agreeing changes the score. */
 export const voteOnCorrection = traced("voteOnCorrection", async function voteOnCorrection(correctionId: string, agree: boolean): Promise<ActionResult> {
@@ -399,10 +435,10 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   if (signatures === null) return { ok: false, error: DELIBERATION_HINT };
   if (signatures.some((s) => s.judgeId === context.judge.id)) return { ok: true };
   if (corrections?.some((c) => c.status === "open")) return { ok: false, error: "A score correction is still open. Sign once it's settled." };
-  // The judges sign the order the results print: every tie in the ranking is broken first.
+  // The judges sign the order the results print: every tie in the ranking is broken first (by a corrected score).
   const board = await getBoard(context.activityId);
   if (board && unbrokenTies(rankEntries(board.entries, board.judges, board.scores, board.activity), board.tieBreaks ?? []).length) {
-    return { ok: false, error: "A tie in the ranking isn't broken yet. Sign once the chair has broken it." };
+    return { ok: false, error: "A tie in the ranking isn't broken yet. Sign once a judge has corrected a score to break it." };
   }
 
   const { error } = await db()
@@ -411,44 +447,6 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   if (error && error.code !== "23505") {
     log("error", "signature_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your signature didn't save. Check your connection and try again." };
-  }
-  changed(context.activity.publicId);
-  return { ok: true };
-});
-
-/**
- * The chair of the board of judges breaks a tie in the ranking during the deliberation: the tied entries in the order
- * they place, highest first, and why. The scores stay as given. Every tie is broken before the judges sign; breaking
- * one (or changing a break) after some have signed voids their signatures (the database does it), so every judge signs
- * the order the results print.
- */
-export const breakTie = traced("breakTie", async function breakTie(order: string[], reason: string): Promise<ActionResult> {
-  const context = await seat();
-  if ("error" in context) return context;
-  if (!context.judge.isChair) return { ok: false, error: "Only the chair of the board of judges breaks a tie." };
-  if (!Array.isArray(order) || order.length < 2 || order.some((id) => typeof id !== "string" || !isUuid(id)) || new Set(order).size !== order.length) {
-    return { ok: false, error: "Put the tied entries in order." };
-  }
-  const why = cleanReason(reason);
-  if (!why) return { ok: false, error: "Say why they place in this order: it's printed with the results." };
-
-  const board = await getBoard(context.activityId);
-  if (!board || board.activity.sessionState !== "deliberation") return { ok: false, error: "Ties are broken during the deliberation." };
-  const tie = tiesIn(rankEntries(board.entries, board.judges, board.scores, board.activity)).find((t) => t.key === tieKey(order));
-  if (!tie) return { ok: false, error: "Those entries aren't tied any more: a score changed. Check the tie again." };
-
-  const { error } = await db()
-    .from("tie_breaks")
-    .upsert(
-      { activity_id: board.activity.id, tie_key: tie.key, entry_ids: order, reason: why, judge_id: context.judge.id, created_at: new Date().toISOString() },
-      { onConflict: "activity_id,tie_key" },
-    );
-  if (error) {
-    log("error", "tie_not_broken", { code: error.code, error: error.message });
-    return {
-      ok: false,
-      error: error.code === "42P01" || error.code === "PGRST205" ? "Breaking ties needs a database update. Ask the organizer." : "That didn't go through. Check your connection and try again.",
-    };
   }
   changed(context.activity.publicId);
   return { ok: true };

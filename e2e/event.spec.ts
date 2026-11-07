@@ -121,8 +121,10 @@ test.describe.serial("a full event", () => {
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
     // New events start without live scoring; this one scores live.
     await page.getByRole("checkbox", { name: /Show scores live/ }).check();
-    // Who signs the results on paper can be added now, so they're on the first PDF.
-    await page.getByRole("button", { name: "Add signatory" }).click();
+    // Who signs the results on paper is set now, so they're on the first PDF: at least one, which Create asks for at the field.
+    await page.getByRole("button", { name: "Create activity" }).click();
+    await expect(page.getByText("Add at least one signatory: who tabulated the results and signs them.")).toBeVisible();
+    await expect(page.getByLabel("Signatory 1 full name")).toBeFocused();
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
     await page.getByRole("button", { name: "Create activity" }).click();
@@ -319,16 +321,20 @@ test.describe.serial("a full event", () => {
     // Agila's photo sits beside the name.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 
+    // What the audience's screens show of the judges is with the activity's settings; the wall's display, on its tab.
+    await page.goto(`${adminPath}?tab=settings`);
     await page.getByRole("switch", { name: "Show scores only when every judge has scored" }).click();
     await expect(led.getByText("Scored", { exact: true })).toBeVisible(REALTIME);
     await expect(led.getByText("9.25", { exact: true })).toHaveCount(0);
 
+    await page.goto(`${adminPath}?tab=led`);
     await page.getByLabel("Full screen").check();
     await expect.poll(() => ledBackground(led), REALTIME).toBe("rgb(11, 37, 69)");
     await expect(led.getByText("Scored", { exact: true })).toBeVisible();
     await expect(led.locator("img[data-entry-photo]")).toBeVisible();
 
     // Judges can be kept anonymous on the wall: no names or photos, a "?" each instead. Scores still show.
+    await page.goto(`${adminPath}?tab=settings`);
     const anonymous = page.getByRole("switch", { name: "Keep judges anonymous" });
     await anonymous.click();
     await expect(led.getByText("Ana", { exact: true })).toHaveCount(0, REALTIME);
@@ -423,7 +429,7 @@ test.describe.serial("a full event", () => {
     await expect(scoring).toContainText("Results show2 decimal places");
     for (const field of ["Min score", "Max score", "Decimal places shown in results"]) await expect(page.getByLabel(field)).toHaveCount(0);
     await expect(page.getByRole("radio")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Save name" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save details" })).toBeVisible();
   });
 
   test("the admin panel has a dark mode, remembered in this browser", async ({ page }) => {

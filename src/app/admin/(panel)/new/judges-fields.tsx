@@ -75,8 +75,9 @@ export function JudgesFields({
     flushSync(onAdd);
     list.current?.querySelector<HTMLInputElement>("li:last-child input[data-next-line]")?.focus();
   };
-  // A missing chair points at the board's first Chair radio.
+  // A missing chair points at the board's first Chair radio, and every Chair on the board is outlined until one is picked.
   const chairField = `judge-${start}-chair`;
+  const noChair = problems.has(chairField);
   return (
     <>
       {/*
@@ -138,13 +139,15 @@ export function JudgesFields({
                 />
               </div>
               <div className="flex items-center gap-2 sm:contents">
-                <label className="choice h-11 shrink-0 items-center gap-2 justify-self-start px-3 py-0 text-sm font-semibold sm:mt-1.5">
+                {/* Not `required`: the browser's own bubble would say so; the form checks for a chair and says it in its words. */}
+                <label
+                  className={`choice h-11 shrink-0 items-center gap-2 justify-self-start px-3 py-0 text-sm font-semibold sm:mt-1.5 ${noChair ? "border-danger ring-2 ring-danger/15" : ""}`}
+                >
                   <input
                     id={`judge-${at}-chair`}
                     type="radio"
                     name={chairGroup}
                     value={at}
-                    required
                     checked={chairKey === j.key}
                     onChange={() => onChair(j.key)}
                     aria-describedby={describedBy(problems.has(chairField) && problemId(chairField))}

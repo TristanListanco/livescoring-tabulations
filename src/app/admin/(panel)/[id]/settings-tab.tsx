@@ -7,7 +7,7 @@ import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOption, setActivityOwner, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOption, setActivityOwner, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
@@ -15,7 +15,7 @@ import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
 import { CsvCheck } from "./export-menu";
 import { toastOnRedirect } from "../toaster";
-import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
+import { ArchiveButton } from "../archive-controls";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
 function ScoringSummary({ activity }: { activity: Activity }) {
@@ -146,7 +146,9 @@ function LiveScoring({ activity }: { activity: Activity }) {
           Show scores live
         </p>
       </div>
-      <FormMessage state={result} small />
+      {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
+      <p className="hint pl-16">{editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}</p>
+      <FormMessage state={result} small className="pl-16" />
     </div>
   );
 }
@@ -156,22 +158,32 @@ function OptionSwitch({
   activity,
   option,
   label,
+  hint,
   editable,
 }: {
   activity: Activity;
-  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring";
+  /** The LED wall's two (with live scoring) save with its other settings; the rest are options for judges' screens. */
+  option: "judgesSeeRanking" | "privacyScreen" | "correctionReasons" | "independentScoring" | "ledHoldScores" | "ledAnonymous";
   label: string;
+  /** What it does, under it, when the label alone doesn't say. */
+  hint?: string;
   editable: boolean;
 }) {
   const [on, setOn] = useState(activity[option]);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
   const id = `${option}-label`;
+  const save = (next: boolean) =>
+    option === "ledHoldScores"
+      ? setLedOptions(activity.id, { holdScores: next })
+      : option === "ledAnonymous"
+        ? setLedOptions(activity.id, { anonymous: next })
+        : setActivityOption(activity.id, option, next);
   const toggle = () => {
     const next = !on;
     setOn(next);
     startTransition(async () => {
-      const r = await reach(() => setActivityOption(activity.id, option, next));
+      const r = await reach(() => save(next));
       setResult(r);
       if (!r.ok) setOn(!next);
     });
@@ -184,7 +196,8 @@ function OptionSwitch({
           {label}
         </p>
       </div>
-      <FormMessage state={result} small />
+      {hint && <p className="hint pl-16">{hint}</p>}
+      <FormMessage state={result} small className="pl-16" />
     </div>
   );
 }
@@ -192,29 +205,19 @@ function OptionSwitch({
 type OrganizerOption = { id: string; name: string; email: string };
 
 /**
- * What's done with the activity as a whole, on one line: check a CSV against it, archive it once judging has ended, and,
- * at the far end, delete it (or a test site's tools).
+ * What's done with the activity as a whole, on one line under its settings, straight on the page rather than in a card
+ * of its own: check a CSV against it, archive it once judging has ended, and, at the far end, delete it (or a test
+ * site's tools). Out of a card, its buttons take the firmer outline of .bare-actions.
  */
 function ManageActivity({ children, end }: { children: React.ReactNode; end: React.ReactNode }) {
   return (
-    <section aria-labelledby="manage-activity" className="card mt-4 flex flex-wrap items-start gap-3 p-5 sm:p-7">
+    <section aria-labelledby="manage-activity" className="bare-actions mt-8 flex flex-wrap items-start gap-3 border-t border-line pt-6">
       <h2 id="manage-activity" className="sr-only">
         Manage activity
       </h2>
       {children}
       <div className="flex flex-wrap items-center gap-3 sm:ml-auto">{end}</div>
     </section>
-  );
-}
-
-/** An archived activity's Settings: nothing to change, but a CSV to check, and deleting it. */
-export function ArchivedSettings({ activityId, name }: { activityId: string; name: string }) {
-  return (
-    <div className="max-w-4xl">
-      <ManageActivity end={<DeleteArchivedButton activityId={activityId} name={name} />}>
-        <CsvCheck activityId={activityId} className="btn btn-quiet" />
-      </ManageActivity>
-    </div>
   );
 }
 
@@ -284,8 +287,19 @@ export function SettingsTab({
             Activity name
           </label>
           <input id="name" name="name" required maxLength={120} defaultValue={activity.name} className="field max-w-xl" />
+          <label htmlFor="location" className="label mt-5">
+            Location <span className="font-normal text-prussian/70">(optional)</span>
+          </label>
+          <input
+            id="location"
+            name="location"
+            maxLength={120}
+            defaultValue={activity.location ?? ""}
+            placeholder="e.g. Bldg 2, Room 204, 3rd floor"
+            className="field max-w-xl"
+          />
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <SubmitButton>Save name</SubmitButton>
+            <SubmitButton>Save details</SubmitButton>
             <FormMessage state={state} />
           </div>
         </Section>
@@ -302,6 +316,25 @@ export function SettingsTab({
         </h2>
         <div className="mt-5 space-y-5">
           {activity.kind === "event" && <LiveScoring activity={activity} />}
+          {/* With live scores, what the audience's screens show of the judges (set here rather than on the LED wall tab). */}
+          {activity.liveScoring && (
+            <>
+              <OptionSwitch
+                activity={activity}
+                option="ledHoldScores"
+                label="Show scores only when every judge has scored"
+                hint="Until then, the LED wall shows that each judge has scored, not what."
+                editable={!activity.archivedAt}
+              />
+              <OptionSwitch
+                activity={activity}
+                option="ledAnonymous"
+                label="Keep judges anonymous"
+                hint="A “?” for each judge on the LED wall, and Judge 1, Judge 2 on the live results."
+                editable={!activity.archivedAt}
+              />
+            </>
+          )}
           {activity.kind === "event" && !activity.liveScoring && (
             <>
               <OptionSwitch

@@ -1,7 +1,6 @@
-import { Qr } from "@/components/qr";
+import { QrDialog } from "@/components/qr-dialog";
 import { qrSvg } from "@/lib/qr";
 import type { Judge, JudgeDevice } from "@/lib/types";
-import { LinkField } from "../link-field";
 import { DeviceApproval, LiveRefresh } from "./judge-devices";
 import { AddJudgeForm, BoardsSummary, JudgeEditor, JudgeIdentity } from "./judges-tab";
 
@@ -47,11 +46,11 @@ export async function JudgesTab({
   const chaired = new Set(judges.filter((j) => j.isChair).map((j) => j.panel));
 
   return (
-    <div className="max-w-4xl">
+    // Marked, so a device asking to be approved here isn't also shown in the panel's dialog (see AssistanceAlerts).
+    <div className="max-w-4xl" data-device-approvals={activityId}>
       <LiveRefresh activityId={activityId} ended={ended} />
       <h2 className="sr-only">Judges</h2>
-      <p className="label mt-4">Judge portal</p>
-      <LinkField url={`${origin}/judge`} />
+      {/* No judge portal link to hand out: judges scan their QR code, or type their code at the portal. */}
       {pageant && <BoardsSummary judges={judges} />}
       {locked && (
         <p role="note" className="note mt-4">
@@ -62,13 +61,14 @@ export async function JudgesTab({
       <p role="status" className={`mt-6 font-semibold ${waiting ? "text-regal" : "sr-only"}`}>
         {waiting ? `${waiting} ${waiting === 1 ? "device is" : "devices are"} waiting for approval.` : "No devices are waiting for approval."}
       </p>
-      {judges.length === 0 ? (
-        <p className="mt-4 rounded-xl border border-dashed border-powder px-4 py-6 text-center">No judges yet. Add one below.</p>
-      ) : (
-        <ul className="card mt-3 divide-y divide-line">
+      {/* The panel, then (until the session starts) adding a judge as the card's last row, in the same shape as theirs. */}
+      <div className="card mt-3 overflow-hidden">
+        {judges.length === 0 && <p className={`px-5 text-[15px] text-prussian/75 ${locked ? "py-5" : "pt-5"}`}>No judges yet.</p>}
+        <ul className="divide-y divide-line">
           {judgeLinks.map(({ judge, code }, i) => {
             const scored = scoredBy.get(judge.id) ?? 0;
-            const detail = `${scored} of ${expected?.[judge.id] ?? entryCount} scored`;
+            // How far they've got, once there's something to count: not before the session starts.
+            const detail = locked ? `${scored} of ${expected?.[judge.id] ?? entryCount} scored` : "";
             return (
               <li key={judge.id} className="px-5 py-5">
                 <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
@@ -79,36 +79,43 @@ export async function JudgesTab({
                       <JudgeEditor judge={judge} scored={scored} pageant={pageant} detail={detail} canChair={!judge.isChair && chaired.has(judge.panel)} />
                     )}
                   </div>
-                  {/* Called "judge code" here because that's what the judge portal asks them for. */}
+                  {/*
+                    The two ways a judge signs in, together: the code to type ("judge code", as the judge portal asks for it),
+                    and the QR code to scan instead, opened in a dialog large enough to scan from the screen.
+                  */}
                   {code && (
-                    <p className="tabular sm:text-right">
-                      <span className="block text-xs font-semibold text-prussian/70">Judge code </span>
-                      <span className="text-2xl font-bold tracking-[0.2em] text-regal">{code}</span>
-                    </p>
+                    <div className="sm:text-right">
+                      <p className="tabular">
+                        <span className="block text-xs font-semibold text-prussian/70">Judge code </span>
+                        <span className="text-2xl font-bold tracking-[0.2em] text-regal">{code}</span>
+                      </p>
+                      <QrDialog
+                        triggerClassName="tap-target mt-1.5 inline-flex items-center gap-1.5 text-sm font-semibold text-regal hover:underline"
+                        trigger={
+                          <>
+                            Show QR code<span className="sr-only"> for {judge.name}</span>
+                          </>
+                        }
+                        title={judge.name}
+                        svg={judgeQrs[i]}
+                        label={`QR code that signs in ${judge.name}`}
+                      >
+                        {/* The tracking trails the last letter too: as much before the first keeps it centred. */}
+                        <p className="tabular pl-[0.2em] text-2xl font-bold tracking-[0.2em] text-regal">{code}</p>
+                        <p className="mt-2">Scan it with the judge&apos;s phone camera, then tap Start judging.</p>
+                      </QrDialog>
+                    </div>
                   )}
                 </div>
                 <div className="sm:pl-16">
                   <DeviceApproval judge={judge} devices={devices.filter((d) => d.judgeId === judge.id)} />
-                  <details className="group mt-2">
-                    <summary className="tap-target cursor-pointer text-sm font-semibold text-regal select-none hover:underline">
-                      <span className="group-open:hidden">
-                        Show QR code<span className="sr-only"> for {judge.name}</span>
-                      </span>
-                      <span className="hidden group-open:inline">
-                        Hide QR code<span className="sr-only"> for {judge.name}</span>
-                      </span>
-                    </summary>
-                    <div className="mt-3">
-                      <Qr svg={judgeQrs[i]} label={`QR code that signs in ${judge.name}`} />
-                    </div>
-                  </details>
                 </div>
               </li>
             );
           })}
         </ul>
-      )}
-      {!locked && <AddJudgeForm activityId={activityId} pageant={pageant} />}
+        {!locked && <AddJudgeForm activityId={activityId} pageant={pageant} first={judges.length === 0} />}
+      </div>
     </div>
   );
 }

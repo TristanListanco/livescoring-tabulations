@@ -1,11 +1,11 @@
-import type { RankedRow } from "./scoring";
-import type { TieBreak } from "./types";
+import { rankEntries, shownDivisor, type DisplayRules, type RankedRow } from "./scoring";
+import type { Board, TieBreak } from "./types";
 
 /**
- * Ties in an event without live scoring. Equal averages share a rank, and in the deliberation every tie is broken
- * before the judges sign: the chair of the board of judges puts the tied entries in order and says why. The scores stay
- * as given. A break holds while exactly those entries are tied: a corrected score that changes who's tied asks for a
- * new one.
+ * Ties in an event without live scoring. Equal averages (as shown, to the results' decimal places) share a rank, and in
+ * the deliberation every tie is broken before the judges sign, by a judge correcting their score for one of the tied
+ * entries, saying why. Activities deliberated before that kept the chair's order instead (tie_breaks): it still holds
+ * for them while exactly those entries are tied, and their results print it.
  */
 
 /** Entries sharing a rank: their place, and the entries in the ranking's own order (by number). */
@@ -27,7 +27,7 @@ export function tiesIn(rows: RankedRow[]): Tie[] {
     .map(([rank, entryIds]) => ({ rank, key: tieKey(entryIds), entryIds }));
 }
 
-/** The break for a tie, if the chair has broken exactly this one. */
+/** The chair's order for a tie, if they put exactly this one in order (before ties were broken by corrected scores). */
 export function breakFor(tie: Pick<Tie, "key">, breaks: readonly TieBreak[]): TieBreak | undefined {
   return breaks.find((b) => b.tieKey === tie.key);
 }
@@ -55,6 +55,32 @@ export function applyTieBreaks(rows: RankedRow[], breaks: readonly TieBreak[]): 
     });
   }
   return out;
+}
+
+/**
+ * The smallest change to one judge's score that always moves the average shown: every judge's score counts towards it,
+ * and it's shown to the results' decimal places (criteria scaled to 10 divide it by ten). In the units judges score in.
+ * Null when any change they can type does it (whole numbers, say), so there's nothing to say.
+ */
+export function tieStep(rules: DisplayRules, judgeCount: number): number | null {
+  if (judgeCount < 1) return null;
+  const step = Number((judgeCount * shownDivisor(rules) * 10 ** -rules.resultDecimals).toFixed(6));
+  return step > 10 ** -rules.decimals ? step : null;
+}
+
+/** A tie a correction ends: the place the entries shared, and the entries (by number). */
+export type BrokenTie = { place: number; entryIds: string[] };
+
+/**
+ * The tie a judge's corrected score ends, if it does: the one the entry was in, gone once its score is `value`. Null
+ * when the entry wasn't tied, or still is (the averages shown are level all the same).
+ */
+export function tieBrokenBy(board: Pick<Board, "entries" | "judges" | "scores" | "activity">, judgeId: string, entryId: string, value: number): BrokenTie | null {
+  const before = tiesIn(rankEntries(board.entries, board.judges, board.scores, board.activity)).find((t) => t.entryIds.includes(entryId));
+  if (!before) return null;
+  const scores = board.scores.map((s) => (s.judgeId === judgeId && s.entryId === entryId ? { ...s, value } : s));
+  const after = tiesIn(rankEntries(board.entries, board.judges, scores, board.activity));
+  return after.some((t) => t.key === before.key) ? null : { place: before.rank, entryIds: before.entryIds };
 }
 
 /** "1st", "2nd", "3rd", "4th"… for a tie's place. */

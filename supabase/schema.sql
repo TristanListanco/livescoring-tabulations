@@ -426,6 +426,15 @@ alter table public.activities add column if not exists judges_see_ranking boolea
 alter table public.activities add column if not exists correction_reasons boolean not null default false;
 -- Judges score at their own pace, in any order, without waiting for the next entry to be shown (migration 034).
 alter table public.activities add column if not exists independent_scoring boolean not null default false;
+-- Where it happens, when the organizer gives it ("Bldg 2, Room 204"), to tell breakout rooms apart (migration 035).
+alter table public.activities add column if not exists location text;
+do $location$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'activities_location_length') then
+    alter table public.activities add constraint activities_location_length check (location is null or char_length(location) between 1 and 120);
+  end if;
+end;
+$location$;
 -- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): seen only by the organizer, on
 -- the Entries tab and the results. Each entry's values are in entries.details, by field id.
 alter table public.activities add column if not exists entry_fields jsonb not null default '[]'::jsonb;
@@ -731,6 +740,8 @@ create table if not exists public.score_corrections (
 create index if not exists score_corrections_activity_idx on public.score_corrections (activity_id, created_at);
 -- Three decimal places, on databases set up before them.
 alter table public.scores alter column value type numeric(8, 3);
+-- A correction that broke a tie in the deliberation keeps which one, { place, entryIds } (migration 036).
+alter table public.score_corrections add column if not exists broke_tie jsonb;
 alter table public.score_corrections alter column old_value type numeric(8, 3);
 alter table public.score_corrections alter column new_value type numeric(8, 3);
 -- One open request per score at a time.

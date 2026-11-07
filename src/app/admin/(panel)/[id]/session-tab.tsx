@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useContext, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { CopyButton } from "@/components/copy-button";
 import { LiveStatusBadge } from "@/components/live-status";
-import { Qr } from "@/components/qr";
+import { QrDialog } from "@/components/qr-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors } from "@/lib/judging";
@@ -18,13 +19,13 @@ import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
-import { ArchiveButton } from "../archive-controls";
+import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
 import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
-import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { CsvCheck, ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
 import { RankingSwitch } from "./ranking-switch";
 
@@ -244,14 +245,35 @@ export function SessionTab({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [showQr, setShowQr] = useState(false);
+  // Sent here by "All judges are in" (see JudgesIn) to start: Start session asks at once, and the address forgets it.
+  const askedToStart = useSearchParams().get("start") === "1";
+  useEffect(() => {
+    if (askedToStart) window.history.replaceState(null, "", `${window.location.pathname}?tab=session`);
+  }, [askedToStart]);
   const textAction =
     "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
 
+  /** The live results' QR code, in a dialog: for the audience to scan from a screen, or to open them on a phone. */
+  const liveQrDialog = (className: string) => (
+    <QrDialog
+      triggerClassName={className}
+      trigger={
+        <>
+          QR code<span className="sr-only"> for live results</span>
+        </>
+      }
+      title="Live results"
+      svg={liveQr}
+      label="QR code for the live results page"
+    >
+      Scan it to follow the live results on a phone.
+    </QrDialog>
+  );
+
   /**
-   * The audience's screen, one compact card wherever the desk is: the live results (copy, open, QR code), and under them
-   * whether they show ranks. The LED wall's link is on its own tab, with its settings. `extra`: what follows them (the
-   * results downloads, mid-show). Not once archived, when the live results close.
+   * The audience's screen, one compact card beside the live desk and under the desk before and during deliberation:
+   * the live results (copy, open, QR code), and under them whether they show ranks. The LED wall's link is on its own
+   * tab, with its settings. `extra`: what follows them (the results downloads, mid-show).
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
@@ -266,21 +288,11 @@ export function SessionTab({
           <a href={liveUrl} target="_blank" rel="noreferrer" aria-label="Open live results" className={textAction}>
             Open
           </a>
-          {!archived && (
-            <button type="button" className={textAction} aria-expanded={showQr} aria-label="QR code for live results" onClick={() => setShowQr((v) => !v)}>
-              QR code
-            </button>
-          )}
+          {liveQrDialog(`${textAction} gap-1.5`)}
         </div>
-        {showQr && !archived && (
-          <div className="pb-1">
-            <Qr svg={liveQr} label="QR code for the live results page" />
-          </div>
-        )}
-        {!archived && <RankingSwitch activity={activity} compact />}
-        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. Gone once
-            judging has ended: its results are final, and download from the desk. */}
-        {!activity.liveScoring && !pageant && activity.sessionState !== "ended" && (
+        <RankingSwitch activity={activity} compact />
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
+        {!activity.liveScoring && !pageant && (
           <div className="flex flex-wrap items-center gap-x-1 border-t border-line pt-2">
             <span className="min-w-0 flex-1 font-semibold">Private tally</span>
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
@@ -289,12 +301,38 @@ export function SessionTab({
           </div>
         )}
         {/* The judges' notes, for the organizer's reference while the show runs; once it ends they download with the results. */}
-        {hasNotes && activity.sessionState !== "ended" && (
+        {hasNotes && (
           <div className="pt-1">
             <DownloadResults activityId={activity.id} notes className={`${textAction} -ml-1.5`} />
           </div>
         )}
         {extra}
+      </div>
+    </section>
+  );
+
+  /*
+   * Once judging has ended, the live results show the final standings until the activity is archived: a card of its
+   * own under the ended desk, as wide as it, in the panel's own terms. Its name and whether it ranks on top; under them
+   * the address, as the judge portal and the LED wall show theirs, with Copy, Open and the QR code as one row of buttons.
+   */
+  const finalScreen = (
+    <section aria-labelledby="live-results" className="card px-5 py-5 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <h2 id="live-results" className="title-sm">
+          Live results
+        </h2>
+        <RankingSwitch activity={activity} compact />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <code className="tabular min-w-0 flex-1 basis-full truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px] sm:basis-0">
+          {liveUrl}
+        </code>
+        <CopyButton value={liveUrl} ariaLabel="Copy link to live results" className="btn btn-quiet btn-sm min-w-20 max-sm:flex-1" />
+        <a href={liveUrl} target="_blank" rel="noreferrer" className="btn btn-quiet btn-sm max-sm:flex-1">
+          Open<span className="sr-only"> live results</span>
+        </a>
+        {liveQrDialog("btn btn-quiet btn-sm gap-1.5 max-sm:flex-1")}
       </div>
     </section>
   );
@@ -344,6 +382,20 @@ export function SessionTab({
   const devicesOf = (judgeId: string) => devices.filter((d) => d.judgeId === judgeId);
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
   const missing = progress.possible - progress.submitted;
+  const missingLine = `${missing} ${missing === 1 ? "score is" : "scores are"} missing`;
+  /** Once judging has ended, every download in one menu; a pageant's are in its program instead. */
+  const exportMenu = (className: string) =>
+    progress.complete &&
+    !pageant && (
+      <ExportMenu
+        activityId={activity.id}
+        options={[
+          ...sheetOptions("", { judges: true }),
+          ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
+        ]}
+        className={className}
+      />
+    );
 
   /*
    * On air: what the audience's screens show right now, in the desk's own words, so the operator never has to open
@@ -588,7 +640,7 @@ export function SessionTab({
           // Scrolls on its own in the live desk, so it has to be reachable by keyboard.
           tabIndex={compact ? 0 : undefined}
           aria-labelledby={compact ? "running-order" : undefined}
-          className={`card stagger mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
+          className={`card mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
         >
           {entries.map((e, i) => {
             const onAir = e.id === current;
@@ -659,7 +711,10 @@ export function SessionTab({
   if (live) {
     return (
       <PdfHold value={held}>
-        <div className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-11rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
+        {/* Its judge tiles approve devices (data-device-approvals: so the panel's dialog doesn't, see AssistanceAlerts). */}
+        <div
+          data-device-approvals={activity.id}
+          className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-11rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
           <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
             {offline}
             <div className="flex items-start justify-between gap-4 px-6 pt-4">
@@ -826,7 +881,7 @@ export function SessionTab({
 
   return (
     <PdfHold value={held}>
-      <div className="max-w-4xl space-y-10">
+      <div className="max-w-4xl space-y-10" data-device-approvals={state === "draft" ? activity.id : undefined}>
         <div className="space-y-4">
           <CorrectionsPanel activityId={activity.id} corrections={corrections} />
           {/*
@@ -882,6 +937,7 @@ export function SessionTab({
                 </p>
                 <ConfirmDialog
                   triggerLabel="Start session"
+                  openOnMount={askedToStart}
                   triggerClassName="btn shrink-0 bg-mint text-prussian hover:bg-white"
                   title="Start judging?"
                   confirmLabel="Start session"
@@ -905,8 +961,8 @@ export function SessionTab({
               const signedIds = new Set((signatures ?? []).map((sig) => sig.judgeId));
               const allSigned = signatures !== null && unsignedJudges(judges, signatures).length === 0;
               const openCorrection = corrections.some((c) => c.status === "open");
-              // Every tie in the ranking is broken (by the chair, on their screen) before anyone signs. The ties and the
-              // signed results come from the server, which keeps the scores themselves.
+              // Every tie in the ranking is broken (by a judge correcting a score, on their screen) before anyone signs. The
+              // ties and the signed results come from the server, which keeps the scores themselves.
               const breaks = board.tieBreaks ?? [];
               const nameOf = new Map(entries.map((e) => [e.id, e.name]));
               const ties = (deliberation?.ties ?? []).map((tie) => ({ tie, settled: breakFor(tie, breaks) }));
@@ -960,7 +1016,7 @@ export function SessionTab({
                                 , broken: {settled.entryIds.map((id) => nameOf.get(id) ?? "an entry").join(", then ")}. &ldquo;{settled.reason}&rdquo;
                               </span>
                             ) : (
-                              <span>: {listNames(tie.entryIds.map((id) => ({ name: nameOf.get(id) ?? "an entry" })))}. The chair breaks it on their screen before anyone signs.</span>
+                              <span>: {listNames(tie.entryIds.map((id) => ({ name: nameOf.get(id) ?? "an entry" })))}. A judge corrects a score to break it before anyone signs.</span>
                             )}
                           </li>
                         ))}
@@ -972,7 +1028,7 @@ export function SessionTab({
                       {signatures === null
                         ? "Signatures need a database update. Run supabase/migrations/021_deliberation.sql in the Supabase SQL editor."
                         : openTies > 0
-                          ? `${openTies === 1 ? "A tie" : `${openTies} ties`} in the ranking ${openTies === 1 ? "isn't" : "aren't"} broken yet. The chair breaks ${openTies === 1 ? "it" : "them"} on their screen; the judges sign after.`
+                          ? `${openTies === 1 ? "A tie" : `${openTies} ties`} in the ranking ${openTies === 1 ? "isn't" : "aren't"} broken yet. A judge corrects a score to break ${openTies === 1 ? "it" : "each"}; the judges sign after.`
                           : allSigned
                             ? "Sign the results to end the session."
                             : openCorrection
@@ -1005,7 +1061,7 @@ export function SessionTab({
               );
             })()}
 
-          {state === "ended" && (
+          {state === "ended" && !archived && (
             <section aria-labelledby="desk-heading" className="card overflow-hidden">
               {/* One row on a wide screen: what happened, then what's left to do. Quiet once the show is over: a plain card
                   rather than the live desk's navy, its one filled button the download. The report ID is on every PDF and
@@ -1015,25 +1071,13 @@ export function SessionTab({
                   Judging has ended
                 </h2>
                 <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
-                  {progress.complete && !pageant && (
-                    <ExportMenu
-                      activityId={activity.id}
-                      options={[
-                        ...sheetOptions("", { judges: true }),
-                        ...(hasNotes ? [{ label: "Judges' notes (PDF)", query: "sheet=notes", held: false }] : []),
-                      ]}
-                      className="btn btn-primary max-sm:w-full"
-                    />
-                  )}
-                  {/* Archiving closes judging for good: once archived, nothing here but the downloads. */}
-                  {!archived && (
-                    <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-quiet max-sm:flex-1" />
-                  )}
+                  {exportMenu("btn btn-primary max-sm:w-full")}
+                  <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-quiet max-sm:flex-1" />
                   {/*
                     A deliberated session deliberates again, with the password ending took: it reopens the signed record. Any
                     other reopens, and at least asks.
                   */}
-                  {!archived && activity.signedOffAt && !activity.liveScoring && !pageant && (
+                  {activity.signedOffAt && !activity.liveScoring && !pageant ? (
                     <ConfirmDialog
                       triggerLabel="Redeliberate"
                       triggerClassName="btn btn-quiet max-sm:flex-1"
@@ -1046,8 +1090,7 @@ export function SessionTab({
                       The judges review their scores and sign again, then you sign the results to end the session again. Until then the results
                       come off the live results page. Judges whose devices were signed out sign in again with their code, and you approve them.
                     </ConfirmDialog>
-                  )}
-                  {!archived && !(activity.signedOffAt && !activity.liveScoring && !pageant) && (
+                  ) : (
                     <ConfirmDialog
                       triggerLabel="Reopen session"
                       triggerClassName="btn btn-quiet max-sm:flex-1"
@@ -1065,13 +1108,33 @@ export function SessionTab({
               <FormMessage state={result} small className={result?.ok ? "sr-only" : "px-6 pb-4 font-semibold"} />
               {!progress.complete && (
                 <div className="border-t border-line px-6 py-4">
-                  <p className="font-semibold">
-                    {missing} {missing === 1 ? "score is" : "scores are"} missing
-                  </p>
-                  {!archived && <p className="mt-1 text-[15px] text-prussian/70">Reopen the session so the judges can finish.</p>}
+                  <p className="font-semibold">{missingLine}</p>
+                  <p className="mt-1 text-[15px] text-prussian/70">Reopen the session so the judges can finish.</p>
                 </div>
               )}
             </section>
+          )}
+          {state === "ended" && !archived && finalScreen}
+
+          {/*
+            Archived, nothing is left to run: no heading to say judging ended (the archived mark under the name says it),
+            only what can still be done with it, straight on the page. The download leads, larger, as the reason to come
+            back; checking a CSV beside it; deleting it at the far end.
+          */}
+          {archived && (
+            <div className="bare-actions flex flex-wrap items-center gap-3">
+              {exportMenu("btn btn-primary h-12 px-7 text-base max-sm:w-full")}
+              {/* On a phone, one under another across the width, as the download. */}
+              <CsvCheck activityId={activity.id} className="btn btn-quiet max-sm:w-full" wrapClassName="max-sm:w-full" />
+              <div className="max-sm:w-full sm:ml-auto">
+                <DeleteArchivedButton activityId={activity.id} name={activity.name} className="btn btn-danger-quiet max-sm:w-full" />
+              </div>
+            </div>
+          )}
+          {archived && !progress.complete && (
+            <p role="note" className="note font-semibold">
+              {missingLine}
+            </p>
           )}
         </div>
 
@@ -1079,8 +1142,7 @@ export function SessionTab({
         {runningOrder(false)}
         {cutDialog}
 
-        {/* Archived, the live results close: nothing to put in front of an audience. */}
-        {!archived && <div className="sm:max-w-md">{screens()}</div>}
+        {state !== "ended" && <div className="sm:max-w-md">{screens()}</div>}
       </div>
     </PdfHold>
   );
