@@ -99,7 +99,7 @@ export type RankedRow = {
 };
 
 /** Criteria totals shown "scaled to 10" are the total out of 100 divided by 10. */
-function shownDivisor(rules: DisplayRules): number {
+export function shownDivisor(rules: DisplayRules): number {
   return rules.scoringMode === "criteria" && rules.criteriaDisplay === "ten" ? 10 : 1;
 }
 

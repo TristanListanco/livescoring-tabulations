@@ -13,6 +13,7 @@ import { MIN_PROPER_JUDGES } from "@/lib/pageant-setup";
 import { addJudge, removeJudge, renameJudge, setChair, setJudgePanel, setJudgePhoto, type FormResult } from "../../actions";
 import { PANEL_OPTIONS } from "../new/judges-fields";
 import { FormMessage } from "../form-message";
+import { toast } from "../toaster";
 import { PersonNameInput } from "../person-name-input";
 
 /** Pageants: which segments a judge judges, changed straight away. A chair stays on their board while they chair it. */
@@ -136,6 +137,7 @@ export function JudgeEditor({
       if (photo) data.set("photo", photo, "photo.jpg");
       const result = await setJudgePhoto(judge.id, data);
       if (!result.ok) setPhotoError(result.error);
+      else toast(photo ? `${judge.name}'s photo added` : `${judge.name}'s photo removed`);
     });
 
   return (
@@ -241,13 +243,27 @@ function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: N
   );
 }
 
-export function AddJudgeForm({ activityId, pageant }: { activityId: string; pageant: boolean }) {
-  const [state, action] = useActionState<FormResult, FormData>(addJudge.bind(null, activityId), null);
+/**
+ * Adding a judge, as the judges card's last row: shaped like the rows above it (a round place for the photo, then the
+ * names), on the card's quieter wash so it reads as the row still to fill in. A toast says they're added (problems stay
+ * under the fields); their photo goes on from their own row.
+ */
+export function AddJudgeForm({ activityId, pageant, first }: { activityId: string; pageant: boolean; first: boolean }) {
+  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
+    const result = await addJudge(activityId, previous, data);
+    if (result?.ok) toast(result.message ? result.message.replace(/\.$/, "") : "Judge added");
+    return result;
+  }, null);
   return (
-    <form action={action} className="mt-6 space-y-2">
-      <fieldset>
-        <legend className="label">Add a judge</legend>
-        <div className="flex max-w-xl flex-wrap items-end gap-2">
+    <form action={action} className={`flex items-start gap-4 bg-wash/60 px-5 py-5 ${first ? "" : "border-t border-line"}`}>
+      <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-field text-regal">
+        <svg viewBox="0 0 16 16" className="size-4">
+          <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </span>
+      <fieldset className="min-w-0 flex-1">
+        <legend className="mb-2 font-semibold">Add a judge</legend>
+        <div className="flex max-w-2xl flex-wrap items-end gap-2">
           <NameFields idPrefix="new-judge" />
           {pageant && (
             <div className="min-w-40">
@@ -265,8 +281,8 @@ export function AddJudgeForm({ activityId, pageant }: { activityId: string; page
           )}
           <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
         </div>
+        <FormMessage state={state?.ok ? null : state} small className="mt-2" />
       </fieldset>
-      <FormMessage state={state} small />
     </form>
   );
 }

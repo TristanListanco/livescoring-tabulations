@@ -67,6 +67,54 @@ export async function getOpenAssistance(session: AdminSession): Promise<Assistan
   }));
 }
 
+/** A judge's device waiting for the organizer's approval, as the alert lists it (see AssistanceAlerts). */
+export type WaitingDevice = {
+  id: string;
+  judgeId: string;
+  activityId: string;
+  activityName: string;
+  judgeName: string;
+  judgePhotoUrl: string | null;
+  /** The code on the judge's screen, which they read out so the right device is approved. */
+  pairingCode: string;
+  /** "iPhone · Safari" and the like. */
+  label: string;
+  /** When it asked (ISO time). */
+  askedAt: string;
+};
+
+/** Judges' devices waiting for approval in the activities this admin manages (not archived ones), oldest first. */
+export async function getWaitingDevices(session: AdminSession): Promise<WaitingDevice[] | null> {
+  const query = db()
+    .from("judge_devices")
+    .select("id, judge_id, pairing_code, label, created_at, judges!inner(name, photo_path, activity_id, activities!inner(name, owner_id, archived_at))")
+    .eq("status", "pending")
+    .is("judges.activities.archived_at", null)
+    .order("created_at", { ascending: true })
+    .limit(MAX_LISTED);
+  const { data, error } = await (session.kind === "super" ? query.is("judges.activities.owner_id", null) : query.eq("judges.activities.owner_id", session.admin.id));
+  if (error) return null;
+  type Row = {
+    id: string;
+    judge_id: string;
+    pairing_code: string;
+    label: string;
+    created_at: string;
+    judges: { name: string; photo_path: string | null; activity_id: string; activities: { name: string } | null } | null;
+  };
+  return (data as unknown as Row[]).map((r) => ({
+    id: r.id,
+    judgeId: r.judge_id,
+    activityId: r.judges?.activity_id ?? "",
+    activityName: r.judges?.activities?.name ?? "An activity",
+    judgeName: r.judges?.name ?? "A judge",
+    judgePhotoUrl: photoUrl(r.judges?.photo_path ?? null),
+    pairingCode: r.pairing_code,
+    label: r.label,
+    askedAt: r.created_at,
+  }));
+}
+
 /** The activities whose changes the alert listens for: this admin's, not archived, newest first (realtime takes up to 100). */
 export async function getAlertActivityIds(session: AdminSession): Promise<string[]> {
   const query = db().from("activities").select("id").is("archived_at", null).order("created_at", { ascending: false }).limit(100);

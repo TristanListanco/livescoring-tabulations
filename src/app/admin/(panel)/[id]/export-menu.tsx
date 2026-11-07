@@ -162,12 +162,24 @@ export function sheetOptions(query: string, { judges = false, noun = "Results" }
  * changed after it was exported), and that the fingerprint is one of the sheets the scores give now. The file goes to
  * the server to be checked, so this works on the venue laptop's plain http too.
  */
-export function CsvCheck({ activityId, className, onDark = false }: { activityId: string; className: string; onDark?: boolean }) {
+export function CsvCheck({
+  activityId,
+  className,
+  wrapClassName = "",
+  onDark = false,
+}: {
+  activityId: string;
+  /** The button's (a label for the hidden file input). */
+  className: string;
+  /** Around the button and the result beside it. */
+  wrapClassName?: string;
+  onDark?: boolean;
+}) {
   const id = useId();
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${wrapClassName}`}>
       <input
         id={id}
         type="file"

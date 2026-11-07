@@ -94,7 +94,7 @@ test.describe.serial("judges' calls for help", () => {
     const benPhone = await judgePhone(await browser.newContext({ ...devices["Pixel 7"] }), code("B"), ben);
 
     await askForHelp(anaPhone);
-    const alert = page.getByRole("alertdialog", { name: "A judge needs help" });
+    const alert = page.getByRole("alertdialog", { name: "Ana Cruz needs help" });
     await expect(alert).toBeVisible(ALERT);
     await expect(alert.getByRole("listitem")).toHaveCount(1);
     await expect(alert.getByRole("listitem").first()).toContainText("Ana Cruz");
@@ -120,7 +120,7 @@ test.describe.serial("judges' calls for help", () => {
 
     // On my way to Ana: her screen says so, and Ben's call is still waiting.
     await two.getByRole("button", { name: "On my way to Ana Cruz" }).click();
-    await expect(page.getByRole("alertdialog", { name: "A judge needs help" }).getByRole("listitem")).toHaveText([/Ben Torres/]);
+    await expect(page.getByRole("alertdialog", { name: "Ben Torres needs help" }).getByRole("listitem")).toHaveText([/Ben Torres/]);
     await expect(anaPhone.getByRole("status").filter({ hasText: "The organizer is on the way." })).toBeVisible(ALERT);
     // Ben no longer needs it: he takes his call back, and the dialog goes.
     await benPhone.getByRole("button", { name: "Cancel your call for help" }).click();

@@ -22,6 +22,7 @@ const correction = (over: Partial<Correction> = {}): Correction => ({
   decidedBy: null,
   createdAt: "",
   decidedAt: null,
+  brokeTie: null,
   votes: [],
   ...over,
 });
@@ -85,6 +86,11 @@ describe("correctionView", () => {
       { name: "Poise (40)", from: "30.0", to: "39.0", changed: true },
       { name: "Wit (60)", from: "45.0", to: "45.0", changed: false },
     ]);
+  });
+  it("names the entries a correction broke its entry's tie with, for the PDF", () => {
+    const board: Board = { activity: activityFixture(), judges: [judge("ana")], entries, scores: [], rounds: [] };
+    expect(correctionView(board, correction({ brokeTie: { place: 1, entryIds: ["e1", "e2"] } })).brokeTie).toEqual({ place: 1, with: ["Ayla"] });
+    expect(correctionView(board, correction()).brokeTie).toBeNull();
   });
 });
 

@@ -37,6 +37,7 @@ test.describe.serial("judge devices without realtime", () => {
     await page.getByLabel("Judge 2 last name").fill("Bravo");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila");
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("button", { name: "Create activity" }).click();
     // Creating an activity uploads photos and writes several tables; allow for a slow network.
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });

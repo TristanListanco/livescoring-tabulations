@@ -5,8 +5,8 @@ import { archiveActivity, deleteActivity } from "../actions";
 import { toast, toastOnRedirect } from "./toaster";
 
 /**
- * Archive an activity whose session has ended, from its ended desk or its Settings. Asks first: it can't be undone, and
- * the activity can't be reopened or changed after it.
+ * Archive an activity whose session has ended, from its ended desk or its Settings. Asks first, with the organizer's
+ * password (as ending the session does): it can't be undone, and the activity can't be reopened or changed after it.
  */
 export function ArchiveButton({ activityId, name, className = "btn btn-quiet" }: { activityId: string; name: string; className?: string }) {
   return (
@@ -19,8 +19,9 @@ export function ArchiveButton({ activityId, name, className = "btn btn-quiet" }:
       triggerClassName={className}
       title="Archive this activity?"
       confirmLabel="Archive"
-      onConfirm={async () => {
-        const result = await archiveActivity(activityId);
+      passwordLabel="Your password"
+      onConfirm={async (password) => {
+        const result = await archiveActivity(activityId, password);
         if (result.ok) toast(`${name} archived`);
         return result;
       }}

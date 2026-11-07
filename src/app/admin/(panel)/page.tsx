@@ -253,6 +253,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                   </div>
                 )}
                 <p className="hint tabular mt-1">
+                  {a.location && `${a.location} · `}
                   {setupOf(a)} · {scoresIn(a)} in
                 </p>
               </li>
@@ -283,7 +284,11 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                       <Link href={`/admin/${a.id}`} className="font-semibold text-regal after:absolute after:inset-0 group-hover:underline">
                         {a.name}
                       </Link>
-                      <p className="hint mt-0.5">{setupOf(a)}</p>
+                      <p className="hint mt-0.5">
+                        {/* Where it happens, so breakout rooms tell apart at a glance. */}
+                        {a.location && `${a.location} · `}
+                        {setupOf(a)}
+                      </p>
                     </td>
                     <td className="py-4 whitespace-nowrap">
                       <SessionStatus state={a.sessionState} pulse />

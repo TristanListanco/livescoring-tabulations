@@ -256,9 +256,9 @@ p.archived-list {
 
 /*
  * A page of the admin panel that has to load (one not in the browser's cache) shows nothing for a beat, then its
- * skeleton fades in: a quick load never flashes one. What arrives, from the server or the cache, settles in with a
- * short fade and a rise of a few pixels, rather than snapping in. An activity's name and tabs stay put as its tabs
- * change (they're drawn again each time), so only the tab below them arrives.
+ * skeleton fades in: a quick load never flashes one. What arrives, from the server or the cache, fades in rather than
+ * snapping in: a fade only, nothing moves. An activity's name and tabs stay put as its tabs change (they're drawn
+ * again each time), so only the tab below them arrives.
  */
 .skeleton-enter {
   animation: fade-in 220ms ease-out 100ms both;
@@ -270,7 +270,7 @@ p.archived-list {
   }
 }
 [data-admin-theme] main > :not(.activity-head, .activity-tabs, [role="status"]) {
-  animation: enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fade-in 220ms ease-out;
 }
 /* A list's rows follow it in, one a beat after another (the first eight; the rest with the eighth). */
 .stagger > * {
@@ -432,10 +432,21 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
 [data-admin-theme] [popover]:popover-open {
   animation: menu-in 160ms ease-out;
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-admin-theme] main > :not(.activity-head, .activity-tabs, [role="status"]) {
-    animation: fade-in 160ms ease-out;
+/* A judge's call for help: a ring spreads from the hand and fades, again and again, until it's answered. */
+@keyframes assist-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
   }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.assist-ring {
+  animation: assist-ring 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
   .stagger > *,
   .tally-draw path,
   .toast-tick path {
@@ -455,7 +466,8 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
     animation-name: fade-in;
   }
   .nudge,
-  .wave {
+  .wave,
+  .assist-ring {
     animation: none;
   }
 }
@@ -582,6 +594,16 @@ html:has(.share-ledger) {
   .btn-sm {
     @apply h-9 px-3.5 text-sm;
   }
+  /*
+   * Outlined buttons straight on the page, out of any card (an archived activity's tools, Settings' last line): the
+   * hairline that's enough on a white card fades into the page's tint, so their outline is firmer here (3:1 against it).
+   */
+  .bare-actions .btn-quiet {
+    @apply border-field;
+  }
+  .bare-actions .btn-danger-quiet {
+    @apply border-danger/75;
+  }
   /* On touchscreens the small buttons grow to a full 44px target; on a mouse they keep their compact size. */
   @media (pointer: coarse) {
     .btn-sm {
@@ -706,7 +728,15 @@ html:has(.share-ledger) {
     padding-top: 0.75rem;
     padding-bottom: 1rem;
   }
-  @media (min-height: 34rem) {
+  /*
+   * Sticky only where the judge's column is tall enough for the entry's name above it: measured on the column itself
+   * (.judge-main), not the window, so a bar under the header (the organizer's on the way, the privacy screen's offer)
+   * can't leave the keypad sitting over the name. Shorter, everything scrolls as one.
+   */
+  .judge-main {
+    container: judge-main / size;
+  }
+  @container judge-main (min-height: 34rem) {
     .keypad-dock {
       position: sticky;
       bottom: 0;

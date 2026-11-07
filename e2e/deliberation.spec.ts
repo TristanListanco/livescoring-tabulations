@@ -45,6 +45,7 @@ test.describe.serial("deliberation", () => {
     await page.getByLabel("Judge 2 last name").fill("Torres");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
     await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis");
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
 
@@ -150,38 +151,58 @@ test.describe.serial("deliberation", () => {
     await audience.context().close();
   });
 
-  test("in the deliberation a tie in the ranking is broken by the chair before anyone signs", async () => {
+  test("in the deliberation a tie in the ranking is broken by a judge correcting a score, saying why", async () => {
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
-    // Ben corrects his Bagwis score from the list of every entry: 10 ties Bagwis with Agila for 1st (8.875 each).
+    // Ben corrects his Bagwis score from the list of every entry: 10 ties Bagwis with Agila for 1st (8.875 each). In the
+    // deliberation a reason is picked from the list, or typed under Other, whether or not Settings asks for the list.
     await ben.getByRole("button", { name: "Correct this score for Bagwis" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Bagwis");
     await tapScore(ben, "10");
     await ben.getByRole("button", { name: "Review correction" }).click();
     const fix = ben.getByRole("dialog", { name: "Change your score for Bagwis?" });
-    await fix.getByLabel("Why does it need correcting?").fill("Meant 10, not 8.");
+    await fix.getByRole("group", { name: "Why does it need correcting?" }).getByRole("radio", { name: "Other reason" }).check();
+    await fix.getByLabel("Your reason").fill("Meant 10, not 8.");
     await fix.getByRole("button", { name: "Change score" }).click();
     await expect(ben.getByRole("heading", { level: 1 })).toHaveText("Deliberation");
     await expect(ben.getByText("Corrected from 8.000.")).toBeVisible(REALTIME);
 
-    // Every judge sees the tie at the top of their deliberation, and nobody signs until it's broken.
-    await expect(ana.getByRole("heading", { name: "Tie for 1st", exact: true })).toBeVisible(REALTIME);
-    await expect(ana.getByText("Agila and Bagwis have the same average. Ben Torres puts them in order before anyone signs.")).toBeVisible();
+    // Every judge sees the tie at the top of their deliberation, and how it's broken: by a corrected score, not by
+    // placing them. Nobody signs until it is.
+    const tie = ana.getByRole("heading", { name: "Tie for 1st", exact: true });
+    await expect(tie).toBeVisible(REALTIME);
+    await expect(
+      ana.getByText("Agila and Bagwis have the same average. A judge breaks the tie by correcting their score for one of them, saying why. Nobody signs until it's broken."),
+    ).toBeVisible();
+    // Two judges, averages to two places: a score has to move 0.02 to move an average.
+    await expect(ana.getByText("A change of 0.020 or more moves the average", { exact: false })).toBeVisible();
+    await expect(ana.getByRole("button", { name: /^Move / })).toHaveCount(0);
     await expect(ana.getByRole("status").filter({ hasText: "A tie in the ranking isn't broken yet" })).toBeVisible();
     await expectAccessible(ana);
 
-    // Ben, the chair, puts Bagwis first and says why: the reason is required.
-    await expect(ben.getByRole("heading", { name: "Tie for 1st", exact: true })).toBeVisible();
-    await expect(ben.getByRole("button", { name: "Break the tie" })).toBeDisabled();
-    await ben.getByRole("button", { name: "Move Bagwis up" }).click();
-    await ben.getByLabel("Why they place in this order").fill("Bagwis had the stronger finish, as the panel agreed.");
-    await ben.getByRole("button", { name: "Break the tie" }).click();
-    const confirm = ben.getByRole("dialog", { name: "Break the tie for 1st?" });
-    await expect(confirm).toContainText("1st Bagwis, 2nd Agila");
-    await confirm.getByRole("button", { name: "Break the tie" }).click();
-    await expect(ben.getByRole("heading", { name: "Tie for 1st, broken" })).toBeVisible(REALTIME);
-    await expect(ana.getByRole("heading", { name: "Tie for 1st, broken" })).toBeVisible(REALTIME);
-    await expect(ana.getByText("“Bagwis had the stronger finish, as the panel agreed.” Broken by Ben Torres.")).toBeVisible();
-    // Now everyone can sign.
+    // Ana corrects Agila by too little: 8.250 to 8.260 averages 8.88, as Bagwis's 8.875 shows. She's told so; it stays.
+    const correctAgila = async (score: string) => {
+      await ana.getByRole("button", { name: "Correct your score for Agila" }).click();
+      await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Agila");
+      await tapScore(ana, score);
+      await ana.getByRole("button", { name: "Review correction" }).click();
+      const dialog = ana.getByRole("dialog", { name: "Change your score for Agila?" });
+      // A tied entry's reasons start with the tie's own.
+      const reasons = dialog.getByRole("group", { name: "Why does it need correcting?" }).getByRole("radio");
+      await expect(reasons.first()).toHaveAccessibleName("I compared it again with the entry it was tied with.");
+      await reasons.first().check();
+      await dialog.getByRole("button", { name: "Change score" }).click();
+      await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Deliberation");
+    };
+    await correctAgila("8.26");
+    await expect(ana.getByRole("status").filter({ hasText: "Changed. Agila is still level with Bagwis for 1st" })).toHaveText(
+      "Changed. Agila is still level with Bagwis for 1st: their averages are the same to 2 decimal places. A change of 0.020 or more moves the average.",
+    );
+    await expect(tie).toBeVisible();
+
+    // Then by enough: 8.300 averages 8.90. The tie goes from every judge's screen, and they can sign.
+    await correctAgila("8.3");
+    await expect(tie).toHaveCount(0, REALTIME);
+    await expect(ben.getByRole("heading", { name: "Tie for 1st", exact: true })).toHaveCount(0, REALTIME);
     await expect(ben.getByRole("checkbox", { name: /I've reviewed my scores and sign off on them/ })).toBeVisible();
   });
 
@@ -193,13 +214,13 @@ test.describe.serial("deliberation", () => {
     await page.getByRole("switch", { name: "Judges see the overall ranking while they deliberate" }).click();
     await expect(page.getByText("Judges see the ranking while they deliberate.")).toBeVisible();
 
-    // Rank, entry and average, with the tie broken as the chair broke it. Never another judge's score.
+    // Rank, entry and average, the tie broken by Ana's corrected score. Never another judge's score.
     const ranking = ana.getByRole("region", { name: "Overall ranking" });
     await expect(ranking).toBeVisible(REALTIME);
     const places = ranking.getByRole("listitem");
     await expect(places).toHaveCount(2);
-    await expect(places.nth(0)).toContainText(/1st\s*No\. 2 Bagwis\s*8\.8/);
-    await expect(places.nth(1)).toContainText(/2nd\s*No\. 1 Agila\s*8\.8/);
+    await expect(places.nth(0)).toContainText(/1st\s*No\. 1 Agila\s*8\.90/);
+    await expect(places.nth(1)).toContainText(/2nd\s*No\. 2 Bagwis\s*8\.88/);
     await expect(ranking).not.toContainText("Torres");
     await expect(ben.getByRole("region", { name: "Overall ranking" })).toBeVisible(REALTIME);
     await expectAccessible(ana);
@@ -217,8 +238,8 @@ test.describe.serial("deliberation", () => {
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
     const scores = ana.getByRole("list", { name: "Your scores" });
     await expect(scores.getByRole("listitem")).toHaveCount(2);
-    await expect(scores.getByRole("listitem").first()).toContainText("8.250");
-    await expect(scores.getByRole("listitem").first()).toContainText("Corrected from 8.125");
+    await expect(scores.getByRole("listitem").first()).toContainText("8.300");
+    await expect(scores.getByRole("listitem").first()).toContainText("Corrected from 8.260");
     await expect(ana.getByRole("button", { name: "Correct this score for Bagwis" })).toBeVisible();
 
     // On her phone she draws her signature.
@@ -240,11 +261,11 @@ test.describe.serial("deliberation", () => {
     // Signed, her scores stand: nothing left to correct.
     await expect(ana.getByRole("button", { name: /^Correct this score/ })).toHaveCount(0);
 
-    // The desk shows the tie as broken; there's no End session button: the organizer signs the results instead.
+    // The desk has no tie left to show; there's no End session button: the organizer signs the results instead.
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByRole("status").filter({ hasText: "of 2 judges have signed" })).toHaveText("1 of 2 judges have signed", REALTIME);
-    await expect(page.getByRole("list", { name: "Ties in the ranking" })).toContainText("Tie for 1st, broken: Bagwis, then Agila.");
+    await expect(page.getByRole("list", { name: "Ties in the ranking" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "End session" })).toHaveCount(0);
 
     // Ben's laptop has no touchscreen: he ticks (Sgd.).
@@ -259,9 +280,9 @@ test.describe.serial("deliberation", () => {
     await expect(final).toBeVisible(REALTIME);
     await page.keyboard.press("Escape");
     await expect(final).toBeVisible();
-    await expect(final.getByRole("row").nth(1)).toContainText("Bagwis");
-    await expect(final.getByRole("row").nth(2)).toContainText("Agila");
-    await expect(final.getByRole("list", { name: "Ties the chair broke" })).toContainText("Tie for 1st: Bagwis, then Agila.");
+    await expect(final.getByRole("row").nth(1)).toContainText("Agila");
+    await expect(final.getByRole("row").nth(2)).toContainText("Bagwis");
+    await expect(final.getByRole("list", { name: "Ties the chair broke" })).toHaveCount(0);
     await expectAccessible(page);
     await snap(page, "organizer signs the results");
     const end = final.getByRole("button", { name: "Sign and end the session" });
@@ -274,9 +295,9 @@ test.describe.serial("deliberation", () => {
 
     await page.goto(livePath);
     const agila = page.locator("li[data-entry]", { hasText: "Agila" });
-    await expect(agila).toContainText("8.250");
-    // (8.250 + 9.500) / 2.
-    await expect(agila).toContainText("8.88");
+    await expect(agila).toContainText("8.300");
+    // (8.300 + 9.500) / 2.
+    await expect(agila).toContainText("8.90");
 
     await page.goto(`${adminPath}?tab=session`);
     const download = await exportFile(page, "Results (PDF)");

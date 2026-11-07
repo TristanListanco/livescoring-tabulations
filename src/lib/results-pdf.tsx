@@ -6,6 +6,7 @@ import type { StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
+import { listNames } from "./names";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
 import type { Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
 import { INTER_ITALIC, INTER_LIGHT, INTER_REGULAR, INTER_SEMIBOLD } from "./pdf-fonts";
@@ -46,6 +47,7 @@ const s = StyleSheet.create({
   // As the panel's page titles: large and light, set a little tight.
   title: { fontWeight: 300, fontSize: 26, lineHeight: 1.15, letterSpacing: -0.5, marginTop: 6 },
   subtitle: { fontWeight: 400, fontSize: 14, marginTop: 3, color: C.regal },
+  place: { marginTop: 3, color: C.muted },
   byline: { fontWeight: 600, fontSize: 12, marginTop: 8 },
   bylineRole: { fontWeight: 400, color: C.muted },
   meta: { marginTop: 6, color: C.muted, maxWidth: 480 },
@@ -123,7 +125,7 @@ type ReportInfo = {
 
 /**
  * The sheet's header: the organizer's photo, what kind of sheet it is ("Official results"), the report ID and the title.
- * `byline`: whose sheet it is, on a judge's score sheet. `meta`: only what the sheet needs read before its table (what
+ * `location`: where the activity happened, when the organizer gave it. `byline`: whose sheet it is, on a judge's score sheet. `meta`: only what the sheet needs read before its table (what
  * its marks mean); when it was generated is in the footer.
  */
 function Header({
@@ -131,6 +133,7 @@ function Header({
   eyebrow = "Official results",
   title,
   subtitle,
+  location,
   byline,
   meta,
 }: {
@@ -138,6 +141,7 @@ function Header({
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  location?: string | null;
   byline?: React.ReactNode;
   meta?: string;
 }) {
@@ -159,6 +163,7 @@ function Header({
         </View>
         <Text style={s.title}>{title}</Text>
         {subtitle && <Text style={s.subtitle}>{subtitle}</Text>}
+        {location && <Text style={s.place}>{location}</Text>}
         {byline && <Text style={s.byline}>{byline}</Text>}
         {meta && <Text style={s.meta}>{meta}</Text>}
       </View>
@@ -262,7 +267,13 @@ function Footer({ info, perSheet = false }: { info: ReportInfo; perSheet?: boole
   );
 }
 
-/** The corrections that changed scores on a sheet: who, which entry, before and after, why, and who decided. */
+/** A correction that ended a tie in the deliberation says which: " to break the tie for 1st with Agila". */
+const tieNote = (c: CorrectionView) => (c.brokeTie ? ` to break the tie for ${ordinal(c.brokeTie.place)} with ${listNames(c.brokeTie.with.map((name) => ({ name })))}` : "");
+
+/**
+ * The corrections that changed scores on a sheet: who, which entry, before and after (and the tie it broke, when it
+ * broke one), why, and who decided.
+ */
 function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
   if (corrections.length === 0) return null;
   return (
@@ -273,7 +284,7 @@ function CorrectionsList({ corrections }: { corrections: CorrectionView[] }) {
       {corrections.map((c) => (
         <View key={c.id} style={s.deductionRow} wrap={false}>
           <Text style={s.deductionWho}>{`${c.judgeName}, No. ${c.entryNumber} ${c.entryName}`}</Text>
-          <Text style={s.deductionWhy}>{`${c.from} to ${c.to}. ${c.reason}`}</Text>
+          <Text style={s.deductionWhy}>{`${c.from} to ${c.to}${tieNote(c)}. ${c.reason}`}</Text>
           {/* Who agreed to it, where someone other than the judge did. */}
           <Text style={s.deductionPoints}>{c.decidedBy === "organizer" ? "Organizer approved" : c.decidedBy === "judge" ? "" : "Every other judge agreed"}</Text>
         </View>
@@ -299,7 +310,8 @@ function ResultsDocument({
 }) {
   const { activity, judges } = board;
   const fields = details?.fields ?? [];
-  // Ties the judges broke in the deliberation place in the chair's order; any other tie shares its rank.
+  // Ties broken in the deliberation are broken by corrected scores (listed with the corrections). Activities whose chair
+  // put a tie in order before keep that order, listed here; any other tie shares its rank.
   const ranked = rankEntries(board.entries, judges, board.scores, activity);
   const rows = applyTieBreaks(ranked, board.tieBreaks ?? []);
   const broken = tiesIn(ranked).flatMap((tie) => {
@@ -312,7 +324,7 @@ function ResultsDocument({
   return (
     <Document title={`${label} results`} author="Tabulous" creator="Tabulous">
       <Page size="A4" orientation={judges.length + fields.length > 4 ? "landscape" : "portrait"} style={s.page}>
-        <Header info={info} title={activity.name} subtitle={part} />
+        <Header info={info} title={activity.name} subtitle={part} location={activity.location} />
 
         <View style={s.table}>
           <View style={s.headRow} fixed>
@@ -403,7 +415,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
         {fix && (
           <Text
             style={s.note}
-          >{`Corrected from ${fix.from}${fix.decidedBy === "judge" ? "" : fix.decidedBy === "organizer" ? " (the organizer approved)" : " (every other judge agreed)"}: ${fix.reason}`}</Text>
+          >{`Corrected from ${fix.from}${tieNote(fix)}${fix.decidedBy === "judge" ? "" : fix.decidedBy === "organizer" ? " (the organizer approved)" : " (every other judge agreed)"}: ${fix.reason}`}</Text>
         )}
       </View>
     );
@@ -422,6 +434,7 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
               eyebrow="Judge's score sheet"
               title={activity.name}
               subtitle={part}
+              location={activity.location}
               byline={
                 <>
                   {judge.name}
@@ -504,7 +517,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   return (
     <Document title={`${activity.name}, ${sheet.title}`} author="Tabulous" creator="Tabulous">
       <Page size="A4" orientation={sheet.weights.length > 4 ? "landscape" : "portrait"} style={s.page}>
-        <Header info={info} title={activity.name} subtitle={sheet.title} meta={meta} />
+        <Header info={info} title={activity.name} subtitle={sheet.title} location={activity.location} meta={meta} />
 
         <View style={s.table}>
           <View style={s.headRow} fixed>
@@ -670,6 +683,7 @@ function NotesDocument({ board, notes, info }: { board: Board; notes: JudgeNote[
               info={info}
               eyebrow="Judge's notes"
               title={activity.name}
+              location={activity.location}
               byline={
                 <>
                   {judge.name}

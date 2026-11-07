@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { rankEntries } from "./scoring";
 import { activityFixture } from "./test-fixtures";
-import { applyTieBreaks, breakFor, ordinal, tieKey, tiesIn, unbrokenTies } from "./ties";
+import { applyTieBreaks, breakFor, ordinal, tieBrokenBy, tieKey, tieStep, tiesIn, unbrokenTies } from "./ties";
 import type { TieBreak } from "./types";
 
 const rules = activityFixture();
@@ -23,6 +23,39 @@ const scores = [
 ]);
 const rows = rankEntries(entries, judges, scores, rules);
 const broke = (entryIds: string[], reason = "Stronger finish."): TieBreak => ({ tieKey: tieKey(entryIds), entryIds, reason, judgeId: "j1", createdAt: "2026-10-22T00:00:00Z" });
+
+describe("breaking a tie with a corrected score", () => {
+  const board = { activity: rules, judges, entries, scores };
+  it("is broken when the change moves the average shown", () => {
+    // Three at 9.00 (8.5 and 9.5): j1 gives it 8.6, its average 9.05.
+    expect(tieBrokenBy(board, "j1", "e3", 8.6)).toEqual({ place: 1, entryIds: ["e2", "e3"] });
+  });
+  it("isn't when the averages shown stay level", () => {
+    // 8.5 to 8.505 moves the average by 0.0025, still 9.00 to two places.
+    expect(tieBrokenBy(board, "j1", "e3", 8.505)).toBeNull();
+  });
+  it("isn't when the entry wasn't tied", () => {
+    expect(tieBrokenBy(board, "j1", "e1", 9)).toBeNull();
+  });
+  it("is, even when the change ties the entry with another", () => {
+    // Three down to 8.00 (6.5 and 9.5): out of the tie for 1st, into the one for 3rd.
+    expect(tieBrokenBy(board, "j1", "e3", 6.5)).toEqual({ place: 1, entryIds: ["e2", "e3"] });
+  });
+});
+
+describe("how far a score has to move to change the average shown", () => {
+  it("is the judges times one step of the results' decimals", () => {
+    expect(tieStep(activityFixture({ decimals: 3, resultDecimals: 2 }), 3)).toBe(0.03);
+    expect(tieStep(activityFixture({ decimals: 2, resultDecimals: 2 }), 2)).toBe(0.02);
+  });
+  it("is in points with criteria scaled to 10", () => {
+    expect(tieStep(activityFixture({ scoringMode: "criteria", criteriaDisplay: "ten", decimals: 2, resultDecimals: 2 }), 3)).toBe(0.3);
+  });
+  it("says nothing when any change a judge can type does it", () => {
+    expect(tieStep(activityFixture({ decimals: 0, resultDecimals: 2 }), 3)).toBeNull();
+    expect(tieStep(activityFixture({ decimals: 2, resultDecimals: 2 }), 1)).toBeNull();
+  });
+});
 
 describe("ties", () => {
   it("finds every tie in the ranking, highest place first", () => {

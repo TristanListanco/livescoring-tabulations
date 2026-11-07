@@ -1,5 +1,6 @@
 import { judgesFor, roundLabel, withRoundRules } from "./pageant";
 import { formatBound, formatScore } from "./scoring";
+import type { BrokenTie } from "./ties";
 import type { Activity, Board, Judge } from "./types";
 
 /**
@@ -29,6 +30,8 @@ export type Correction = {
   decidedBy: "judge" | "judges" | "organizer" | null;
   createdAt: string;
   decidedAt: string | null;
+  /** The tie in the deliberation this correction ended, if it did (migration 036). */
+  brokeTie: BrokenTie | null;
   votes: { judgeId: string; agree: boolean }[];
 };
 
@@ -45,6 +48,9 @@ export const CORRECTION_REASONS = [
   "I mixed up the entries.",
   "I reconsidered after seeing every entry.",
 ] as const;
+
+/** The reason offered first when the score being corrected is for a tied entry, in the deliberation. */
+export const TIE_REASON = "I compared it again with the entry it was tied with.";
 
 /** A reason as typed: one paragraph, trimmed, cut to MAX_CORRECTION_REASON. Empty means none was given. */
 export function cleanReason(value: unknown): string {
@@ -96,6 +102,8 @@ export type CorrectionView = {
   outOf100: boolean;
   criteria: { name: string; from: string; to: string; changed: boolean }[];
   reason: string;
+  /** The tie it ended in the deliberation: the place the entries shared, and the others it was tied with, by name. */
+  brokeTie: { place: number; with: string[] } | null;
   /** Votes so far against the number of judges who vote; 0 voters means the organizer decides. */
   agreed: number;
   voters: number;
@@ -151,6 +159,9 @@ export function correctionView(board: Board, c: Correction): CorrectionView {
           }))
         : [],
     reason: c.reason,
+    brokeTie: c.brokeTie
+      ? { place: c.brokeTie.place, with: c.brokeTie.entryIds.filter((id) => id !== c.entryId).map((id) => ordered.find((e) => e.id === id)?.name ?? "an entry") }
+      : null,
     agreed: c.votes.filter((v) => v.agree && voters.some((j) => j.id === v.judgeId)).length,
     voters: voters.length,
     createdAt: c.createdAt,

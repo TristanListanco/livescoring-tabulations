@@ -18,10 +18,11 @@ import { SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
 import { CatchUp } from "./judge-devices";
 import { EntriesTab } from "./entries-tab";
+import { JudgesIn } from "./judges-in";
 import { LedTab } from "./led-tab";
 import { SessionTab } from "./session-tab";
 import { SegmentsTab } from "./segments-tab";
-import { ArchivedSettings, SettingsTab } from "./settings-tab";
+import { SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 import { activityTabs, askedTab } from "./tabs";
 import { PanelSkeleton } from "../skeletons";
@@ -73,6 +74,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const { tabs, tab } = activityTabs(activity, asked);
   const started = activity.sessionState !== "draft";
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
+  // Before the session starts, every judge on their screen with an approved device: ready to start.
+  const allIn = activity.sessionState === "draft" && judges.length > 0 && judges.every((j) => devices.some((d) => d.judgeId === j.id && d.status === "approved"));
   // A pageant's progress counts every sub-activity: each judge scoring each candidate still in it.
   const progress = pageant ? programProgress(board) : scoreProgress(board);
   // When this board was read, so the session desk can say how fresh it is if realtime drops. A Server Component
@@ -117,39 +120,44 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
       {/* The name stays put as tabs change; only the tab below it arrives (see main > * in globals.css). */}
       <div className="activity-head">
         <BackLink href="/admin">Activities</BackLink>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="title">{activity.name}</h1>
-              {/* An archived activity's date sits under its name (below); a running one's state, beside it. */}
-              {!archived && (
-                <Link
-                  href={`/admin/${activity.id}?tab=session`}
-                  scroll={false}
-                  className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
-                >
-                  <SessionStatus state={activity.sessionState} pulse />
-                </Link>
-              )}
-              {!archived && waitingDevices > 0 && (
-                <Link
-                  href={`/admin/${activity.id}?tab=judges`}
-                  scroll={false}
-                  className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
-                >
-                  {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
-                </Link>
-              )}
-            </div>
-            {archived && (
-              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
-                <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                  <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-                </svg>
-                Archived {dateFormat.format(new Date(activity.archivedAt!))}
-              </p>
-            )}
-          </div>
+        <h1 className="title mt-1">{activity.name}</h1>
+        {/* Under the name: where the session stands (or when it was archived), devices waiting, and where it happens. */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-2">
+          {archived ? (
+            <p className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
+              <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+              </svg>
+              Archived {dateFormat.format(new Date(activity.archivedAt!))}
+            </p>
+          ) : (
+            <Link
+              href={`/admin/${activity.id}?tab=session`}
+              scroll={false}
+              className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
+            >
+              <SessionStatus state={activity.sessionState} pulse />
+            </Link>
+          )}
+          {!archived && waitingDevices > 0 && (
+            <Link
+              href={`/admin/${activity.id}?tab=judges`}
+              scroll={false}
+              className="rounded-full bg-prussian px-3 py-1 text-sm font-semibold text-mint"
+            >
+              {waitingDevices} {waitingDevices === 1 ? "device" : "devices"} waiting for approval
+            </Link>
+          )}
+          {activity.location && (
+            <p className="inline-flex min-w-0 items-center gap-1.5 px-1 text-sm text-prussian/75">
+              <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-hidden>
+                <path d="M8 14.5s4.5-4.2 4.5-7.7a4.5 4.5 0 00-9 0c0 3.5 4.5 7.7 4.5 7.7z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                <circle cx="8" cy="6.8" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              <span className="sr-only">Location: </span>
+              <span className="truncate">{activity.location}</span>
+            </p>
+          )}
         </div>
       </div>
 
@@ -170,6 +178,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           </ul>
         </nav>
       )}
+
+      {allIn && tab !== "session" && <JudgesIn activityId={activity.id} count={judges.length} />}
 
       {/* While another tab opens, its skeleton covers this one (see .tab-skeleton in globals.css). */}
       <div className="relative">
@@ -219,12 +229,6 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           )}
           {tab === "segments" && pageant && <SegmentsTab board={board} />}
           {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
-          {/* Archived: the results, then what can still be done with it (check a CSV, delete it), there rather than a tab. */}
-          {tab === "session" && archived && (
-            <div className="mt-6">
-              <ArchivedSettings activityId={activity.id} name={activity.name} />
-            </div>
-          )}
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}

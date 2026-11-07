@@ -264,6 +264,7 @@ test.describe.serial("a pageant", () => {
     for (const next of ["judges", "preliminary", "pageant proper", "review"]) await page.getByRole("button", { name: `Continue to ${next}` }).click();
     await expect(step(5, "Review")).toBeFocused();
     await expectAccessible(page);
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await snap(page, "pageant setup review");
     await page.getByRole("button", { name: "Create pageant" }).click();
     // Creating a pageant writes several tables; allow for a slow network.

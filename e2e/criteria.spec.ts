@@ -62,6 +62,7 @@ test.describe.serial("criteria scoring", () => {
     await page.getByLabel("Criterion 1 lowest score").fill("21");
     await page.getByLabel("Criterion 2 lowest score").fill("49");
     await expect(page.getByText("Total 90 of 100 points. The criteria must add up to 100.")).toBeVisible();
+    await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "add up to 90 points" })).toBeVisible();
 

@@ -26,12 +26,17 @@ export function useFieldProblem(fieldId: string): string | null {
   return useContext(FieldProblems).get(fieldId) ?? null;
 }
 
-/** The message under a field with a problem, tied to it by problemId. */
+/** The message under a field with a problem, tied to it by problemId: marked, so it reads as a problem at a glance. */
 export function FieldProblem({ fieldId, className = "mt-1" }: { fieldId: string; className?: string }) {
   const message = useFieldProblem(fieldId);
   if (!message) return null;
   return (
-    <p id={problemId(fieldId)} className={`text-sm font-semibold text-danger ${className}`}>
+    <p id={problemId(fieldId)} className={`field-problem flex items-start gap-1.5 text-sm font-semibold text-danger ${className}`}>
+      <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0" aria-hidden>
+        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 4.6v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <circle cx="8" cy="11.2" r="0.95" fill="currentColor" />
+      </svg>
       {message}
     </p>
   );

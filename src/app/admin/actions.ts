@@ -14,7 +14,7 @@ import { shuffle } from "@/lib/shuffle";
 import { FINGERPRINT, readExport } from "@/lib/csv";
 import { detailsFor, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEntryLine, toEntryFields, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import { csvFingerprints } from "@/lib/exports";
-import { getAlertActivityIds, getOpenAssistance, type AssistanceRequest } from "@/lib/assistance";
+import { getAlertActivityIds, getOpenAssistance, getWaitingDevices, type AssistanceRequest, type WaitingDevice } from "@/lib/assistance";
 import { sha256 } from "@/lib/results-csv";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
@@ -99,6 +99,14 @@ function cleanName(value: FormDataEntryValue | null): string {
     .trim()
     .slice(0, MAX_NAME);
 }
+
+/** An activity's location, as typed ("Bldg 2, Room 204"): one line, or null when left blank. */
+function cleanLocation(value: FormDataEntryValue | null): string | null {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
+}
+
+/** Where a location needs migration 035. */
+const LOCATION_HINT = "This needs a database update. Run supabase/migrations/035_activity_location.sql in the Supabase SQL editor.";
 
 function entryNames(value: FormDataEntryValue | null): string[] {
   return entryLines(value, []).map((e) => e.name);
@@ -752,7 +760,12 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   }
   const signatories = cleanSignatories(sent);
   if ("error" in signatories) return err(signatories.error);
-  if (signatories.length) columns.signatories = signatories;
+  // At least one signs the results under "Tabulated by": an activity is set up with them.
+  if (!signatories.length) return err("Add at least one signatory: who tabulated the results and signs them.");
+  columns.signatories = signatories;
+  // Written only when given, so activities without one create before migration 035.
+  const location = cleanLocation(formData.get("location"));
+  if (location) columns.location = location;
 
   const judgeCount = Number(formData.get("judgeCount"));
   if (!Number.isInteger(judgeCount) || judgeCount < 1 || judgeCount > MAX_JUDGES) {
@@ -811,6 +824,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
     if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
     if (error && /independent_scoring/.test(error.message)) return needsMigration(OWN_PACE_HINT);
+    if (error && /location/.test(error.message)) return needsMigration(LOCATION_HINT);
     // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
     if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
     // Otherwise its public link was taken: another try, with another.
@@ -893,10 +907,15 @@ export const updateSettings = traced("updateSettings", async function updateSett
   if (!(await manage(activityId))) return NOT_FOUND;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Give the activity a name.");
-  const { error } = await db().from("activities").update({ name }).eq("id", activityId);
+  // The location is written only when it changes, so the name saves before migration 035 too.
+  const location = cleanLocation(formData.get("location"));
+  const before = formData.has("location") ? await getActivity(activityId) : null;
+  const update = before && (before.location ?? null) !== location ? { name, location } : { name };
+  const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error && /location/.test(error.message)) return needsMigration(LOCATION_HINT);
   if (error) return dbErr(error);
   changed();
-  return ok("Name saved.");
+  return ok("location" in update ? "Saved." : "Name saved.");
 });
 
 /**
@@ -971,10 +990,14 @@ export const setActivityOption = traced("setActivityOption", async function setA
  */
 export const assistanceAlerts = traced("assistanceAlerts", async function assistanceAlerts(
   withIds: boolean,
-): Promise<{ requests: AssistanceRequest[] | null; activityIds: string[] | null }> {
+): Promise<{ requests: AssistanceRequest[] | null; devices: WaitingDevice[] | null; activityIds: string[] | null }> {
   const session = await requireAdmin();
-  const [requests, activityIds] = await Promise.all([getOpenAssistance(session), withIds ? getAlertActivityIds(session) : null]);
-  return { requests, activityIds };
+  const [requests, devices, activityIds] = await Promise.all([
+    getOpenAssistance(session),
+    getWaitingDevices(session),
+    withIds ? getAlertActivityIds(session) : null,
+  ]);
+  return { requests, devices, activityIds };
 });
 
 /** "On my way": the organizer answers a judge's call. Their screen says so, and the call leaves every alert. */
@@ -1735,8 +1758,11 @@ const ARCHIVE_HINT = "Archiving needs a database update. Run supabase/migrations
  * judging closes for good: every judge's device is signed out and their codes no longer sign in, the private tally
  * closes, and the live results stop checking for changes.
  */
-export const archiveActivity = traced("archiveActivity", async function archiveActivity(activityId: string): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
+export const archiveActivity = traced("archiveActivity", async function archiveActivity(activityId: string, password: string): Promise<ActionResult> {
+  const session = await manage(activityId);
+  if (!session) return NOT_FOUND;
+  // It can't be undone, and signs every judge out for good: like ending the session, it takes the signed-in admin's password.
+  if (typeof password !== "string" || !(await passwordMatches(session, password))) return err("That password isn't right.");
   const activity = await getActivity(activityId);
   if (!activity || activity.sessionState !== "ended") return err("Only an activity whose session has ended can be archived.");
   // Its results wait on an open correction, so it's settled first.

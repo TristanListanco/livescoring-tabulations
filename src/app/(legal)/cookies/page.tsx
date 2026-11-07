@@ -51,8 +51,8 @@ export default function CookiePolicy() {
       <h2>What else your browser keeps</h2>
       <p>
         Some settings are kept in your browser’s own storage rather than in cookies, and are never sent to us: whether a judge’s notes
-        panel is open or minimized, whether an organizer has answered the offer of alerts for judges’ calls for help, and that you’ve
-        seen the notice about cookies. For one browser tab only, it also keeps the LED wall’s display and when a page last reloaded
+        panel is open or minimized, that a judge’s device has asked for help before (so Assist me asks once, then calls straight away),
+        whether an organizer has answered the offer of alerts for judges’ calls for help, and that you’ve seen the notice about cookies. For one browser tab only, it also keeps the LED wall’s display and when a page last reloaded
         itself after an update.
       </p>
 

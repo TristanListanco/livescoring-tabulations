@@ -34,7 +34,6 @@ test.describe.serial("drafts", () => {
     await page.getByLabel("Name", { exact: true }).fill(EVENT);
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
-    await page.getByRole("button", { name: "Add signatory" }).click();
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await expect.poll(() => promptsOnUnload(page)).toBe(true);
 
