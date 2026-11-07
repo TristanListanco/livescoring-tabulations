@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { login, type FormResult } from "../actions";
+import { SIGNED_IN_KEY } from "../(panel)/fit-after-sign-in";
 
 export function LoginForm({ asSuper }: { asSuper: boolean }) {
   const [state, action] = useActionState<FormResult, FormData>(login, null);
@@ -10,7 +11,17 @@ export function LoginForm({ asSuper }: { asSuper: boolean }) {
   const describedBy = error ? "login-error" : undefined;
 
   return (
-    <form action={action} className="mt-8 space-y-5">
+    <form
+      action={action}
+      // A phone's keyboard closes as it's sent, so the panel doesn't open zoomed in on the field (see FitAfterSignIn).
+      onSubmit={() => {
+        (document.activeElement as HTMLElement | null)?.blur();
+        try {
+          sessionStorage.setItem(SIGNED_IN_KEY, "1");
+        } catch {}
+      }}
+      className="mt-8 space-y-5"
+    >
       {asSuper ? (
         <input type="hidden" name="as" value="super" />
       ) : (
@@ -25,6 +36,7 @@ export function LoginForm({ asSuper }: { asSuper: boolean }) {
             required
             autoFocus
             autoComplete="username"
+            enterKeyHint="next"
             className="field"
             aria-invalid={error ? true : undefined}
             aria-describedby={describedBy}
@@ -42,6 +54,7 @@ export function LoginForm({ asSuper }: { asSuper: boolean }) {
           required
           autoFocus={asSuper}
           autoComplete="current-password"
+          enterKeyHint="go"
           className="field"
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}

@@ -7,7 +7,10 @@ import { redirect } from "next/navigation";
 import { currentAdmin } from "@/lib/session";
 import { LoginForm } from "./login-form";
 
-export const metadata: Metadata = { title: "Organizer sign-in" };
+export const metadata: Metadata = {
+  title: "Organizer sign-in",
+  description: "Organizers sign in to set up their activities, run the judging and download the official results.",
+};
 
 export default async function AdminLogin({ searchParams }: PageProps<"/admin/login">) {
   if (await currentAdmin()) redirect("/admin");

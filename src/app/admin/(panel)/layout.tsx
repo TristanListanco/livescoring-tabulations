@@ -7,6 +7,7 @@ import { SIDEBAR_COOKIE, THEME_COOKIE } from "@/lib/theme";
 import { AdminNav } from "./admin-nav";
 import { ArchivedNav } from "./archived-nav";
 import { AssistanceAlerts } from "./assistance-alerts";
+import { FitAfterSignIn } from "./fit-after-sign-in";
 import { SidebarDrawer } from "./sidebar-drawer";
 import { SignOut } from "./sign-out";
 import { CollapseToggle, SidebarShell } from "./sidebar-shell";
@@ -79,6 +80,7 @@ export default async function AdminLayout({ children, nav }: LayoutProps<"/admin
       </div>
       {/* Judges' calls for help, wherever the organizer is in the panel. */}
       <AssistanceAlerts />
+      <FitAfterSignIn />
       <Toaster />
     </SidebarShell>
   );

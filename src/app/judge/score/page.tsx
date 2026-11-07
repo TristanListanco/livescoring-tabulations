@@ -11,7 +11,7 @@ import { averageText, formatScore, rankEntries } from "@/lib/scoring";
 import { applyTieBreaks, breakFor, tieStep, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
-export const metadata: Metadata = { title: "Scoring" };
+export const metadata: Metadata = { title: "Scoring", description: "A judge's screen: the entry on stage, and the keypad to score it." };
 
 export default async function ScorePage() {
   // Two trips to the database for the whole screen, not four in a row: every judge's screen in every activity running

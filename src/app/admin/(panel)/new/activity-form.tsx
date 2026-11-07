@@ -12,9 +12,11 @@ import { toastOnRedirect } from "../toaster";
 import { MAX_DETAIL, MAX_FIELD_NAME, parseEntryLine } from "@/lib/entry-details";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
 import { FieldProblem, FieldProblemsProvider } from "../field-errors";
+import { enterToNext, NEXT_LINE } from "../list-keys";
 import { Section } from "../section";
 import { filledSignatories, openSignatories, SIGNATORY_ID, signatoryProblem, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
+import { CONSENT_ID, CONSENT_PROBLEM, ConsentField } from "./consent-field";
 import { openJudges, SaveDraftButton, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
 
 /** The event form's state, from a saved draft or blank. */
@@ -107,10 +109,12 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const chairIndex = judges.findIndex((j) => j.key === chairKey);
   // Create asks for the chair and a signatory before anything is sent: said at each, in the form's own words, until fixed.
   const [checked, setChecked] = useState(false);
+  const [consent, setConsent] = useState(false);
   const signatoryGap = signatoryProblem(signatories);
   const found = [
     ...(chairIndex < 0 ? [{ field: "judge-0-chair", message: "Choose the chair of the board of judges." }] : []),
     ...(signatoryGap ? [signatoryGap] : []),
+    ...(consent ? [] : [{ field: CONSENT_ID, message: CONSENT_PROBLEM }]),
   ];
   const problems = new Map(checked ? found.map((p) => [p.field, p.message] as const) : []);
   // Each entry's details, only for the details that are named (by position, so a later one can be left blank).
@@ -370,6 +374,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         {signatoryGap && <FieldProblem fieldId={signatoryGap.field} className="mt-3" />}
       </Section>
 
+      <ConsentField checked={consent} onChange={setConsent} />
+
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Creating…" : "Create activity"}
@@ -402,6 +408,8 @@ function EntryDetailRows({
   onChange: (entry: string, slot: number, value: string) => void;
 }) {
   const columns = { gridTemplateColumns: `minmax(8rem,12rem) repeat(${fields.length}, minmax(0,1fr))` };
+  // Enter steps through the details as a sheet is filled in: across an entry, then on to the next one's.
+  const list = useRef<HTMLOListElement>(null);
   return (
     <div className="mt-5 max-w-3xl">
       <div aria-hidden className="mb-1.5 hidden gap-x-3 sm:grid" style={columns}>
@@ -412,7 +420,7 @@ function EntryDetailRows({
           </span>
         ))}
       </div>
-      <ol className="divide-y divide-line border-y border-line">
+      <ol ref={list} className="divide-y divide-line border-y border-line">
         {names.map((entry, i) => (
           <li key={`${i}-${entry}`} className="grid gap-x-3 gap-y-2 py-2.5 sm:items-center max-sm:!grid-cols-1" style={columns}>
             <p className="flex min-w-0 items-baseline gap-2 font-semibold">
@@ -425,6 +433,8 @@ function EntryDetailRows({
                 aria-label={`${f.name} for ${entry}`}
                 placeholder={f.name}
                 maxLength={MAX_DETAIL}
+                {...NEXT_LINE}
+                onKeyDown={(e) => enterToNext(e, list.current)}
                 value={value(entry, f.slot)}
                 onChange={(e) => onChange(entry, f.slot, e.target.value)}
                 className="field sm:placeholder:text-transparent"

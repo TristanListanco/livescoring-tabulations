@@ -1,10 +1,12 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
+import { flushSync } from "react-dom";
 import { MAX_SIGNATORIES } from "@/lib/signatories";
 import type { ActionResult, Signatory } from "@/lib/types";
 import { saveSignatories } from "../actions";
 import { FormMessage } from "./form-message";
+import { enterToNext, NEXT_LINE } from "./list-keys";
 
 const isBlank = (r: SignatoryRow) => !r.name.trim() && !r.designation.trim();
 /** Signatories as they'd be saved (spaces tidied), as one string to compare. */
@@ -133,6 +135,14 @@ export function SignatoryRows({
     if (patch.name?.trim()) onNamed?.(key);
   };
   const add = () => setRows((list) => [...list, { key: Math.max(-1, ...list.map((r) => r.key)) + 1, name: "", designation: "" }]);
+  // Enter goes from a name to its designation to the next row's name; from the last, once it's named, it adds a row.
+  const list = useRef<HTMLOListElement>(null);
+  const addAfterLast = () => {
+    const last = rows.at(-1);
+    if (!last?.name.trim() || rows.length >= MAX_SIGNATORIES) return;
+    flushSync(add);
+    list.current?.querySelector<HTMLInputElement>("li:last-child input[data-next-line]")?.focus();
+  };
   return (
     <div className="space-y-3">
       {rows.length === 0 && <p className="hint">No signatories yet.</p>}
@@ -143,7 +153,7 @@ export function SignatoryRows({
           <span className="label mb-0">Designation</span>
         </div>
       )}
-      <ol className="space-y-5 sm:space-y-2">
+      <ol ref={list} className="space-y-5 sm:space-y-2">
         {rows.map((r, i) => {
           const flagged = invalid?.has(r.key) ?? false;
           return (
@@ -156,6 +166,8 @@ export function SignatoryRows({
                   id={`${fieldId}-${r.key}`}
                   value={r.name}
                   onChange={(e) => update(r.key, { name: e.target.value })}
+                  {...NEXT_LINE}
+                  onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
                   maxLength={120}
                   aria-invalid={flagged || undefined}
                   className={`field ${flagged ? "border-danger ring-2 ring-danger/30" : ""}`}
@@ -169,6 +181,8 @@ export function SignatoryRows({
                   id={`${fieldId}-${r.key}-designation`}
                   value={r.designation}
                   onChange={(e) => update(r.key, { designation: e.target.value })}
+                  {...NEXT_LINE}
+                  onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
                   maxLength={120}
                   placeholder={["e.g. Chair, Board of Tabulators", "e.g. Member, Board of Tabulators", "e.g. Client representative"][i] ?? "e.g. Board member"}
                   className="field"

@@ -49,9 +49,9 @@ export default function PrivacyPolicy() {
       <p>
         An organizer adds each judge’s first and last name, and optionally a photo. Each judge gets a six-character access code. For every
         device that signs in with the code, we keep a device label, a pairing code and whether the organizer approved it. Then we keep
-        what the judge does: each score (and the points for each criterion), corrections and their reasons, notes on entries, the chair’s
-        reasons for breaking ties, and the judge’s signature (drawn on a touchscreen, or “(Sgd.)”). When a judge asks the organizer for
-        help from their screen, we keep when they asked, and when the organizer answered or the judge took it back.
+        what the judge does: each score (and the points for each criterion), corrections and their reasons (and which one broke a tie),
+        notes on entries, the chair’s reasons for breaking ties in activities deliberated before ties were broken by corrections, and
+        the judge’s signature (drawn on a touchscreen, or “(Sgd.)”). When a judge asks the organizer for help from their screen, we keep when they asked, and when the organizer answered or the judge took it back.
       </p>
       <p>
         While judging, a judge’s phone or tablet can hide its screen when it’s turned away from them (the organizer can turn this off). It

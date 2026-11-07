@@ -51,6 +51,7 @@ test("an event's entries carry details only the organizer sees, in the results t
   await page.getByLabel("School for Bagwis").fill("MSU-IIT");
   await page.getByRole("checkbox", { name: /Show scores live/ }).check();
   await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+  await page.getByRole("checkbox", { name: /I have their consent/ }).check();
   await page.getByRole("button", { name: "Create activity" }).click();
   await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
   const adminPath = new URL(page.url()).pathname;

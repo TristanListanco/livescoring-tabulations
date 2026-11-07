@@ -50,6 +50,7 @@ async function createOrganizer(page: Page, organizer: typeof ORGANIZER, withPhot
     await choosePhoto(page, `Photo for ${organizer.name}`);
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
   }
+  await page.getByRole("checkbox", { name: /The organizer asked for this account/ }).check();
   await page.getByRole("button", { name: "Create organizer" }).click();
   await expect(page).toHaveURL(/\/admin\/organizers$/);
   await expect(page.getByRole("link", { name: organizer.name })).toBeVisible();
@@ -125,8 +126,11 @@ test.describe.serial("a full event", () => {
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page.getByText("Add at least one signatory: who tabulated the results and signs them.")).toBeVisible();
     await expect(page.getByLabel("Signatory 1 full name")).toBeFocused();
+    // And the organizer confirms they have the consent of the people they name, as the terms ask.
+    await expect(page.getByText("Confirm you have the consent of the people named here.")).toBeVisible();
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByLabel("Signatory 1 designation").fill("Chair, Board of Tabulators");
+    await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
 
     // Creating an activity uploads photos and writes several tables; allow for a slow network.

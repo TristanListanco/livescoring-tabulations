@@ -17,6 +17,7 @@ import { SegmentEditor } from "../program-editor";
 import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
 import { blankCandidate, CandidatesFields, MAX_CANDIDATES, type DraftCandidate, type PasteResult } from "./candidates-fields";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
+import { CONSENT_ID, CONSENT_PROBLEM, ConsentField } from "./consent-field";
 import { PageantReview } from "./pageant-review";
 import { openCandidates, openJudges, SaveDraftButton, saveCandidates, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
 
@@ -162,6 +163,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const [name, setName] = useState(start.name);
   const [candidates, setCandidates] = useState<DraftCandidate[]>(start.candidates);
   const [signatories, setSignatories] = useState<SignatoryRow[]>(start.signatories);
+  // Confirmed on each create, never kept with a draft.
+  const [consent, setConsent] = useState(false);
   const nextCandidate = useRef(start.candidates.length);
   /**
    * A list pasted into a candidate's name: that row takes the first name, then the blank rows right after it, then
@@ -304,6 +307,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     if (i === STEPS.length - 1) {
       const gap = signatoryProblem(signatories);
       if (gap) found.push(gap);
+      if (!consent) found.push({ message: CONSENT_PROBLEM, field: CONSENT_ID });
     }
     return found;
   };
@@ -342,6 +346,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     }
     const data = new FormData(e.currentTarget);
     data.set("kind", "pageant");
+    data.set("consent", consent ? "on" : "");
     data.set("entries", candidates.map((c) => cleanName(c.name)).join("\n"));
     data.set("pageant", JSON.stringify(draft));
     data.set("signatories", JSON.stringify(filledSignatories(signatories)));
@@ -645,6 +650,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
             <SignatoryRows rows={signatories} setRows={setSignatories} idPrefix={SIGNATORY_ID} />
             {shownProblems.map((p) => p.field?.startsWith(`${SIGNATORY_ID}-`) && <FieldProblem key={p.field} fieldId={p.field} className="mt-3" />)}
           </div>
+          <ConsentField checked={consent} onChange={setConsent} />
         </section>
 
         <div className="mt-6 flex flex-wrap items-center gap-4">

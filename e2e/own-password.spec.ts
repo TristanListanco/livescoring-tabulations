@@ -16,6 +16,7 @@ test("an organizer changes the password they were given", async ({ page, browser
   await page.getByLabel("Organizer name").fill(ORGANIZER.name);
   await page.getByLabel("Email").fill(ORGANIZER.email);
   await page.getByLabel("Password", { exact: true }).fill(ORGANIZER.password);
+  await page.getByRole("checkbox", { name: /The organizer asked for this account/ }).check();
   await page.getByRole("button", { name: "Create organizer" }).click();
   await expect(page).toHaveURL(/\/admin\/organizers$/);
 
