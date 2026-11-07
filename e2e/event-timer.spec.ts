@@ -117,5 +117,7 @@ test("with criteria too, the timer closes scoring until the organizer gives more
   await phone.getByRole("button", { name: "Submit score" }).click();
   await phone.getByRole("dialog").getByRole("button", { name: "Submit", exact: true }).click();
   await expect(phone.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 80 / 100 for Agila", SAVED);
+  // Under the score, the points for each criterion, to compare the next entries by (Bagwis is still to come).
+  await expect(phone.getByRole("list", { name: "Your points for each criterion" }).getByRole("listitem")).toHaveText([/^Talent\s*50\s*\/ 60$/, /^Poise\s*30\s*\/ 40$/]);
   await phone.context().close();
 });

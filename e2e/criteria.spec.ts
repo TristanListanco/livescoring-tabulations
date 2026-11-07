@@ -147,11 +147,9 @@ test.describe.serial("criteria scoring", () => {
     await expect(judge.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 87.5 / 100 for Agila", SAVED);
     // The event scores live, so a submitted score is final: nothing to ask to correct.
     await expect(judge.getByRole("button", { name: "Ask to correct this score" })).toHaveCount(0);
-    // Under the score, the points for each criterion, to compare the next entries by.
-    await expect(judge.getByRole("list", { name: "Your points for each criterion" }).getByRole("listitem")).toHaveText([
-      /^Innovativeness\s*25\.0\s*\/ 30$/,
-      /^Design\s*62\.5\s*\/ 70$/,
-    ]);
+    // Ana is the only judge and Agila the only entry, so with live scoring this score ends judging by itself. (The points
+    // for each criterion under a score that leaves entries to judge: see event-timer.spec.ts.)
+    await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Judging has ended", REALTIME);
     // On a phone the count in the header opens the judge's scores, as the list beside the keypad does on a wider screen.
     await judge.getByRole("button", { name: /Show your scores/ }).click();
     const sheet = judge.getByRole("dialog", { name: "Your scores" });
