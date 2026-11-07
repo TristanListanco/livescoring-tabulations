@@ -35,6 +35,11 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
   poweredByHeader: false,
+  // Every page's title (and description) goes in its <head>, sent with the page, rather than streamed into the body
+  // after it: streamed, it was dropped and added again each time a page refreshed itself (the live results do, as scores
+  // come in), so for a moment the page had no title, for screen readers and the browser's tab alike. Every page waits
+  // on the same data as its title anyway, so nothing arrives later for it.
+  htmlLimitedBots: /.*/,
   headers: async () => [{ source: "/:path*", headers: securityHeaders }],
   // The corner badge would sit on top of the judge's Submit button and the LED wall's green.
   // Build and runtime errors still open the full-screen overlay.
