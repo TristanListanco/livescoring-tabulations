@@ -1,4 +1,4 @@
-import type { LedFont, LedShape, LedTheme } from "./led-style";
+import type { LedFont, LedLayout, LedShape, LedTheme } from "./led-style";
 
 /** Decimal places judges enter scores with. Three only for events; a pageant's sub-activities use 0 to 2. */
 export type Decimals = 0 | 1 | 2 | 3;
@@ -97,6 +97,7 @@ export type Activity = {
   ledFont: LedFont;
   ledTheme: LedTheme;
   ledShape: LedShape;
+  ledLayout: LedLayout;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;
@@ -131,6 +132,11 @@ export type Activity = {
   signedOffAt: string | null;
   /** When the session last ended (ISO time), while it's ended; null before migration 020 or if it never has. */
   sessionEndedAt: string | null;
+  /**
+   * When the session first started (ISO time), or null if it never has. Resetting the scores keeps it: judging has
+   * started once, so the panel of judges stays as it was (see judgesLocked).
+   */
+  sessionStartedAt: string | null;
   /**
    * When the activity was archived (ISO time), or null. Only an ended session can be, and for good: it can't be
    * reopened or changed after that, only read and deleted.

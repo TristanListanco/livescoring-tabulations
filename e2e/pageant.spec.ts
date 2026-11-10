@@ -318,6 +318,8 @@ test.describe.serial("a pageant", () => {
   });
 
   test("the preliminary is judged part by part, candidate by candidate", async ({ page }) => {
+    // Long by nature: every score waits out its 5-second undo (and here the timer runs out too), one after another.
+    test.slow();
     await openDesk(page);
     await page.getByRole("button", { name: "Judge Interview · Questions", exact: true }).click();
     await expect(page.getByRole("heading", { name: /^Interview · Questions · / })).toBeVisible();
@@ -393,6 +395,8 @@ test.describe.serial("a pageant", () => {
   });
 
   test("the scoring timer closes scoring until the organizer gives more time", async ({ page, browser }) => {
+    // Long by nature: every score waits out its 5-second undo (and here the timer runs out too), one after another.
+    test.slow();
     await openDesk(page);
     await page.getByRole("button", { name: "Show first candidate", exact: true }).click();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Ayla", REALTIME);

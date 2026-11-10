@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
+import { judgesLocked } from "@/lib/judging";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
@@ -13,6 +14,7 @@ import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
+import { ResetScoresButton } from "./reset-scores";
 import { toastOnRedirect } from "../toaster";
 import { ArchiveButton } from "../archive-controls";
 
@@ -22,7 +24,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
   const criteria = activity.scoringMode === "criteria";
   // An event's timer is changeable until judging starts (see EventTimer); then it's one of the rules, shown here.
   const timeLimit: [string, React.ReactNode][] =
-    activity.sessionState === "draft" ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
+    !judgesLocked(activity) ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
   const rows: [string, React.ReactNode][] = activity.kind === "pageant"
     ? [
         ["Method", "Pageant: each sub-activity has its own scoring, on the Segments tab"],
@@ -184,7 +186,8 @@ function LiveScoring({ activity }: { activity: Activity }) {
   const [on, setOn] = useState(activity.liveScoring);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const editable = activity.sessionState === "draft";
+  // Until judging starts, and not after a reset either: it's one of the rules judges scored by.
+  const editable = !judgesLocked(activity);
   const toggle = () => {
     const next = !on;
     setOn(next);
@@ -204,7 +207,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
       </div>
       {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
       <p className="hint pl-16">
-        {on && "Only you move between entries: the chair judges as the others do. "}
+        {on && "Only you move between entries, so there's no chair of judges. "}
         {editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}
       </p>
       <FormMessage state={result} small className="pl-16" />
@@ -366,7 +369,7 @@ export function SettingsTab({
 
       <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
-        {activity.kind === "event" && activity.sessionState === "draft" && <EventTimer activity={activity} />}
+        {activity.kind === "event" && !judgesLocked(activity) && <EventTimer activity={activity} />}
       </Section>
 
       {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
@@ -401,7 +404,7 @@ export function SettingsTab({
                 activity={activity}
                 option="independentScoring"
                 label="Judges score at their own pace"
-                editable={activity.sessionState === "draft"}
+                editable={!judgesLocked(activity)}
               />
               <OptionSwitch
                 activity={activity}
@@ -439,8 +442,11 @@ export function SettingsTab({
 
       <ManageActivity
         end={
-          developer ? (
-            <TestSiteTools activity={activity} scoreCount={scoreCount} />
+          <>
+            {/* Judging can start over any time until it's archived: with something to reset, once it has started. */}
+            {!activity.archivedAt && (judgesLocked(activity) || scoreCount > 0) && <ResetScoresButton activity={activity} scoreCount={scoreCount} />}
+            {developer ? (
+            <TestSiteTools activity={activity} />
           ) : activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
             <p role="note" className="hint">
               End the session to delete this activity.
@@ -458,7 +464,8 @@ export function SettingsTab({
               This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results
               link stop working.
             </ConfirmDialog>
-          )
+          )}
+          </>
         }
       >
         {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} />}

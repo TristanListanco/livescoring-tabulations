@@ -5,10 +5,14 @@ import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
-import { detailsLine, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
+import { detailsLine, GENERAL_DETAILS, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import type { ActionResult, Entry } from "@/lib/types";
 import { addEntries, moveEntry, removeEntry, renameEntry, setEntryFields, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
+import { blankEntry, entryLines, EntryRows, type EntryRow as NewEntry } from "../entry-rows";
 import { FormMessage } from "../form-message";
+
+/** An event without details yet: its first line of details gives it the general field (see fieldsWithDetails). */
+const GENERAL_FIELD: EntryField = { id: "general", name: GENERAL_DETAILS };
 
 function Arrow({ up }: { up?: boolean }) {
   return (
@@ -107,7 +111,7 @@ function EntryRow({
                   key={f.id}
                   name={`detail-${f.id}`}
                   aria-label={`${f.name} for ${entry.name}`}
-                  placeholder={f.name}
+                  placeholder={f.id === GENERAL_FIELD.id ? `${f.name} (optional)` : f.name}
                   maxLength={MAX_DETAIL}
                   value={values[f.id] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
@@ -217,8 +221,38 @@ function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: E
   );
 }
 
+/**
+ * Adding entries, as on the create form: a list, each entry a name with a line of details under it (an event keeping
+ * several named details, from before, fills the first). Cleared once they're added.
+ */
+function AddEntryRows({ activityId, fields }: { activityId: string; fields: EntryField[] }) {
+  const [rows, setRows] = useState<NewEntry[]>(() => [blankEntry(0)]);
+  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
+    const result = await addEntries(activityId, previous, data);
+    if (result?.ok) setRows([blankEntry(0)]);
+    return result;
+  }, null);
+  const lines = entryLines(rows);
+  return (
+    <form action={action} className="mt-8">
+      <h3 className="label">Add entries</h3>
+      <input type="hidden" name="names" value={lines} />
+      {rows.some((r) => r.name.trim() && r.details.trim()) && <input type="hidden" name="with_details" value="on" />}
+      <EntryRows
+        rows={rows}
+        setRows={setRows}
+        detailsLabel={fields[0]?.name ?? GENERAL_DETAILS}
+        label="New entry"
+        footer={<SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>}
+      />
+      <FormMessage state={state} small className="mt-2" />
+    </form>
+  );
+}
+
 function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; pageant: boolean; fields: EntryField[] }) {
   const [state, action] = useActionState<FormResult, FormData>(addEntries.bind(null, activityId), null);
+  if (!pageant) return <AddEntryRows activityId={activityId} fields={fields} />;
   return (
     <form action={action} className="mt-8 max-w-xl space-y-2">
       <label htmlFor="new-entries" className="label">
@@ -271,12 +305,26 @@ export function EntriesTab({
   const fields = details?.fields ?? [];
   return (
     <div className="max-w-3xl">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         <h2 className="sr-only">{pageant ? "Candidates" : "Entries"}</h2>
         {canShuffle && (
           <ConfirmDialog
-            triggerLabel="Shuffle order"
-            triggerClassName="btn btn-quiet btn-sm"
+            triggerLabel={
+              <>
+                <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                  <path
+                    d="M2 4.5h2.2c1.2 0 2.2.6 2.9 1.6l1.8 3.8c.7 1 1.7 1.6 2.9 1.6H14M2 11.5h2.2c1 0 1.9-.4 2.5-1.2M14 4.5h-2.2c-1 0-1.9.4-2.5 1.2M12 2.5l2 2-2 2M12 9.5l2 2-2 2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Shuffle order
+              </>
+            }
+            triggerClassName="btn btn-primary btn-sm"
             title="Shuffle the running order?"
             confirmLabel="Shuffle"
             onConfirm={async () => {
@@ -344,14 +392,16 @@ export function EntriesTab({
                   started={started}
                   // The shuffle's "is now first" no longer holds.
                   onReorder={() => setShuffled(null)}
-                  fields={fields}
+                  // An event's entries each have a line of details: its own named fields, or the general one.
+                  fields={details ? (fields.length ? fields : [GENERAL_FIELD]) : []}
                   details={details?.byEntry[e.id] ?? {}}
                 />
               ))}
             </ol>
           )}
           {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} fields={fields} />}
-          {details && <EntryFieldsForm activityId={activityId} fields={fields} />}
+          {/* Naming fields of their own is for events made before details were one general line, which keep theirs. */}
+          {details && fields.some((f) => f.name !== GENERAL_DETAILS) && <EntryFieldsForm activityId={activityId} fields={fields} />}
         </div>
       )}
     </div>

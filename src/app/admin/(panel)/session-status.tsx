@@ -3,16 +3,23 @@ import type { SessionState } from "@/lib/types";
 export const SESSION_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", deliberation: "Deliberation", ended: "Ended" };
 
 /**
- * The session's state as a dot: hollow before judging, tally-light red while live (like a camera on air), the accent
- * while the judges deliberate (off air, still working), grey once it has ended. `pulse` is for the one place on a
- * screen that should draw the eye.
+ * A live session's name: "Live" when its scores go out as they come in (live scoring, or a pageant), "Judging" for an
+ * event without live scoring, whose scores stay with the judges until they've deliberated.
  */
-export function SessionDot({ state, pulse = false }: { state: SessionState; pulse?: boolean }) {
+export const sessionLabel = (state: SessionState, onAir = true) => (state === "live" && !onAir ? "Judging" : SESSION_LABEL[state]);
+
+/**
+ * The session's state as a dot: hollow before judging, tally-light red while live (like a camera on air), teal while
+ * judging without live scoring (on, but off air), the accent while the judges deliberate, grey once it has ended.
+ * `pulse` is for the one place on a screen that should draw the eye. `onAir`: false for an event without live scoring.
+ */
+export function SessionDot({ state, pulse = false, onAir = true }: { state: SessionState; pulse?: boolean; onAir?: boolean }) {
   if (state === "live") {
+    const colour = onAir ? "bg-tally" : "bg-judging";
     return (
       <span aria-hidden className="relative flex size-2.5 shrink-0">
-        {pulse && <span className="absolute inline-flex size-full animate-ping rounded-full bg-tally opacity-60 motion-reduce:hidden" />}
-        <span className="relative inline-flex size-2.5 rounded-full bg-tally" />
+        {pulse && <span className={`absolute inline-flex size-full animate-ping rounded-full opacity-60 motion-reduce:hidden ${colour}`} />}
+        <span className={`relative inline-flex size-2.5 rounded-full ${colour}`} />
       </span>
     );
   }
@@ -20,11 +27,11 @@ export function SessionDot({ state, pulse = false }: { state: SessionState; puls
   return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${look}`} />;
 }
 
-export function SessionStatus({ state, pulse, className = "" }: { state: SessionState; pulse?: boolean; className?: string }) {
+export function SessionStatus({ state, pulse, onAir = true, className = "" }: { state: SessionState; pulse?: boolean; onAir?: boolean; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
-      <SessionDot state={state} pulse={pulse} />
-      {SESSION_LABEL[state]}
+      <SessionDot state={state} pulse={pulse} onAir={onAir} />
+      {sessionLabel(state, onAir)}
     </span>
   );
 }

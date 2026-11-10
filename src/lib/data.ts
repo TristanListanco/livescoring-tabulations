@@ -7,7 +7,7 @@ import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
 import { withheldScores } from "./scoring";
-import { toLedFont, toLedShape, toLedTheme } from "./led-style";
+import { toLedFont, toLedLayout, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
 import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
@@ -29,10 +29,12 @@ export type ActivityRow = {
   led_font?: string;
   led_theme?: string;
   led_shape?: string;
+  led_layout?: string;
   owner_id?: string | null;
   session_state?: string;
   /** Migration 020. */
   session_ended_at?: string | null;
+  session_started_at?: string | null;
   archived_at?: string | null;
   /** Migration 021. */
   live_scoring?: boolean;
@@ -156,6 +158,7 @@ export function toActivity(row: ActivityRow): Activity {
     ledFont: toLedFont(row.led_font),
     ledTheme: toLedTheme(row.led_theme),
     ledShape: toLedShape(row.led_shape),
+    ledLayout: toLedLayout(row.led_layout),
     ownerId: row.owner_id ?? null,
     // Pageants always score live; databases without migration 021 do too.
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
@@ -167,6 +170,7 @@ export function toActivity(row: ActivityRow): Activity {
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
+    sessionStartedAt: row.session_started_at ?? null,
     signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,
     archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
@@ -373,6 +377,8 @@ export type OrganizerActivityStatus = {
   kind: Activity["kind"];
   organizer: string;
   sessionState: SessionState;
+  /** Whether its scores show as they come in (see sessionLabel): "Live" rather than "Judging" while it runs. */
+  liveScoring: boolean;
   judgeCount: number;
   entryCount: number;
   scoreCount: number;
@@ -399,8 +405,8 @@ export async function listOrganizerActivities(
   await connection();
   const after = before && isTimestamp(before) ? before : undefined;
   const counts =
-    "session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
-  type Row = { id: string; name: string; kind?: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
+    "session_state, live_scoring, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
+  type Row = { id: string; name: string; kind?: string; session_state?: string; live_scoring?: boolean; created_at: string; owner: { name: string } | null } & Record<
     "judges" | "entries" | "scores",
     { count: number }[]
   >;
@@ -420,6 +426,7 @@ export async function listOrganizerActivities(
       kind: row.kind === "pageant" ? "pageant" : "event",
       organizer: row.owner?.name ?? "",
       sessionState: toSessionState(row.session_state),
+      liveScoring: row.live_scoring ?? true,
       judgeCount: row.judges[0]?.count ?? 0,
       entryCount: row.entries[0]?.count ?? 0,
       scoreCount: row.scores[0]?.count ?? 0,

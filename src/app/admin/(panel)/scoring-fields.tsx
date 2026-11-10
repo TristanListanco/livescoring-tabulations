@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { describedBy, FieldProblem, problemId, useFieldProblems } from "./field-errors";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
@@ -65,6 +67,8 @@ export function ScoringEditor({
   idPrefix = "",
   formNames = false,
   label,
+  chosen,
+  onChoose,
 }: {
   value: ScoringDraft;
   onChange: (next: ScoringDraft) => void;
@@ -72,9 +76,21 @@ export function ScoringEditor({
   formNames?: boolean;
   /** What screen readers call this scoring, e.g. "Swimsuit", when several are on one page. */
   label?: string;
+  /**
+   * The event form: whether the method and the decimal places have been picked. Until then neither shows as chosen,
+   * and the method's fields wait for it. Left out (a pageant's sub-activities), both start chosen.
+   */
+  chosen?: { mode: boolean; decimals: boolean };
+  onChoose?: (what: "mode" | "decimals") => void;
 }) {
-  const { mode, decimals: places, criteria: rows, display } = value;
+  const { decimals: places, criteria: rows, display } = value;
+  const mode = !chosen || chosen.mode ? value.mode : null;
+  const placesChosen = !chosen || chosen.decimals;
   const set = (patch: Partial<ScoringDraft>) => onChange({ ...value, ...patch });
+  // Create asks for a method and decimal places not picked yet, at the choices themselves.
+  const problems = useFieldProblems();
+  const methodProblem = problems.has(`${idPrefix}scoring-method`);
+  const decimalsProblem = problems.has(`${idPrefix}scoring-decimals`);
   // The range itself goes to two places at most, whatever places judges score with.
   const step = places === 0 ? 1 : places === 1 ? 0.1 : 0.01;
   const nextKey = rows.reduce((max, r) => Math.max(max, r.key), -1) + 1;
@@ -86,7 +102,7 @@ export function ScoringEditor({
   // With several on a page, screen readers hear whose field it is first: "Swimsuit: Min score".
   const whose = label ? <span className="sr-only">{label}: </span> : null;
   const prefix = label ? `${label}: ` : "";
-  // Criteria whose guide box was opened; one with a guide already shows it.
+  // Criteria whose guide is open to edit. Closed, each says whether it has one.
   const [guideOpen, setGuideOpen] = useState<Set<number>>(() => new Set());
 
   return (
@@ -101,13 +117,18 @@ export function ScoringEditor({
               { value: "simple", label: "Simple" },
               { value: "criteria", label: "Criteria" },
             ] as const
-          ).map((o) => (
-            <label key={o.value} className="choice items-center">
+          ).map((o, i) => (
+            <label key={o.value} className={`choice items-center ${methodProblem ? "border-danger ring-2 ring-danger/15" : ""}`}>
               <input
                 type="radio"
+                id={i === 0 ? `${idPrefix}scoring-method` : undefined}
                 name={`${idPrefix}scoring-mode-choice`}
                 checked={mode === o.value}
-                onChange={() => set({ mode: o.value, criteria: o.value === "criteria" && rows.length === 0 ? blankCriteria(0) : rows })}
+                aria-describedby={describedBy(methodProblem && problemId(`${idPrefix}scoring-method`))}
+                onChange={() => {
+                  onChoose?.("mode");
+                  set({ mode: o.value, criteria: o.value === "criteria" && rows.length === 0 ? blankCriteria(0) : rows });
+                }}
               />
               <span className="font-semibold">{o.label}</span>
             </label>
@@ -115,7 +136,8 @@ export function ScoringEditor({
         </div>
       </fieldset>
 
-      {mode === "simple" ? (
+      <FieldProblem fieldId={`${idPrefix}scoring-method`} className="-mt-3" />
+      {mode === null ? null : mode === "simple" ? (
         <div className="flex flex-wrap gap-4">
           <div className="w-36">
             <label htmlFor={`${idPrefix}min`} className="label">
@@ -167,9 +189,9 @@ export function ScoringEditor({
            * From sm up, one row per criterion under the column headings. On a phone, the name has the row's first
            * line to itself (with remove), and max points and lowest score sit under it, each with its own label.
            */}
-          <ol className="space-y-4 sm:space-y-3">
+          <ol className="divide-y divide-line border-y border-line">
             {rows.map((r, i) => (
-              <li key={r.key} className={`grid grid-cols-[1fr_1fr_auto] items-end gap-x-2 gap-y-2 ${columns}`}>
+              <li key={r.key} className={`grid grid-cols-[1fr_1fr_auto] items-end gap-x-2 gap-y-2 py-3 ${columns}`}>
                 <div className="col-span-2 sm:col-span-1">
                   <label htmlFor={`${idPrefix}criterion-${r.key}`} className="sr-only">
                     {prefix}Criterion {i + 1} name
@@ -220,36 +242,26 @@ export function ScoringEditor({
                     </svg>
                   </button>
                 )}
-                {/* What judges should look for, shown on their screen while they score this criterion. */}
+                {/*
+                  What judges should look for, shown on their screen while they score this criterion: a disclosure under
+                  the criterion, saying whether it has one while it's closed, and taking the cursor into it as it opens.
+                */}
                 <div className="col-span-full">
-                  {r.guide !== "" || guideOpen.has(r.key) ? (
-                    // A rule down the left ties the guide to its criterion.
-                    <div className="border-l-2 border-line pl-3">
-                      <label htmlFor={`${idPrefix}criterion-${r.key}-guide`} className="label">
-                        <span className="sr-only">
-                          {prefix}Criterion {i + 1}{" "}
-                        </span>
-                        Guide for judges
-                      </label>
-                      <textarea
-                        id={`${idPrefix}criterion-${r.key}-guide`}
-                        value={r.guide}
-                        onChange={(e) => update(r.key, { guide: e.target.value })}
-                        maxLength={MAX_GUIDE}
-                        rows={3}
-                        placeholder="Guide questions or what to look for, e.g. Is the idea new? Does it solve a real problem?"
-                        className="field min-h-20 resize-y py-2 leading-relaxed sm:max-w-[42rem]"
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="tap-target text-sm font-semibold text-regal underline-offset-2 hover:underline"
-                      onClick={() => setGuideOpen((open) => new Set(open).add(r.key))}
-                    >
-                      Add guide for judges<span className="sr-only"> to {prefix}criterion {i + 1}</span>
-                    </button>
-                  )}
+                  <CriterionGuide
+                    id={`${idPrefix}criterion-${r.key}-guide`}
+                    criterion={`${prefix}${r.name.trim() || `Criterion ${i + 1}`}`}
+                    value={r.guide}
+                    open={guideOpen.has(r.key)}
+                    onToggle={(open) =>
+                      setGuideOpen((all) => {
+                        const next = new Set(all);
+                        if (open) next.add(r.key);
+                        else next.delete(r.key);
+                        return next;
+                      })
+                    }
+                    onChange={(guide) => update(r.key, { guide })}
+                  />
                 </div>
               </li>
             ))}
@@ -280,14 +292,19 @@ export function ScoringEditor({
           {mode === "criteria" ? "Judges give points in" : "Judges score with"}
         </legend>
         <div className="flex flex-wrap gap-2">
-          {DECIMAL_OPTIONS.filter((o) => formNames || o.value < 3).map((o) => (
-            <label key={o.value} className="choice items-center">
+          {DECIMAL_OPTIONS.filter((o) => formNames || o.value < 3).map((o, i) => (
+            <label key={o.value} className={`choice items-center ${decimalsProblem ? "border-danger ring-2 ring-danger/15" : ""}`}>
               <input
                 type="radio"
+                id={i === 0 ? `${idPrefix}scoring-decimals` : undefined}
                 name={formNames ? "decimals" : `${idPrefix}decimals`}
                 value={o.value}
-                checked={places === o.value}
-                onChange={() => set({ decimals: o.value })}
+                checked={placesChosen && places === o.value}
+                aria-describedby={describedBy(decimalsProblem && problemId(`${idPrefix}scoring-decimals`))}
+                onChange={() => {
+                  onChoose?.("decimals");
+                  set({ decimals: o.value });
+                }}
               />
               {/* Each choice keeps its words together: a narrow form wraps whole choices, not "3 decimal / places". */}
               <span className="font-semibold whitespace-nowrap">{o.label}</span>
@@ -295,6 +312,7 @@ export function ScoringEditor({
             </label>
           ))}
         </div>
+        <FieldProblem fieldId={`${idPrefix}scoring-decimals`} className="mt-2" />
       </fieldset>
 
       {mode === "criteria" && (
@@ -339,11 +357,15 @@ export function ScoringFields({
   onChange,
   resultDecimals,
   onResultDecimals,
+  chosen,
+  onChoose,
 }: {
   value: ScoringDraft;
   onChange: (value: ScoringDraft) => void;
   resultDecimals: ResultDecimals;
   onResultDecimals: (value: ResultDecimals) => void;
+  chosen?: { mode: boolean; decimals: boolean };
+  onChoose?: (what: "mode" | "decimals") => void;
 }) {
   return (
     <>
@@ -351,9 +373,77 @@ export function ScoringFields({
       <input type="hidden" name="criteria" value={value.mode === "criteria" ? criteriaJson(value.criteria) : "[]"} />
       <input type="hidden" name="criteria_display" value={value.display} />
       <div className="space-y-6">
-        <ScoringEditor value={value} onChange={onChange} formNames />
+        <ScoringEditor value={value} onChange={onChange} formNames chosen={chosen} onChoose={onChoose} />
         <ResultDecimalsField value={resultDecimals} onChange={onResultDecimals} />
       </div>
     </>
+  );
+}
+
+/**
+ * A criterion's guide for judges, under it: a button that opens a box to write it in (the cursor goes there), and,
+ * closed, says whether it has one and how it starts. The box is labelled with the criterion's name.
+ */
+function CriterionGuide({
+  id,
+  criterion,
+  value,
+  open,
+  onToggle,
+  onChange,
+}: {
+  id: string;
+  /** The criterion's name as typed, or "Criterion 2" before it has one. */
+  criterion: string;
+  value: string;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  onChange: (value: string) => void;
+}) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  const firstLine = value.trim().split(/\r?\n/)[0];
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`${id}-panel`}
+        onClick={() => {
+          // At once, so the cursor can go straight into the box.
+          flushSync(() => onToggle(!open));
+          if (!open) box.current?.focus();
+        }}
+        className="tap-target inline-flex max-w-full items-center gap-1.5 rounded-lg text-sm font-semibold text-regal hover:underline"
+      >
+        <svg viewBox="0 0 16 16" className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden>
+          <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="shrink-0">
+          Guide for judges<span className="sr-only"> on {criterion}</span>
+        </span>
+        {!open && (
+          <span className="min-w-0 truncate font-normal text-prussian/70">{firstLine ? `· ${firstLine}` : "· None yet"}</span>
+        )}
+      </button>
+      <div id={`${id}-panel`} hidden={!open} className="mt-2">
+        <label htmlFor={id} className="sr-only">
+          Guide for judges on {criterion}
+        </label>
+        <textarea
+          ref={box}
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={MAX_GUIDE}
+          rows={3}
+          aria-describedby={`${id}-hint`}
+          placeholder="What to look for, e.g. Is the idea new? Does it solve a real problem?"
+          className="field min-h-20 resize-y py-2 leading-relaxed sm:max-w-[42rem]"
+        />
+        <p id={`${id}-hint`} className="hint mt-1.5">
+          Judges see it on their screen while they score this criterion.
+        </p>
+      </div>
+    </div>
   );
 }

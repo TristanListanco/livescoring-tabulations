@@ -9,7 +9,7 @@ import type { DraftCandidate } from "./candidates-fields";
 import type { DraftJudge } from "./judges-fields";
 
 /** A draft opened from the Activities page: which one, and the form state it saved. */
-export type OpenedDraft = { id: string; data: unknown };
+export type OpenedDraft = { id: string; data: unknown; /** When it was last saved: a save from here goes over that version only. */ savedAt?: string };
 
 /**
  * What the create forms share with the page around them: the draft they open, whether they have unsaved changes,
@@ -102,6 +102,7 @@ const timeFormat = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-d
  */
 export function useDraft({
   openedId,
+  openedSavedAt = null,
   onDirty,
   saveRef,
   kind,
@@ -109,8 +110,9 @@ export function useDraft({
   snapshot,
   collect,
 }: {
-  /** The draft the form was opened from, if any. */
+  /** The draft the form was opened from, if any, and when it was last saved. */
   openedId: string | null;
+  openedSavedAt?: string | null;
   onDirty: (dirty: boolean) => void;
   saveRef: RefObject<() => Promise<boolean>>;
   kind: "event" | "pageant";
@@ -119,6 +121,8 @@ export function useDraft({
   collect: (note: (text: string) => void) => Promise<unknown>;
 }) {
   const [draftId, setDraftId] = useState(openedId);
+  // The version of the draft this window has: saves go over it only (see saveDraft).
+  const [savedAt, setSavedAt] = useState<string | null>(openedSavedAt);
   const [saved, setSaved] = useState(snapshot);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(openedId ? { ok: true, text: "Continuing your saved draft." } : null);
   const [saving, setSaving] = useState(false);
@@ -132,7 +136,7 @@ export function useDraft({
     let note = "";
     let result: Awaited<ReturnType<typeof saveDraft>>;
     try {
-      result = await saveDraft(draftId, kind, name, JSON.stringify(await collect((text) => (note = text))));
+      result = await saveDraft(draftId, kind, name, JSON.stringify(await collect((text) => (note = text))), savedAt);
     } catch {
       result = { ok: false, error: "That didn't reach the server. Check this screen's connection and try again." };
     }
@@ -142,6 +146,7 @@ export function useDraft({
       return false;
     }
     setDraftId(result.id);
+    setSavedAt(result.savedAt);
     setSaved(taken);
     listChanged();
     toast("Draft saved");
@@ -154,7 +159,14 @@ export function useDraft({
     saveRef.current = save;
   });
 
-  return { draftId, dirty, save, saving, status };
+  // The draft was created or deleted in another window (see DRAFT_GONE): this form carries on without it.
+  const forget = () => {
+    setDraftId(null);
+    setSavedAt(null);
+    window.history.replaceState(null, "", "/admin/new");
+  };
+
+  return { draftId, dirty, save, saving, status, forget };
 }
 
 /** The Save draft button and what the last save did, for the bottom of a create form. */

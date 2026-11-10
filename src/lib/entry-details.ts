@@ -10,6 +10,11 @@ export type EntryField = { id: string; name: string };
 export type EntryDetails = Record<string, string>;
 
 export const MAX_ENTRY_FIELDS = 3;
+/**
+ * The one general field new events keep, a line of details about each entry ("Grade 10, St. Mary's"). Older events
+ * may have named up to three fields of their own, which they keep.
+ */
+export const GENERAL_DETAILS = "Details";
 export const MAX_FIELD_NAME = 40;
 export const MAX_DETAIL = 120;
 

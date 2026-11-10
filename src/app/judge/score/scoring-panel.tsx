@@ -223,7 +223,9 @@ export function ScoringPanel({
 }: Props) {
   const pageant = activity.kind === "pageant";
   // Still over realtime once judging has ended: deliberating again, or reopening, brings the judges straight back.
-  const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS });
+  // Judges score at about the same moment, and each score is a change: at most one refresh every 1.5 seconds turns a
+  // panel's burst of scores into one page render per screen rather than one per score.
+  const status = useLiveRefresh(activity.id, { pollMs: gate.status === "pending" ? PENDING_POLL_MS : JUDGE_POLL_MS, minGapMs: 1_500 });
   // Scores confirmed by the server but not yet in the refreshed page, so the keypad doesn't flash back. Once the page
   // has a score, its value wins: a correction can change it.
   const [justSaved, setJustSaved] = useState<Map<string, number>>(() => new Map());
@@ -393,14 +395,14 @@ export function ScoringPanel({
     const now = setTimeout(() => send(pending), 0);
     return () => clearTimeout(now);
   }, [pending, closingNow, undoMs]);
-  // The whole screen takes the timer's colour while it runs on the keypad (see .judge-screen); navy otherwise.
+  // The screen takes a deep shade of the timer's colour while it runs on the keypad (see .judge-screen); navy otherwise.
   const timerColour = timer && approved && !(correctingEntry && corrections) && !deliberating ? timer.phase : undefined;
 
   return (
     <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
       <header className="flex items-center gap-3 border-b border-oxford px-4 py-3 sm:px-6">
         {/* On a phone the judge's own photo gives way to their name, which the header has little room for. */}
-        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="navy max-sm:hidden" />
+        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="max-sm:hidden" />
         <div className="min-w-0">
           <p className="truncate font-semibold">{judge.name}</p>
           <p className="truncate text-sm text-powder">
@@ -458,7 +460,7 @@ export function ScoringPanel({
             className={
               toastQuiet
                 ? "sr-only"
-                : "navy toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
+                : "toast-in absolute inset-x-4 top-3 z-10 mx-auto flex max-w-md items-center gap-2 rounded-xl bg-mint px-4 py-3.5 font-semibold text-prussian shadow-lg shadow-prussian/40"
             }
           >
             <svg viewBox="0 0 16 16" className="size-5 shrink-0 text-regal" aria-hidden>
@@ -635,7 +637,7 @@ function ScoreList({
       {entries.map((entry, i) => {
         const value = scores.get(entry.id);
         const current = entry.id === currentId;
-        const row = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${current ? "navy bg-regal" : onPick ? "hover:bg-oxford" : ""}`;
+        const row = `flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left ${current ? "bg-regal" : onPick ? "hover:bg-oxford" : ""}`;
         const content = (
           <>
             <span className={`tabular w-6 text-sm ${current ? "text-mint" : "text-powder"}`}>{entry.number ?? i + 1}</span>
@@ -915,7 +917,7 @@ function UndoBar({ pending, shown, onUndo }: { pending: PendingScore; shown: str
     return () => clearInterval(tick);
   }, []);
   return (
-    <div className="navy toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
+    <div className="toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
       {/* Said once; the ticking seconds are only for the eye. */}
       <p role="status" className="sr-only">
         {pending.sending
@@ -957,7 +959,7 @@ function SlowSend({ pending, shown }: { pending: PendingScore; shown: string }) 
   }, []);
   if (!slow) return null;
   return (
-    <div className="navy toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
+    <div className="toast-in fixed inset-x-4 bottom-4 z-20 mx-auto max-w-md overflow-hidden rounded-2xl bg-mint text-prussian shadow-lg shadow-prussian/40 lg:max-w-lg">
       <p role="status" className="px-4 py-3">
         <span className="block font-semibold">Submitting…</span>
         <span className="block truncate text-sm text-prussian/75">
@@ -1578,7 +1580,7 @@ function EntryControls({
 /** Digits, decimal point and backspace, sized for thumbs. Dimmed and still while a score waits out its undo window. */
 function KeypadGrid({ decimals, onPress, disabled = false }: { decimals: number; onPress: (key: Key) => void; disabled?: boolean }) {
   return (
-    <div className="navy mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
+    <div className="mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
       {DIGITS.map((d) => (
         <KeypadKey key={d} onPress={() => onPress(d)} label={d} disabled={disabled} />
       ))}
@@ -1899,7 +1901,7 @@ const signOutLabel = (
 
 /** The keypad's main button: Submit score, Next criterion, Review correction. */
 const PRIMARY =
-  "navy btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)] lg:h-[clamp(3.25rem,7vh,4.5rem)]";
+  "btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)] lg:h-[clamp(3.25rem,7vh,4.5rem)]";
 
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 /** The confirmation, if time runs out while it's open: it says so, and can't submit until the organizer reopens scoring. */
@@ -1961,7 +1963,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
       </div>
 
       <div className={`${DOCK} ${DOCK_BESIDE}`}>
-        <div className={`navy flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
+        <div className={`flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
           <output
             aria-label="Score"
             aria-describedby="score-hint"
@@ -2114,7 +2116,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         <EntryTitle entry={entry} number={number} />
         {notes}
 
-        <ul className="navy mt-3 space-y-1.5" aria-label="Criteria">
+        <ul className="mt-3 space-y-1.5" aria-label="Criteria">
           {criteria.map((c) => {
             const isActive = c.id === active?.id;
             const value = values[c.id];
@@ -2185,7 +2187,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         )}
 
         {active && (
-          <div className={`navy flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
+          <div className={`flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
             <span className="mr-3 max-w-[40%] truncate text-sm text-powder">{active.name}</span>
             <output
               aria-label={`${active.name} score`}

@@ -127,14 +127,14 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
   const urgency = (a: ActivitySummary) => (attention.has(a.id) ? 2 : running(a.sessionState) ? 1 : 0);
   const sorted = [...current].sort((a, b) => urgency(b) - urgency(a));
   // The list keeps itself current while anything could still change: a device asking to judge, a score coming in.
-  const changing = current.some((a) => a.sessionState !== "ended");
+  const changing = current.filter((a) => a.sessionState !== "ended").map((a) => a.id);
   // A Server Component renders once per request, so the clock here is the request time.
   // eslint-disable-next-line react-hooks/purity
   const renderedAt = Date.now();
 
   return (
     <>
-      <ActivitiesRefresh active={changing} renderedAt={renderedAt} />
+      <ActivitiesRefresh watch={changing} renderedAt={renderedAt} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="title">Activities</h1>
         {/* An empty list offers it under its title instead (see Empty). */}
@@ -167,7 +167,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
               <li key={a.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 font-medium wrap-anywhere">{a.name}</p>
-                  <SessionStatus state={a.sessionState} pulse className="shrink-0 text-sm" />
+                  <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse className="shrink-0 text-sm" />
                 </div>
                 <p className="hint tabular mt-0.5">
                   {a.organizer} · {scoresIn(a)} · {dateFormat.format(new Date(a.createdAt))}
@@ -200,7 +200,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                     <td className="font-medium">{a.name}</td>
                     <td>{a.organizer}</td>
                     <td className="whitespace-nowrap">
-                      <SessionStatus state={a.sessionState} pulse />
+                      <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse />
                     </td>
                     <td className="text-right whitespace-nowrap">{scoresIn(a, false)}</td>
                     <td className="text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
@@ -245,7 +245,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                   <Link href={`/admin/${a.id}`} className="min-w-0 font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover:underline">
                     {a.name}
                   </Link>
-                  <SessionStatus state={a.sessionState} pulse className="shrink-0 text-sm" />
+                  <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse className="shrink-0 text-sm" />
                 </div>
                 {attention.has(a.id) && (
                   <div className="mt-1.5">
@@ -291,7 +291,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                       </p>
                     </td>
                     <td className="py-4 whitespace-nowrap">
-                      <SessionStatus state={a.sessionState} pulse />
+                      <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse />
                     </td>
                     <td className="py-4">
                       {attention.has(a.id) ? (

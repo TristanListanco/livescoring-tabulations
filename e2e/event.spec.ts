@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
-import { boardOrder, choosePhoto, deleteActivityNamed, deleteOrganizerByEmail, expectAccessible, exportFile, judgeCodes, openJudgeLink, screenPath, signInAsOrganizer, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { boardOrder, choosePhoto, deleteActivityNamed, deleteOrganizerByEmail, expectAccessible, exportFile, judgeCodes, openJudgeLink, screenPath, signInAsOrganizer, signInAsSuperAdmin, snap, submitScore, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // One event from account setup to teardown, against a real database. Each step builds on the last.
 // The organizer drives judging: judges wait for the session to start and score the entry they're shown.
@@ -115,13 +115,21 @@ test.describe.serial("a full event", () => {
     await page.getByLabel("Judge 1 last name").fill("Cruz");
     await page.getByLabel("Judge 2 first name").fill("Ben");
     await page.getByLabel("Judge 2 last name").fill("Torres");
-    // Ben chairs the board of judges: he can move entries from his own screen. Picking a chair is required.
-    await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
+    // How judges score and when the results go out start unpicked: Create asks for each, at the choice.
+    await page.getByRole("button", { name: "Create activity" }).click();
+    await expect(page.getByText("Choose how judges score: simple or criteria.")).toBeVisible();
+    await expect(page.getByText("Choose how many decimal places judges use.")).toBeVisible();
+    await expect(page.getByText("Choose when the results go out.")).toBeVisible();
+    await expect(page.getByRole("radio", { name: /^Simple/ })).toBeFocused();
+    // After a deliberation, there's a chair of judges to choose.
+    await page.getByRole("radio", { name: /^After a deliberation/ }).check();
+    await expect(page.getByRole("radio", { name: "Chair of the board of judges: judge 2" })).toBeVisible();
     await choosePhoto(page, "Photo for Ana Cruz");
     await expect(page.locator('img[src^="blob:"]')).toHaveCount(1);
-    await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis\nKidlat");
-    // New events start without live scoring; this one scores live.
-    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+    await fillEntries(page, ["Agila", "Bagwis", "Kidlat"]);
+    // This one scores live, so there's no chair: only the organizer moves on.
+    await pickScoring(page, { live: true });
+    await expect(page.getByRole("radio", { name: /Chair of the board of judges/ })).toHaveCount(0);
     // Who signs the results on paper is set now, so they're on the first PDF: at least one, which Create asks for at the field.
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page.getByText("Add at least one signatory: who tabulated the results and signs them.")).toBeVisible();
@@ -208,7 +216,8 @@ test.describe.serial("a full event", () => {
     await expect(heading(intruder)).toHaveText("This device isn't approved", REALTIME);
     await expect(page.getByRole("button", { name: `Approve Ana Cruz's device ${intruderCode}` })).toHaveCount(0);
     await expect(page.getByText("Approved: Android phone · Chrome")).toBeVisible();
-    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).toContainText("Chair");
+    // It scores live, so no judge is marked as the chair.
+    await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" }).first()).not.toContainText("Chair");
     await snap(page, "access tab, judge devices");
 
     await live.goto(livePath);
@@ -225,7 +234,7 @@ test.describe.serial("a full event", () => {
     // Live, the desk takes over the tab; the header's status pill says the session is live.
     await expect(page.getByRole("link", { name: "Live", exact: true })).toBeVisible();
     await expect(heading(judge1)).toHaveText("Waiting for the first entry", REALTIME);
-    // Ben chairs the board of judges, but with live scoring only the organizer moves between entries: he waits too.
+    // With live scoring there is no chair: only the organizer moves between entries, so Ben waits too.
     await expect(heading(judge2)).toHaveText("Waiting for the first entry", REALTIME);
     await expect(judge2.getByRole("region", { name: "Chair of the board of judges" })).toHaveCount(0);
 
@@ -233,9 +242,8 @@ test.describe.serial("a full event", () => {
     await page.goto(`${adminPath}?tab=judges`);
     await expect(page.getByRole("note")).toHaveText("The session has started, so the panel of judges is locked.");
     await expect(page.getByLabel("First name")).toHaveCount(0);
-    // The chair is shown in the panel, fixed since the activity was created.
-    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(1);
-    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toContainText("Ben Torres");
+    // It scores live, so the panel has no chair.
+    await expect(page.getByRole("listitem").filter({ hasText: "Chair of the board of judges" })).toHaveCount(0);
     await expect(page.getByLabel("Add a judge")).toHaveCount(0);
 
     await page.goto(`${adminPath}?tab=entries`);
@@ -244,7 +252,7 @@ test.describe.serial("a full event", () => {
     // Photos can still change: they're only for the LED wall.
     await choosePhoto(page, "Photo for Agila");
     await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
-    await page.getByLabel("Add entries, one per line").fill("Dalisay");
+    await fillEntries(page, ["Dalisay"], "New entry");
     await page.getByRole("button", { name: "Add entries" }).click();
     await expect(page.getByText("Dalisay added.")).toBeVisible();
     // Not scored yet, so it can still go.
@@ -295,7 +303,7 @@ test.describe.serial("a full event", () => {
     await expect(moveOn).toContainText("Ana Cruz hasn't scored Agila yet.");
     await moveOn.getByRole("button", { name: "Cancel" }).click();
     await expect(heading(judge1)).toHaveText("Agila");
-    // Ben, the chair, has nothing to move on with: with live scoring that's the organizer's alone.
+    // Ben has nothing to move on with either: with live scoring that is the organizer's alone.
     await expect(judge2.getByRole("region", { name: "Chair of the board of judges" })).toHaveCount(0);
     await expect(judge2.getByRole("button", { name: /^Next/ })).toHaveCount(0);
     await snap(judge2, "chair waiting for the next entry");
@@ -317,8 +325,13 @@ test.describe.serial("a full event", () => {
     await expect(led.getByText("Ana Cruz", { exact: true })).toHaveCount(0);
     // Only Ben has scored, so his 9.25 is both his score and the running average.
     await expect(led.getByText("9.25", { exact: true })).toHaveCount(2);
-    // Agila's photo sits beside the name.
+    // Agila's photo sits above the bar: a new activity's green screen has the photos layout. The slim bar is a choice away.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    await expect(led.locator("[data-led-layout=photos]")).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Photos" })).toBeChecked();
+    await page.getByRole("radio", { name: "Slim bar" }).check();
+    await expect(led.locator("[data-led-layout=bar]")).toBeVisible(REALTIME);
+    await expect(led.getByText("9.25", { exact: true })).toHaveCount(2);
 
     // What the audience's screens show of the judges is with the activity's settings; the wall's display, on its tab.
     await page.goto(`${adminPath}?tab=settings`);
@@ -486,9 +499,9 @@ test.describe.serial("a full event", () => {
     // Entries can't change once judging has ended.
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("note")).toHaveText("Judging has ended, so entries can't be changed.");
-    await expect(page.getByLabel("Entry 1 name")).toHaveCount(0);
+    await expect(page.getByLabel("Entry 1 name", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("listitem").filter({ hasText: "Agila" })).toContainText("2 scores");
-    await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
+    await expect(page.getByLabel("New entry 1 name")).toHaveCount(0);
   });
 
 
@@ -540,25 +553,34 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("link", { name: NAME })).toHaveCount(0);
   });
 
-  test("resetting scores puts the session back to not started, then the activity is deleted", async ({ page }) => {
+  test("resetting scores, with the password, starts judging over with the same judges, then the activity is deleted", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=settings`);
 
+    // It can't be undone, so it asks for the organizer's password.
     await page.getByRole("button", { name: "Reset scores" }).click();
     let dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "Delete all scores" })).toBeDisabled();
-    await dialog.getByRole("textbox").fill("RESET");
-    await dialog.getByRole("button", { name: "Delete all scores" }).click();
-    await expect(page.getByRole("status")).toHaveText("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
+    await dialog.getByLabel("Your password").fill("not-the-password");
+    await dialog.getByRole("button", { name: "Reset scores" }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await dialog.getByLabel("Your password").fill(ORGANIZER.password);
+    await dialog.getByRole("button", { name: "Reset scores" }).click();
+    await expect(dialog).toBeHidden();
     await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
     // Every judge is signed out, even one who didn't sign out on their device: they sign in again for the next run.
     await expect(heading(judge1)).toHaveText("Judge sign-in", REALTIME);
     await expect(judge1.getByRole("status").filter({ hasText: "signed out" })).toHaveText(
       "You were signed out because the organizer reset the scores. Sign in again to judge.",
     );
-    // Their devices are gone, not just signed out: neither judge has one now.
+    // Their devices are gone, not just signed out: neither judge has one now. The panel stays as it was: the same judges
+    // score again.
     await page.goto(`${adminPath}?tab=judges`);
     await expect(page.getByText("No device approved", { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("note")).toContainText("The scores were reset, but judging has started before");
+    await expect(page.getByLabel("Add a judge")).toHaveCount(0);
+    // The running order can change again.
+    await page.goto(`${adminPath}?tab=entries`);
+    await expect(page.getByRole("button", { name: "Move Agila down" })).toBeEnabled();
 
     // Deleting the activity is in Settings too; on the live site it's the only test-free way, once the session has ended.
     await page.goto(`${adminPath}?tab=settings`);

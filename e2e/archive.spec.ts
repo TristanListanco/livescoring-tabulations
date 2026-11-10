@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, screenPath, signInAsSuperAdmin } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, openJudgeLink, screenPath, signInAsSuperAdmin, fillEntries, pickScoring } from "./helpers";
 
 // Archiving an activity once its session has ended, which says no more deliberating is needed: it leaves the list of
 // activities, opens read-only (its results still there, nothing to change, no reopening), signs the judges out for
@@ -30,10 +30,9 @@ test.describe.serial("archived activities", () => {
     await page.getByRole("button", { name: "Remove judge 2" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
-    await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-    await page.getByLabel("Entry names, one per line").fill("Agila");
-    // New events start without live scoring; this one scores live.
-    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+    await fillEntries(page, ["Agila"]);
+    // This one scores live.
+    await pickScoring(page, { live: true });
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();

@@ -11,7 +11,7 @@ import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
 import { shuffle } from "@/lib/shuffle";
-import { detailsFor, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEntryLine, toEntryFields, type EntryDetails, type EntryField } from "@/lib/entry-details";
+import { detailsFor, GENERAL_DETAILS, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEntryLine, toEntryFields, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import { getAlertActivityIds, getOpenAssistance, getWaitingDevices, type AssistanceRequest, type WaitingDevice } from "@/lib/assistance";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
@@ -23,6 +23,7 @@ import {
   checkSuperAdminPassword,
   currentAdmin,
   endAdminSession,
+  renewAdminSession,
   requireAdmin,
   requireSuperAdmin,
   startOrganizerSession,
@@ -30,10 +31,13 @@ import {
   type AdminSession,
 } from "@/lib/session";
 import { touchJudge } from "@/lib/devices";
+import { DRAFT_GONE } from "@/lib/draft-messages";
+import { inUseMessage } from "@/lib/in-use";
+import { accountInUse } from "@/lib/in-use-server";
 import { pageantsAvailable, testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
-import { eventTimer, showColumns, showEntryColumns } from "@/lib/judging";
-import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
+import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
+import { toLedFont, toLedLayout, toLedShape, toLedTheme, type LedFont, type LedLayout, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
@@ -116,10 +120,6 @@ const TIMER_HINT = "This needs a database update. Run supabase/migrations/038_ev
 /** Where a location needs migration 035. */
 const LOCATION_HINT = "This needs a database update. Run supabase/migrations/035_activity_location.sql in the Supabase SQL editor.";
 
-function entryNames(value: FormDataEntryValue | null): string[] {
-  return entryLines(value, []).map((e) => e.name);
-}
-
 /** An entries list, one per line: each name, and with entry fields its details after it (see parseEntryLine). */
 function entryLines(value: FormDataEntryValue | null, fields: EntryField[]): { name: string; details: EntryDetails }[] {
   return String(value ?? "")
@@ -143,6 +143,18 @@ function newEntryFields(formData: FormData): EntryField[] {
 async function entryFieldsOf(activityId: string): Promise<EntryField[]> {
   const { data } = await db().from("activities").select("*").eq("id", activityId).maybeSingle();
   return toEntryFields((data as { entry_fields?: unknown } | null)?.entry_fields);
+}
+
+/**
+ * An activity's entry fields, given the general one (GENERAL_DETAILS) the first time details are typed for one of its
+ * entries. `created`: whether it was just made, so the form's values for it come under "detail-general".
+ */
+async function fieldsWithDetails(activityId: string, wanted: boolean): Promise<{ fields: EntryField[]; created: boolean }> {
+  const fields = await entryFieldsOf(activityId);
+  if (fields.length || !wanted) return { fields, created: false };
+  const general = [{ id: newCriterionId(), name: GENERAL_DETAILS }];
+  const { error } = await db().from("activities").update({ entry_fields: general }).eq("id", activityId);
+  return error ? { fields, created: false } : { fields: general, created: true };
 }
 
 /**
@@ -320,11 +332,17 @@ const JUDGES_LOCKED = err("The session has started, so the panel of judges is lo
 const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
 /** The activity's judging session. Databases without migration 005 behave as "not started". */
-async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null }> {
-  const { data, error } = await db().from("activities").select("session_state, current_entry_id").eq("id", activityId).maybeSingle();
-  if (error) return { state: "draft", currentEntryId: null };
-  const row = data as { session_state: string; current_entry_id: string | null } | null;
-  return { state: toSessionState(row?.session_state), currentEntryId: row?.current_entry_id ?? null };
+async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null; startedAt: string | null }> {
+  const { data, error } = await db().from("activities").select("session_state, current_entry_id, session_started_at").eq("id", activityId).maybeSingle();
+  if (error) return { state: "draft", currentEntryId: null, startedAt: null };
+  const row = data as { session_state: string; current_entry_id: string | null; session_started_at: string | null } | null;
+  return { state: toSessionState(row?.session_state), currentEntryId: row?.current_entry_id ?? null, startedAt: row?.session_started_at ?? null };
+}
+
+/** Whether the activity's panel of judges can't change: judging is on, or has been before its scores were reset. */
+async function panelLocked(activityId: string): Promise<boolean> {
+  const { state, startedAt } = await sessionOf(activityId);
+  return judgesLocked({ sessionState: state, sessionStartedAt: startedAt });
 }
 
 /** Insert judges' access codes, regenerating on the (rare) collision. */
@@ -404,9 +422,23 @@ export const login = traced("login", async function login(_prev: FormResult, for
   redirect("/admin");
 });
 
-export const logout = traced("logout", async function logout() {
+/**
+ * Signing out, unless judges are on one of this account's activities: the show (or the judges waiting for it) would be
+ * left with no one at the desk. Said with the activity's name, to go and end it, or sign the devices out, first.
+ */
+export const logout = traced("logout", async function logout(): Promise<ActionResult> {
+  const session = await currentAdmin();
+  if (session) {
+    const inUse = await accountInUse(session.kind === "organizer" ? session.admin.id : null);
+    if (inUse) return err(inUseMessage(inUse, "sign out"));
+  }
   await endAdminSession();
   redirect("/admin/login");
+});
+
+/** Keep the signed-in admin's session open while their panel is in use (see renewAdminSession). */
+export const keepAdminSession = traced("keepAdminSession", async function keepAdminSession(): Promise<void> {
+  await renewAdminSession();
 });
 
 // Pageant programs ------------------------------------------------------------------
@@ -831,9 +863,11 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
     judges.push({ name: judgeName, photo, panel: pageant ? readPanel(formData.get(`judge-${i}-panel`)) : "all" });
   }
   // The chair of the board of judges, by position in the list; a pageant with separate boards has one per board
-  // ("0,3"). Another judge can take over until the session starts (setChair).
+  // ("0,3"). Another judge can take over until the session starts (setChair). An event with live scoring has none:
+  // only the organizer moves between entries.
+  const liveEvent = !pageant && formData.get("live_scoring") === "on";
   const chairs = new Set(
-    String(formData.get("chair") ?? "")
+    String(liveEvent ? "" : (formData.get("chair") ?? ""))
       .split(",")
       .filter((t) => /^\d+$/.test(t) && Number(t) < judgeCount)
       .map(Number),
@@ -841,7 +875,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   if (pageant) {
     const gap = panelGap(judges.map((j) => j.panel)) ?? chairGap(judges.map((j, i) => ({ panel: j.panel, isChair: chairs.has(i) })));
     if (gap) return err(gap);
-  } else if (chairs.size !== 1) {
+  } else if (!liveEvent && chairs.size !== 1) {
     return err("Choose the chair of the board of judges.");
   }
   // Only sent when a judge sits out a segment, so pageants with one board save on databases without migration 013.
@@ -851,94 +885,110 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   // The form's id for this submission (see newRequestId) is the new activity's.
   const requestId = String(formData.get("requestId") ?? "");
   const id = isUuid(requestId) ? requestId : randomUUID();
-  let activityId: string | null = null;
-  for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
-    const { data, error } = await db()
-      .from("activities")
-      .insert({
-        id,
-        name,
-        owner_id,
-        public_id: newPublicId(),
-        ...columns,
-        // Only written when changed, so databases without migration 007 can still create activities.
-        ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
-      })
-      .select("id")
-      .single();
-    if (error && /kind|preliminary_weight/.test(error.message)) return needsMigration(PAGEANT_HINT);
-    if (error && /violations/.test(error.message)) return needsMigration(DEDUCTIONS_HINT);
-    if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
-    if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
-    // Before migration 021: no live_scoring column, and three decimal places break the old check.
-    if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
-    if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
-    if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
-    if (error && /independent_scoring/.test(error.message)) return needsMigration(OWN_PACE_HINT);
-    if (error && /location/.test(error.message)) return needsMigration(LOCATION_HINT);
-    if (error && /timer_seconds/.test(error.message)) return needsMigration(TIMER_HINT);
-    // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
-    if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
-    // Otherwise its public link was taken: another try, with another.
-    if (error && error.code !== "23505") return dbErr(error);
-    activityId = (data as { id: string } | null)?.id ?? null;
-  }
-  if (!activityId) return err("Could not create the activity. Try again.");
 
-  const uploaded: string[] = [];
-  let entryIds: string[] = [];
-  try {
-    if (program.length) await insertProgram(activityId, program, new Map());
-    const { data, error } = await db()
-      .from("judges")
-      // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
-      .insert(
-        judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: chairs.has(position), ...(panels ? { panel: j.panel } : {}) })),
-      )
-      .select("id, position");
-    check(error);
-    const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
-    await assignCodes(rows.map((r) => r.id));
-
-    // The judges' photos go up together. Every upload finishes before a failure is raised, so the clean-up below
-    // removes all that made it.
-    const photoUploads = await Promise.allSettled(
-      rows.map(async (row) => {
-        const photo = judges[row.position].photo;
-        if (!photo) return;
-        const path = await uploadPhoto(activityId, row.id, photo);
-        uploaded.push(path);
-        check((await db().from("judges").update({ photo_path: path }).eq("id", row.id)).error);
-      }),
-    );
-    const failedUpload = photoUploads.find((r) => r.status === "rejected");
-    if (failedUpload) throw failedUpload.reason;
-
-    if (entries.length) {
-      const { data: rows, error: entriesError } = await db()
-        .from("entries")
-        .insert(entryRows.map((e, position) => ({ activity_id: activityId, name: e.name, position, ...(entryFields.length ? { details: e.details } : {}) })))
-        .select("id, position");
-      check(entriesError);
-      entryIds = (rows as { id: string; position: number }[]).sort((a, b) => a.position - b.position).map((r) => r.id);
-    }
-  } catch (e) {
-    await db().from("activities").delete().eq("id", activityId);
-    removeFiles(uploaded);
-    const message = e instanceof Error ? e.message : "unknown error";
-    if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
-    // Before migration 013 an activity has one chair, so separate boards' two chairs break judges_one_chair_idx.
-    if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
-    if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
-    if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
-    log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
-    return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
-  }
-
-  // The draft it was set up from has done its job.
+  // The draft it was set up from is claimed first, in one step: of two windows creating from the same draft, only one
+  // does. Taken back if the activity then can't be created, so nothing typed into it is lost.
   const draftId = String(formData.get("draftId") ?? "");
-  if (isUuid(draftId)) await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId));
-  return { activityId, entryIds };
+  let claimed: Record<string, unknown> | null = null;
+  if (isUuid(draftId)) {
+    const { data: taken } = await ownDrafts(session, db().from("activity_drafts").delete().eq("id", draftId)).select("*");
+    claimed = (taken as Record<string, unknown>[] | null)?.[0] ?? null;
+    if (!claimed) {
+      // A resend of this same form, whose first send created the activity (and used the draft): that activity.
+      const { data: made } = await db().from("activities").select("id").eq("id", id).maybeSingle();
+      if (made) return createdBefore(id, owner_id);
+      return err(DRAFT_GONE);
+    }
+  }
+  const insert = async (): Promise<ActionResult | Created> => {
+    let activityId: string | null = null;
+    for (let attempt = 0; attempt < 5 && !activityId; attempt++) {
+      const { data, error } = await db()
+        .from("activities")
+        .insert({
+          id,
+          name,
+          owner_id,
+          public_id: newPublicId(),
+          ...columns,
+          // Only written when changed, so databases without migration 007 can still create activities.
+          ...(resultDecimals === 2 ? {} : { result_decimals: resultDecimals }),
+        })
+        .select("id")
+        .single();
+      if (error && /kind|preliminary_weight/.test(error.message)) return needsMigration(PAGEANT_HINT);
+      if (error && /violations/.test(error.message)) return needsMigration(DEDUCTIONS_HINT);
+      if (error && /scoring_mode|criteria/.test(error.message)) return needsMigration(SCORING_HINT);
+      if (error && /result_decimals/.test(error.message)) return needsMigration(PHOTOS_AND_PLACES_HINT);
+      // Before migration 021: no live_scoring column, and three decimal places break the old check.
+      if (error && /live_scoring|activities_decimals_check/.test(error.message)) return needsMigration(DELIBERATION_HINT);
+      if (error && /judges_see_ranking/.test(error.message)) return needsMigration(OPTIONS_HINT);
+      if (error && /correction_reasons|entry_fields/.test(error.message)) return needsMigration(REASONS_HINT);
+      if (error && /independent_scoring/.test(error.message)) return needsMigration(OWN_PACE_HINT);
+      if (error && /location/.test(error.message)) return needsMigration(LOCATION_HINT);
+      if (error && /timer_seconds/.test(error.message)) return needsMigration(TIMER_HINT);
+      // This form was sent before and made it (the reply was lost, say): that's the activity, not a second copy.
+      if (error?.code === "23505" && /activities_pkey/.test(error.message)) return createdBefore(id, owner_id);
+      // Otherwise its public link was taken: another try, with another.
+      if (error && error.code !== "23505") return dbErr(error);
+      activityId = (data as { id: string } | null)?.id ?? null;
+    }
+    if (!activityId) return err("Could not create the activity. Try again.");
+
+    const uploaded: string[] = [];
+    let entryIds: string[] = [];
+    try {
+      if (program.length) await insertProgram(activityId, program, new Map());
+      const { data, error } = await db()
+        .from("judges")
+        // Every row has the same keys: in a bulk insert a missing key becomes null, not the column's default.
+        .insert(
+          judges.map((j, position) => ({ activity_id: activityId, position, ...nameColumns(j.name), is_chair: chairs.has(position), ...(panels ? { panel: j.panel } : {}) })),
+        )
+        .select("id, position");
+      check(error);
+      const rows = (data as { id: string; position: number }[]).sort((a, b) => a.position - b.position);
+      await assignCodes(rows.map((r) => r.id));
+
+      // The judges' photos go up together. Every upload finishes before a failure is raised, so the clean-up below
+      // removes all that made it.
+      const photoUploads = await Promise.allSettled(
+        rows.map(async (row) => {
+          const photo = judges[row.position].photo;
+          if (!photo) return;
+          const path = await uploadPhoto(activityId, row.id, photo);
+          uploaded.push(path);
+          check((await db().from("judges").update({ photo_path: path }).eq("id", row.id)).error);
+        }),
+      );
+      const failedUpload = photoUploads.find((r) => r.status === "rejected");
+      if (failedUpload) throw failedUpload.reason;
+
+      if (entries.length) {
+        const { data: rows, error: entriesError } = await db()
+          .from("entries")
+          .insert(entryRows.map((e, position) => ({ activity_id: activityId, name: e.name, position, ...(entryFields.length ? { details: e.details } : {}) })))
+          .select("id, position");
+        check(entriesError);
+        entryIds = (rows as { id: string; position: number }[]).sort((a, b) => a.position - b.position).map((r) => r.id);
+      }
+    } catch (e) {
+      await db().from("activities").delete().eq("id", activityId);
+      removeFiles(uploaded);
+      const message = e instanceof Error ? e.message : "unknown error";
+      if (missingJudgeColumns(message)) return needsMigration(JUDGES_HINT);
+      // Before migration 013 an activity has one chair, so separate boards' two chairs break judges_one_chair_idx.
+      if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
+      if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
+      if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
+      log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
+      return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
+    }
+    return { activityId, entryIds };
+  };
+  const created = await insert();
+  if (claimed && !("activityId" in created)) await db().from("activity_drafts").insert(claimed);
+  return created;
 }
 
 /** The activity an earlier send of the same form created: its entries' ids in running order, as when it was made. */
@@ -979,9 +1029,12 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event") return err("Only an event's live scoring can change.");
-  if (activity.sessionState !== "draft") return err("Live scoring can't change once judging has started.");
+  if (judgesLocked(activity)) return err("Live scoring can't change once judging has started.");
   const { error } = await db().from("activities").update({ live_scoring: on }).eq("id", activityId).eq("session_state", "draft");
   if (error) return /live_scoring/.test(error.message) ? needsMigration(DELIBERATION_HINT) : dbErr(error);
+  // With live scoring there's no chair: only the organizer moves between entries. Turned off again, one is chosen on
+  // the Judges tab before the session starts.
+  if (on) await db().from("judges").update({ is_chair: false }).eq("activity_id", activityId).eq("is_chair", true);
   changed();
   return ok(on ? "Live scoring is on." : "Live scoring is off. The judges deliberate and sign before the results show.");
 });
@@ -995,7 +1048,7 @@ export const setEventTimer = traced("setEventTimer", async function setEventTime
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event") return err("Only an event has a timer of its own: a pageant's are its sub-activities'.");
-  if (activity.sessionState !== "draft") return err("The timer can't change once judging has started.");
+  if (judgesLocked(activity)) return err("The timer can't change once judging has started.");
   const { error } = await db().from("activities").update({ timer_seconds: seconds }).eq("id", activityId).eq("session_state", "draft");
   if (error) return /timer_seconds/.test(error.message) ? needsMigration(TIMER_HINT) : dbErr(error);
   changed();
@@ -1038,7 +1091,7 @@ export const setActivityOption = traced("setActivityOption", async function setA
     if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has corrections and a deliberation.");
     if (activity.sessionState === "ended") return err("Judging has ended, so this can't change.");
     // How judges move through the entries is set before judging starts.
-    if (option === "independentScoring" && activity.sessionState !== "draft") return err("Judging has started, so this can't change.");
+    if (option === "independentScoring" && judgesLocked(activity)) return err("Judging has started, so this can't change.");
   }
   const column = columns[option];
   const { error } = await db().from("activities").update({ [column]: on }).eq("id", activityId);
@@ -1218,6 +1271,10 @@ export const setSessionState = traced("setSessionState", async function setSessi
       const gap = panelGap(board.judges.map((j) => j.panel));
       if (gap) return err(gap);
     }
+    // Without live scoring the chair moves between entries and starts the deliberation from their screen.
+    if (board?.activity.kind === "event" && !board.activity.liveScoring && !board.judges.some((j) => j.isChair)) {
+      return err("Choose the chair of the board of judges on the Judges tab first.");
+    }
   }
   if (state === "ended" && current.state !== "live" && current.state !== "deliberation") return err("The session isn't running.");
   // An event with live scoring that ended with every score in (by itself, see endWhenEveryScoreIsIn) is over for good:
@@ -1257,7 +1314,8 @@ export const setSessionState = traced("setSessionState", async function setSessi
   }
 
   const update: Record<string, string | null> = { session_state: state };
-  if (state === "live" && current.state === "draft") update.session_started_at = new Date().toISOString();
+  // When judging first started: kept through a reset of the scores, so the panel of judges stays locked (judgesLocked).
+  if (state === "live" && current.state === "draft" && !current.startedAt) update.session_started_at = new Date().toISOString();
   // When it ended, for the live results ("Ended" with the time); reopening clears it until it ends again.
   update.session_ended_at = state === "ended" ? new Date().toISOString() : null;
   // Signed off: the audience sees the results from now on. Reopening takes it back, and the judges sign again later.
@@ -1394,7 +1452,7 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
  */
 export const setLedOptions = traced("setLedOptions", async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
+  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape; layout?: LedLayout },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
@@ -1405,8 +1463,12 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
   if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
   if (options.theme !== undefined && toLedTheme(options.theme) === options.theme) update.led_theme = options.theme;
   if (options.shape !== undefined && toLedShape(options.shape) === options.shape) update.led_shape = options.shape;
+  if (options.layout !== undefined && toLedLayout(options.layout) === options.layout) update.led_layout = options.layout;
   if (Object.keys(update).length === 0) return ok();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
+  if (error && /led_layout/.test(error.message)) {
+    return needsMigration("The LED wall's photos layout needs a database update. Run supabase/migrations/039_led_layout_and_judges_lock.sql in the Supabase SQL editor.");
+  }
   if (error && /led_(font|theme|shape)/.test(error.message)) {
     return needsMigration("The LED wall's look needs a database update. Run supabase/migrations/014_led_look.sql in the Supabase SQL editor.");
   }
@@ -1422,7 +1484,7 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
 
 export const addJudge = traced("addJudge", async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   const judgeName = readJudgeName(formData, "", "the judge");
   if ("error" in judgeName) return err(judgeName.error);
 
@@ -1435,6 +1497,8 @@ export const addJudge = traced("addJudge", async function addJudge(activityId: s
     .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName), ...(panel === "all" ? {} : { panel }) })
     .select("id")
     .single();
+  // The session started in the meantime: the database holds the lock too (migration 039).
+  if (error?.code === "55000") return JUDGES_LOCKED;
   if (error && /panel/.test(error.message)) return needsMigration(PANELS_HINT);
   if (error) return missingJudgeColumns(error.message) ? needsMigration(JUDGES_HINT) : dbErr(error);
   const judgeId = (data as { id: string }).id;
@@ -1451,7 +1515,7 @@ export const addJudge = traced("addJudge", async function addJudge(activityId: s
 export const renameJudge = traced("renameJudge", async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   const judgeName = readJudgeName(formData, "", "the judge");
   if ("error" in judgeName) return err(judgeName.error);
   const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
@@ -1464,7 +1528,7 @@ export const renameJudge = traced("renameJudge", async function renameJudge(judg
 export const setJudgePanel = traced("setJudgePanel", async function setJudgePanel(judgeId: string, panel: JudgePanel): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   // A chair stays on their board, which would otherwise be left without one: another judge takes over as its chair first.
   const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
   if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("Make another judge this board's chair first, then move them.");
@@ -1482,7 +1546,7 @@ export const setJudgePanel = traced("setJudgePanel", async function setJudgePane
 export const setChair = traced("setChair", async function setChair(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   // "*" so this works on databases without migration 013's panel.
   const { data, error } = await db().from("judges").select("*").eq("activity_id", activityId);
   check(error);
@@ -1491,6 +1555,14 @@ export const setChair = traced("setChair", async function setChair(judgeId: stri
   if (!judge) return err("Judge not found.");
   if (judge.is_chair) return ok();
   const chair = judges.find((j) => j.is_chair && j.panel === judge.panel);
+  // An event with no chair yet (live scoring has none, and was turned off): the first one is chosen, not handed over.
+  // The database's one-chair index refuses a second chosen at the same moment.
+  if (!chair && !judges.some((j) => j.is_chair)) {
+    const { error: chosen } = await db().from("judges").update({ is_chair: true }).eq("id", judgeId).eq("activity_id", activityId);
+    if (chosen) return chosen.code === "23505" ? err("Another judge was just made the chair. Look again.") : dbErr(chosen);
+    changed();
+    return ok(`${judge.name} is now the chair.`);
+  }
   if (!chair) return err("Only a judge on the same segments as a chair can take over as chair. Set them to judge that board's segments first.");
 
   const { error: handOver } = await db().rpc("set_judge_chair", { judge: judgeId });
@@ -1509,7 +1581,7 @@ export const setChair = traced("setChair", async function setChair(judgeId: stri
 export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
 
   const photo = await photoFile(formData.get("photo"));
@@ -1530,12 +1602,13 @@ export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhot
 export const removeJudge = traced("removeJudge", async function removeJudge(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return JUDGES_LOCKED;
+  if (await panelLocked(activityId)) return JUDGES_LOCKED;
   // "*" so this works on databases without migration 008's is_chair.
   const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
   // Their board would be left without a chair.
   if ((judge as { is_chair?: boolean } | null)?.is_chair) return err("Make another judge the chair first, then remove them.");
   const { error } = await db().from("judges").delete().eq("id", judgeId);
+  if (error?.code === "55000") return JUDGES_LOCKED;
   if (error) return dbErr(error);
   removeFiles([(judge as { photo_path: string | null } | null)?.photo_path]);
   changed();
@@ -1551,7 +1624,8 @@ export const addEntries = traced("addEntries", async function addEntries(activit
   // The judges are reviewing and signing every entry's scores, and no one can score a new one now (judging doesn't
   // reopen from the deliberation): it would hold the results back for good.
   if (state === "deliberation") return err("The judges are deliberating, so no entries can be added now.");
-  const fields = await entryFieldsOf(activityId);
+  // Typed as a list, each entry with a line of details: an event without details yet gets its general field for them.
+  const { fields } = await fieldsWithDetails(activityId, formData.get("with_details") === "on");
   const rows = entryLines(formData.get("names"), fields);
   const names = rows.map((e) => e.name);
   if (names.length === 0) return err("Type at least one entry name.");
@@ -1575,9 +1649,11 @@ export const renameEntry = traced("renameEntry", async function renameEntry(entr
   if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
-  // Its details too, for the activity's fields (`detail-<field id>`).
-  const fields = await entryFieldsOf(activityId);
-  const details = fields.length ? { details: detailsFor(fields, fields.map((f) => formData.get(`detail-${f.id}`))) } : {};
+  // Its details too, for the activity's fields (`detail-<field id>`), or the first line of details for one without any
+  // (`detail-general`), which gives the activity its general field.
+  const { fields, created } = await fieldsWithDetails(activityId, String(formData.get("detail-general") ?? "").trim() !== "");
+  const values = created ? [formData.get("detail-general")] : fields.map((f) => formData.get(`detail-${f.id}`));
+  const details = fields.length ? { details: detailsFor(fields, values) } : {};
   const { error } = await db().from("entries").update({ name, ...details }).eq("id", entryId);
   if (error) return dbErr(error);
   changed();
@@ -1675,9 +1751,11 @@ async function storeEntryPhoto(entryId: string, formData: FormData): Promise<Act
 export const removeEntry = traced("removeEntry", async function removeEntry(entryId: string): Promise<ActionResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  const { state } = await sessionOf(activityId);
+  const { state, currentEntryId } = await sessionOf(activityId);
   if (state === "ended") return ENTRIES_ENDED;
   if (state !== "draft") {
+    // The judges would be sent back to waiting mid-score, with no word of why.
+    if (currentEntryId === entryId) return err("It's on the judges' screens now. Show another entry first, then remove it.");
     const { count } = await db().from("scores").select("id", { count: "exact", head: true }).eq("entry_id", entryId);
     if (count) return err("Judges have already scored this entry, so it can't be removed during the session.");
   }
@@ -1767,10 +1845,21 @@ export const shuffleEntries = traced("shuffleEntries", async function shuffleEnt
 
 // Developer -------------------------------------------------------------------
 
-/** Developer tool for rehearsals: refused on the live site and on previews (see testToolsAllowed). */
-export const resetScores = traced("resetScores", async function resetScores(activityId: string): Promise<ActionResult> {
-  if (!(await manage(activityId))) return NOT_FOUND;
-  if (!testToolsAllowed()) return err("Resetting scores is only available on a test site.");
+/**
+ * Start judging over: every score goes, with what's built on them (corrections and their votes, judges' notes and
+ * signatures, broken ties, the organizer's sign-off; a pageant's cuts and deductions), and every judge's device is
+ * signed out, so judges sign in again with their codes. The session goes back to not started, so the running order
+ * can still change, but the panel of judges stays as it was: judging started once, and the same judges score again
+ * (judgesLocked). Any time until the activity is archived, even mid-show, with the signed-in admin's password.
+ */
+export const resetScores = traced("resetScores", async function resetScores(activityId: string, password: string): Promise<ActionResult> {
+  const session = await manage(activityId);
+  if (!session) return NOT_FOUND;
+  const refused = await confirmPassword(session, password);
+  if (refused) return refused;
+  const activity = await getActivity(activityId);
+  if (!activity) return NOT_FOUND;
+  if (activity.archivedAt) return err("This activity is archived, so its scores stay as they are.");
   const { error } = await db().from("scores").delete().eq("activity_id", activityId);
   if (error) return dbErr(error);
   // The corrections were to those scores (votes go with them). Fails harmlessly before migration 019.
@@ -1781,22 +1870,26 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   // The ties those scores made, and the organizer's signature on their results (fail harmlessly before migration 026).
   await db().from("tie_breaks").delete().eq("activity_id", activityId);
   await db().from("activity_signoffs").delete().eq("activity_id", activityId);
-  // Every judge's device is signed out, even one left signed in: judges enter their codes and pair again.
+  // Every judge's device is signed out, and their screens hear of it: judges enter their codes and pair again.
   const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
-  if (judgeRows?.length) await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
-  // Back to a fresh start for the next rehearsal: judges unlock and wait for the session again.
-  await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_started_at: null }).eq("id", activityId);
-  // Fails harmlessly before migration 021.
+  if (judgeRows?.length) {
+    await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
+    await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
+  }
+  // Back to not started. session_started_at stays: it's what keeps the panel of judges locked.
+  await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_ended_at: null }).eq("id", activityId);
+  // Each fails harmlessly on a database without its column.
   await db().from("activities").update({ signed_off_at: null }).eq("id", activityId);
+  await db().from("activities").update({ scoring_closes_at: null }).eq("id", activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
-  if ((await getActivity(activityId))?.kind === "pageant") {
+  if (activity.kind === "pageant") {
     await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
     // Fails harmlessly on databases without migration 015, which have no deductions.
     await db().from("deductions").delete().eq("activity_id", activityId);
-    await db().from("activities").update({ current_round_id: null, scoring_closes_at: null }).eq("id", activityId);
+    await db().from("activities").update({ current_round_id: null }).eq("id", activityId);
   }
-  changed();
-  return ok("All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.");
+  changed(activity.publicId);
+  return ok("Every score and judge's note was deleted, and every judge was signed out. The session is back to not started.");
 });
 
 export const deleteActivity = traced("deleteActivity", async function deleteActivity(activityId: string): Promise<ActionResult> {
@@ -1883,7 +1976,14 @@ function ownDrafts<Q extends { eq: (column: string, value: string) => Q; is: (co
  * Save the create form as a draft: a new one, or over `draftId`. `data` is the form's own state as JSON; only its
  * owner can read it back. A draft that has gone (deleted elsewhere) is saved as a new one.
  */
-export const saveDraft = traced("saveDraft", async function saveDraft(draftId: string | null, kind: "event" | "pageant", name: string, data: string): Promise<DraftResult> {
+export const saveDraft = traced("saveDraft", async function saveDraft(
+  draftId: string | null,
+  kind: "event" | "pageant",
+  name: string,
+  data: string,
+  /** When this window last saved (or opened) the draft: a save over a newer one, from another window, is refused. */
+  savedAt: string | null = null,
+): Promise<DraftResult> {
   const session = await requireAdmin();
   if (kind !== "event" && kind !== "pageant") return { ok: false, error: "That draft couldn't be read. Try again." };
   if (kind === "pageant" && !pageantsAvailable()) return { ok: false, error: PAGEANTS_SOON };
@@ -1902,9 +2002,19 @@ export const saveDraft = traced("saveDraft", async function saveDraft(draftId: s
   };
 
   if (draftId && isUuid(draftId)) {
-    const { data: updated, error } = await ownDrafts(session, db().from("activity_drafts").update(row).eq("id", draftId)).select("id");
+    // Only over the version this window has: another window's newer save isn't overwritten without a word.
+    const query = ownDrafts(session, db().from("activity_drafts").update(row).eq("id", draftId));
+    const { data: updated, error } = await (savedAt ? query.eq("updated_at", savedAt) : query).select("id");
     if (error) return failed(error);
     if ((updated as { id: string }[]).length) return { ok: true, id: draftId, savedAt: row.updated_at };
+    const { data: still } = await db().from("activity_drafts").select("id").eq("id", draftId).maybeSingle();
+    // A draft that's gone was created or deleted elsewhere: it isn't brought back here as a new one.
+    return {
+      ok: false,
+      error: still
+        ? "This draft was changed in another window since you opened it. Open it again from your activities to see those changes."
+        : "This draft was created or deleted in another window, so it wasn't saved again here.",
+    };
   }
   const owner_id = session.kind === "organizer" ? session.admin.id : null;
   const { data: created, error } = await db().from("activity_drafts").insert({ ...row, owner_id }).select("id").single();

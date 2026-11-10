@@ -3,7 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
 import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
-import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
+import { LED_FONTS, LED_LAYOUTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedLayout, type LedShape, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
 import type { Board, Entry, Judge, Score } from "@/lib/types";
@@ -20,36 +20,44 @@ type LedOptions = {
   font: LedFont;
   theme: LedTheme;
   shape: LedShape;
+  layout: LedLayout;
 };
 
-/**
- * Display mode. Saves on change; the wall follows within seconds. Whether scores wait for every judge, and whether judges
- * stay anonymous, are with the activity's other settings (they change the live results too).
- */
-function DisplaySettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
+/** A choice's radio, unseen over its whole label: the label is drawn as the control, and a tap anywhere on it is the radio's. */
+const COVER = "absolute inset-0 size-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed";
+
+/** One of a few choices, side by side in a pill, the chosen one filled: Display, Layout and Corners. */
+function Segmented<T extends string | boolean>({
+  legend,
+  name,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  legend: string;
+  name: string;
+  options: { value: T; label: string; icon?: React.ReactNode }[];
+  value: T;
+  onChange: (value: T) => void;
+  disabled: boolean;
+}) {
   return (
-    <div className="space-y-5">
-      <fieldset>
-        <legend className="label">Display</legend>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { fullscreen: false, label: "Green screen overlay" },
-            { fullscreen: true, label: "Full screen" },
-          ].map((m) => (
-            <label key={m.label} className="choice items-center font-semibold">
-              <input
-                type="radio"
-                name="led-display"
-                checked={options.fullscreen === m.fullscreen}
-                onChange={() => onChange({ fullscreen: m.fullscreen })}
-                disabled={disabled}
-              />
-              {m.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-    </div>
+    <fieldset className="min-w-0">
+      <legend className="label">{legend}</legend>
+      <div className="flex rounded-full border border-line bg-white p-1">
+        {options.map((o) => (
+          <label
+            key={String(o.value)}
+            className="relative flex h-9 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-sm font-semibold whitespace-nowrap text-prussian/80 transition-colors hover:text-prussian has-checked:bg-regal has-checked:text-mint has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-regal has-disabled:cursor-not-allowed pointer-coarse:h-11"
+          >
+            <input type="radio" name={name} className={COVER} checked={value === o.value} onChange={() => onChange(o.value)} disabled={disabled} />
+            {o.icon}
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -93,54 +101,85 @@ function useSample(board: Board, playing: boolean): Board {
 /** Corner radius for the small shape on each corner choice, in pixels. */
 const SHAPE_SAMPLE: Record<LedShape, number> = { square: 0, soft: 6, round: 14 };
 
-/** The wall's look: font, colour theme and corners. Each choice shows what it looks like, and the preview follows. */
-function LookSettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
+/** A font drawn as a tile, its sample over its name: the tile is the target, filled when chosen (see .choice). */
+const TILE = "choice relative flex-col items-stretch gap-1.5 px-1.5 pt-1.5 pb-2 text-center";
+
+/**
+ * Everything the wall can be set to, in one compact panel beside the preview: how it's shown (and, as a green screen,
+ * which layout), then its colours, font and corners, each choice drawn as what it looks like. Saves on change; the wall
+ * follows within seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
+ * activity's other settings (they change the live results too).
+ */
+function WallSettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+        <Segmented
+          legend="Display"
+          name="led-display"
+          options={[
+            { value: false, label: "Green screen" },
+            { value: true, label: "Full screen" },
+          ]}
+          value={options.fullscreen}
+          onChange={(fullscreen) => onChange({ fullscreen })}
+          disabled={disabled}
+        />
+        {/* The full screen has one layout of its own. */}
+        {!options.fullscreen && (
+          <Segmented legend="Layout" name="led-layout" options={LED_LAYOUTS} value={options.layout} onChange={(layout) => onChange({ layout })} disabled={disabled} />
+        )}
+      </div>
+      <fieldset>
+        {/* Swatches alone, so all thirteen fit in two rows: the chosen one is named beside the legend, every one on hover. */}
+        <legend className="label">
+          Colour{" "}
+          <span aria-hidden className="font-normal text-prussian/75">
+            · {LED_THEMES.find((t) => t.value === options.theme)?.label}
+          </span>
+        </legend>
+        <div className="grid grid-cols-7 gap-1.5">
+          {LED_THEMES.map((t) => (
+            <label key={t.value} title={t.label} className="choice relative p-1">
+              <input type="radio" name="led-theme" className={COVER} checked={options.theme === t.value} onChange={() => onChange({ theme: t.value })} disabled={disabled} />
+              <span className="sr-only">{t.label}</span>
+              {/* The bar in the theme: its text on its base, and its highlight. */}
+              <span aria-hidden className="flex h-9 w-full items-center justify-center gap-1 rounded-lg ring-1 ring-line" style={{ backgroundColor: t.colors.base }}>
+                <span className="text-[13px] font-bold" style={{ color: t.colors.ink }}>
+                  9.5
+                </span>
+                <span className="size-2 rounded-full" style={{ backgroundColor: t.colors.muted }} />
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <fieldset>
         <legend className="label">Font</legend>
-        <div className={`flex flex-wrap gap-2 ${LED_FONT_VARIABLES}`}>
+        <div className={`grid grid-cols-3 gap-1.5 ${LED_FONT_VARIABLES}`}>
           {LED_FONTS.map((f) => (
-            <label key={f.value} className="choice items-center">
-              <input type="radio" name="led-font" checked={options.font === f.value} onChange={() => onChange({ font: f.value })} disabled={disabled} />
-              <span className="flex flex-col">
-                <span aria-hidden className="text-xl leading-tight font-bold" style={{ fontFamily: ledFontFamily(f.value), fontFeatureSettings: '"lnum" 1' }}>
-                  Aa 9.75
-                </span>
-                <span className="text-sm font-semibold">{f.label}</span>
+            <label key={f.value} className={TILE}>
+              <input type="radio" name="led-font" className={COVER} checked={options.font === f.value} onChange={() => onChange({ font: f.value })} disabled={disabled} />
+              <span aria-hidden className="text-lg leading-tight font-bold" style={{ fontFamily: ledFontFamily(f.value), fontFeatureSettings: '"lnum" 1' }}>
+                Aa 9.75
               </span>
+              <span className="text-xs leading-tight font-semibold">{f.label}</span>
             </label>
           ))}
         </div>
       </fieldset>
-      <fieldset>
-        <legend className="label">Colour theme</legend>
-        <div className="flex flex-wrap gap-2">
-          {LED_THEMES.map((t) => (
-            <label key={t.value} className="choice items-center font-semibold">
-              <input type="radio" name="led-theme" checked={options.theme === t.value} onChange={() => onChange({ theme: t.value })} disabled={disabled} />
-              <span aria-hidden className="flex overflow-hidden rounded-md ring-1 ring-line">
-                {[t.colors.base, t.colors.tile, t.colors.accent, t.colors.ink].map((color, i) => (
-                  <span key={i} className="block size-5" style={{ backgroundColor: color }} />
-                ))}
-              </span>
-              {t.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend className="label">Corners</legend>
-        <div className="flex flex-wrap gap-2">
-          {LED_SHAPES.map((shape) => (
-            <label key={shape.value} className="choice items-center font-semibold">
-              <input type="radio" name="led-shape" checked={options.shape === shape.value} onChange={() => onChange({ shape: shape.value })} disabled={disabled} />
-              <span aria-hidden className="block h-5 w-8 border-2 border-current" style={{ borderRadius: SHAPE_SAMPLE[shape.value] }} />
-              {shape.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <Segmented
+        legend="Corners"
+        name="led-shape"
+        options={LED_SHAPES.map((shape) => ({
+          value: shape.value,
+          label: shape.label,
+          icon: <span aria-hidden className="block h-3.5 w-5 shrink-0 border-2 border-current" style={{ borderRadius: SHAPE_SAMPLE[shape.value] / 2 }} />,
+        }))}
+        value={options.shape}
+        onChange={(shape) => onChange({ shape })}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -156,6 +195,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       font: activity.ledFont,
       theme: activity.ledTheme,
       shape: activity.ledShape,
+      layout: activity.ledLayout,
     },
     (current, change) => ({ ...current, ...change }),
   );
@@ -182,6 +222,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ledFont: options.font,
       ledTheme: options.theme,
       ledShape: options.shape,
+      ledLayout: options.layout,
     },
   };
 
@@ -195,23 +236,9 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       </div>
 
       {/* Wide enough, the preview stands beside the settings (and stays in view) so each change shows next to its control. */}
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
-        <div className="space-y-8">
-          <DisplaySettings options={options} onChange={changeOptions} disabled={pending} />
-          {/* Set once for a show, so it's folded away. The preview shows what's chosen and follows any change. */}
-          <details className="group border-t border-line pt-6">
-            <summary className="tap-target flex cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-1 select-none [&::-webkit-details-marker]:hidden">
-              <span className="flex items-center gap-2">
-                <svg viewBox="0 0 16 16" className="size-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden>
-                  <path d="M6 3.5l4.5 4.5L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span className="text-lg font-bold">Look</span>
-              </span>
-            </summary>
-            <div className="mt-4 space-y-4">
-              <LookSettings options={options} onChange={changeOptions} disabled={pending} />
-            </div>
-          </details>
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
+        <div className="space-y-4">
+          <WallSettings options={options} onChange={changeOptions} disabled={pending} />
           <FormMessage state={error ? { ok: false, error } : null} small />
         </div>
 

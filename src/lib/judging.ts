@@ -34,6 +34,13 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
 export const atOwnPace = (activity: Pick<Activity, "kind" | "liveScoring" | "independentScoring">) =>
   activity.kind === "event" && !activity.liveScoring && activity.independentScoring;
 
+/**
+ * The panel of judges can't change once judging has started, and stays that way after the scores are reset (the
+ * session is back to not started, but it started once): the judges who scored are the ones who score again.
+ */
+export const judgesLocked = (activity: Pick<Activity, "sessionState" | "sessionStartedAt">) =>
+  activity.sessionState !== "draft" || activity.sessionStartedAt !== null;
+
 /** Only the organizer moves an event with live scoring between entries: its chair can't, from their screen. */
 export const chairMovesEntries = (activity: Pick<Activity, "kind" | "liveScoring">) => !(activity.kind === "event" && activity.liveScoring);
 

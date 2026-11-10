@@ -27,9 +27,9 @@ function WaitingDots({ label }: { label: string }) {
  * A judge kept anonymous: a "?" in the same circle a photo or initials would fill, drawn (not typed) so it
  * matches the wall's other marks and scales with any tile.
  */
-function AnonymousJudge({ size }: { size: number | string }) {
+function AnonymousJudge({ size, radius }: { size: number | string; radius?: string }) {
   return (
-    <span aria-hidden style={{ width: size, height: size }} className="inline-flex shrink-0 items-center justify-center rounded-full bg-regal text-mint">
+    <span aria-hidden style={{ width: size, height: size, borderRadius: radius }} className="inline-flex shrink-0 items-center justify-center rounded-full bg-regal text-mint">
       <svg viewBox="0 0 24 24" className="size-[58%]">
         <path d="M8.6 9a3.4 3.4 0 1 1 5.3 2.8c-1.1.75-1.9 1.4-1.9 2.9v.4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
         <circle cx="12" cy="19" r="1.5" fill="currentColor" />
@@ -119,6 +119,7 @@ function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; su
   return (
     <div
       key={scene.entry.id}
+      data-led-layout="bar"
       className="led-fade absolute inset-x-12 bottom-12 flex overflow-hidden bg-prussian text-mint"
       style={{ height: BAR_HEIGHT, borderRadius: ROUNDED }}
     >
@@ -183,6 +184,146 @@ function Overlay({ board, scene, subtitle }: { board: Board; scene: LedScene; su
           </FitText>
         )}
         {!final && <p className="tabular mt-1.5 text-[18px] leading-tight text-mint/80">{averageNote(scene)}</p>}
+      </div>
+    </div>
+  );
+}
+
+// Green screen, photos ------------------------------------------------------------
+
+/**
+ * Sizes for the photos layout: the judges' photos and type shrink as the panel grows, so every judge keeps a column.
+ * `photo` is a judge's square photo; the entry's round one stays the same.
+ */
+function photoSizes(judgeCount: number) {
+  if (judgeCount <= 5) return { photo: 104, name: 20, score: 60, nameBlock: 520, average: 240 };
+  if (judgeCount <= 8) return { photo: 88, name: 18, score: 54, nameBlock: 440, average: 220 };
+  if (judgeCount <= 12) return { photo: 70, name: 16, score: 46, nameBlock: 360, average: 200 };
+  return { photo: 54, name: 14, score: 40, nameBlock: 300, average: 180 };
+}
+
+/** The bar's height, and the entry's round photo above its left end, on the 1920×1080 stage. */
+const PHOTO_BAR = 128;
+const ENTRY_CIRCLE = 208;
+/** How far the entry's circle comes down into the bar. */
+const CIRCLE_DIP = 26;
+/** The bar's corners: on a bar this tall, the "Rounded" choice makes a capsule. */
+const BAR_ROUNDED = "calc(var(--led-radius, 0px) * 2.3)";
+/** A judge's photo corners: a little rounded at most, as a photo frame. */
+const PHOTO_ROUNDED = "calc(var(--led-radius, 0px) / 3)";
+
+/**
+ * A bar chart, the average's mark, standing on the bar's top edge. Solid, like everything over the green: anything
+ * see-through would take some of the green with it, and key out in patches.
+ */
+function AverageMark() {
+  return (
+    <svg viewBox="0 0 52 40" className="absolute left-1/2 h-[40px] w-[52px] -translate-x-1/2 text-powder" style={{ top: -30 }} aria-hidden>
+      <rect x="4" y="22" width="9" height="18" rx="1.5" fill="currentColor" />
+      <rect x="16" y="8" width="9" height="32" rx="1.5" fill="currentColor" />
+      <rect x="28" y="16" width="9" height="24" rx="1.5" fill="currentColor" />
+      <rect x="40" y="2" width="9" height="38" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * The photos lower third, on a 1920×1080 stage, as a broadcast pageant's: a dark bar along the bottom with the entry's
+ * round photo rising above its left end (or its number, without a photo), its name in capitals under it; each judge's
+ * photo sitting on the bar's top edge with their first name and score under it; the average at the right, in the
+ * theme's highlight. Every shape is solid, in the theme's colours and the corners chosen on the LED tab, so the green
+ * around it keys out cleanly.
+ */
+function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; subtitle: string }) {
+  if (scene.kind === "empty") return null;
+  const { activity, judges } = board;
+  const size = photoSizes(judges.length);
+  const dip = Math.round(size.photo * 0.2);
+  const final = scene.average.state === "final";
+  const photo = scene.entry.photoUrl;
+
+  return (
+    <div
+      key={scene.entry.id}
+      data-led-layout="photos"
+      className="led-fade absolute inset-x-12 bottom-12 flex bg-prussian text-mint"
+      style={{ height: PHOTO_BAR, borderRadius: BAR_ROUNDED }}
+    >
+      {/* The entry: its photo in a ring above the bar (its number in it, without one), its name in the bar below. */}
+      <div className="relative flex shrink-0 flex-col justify-end pr-6 pb-4 pl-10" style={{ width: size.nameBlock }}>
+        <div className="absolute left-9" style={{ top: CIRCLE_DIP - ENTRY_CIRCLE, width: ENTRY_CIRCLE, height: ENTRY_CIRCLE }}>
+          {photo ? (
+            <EntryPhoto src={photo} style={{ width: ENTRY_CIRCLE, height: ENTRY_CIRCLE, borderRadius: "50%" }} className="border-[5px] border-powder bg-prussian" />
+          ) : (
+            <span className="flex size-full flex-col items-center justify-center rounded-full border-[5px] border-powder bg-prussian">
+              <span className="text-[26px] leading-none font-semibold text-powder">No.</span>
+              <span className="tabular text-[92px] leading-none font-bold">{scene.number}</span>
+            </span>
+          )}
+          {photo && (
+            <span className="tabular absolute right-0 bottom-6 flex size-[60px] items-center justify-center rounded-full bg-mint text-[30px] font-bold text-prussian ring-[5px] ring-prussian">
+              <span className="sr-only">No. </span>
+              {scene.number}
+            </span>
+          )}
+        </div>
+        <FitText className="text-[36px] leading-[1.1] font-bold tracking-[0.01em] uppercase" minScale={0.5}>
+          {scene.entry.name}
+        </FitText>
+        <FitText className="mt-0.5 text-[20px] font-semibold tracking-[0.06em] text-powder uppercase" minScale={0.7}>
+          {subtitle}
+        </FitText>
+      </div>
+
+      {/* A column per judge: the photo on the bar's edge, then the first name and the score. */}
+      <div className="flex min-w-0 flex-1">
+        {scene.tiles.map((t) => (
+          <div key={t.judge.id} className="relative flex min-w-0 flex-1 flex-col items-center px-2 text-center" style={{ paddingTop: dip + 10 }}>
+            <div className="absolute left-1/2 -translate-x-1/2" style={{ top: dip - size.photo }}>
+              {t.label === null ? (
+                <AnonymousJudge size={size.photo} radius={PHOTO_ROUNDED} />
+              ) : (
+                <Avatar
+                  name={t.judge.name}
+                  src={t.judge.photoUrl}
+                  size={size.photo}
+                  radius={PHOTO_ROUNDED}
+                  className="border-[3px] border-powder bg-oxford"
+                />
+              )}
+            </div>
+            {t.label !== null && (
+              <FitText className="w-full leading-tight font-semibold tracking-[0.06em] text-mint/85 uppercase" style={{ fontSize: size.name }} align="center" minScale={0.6}>
+                {t.label}
+              </FitText>
+            )}
+            <div className="mt-1 flex w-full flex-1 items-start justify-center leading-none" style={{ fontSize: size.score }}>
+              <div className="w-full">
+                <TileValue judge={t.judge} state={t.state} value={t.value} activity={activity} align="center" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* The average: its mark on the bar's edge, the word, and the number in the theme's highlight once it's final. */}
+      <div className="relative flex shrink-0 flex-col items-center justify-center px-5 pt-3 text-center" style={{ width: size.average }}>
+        <AverageMark />
+        <span className="text-[17px] leading-none font-semibold tracking-[0.12em] text-mint/85 uppercase">Average</span>
+        {scene.average.state === "hidden" ? (
+          <p className="mt-2 text-[52px] leading-[0.9]">
+            <WaitingDots label="Average appears when every judge has scored" />
+          </p>
+        ) : (
+          <FitText
+            key={final ? "final" : "running"}
+            className={`tabular mt-1.5 w-full text-[64px] leading-[0.95] font-bold ${final ? "led-fade text-powder" : ""}`}
+            align="center"
+          >
+            {averageText(scene.average.value, activity)}
+          </FitText>
+        )}
+        {!final && <p className="tabular mt-1 text-[16px] leading-tight text-mint/75">{averageNote(scene)}</p>}
       </div>
     </div>
   );
@@ -302,7 +443,11 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
     <FitStage className={className} background={KEY_GREEN}>
       {/* The look goes on this wrapper: it lays out as its children, but they still take its colours and font. */}
       <div data-led-theme={activity.ledTheme} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
-        <Overlay board={board} scene={scene} subtitle={round?.name ?? activity.name} />
+        {activity.ledLayout === "photos" ? (
+          <PhotoBar board={board} scene={scene} subtitle={round?.name ?? activity.name} />
+        ) : (
+          <Overlay board={board} scene={scene} subtitle={round?.name ?? activity.name} />
+        )}
       </div>
     </FitStage>
   );

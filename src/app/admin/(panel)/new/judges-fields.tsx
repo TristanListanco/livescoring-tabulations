@@ -40,7 +40,10 @@ export function JudgesFields({
   addTo,
   addId = "add-judge",
   full = judges.length >= MAX_JUDGES,
+  chair = true,
 }: {
+  /** Whether this board has a chair: not an event with live scoring, where only the organizer moves between entries. */
+  chair?: boolean;
   judges: DraftJudge[];
   /** Position of this board's first judge among all the activity's judges, for the field names. */
   start?: number;
@@ -64,7 +67,7 @@ export function JudgesFields({
   onChair: (key: number) => void;
   onAdd: () => void;
 }) {
-  const columns = "sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem_2.75rem]";
+  const columns = chair ? "sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem_2.75rem]" : "sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]";
   const problems = useFieldProblems();
   const list = useRef<HTMLOListElement>(null);
   // Enter goes from first name to last name to the next judge's; at the last, it adds a judge once that one is named.
@@ -140,6 +143,7 @@ export function JudgesFields({
               </div>
               <div className="flex items-center gap-2 sm:contents">
                 {/* Not `required`: the browser's own bubble would say so; the form checks for a chair and says it in its words. */}
+                {chair && (
                 <label
                   className={`choice h-11 shrink-0 items-center gap-2 justify-self-start px-3 py-0 text-sm font-semibold sm:mt-1.5 ${noChair ? "border-danger ring-2 ring-danger/15" : ""}`}
                 >
@@ -160,6 +164,7 @@ export function JudgesFields({
                     </span>
                   </span>
                 </label>
+                )}
                 {/* With one judge left there's nothing to remove: the button gives way, keeping its place, rather than fading out. */}
                 <button
                   type="button"
@@ -179,7 +184,7 @@ export function JudgesFields({
           );
         })}
       </ol>
-      <FieldProblem fieldId={chairField} className="mt-3" />
+      {chair && <FieldProblem fieldId={chairField} className="mt-3" />}
       <div className="mt-4 flex flex-wrap items-center gap-4">
         <button
           id={addId}

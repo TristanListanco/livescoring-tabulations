@@ -10,8 +10,11 @@ export function Avatar({
   src,
   size = 40,
   square = false,
+  radius,
   className = "",
 }: {
+  /** Corners as a CSS length, in place of the circle or the square's: the LED wall's, as chosen on its tab. */
+  radius?: string;
   name: string;
   src: string | null;
   /** Pixels, or any CSS length (e.g. "min(20cqi, 12cqh)") for layouts that scale with their container. */
@@ -22,7 +25,7 @@ export function Avatar({
 }) {
   const shape = square ? "rounded-lg" : "rounded-full";
   const fontSize = typeof size === "number" ? Math.max(11, size * 0.36) : `calc(${size} * 0.36)`;
-  const style = { width: size, height: size, fontSize };
+  const style = { width: size, height: size, fontSize, borderRadius: radius };
   if (src) {
     return (
       // Photos are already resized to small squares on upload, so the optimizer adds nothing here.

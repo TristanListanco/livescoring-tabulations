@@ -133,6 +133,42 @@ test.describe.serial("the chair", () => {
     expect(await chairs(event.id)).toEqual(["Ben Torres"]);
   });
 
+  test("with live scoring there's no chair; turned off again, one is chosen before the session starts", async ({ page }) => {
+    // A separate event, so the others' chairs stay as they are.
+    const id = randomUUID();
+    await restOk("activities", { id, name: `E2E Chair live ${RUN}`, public_id: randomBytes(5).toString("hex"), min_score: 1, max_score: 10, decimals: 2, kind: "event", live_scoring: false });
+    await restOk("judges", [
+      { id: randomUUID(), activity_id: id, name: "Ivy Go", first_name: "Ivy", last_name: "Go", position: 0, is_chair: true },
+      { id: randomUUID(), activity_id: id, name: "Jo Lee", first_name: "Jo", last_name: "Lee", position: 1, is_chair: false },
+    ]);
+    await restOk("entries", { activity_id: id, name: "Agila", position: 0 });
+    try {
+      await signInAsSuperAdmin(page);
+      // Live scoring on: only the organizer moves between entries, so the chair goes.
+      await page.goto(`/admin/${id}?tab=settings`);
+      await page.getByRole("switch", { name: "Show scores live" }).click();
+      await expect(page.getByText("Live scoring is on.")).toBeVisible();
+      expect(await chairs(id)).toEqual([]);
+      await page.goto(`/admin/${id}?tab=judges`);
+      await expect(page.getByRole("button", { name: /^Make chair/ })).toHaveCount(0);
+
+      // Off again: the session won't start without a chair, and any judge can be made one.
+      await page.goto(`/admin/${id}?tab=settings`);
+      await page.getByRole("switch", { name: "Show scores live" }).click();
+      await expect(page.getByText(/Live scoring is off/)).toBeVisible();
+      await page.goto(`/admin/${id}?tab=session`);
+      await page.getByRole("button", { name: "Start session" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
+      await expect(page.getByRole("dialog")).toContainText("Choose the chair of the board of judges on the Judges tab first.");
+      await page.goto(`/admin/${id}?tab=judges`);
+      await page.getByRole("button", { name: "Make chair Jo Lee" }).click();
+      await expect(page.getByText("Jo Lee is now the chair.")).toBeVisible();
+      expect(await chairs(id)).toEqual(["Jo Lee"]);
+    } finally {
+      await fetch(`${api.url}/rest/v1/activities?id=eq.${id}`, { method: "DELETE", headers: api.headers });
+    }
+  });
+
   test("only the server can change the chair", async () => {
     const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
     const response = await rest("rpc/set_judge_chair", { judge: judge.ana }, "POST", { apikey: publicKey, Authorization: `Bearer ${publicKey}` });

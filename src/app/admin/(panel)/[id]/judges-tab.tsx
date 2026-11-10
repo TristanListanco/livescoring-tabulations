@@ -102,17 +102,16 @@ export function BoardsSummary({ judges }: { judges: Judge[] }) {
 
 /**
  * A judge's row before the session starts, on the Judges tab: their photo and name to change (Save appears once the
- * name is edited), a pageant's segments, the chair, and Remove. `detail`: the line under the name (how far they've got).
+ * name is edited), a pageant's segments and the chair. `detail`: the line under the name (how far they've got). Remove
+ * is at the row's end (RemoveJudge).
  */
 export function JudgeEditor({
   judge,
-  scored,
   pageant,
   detail,
   canChair,
 }: {
   judge: Judge;
-  scored: number;
   pageant: boolean;
   detail: string;
   /** They can take over as chair: they're on the same segments as a chair. */
@@ -146,48 +145,56 @@ export function JudgeEditor({
         <PhotoPicker name={judge.name} currentUrl={photoPending ? preview : judge.photoUrl} size={48} onPick={(photo, url) => changePhoto(photo, url)} />
       </div>
       <div className="min-w-0 flex-1 space-y-2">
-        <form action={rename} className="flex max-w-xl flex-wrap items-end gap-2">
-          <NameFields idPrefix={judge.id} value={edited} onChange={setEdited} />
-          <SubmitButton className={`btn btn-quiet ${dirty ? "" : "invisible max-sm:hidden"}`} pendingLabel="Saving…">
+        {/* The column says it's the judge: the names need no labels on show, only for screen readers. */}
+        <form action={rename} className="flex flex-wrap items-end gap-2">
+          <NameFields idPrefix={judge.id} value={edited} onChange={setEdited} quiet />
+          <SubmitButton className={`btn btn-quiet ${dirty ? "" : "hidden"}`} pendingLabel="Saving…">
             Save<span className="sr-only"> {judge.name}</span>
           </SubmitButton>
         </form>
         <FormMessage state={state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {pageant && <PanelSelect judge={judge} />}
-        {/* A div, not a p: Remove's confirmation dialog can't sit inside a paragraph. */}
-        <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
-          {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
-          {detail}
-          {canChair && <TakeChair judge={judge} pageant={pageant} onResult={setChairResult} />}
-          {judge.photoUrl && !photoPending && (
-            <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
-              Remove photo
-            </button>
-          )}
-          <ConfirmDialog
-            triggerLabel={
-              <>
-                Remove<span className="sr-only"> {judge.name}</span>
-              </>
-            }
-            triggerClassName="text-sm font-semibold text-danger hover:underline disabled:opacity-40 disabled:no-underline"
-            // Their board would be left without a chair: another judge takes over first.
-            triggerDisabled={judge.isChair}
-            title={`Remove ${judge.name}?`}
-            tone="danger"
-            confirmLabel="Remove judge"
-            onConfirm={() => removeJudge(judge.id)}
-          >
-            {scored > 0
-              ? `Their ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted, so averages will change. `
-              : "They haven't submitted any scores. "}
-            Their access code will stop working.
-          </ConfirmDialog>
-        </div>
+        {(judge.isChair || detail || canChair || (judge.photoUrl && !photoPending)) && (
+          <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
+            {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
+            {detail}
+            {canChair && <TakeChair judge={judge} pageant={pageant} onResult={setChairResult} />}
+            {judge.photoUrl && !photoPending && (
+              <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
+                Remove photo
+              </button>
+            )}
+          </div>
+        )}
         <FormMessage state={chairResult && (!chairResult.ok || judge.isChair) ? chairResult : null} small />
       </div>
     </div>
+  );
+}
+
+/** Taking a judge off the panel, until the session starts: not the chair, whose board would be left without one. */
+export function RemoveJudge({ judge, scored }: { judge: Judge; scored: number }) {
+  return (
+    <ConfirmDialog
+      triggerLabel={
+        <>
+          Remove<span className="sr-only"> {judge.name}</span>
+        </>
+      }
+      triggerClassName="btn btn-sm px-2.5 text-danger hover:bg-danger/10 disabled:hover:bg-transparent"
+      // Their board would be left without a chair: another judge takes over first.
+      triggerDisabled={judge.isChair}
+      title={`Remove ${judge.name}?`}
+      tone="danger"
+      confirmLabel="Remove judge"
+      onConfirm={() => removeJudge(judge.id)}
+    >
+      {scored > 0
+        ? `Their ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted, so averages will change. `
+        : "They haven't submitted any scores. "}
+      Their access code will stop working.
+    </ConfirmDialog>
   );
 }
 
@@ -220,21 +227,25 @@ function PlainChairBadge() {
 
 type Name = { first: string; last: string };
 
-/** First and last name. The full name goes on the results PDF; the LED wall shows the first name. */
-function NameFields({ idPrefix, value, onChange }: { idPrefix: string; value?: Name; onChange?: (name: Name) => void }) {
+/**
+ * First and last name. The full name goes on the results PDF; the LED wall shows the first name. `quiet`: the labels
+ * for screen readers only, in a judge's row (its column says what the names are).
+ */
+function NameFields({ idPrefix, value, onChange, quiet = false }: { idPrefix: string; value?: Name; onChange?: (name: Name) => void; quiet?: boolean }) {
+  const labelClass = quiet ? "sr-only" : "mb-1 block text-sm font-semibold";
   // Controlled when editing a judge (so Save can appear on change), uncontrolled when adding one.
   const bind = (key: keyof Name) =>
     value && onChange ? { value: value[key], onValueChange: (typed: string) => onChange({ ...value, [key]: typed }) } : {};
   return (
     <>
       <div className="min-w-36 flex-1 self-start">
-        <label htmlFor={`${idPrefix}-first`} className="mb-1 block text-sm font-semibold">
+        <label htmlFor={`${idPrefix}-first`} className={labelClass}>
           First name
         </label>
         <PersonNameInput id={`${idPrefix}-first`} name="first_name" part="first" required {...bind("first")} />
       </div>
       <div className="min-w-36 flex-1 self-start">
-        <label htmlFor={`${idPrefix}-last`} className="mb-1 block text-sm font-semibold">
+        <label htmlFor={`${idPrefix}-last`} className={labelClass}>
           Last name
         </label>
         <PersonNameInput id={`${idPrefix}-last`} name="last_name" part="last" required {...bind("last")} />

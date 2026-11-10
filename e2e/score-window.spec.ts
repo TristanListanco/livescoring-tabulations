@@ -29,14 +29,15 @@ async function restOk(path: string, body: unknown, method = "POST") {
 test.describe.serial("score window", () => {
   test.beforeAll(async () => {
     // Without live scoring, where a confirmed score waits a few seconds to be undone (with it, it goes in at once).
-    await restOk("activities", { id: activity.id, name: "E2E Score window", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live", live_scoring: false });
+    await restOk("activities", { id: activity.id, name: "E2E Score window", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, live_scoring: false });
     await restOk("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
     await restOk("judge_access", { judge_id: judge, code: CODE });
     await restOk("entries", [
       { id: entry, activity_id: activity.id, name: "Agila", position: 0 },
       { id: nextEntry, activity_id: activity.id, name: "Banog", position: 1 },
     ]);
-    await restOk(`activities?id=eq.${activity.id}`, { current_entry_id: entry }, "PATCH");
+    // Judges join while it's not started: once it has, the panel is locked, in the database too.
+    await restOk(`activities?id=eq.${activity.id}`, { session_state: "live", current_entry_id: entry }, "PATCH");
   });
 
   test.afterAll(async () => {

@@ -28,7 +28,7 @@ export function ConsentField({ checked, onChange, children = NAMED_CONSENT }: { 
   const problems = useFieldProblems();
   const flagged = problems.has(CONSENT_ID);
   return (
-    <div className="mt-6 max-w-2xl">
+    <div className="mt-6">
       {/*
         On the panel's wash, like a note to read before the button: a short lead, then the statement. The box is drawn
         to match: it fills navy and its tick draws itself as it's ticked (.tick-box), and a missing tick outlines it.
