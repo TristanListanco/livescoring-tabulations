@@ -1,4 +1,4 @@
-import type { LedFont, LedLayout, LedShape, LedTheme } from "./led-style";
+import type { LedFont, LedShape, LedTheme } from "./led-style";
 
 /** Decimal places judges enter scores with. Three only for events; a pageant's sub-activities use 0 to 2. */
 export type Decimals = 0 | 1 | 2 | 3;
@@ -97,7 +97,6 @@ export type Activity = {
   ledFont: LedFont;
   ledTheme: LedTheme;
   ledShape: LedShape;
-  ledLayout: LedLayout;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;
@@ -201,6 +200,11 @@ export type Entry = {
    * candidates keep their number through every cut. Otherwise the number is the place in the list shown.
    */
   number?: number;
+  /**
+   * An event's details about it, as one line ("MX. IT", "Grade 10 · St. Mary's"), under its name on the LED wall.
+   * Only the wall's pages add them (see withEntryDetails): judges' screens and the live results never carry them.
+   */
+  details?: string;
 };
 
 /** A pageant violation set up in advance, e.g. "Late for call time", 1 point. */

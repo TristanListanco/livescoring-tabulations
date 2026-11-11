@@ -153,21 +153,6 @@ alter table public.activities add constraint activities_led_look_check check (
   and led_theme in ('navy', 'gold', 'crimson', 'emerald', 'royal', 'teal', 'rose', 'sunset', 'berry', 'graphite', 'pearl', 'champagne', 'sky')
   and led_shape in ('square', 'soft', 'round')
 );
--- LED wall: the green screen's layout (migration 039): the slim bar, or photos (the entry's above a dark bar, the
--- judges' on it). Activities made before keep the slim bar; new ones start with photos.
-do $$
-begin
-  if not exists (
-    select 1 from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name = 'led_layout'
-  ) then
-    alter table public.activities add column led_layout text not null default 'bar';
-    alter table public.activities alter column led_layout set default 'photos';
-  end if;
-  if not exists (select 1 from pg_constraint where conname = 'activities_led_layout_check') then
-    alter table public.activities add constraint activities_led_layout_check check (led_layout in ('bar', 'photos'));
-  end if;
-end;
-$$;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then
@@ -459,8 +444,9 @@ begin
   end if;
 end;
 $location$;
--- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): seen only by the organizer, on
--- the Entries tab and the results. Each entry's values are in entries.details, by field id.
+-- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): on the Entries tab, the results
+-- and under the entry's name on the LED wall, never on judges' screens. Each entry's values are in entries.details, by
+-- field id.
 alter table public.activities add column if not exists entry_fields jsonb not null default '[]'::jsonb;
 -- Judges' phones and tablets hide the screen when tilted off axis while judging (migration 032): on for new activities,
 -- off for those from before it.

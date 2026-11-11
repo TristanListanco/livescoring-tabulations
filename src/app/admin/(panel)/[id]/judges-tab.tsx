@@ -13,7 +13,7 @@ import { MIN_PROPER_JUDGES } from "@/lib/pageant-setup";
 import { addJudge, removeJudge, renameJudge, setChair, setJudgePanel, setJudgePhoto, type FormResult } from "../../actions";
 import { PANEL_OPTIONS } from "../new/judges-fields";
 import { FormMessage } from "../form-message";
-import { toast } from "../toaster";
+import { toast, toastSaved } from "../toaster";
 import { PersonNameInput } from "../person-name-input";
 
 /** Pageants: which segments a judge judges, changed straight away. A chair stays on their board while they chair it. */
@@ -32,7 +32,10 @@ function PanelSelect({ judge }: { judge: Judge }) {
         disabled={pending || judge.isChair}
         onChange={(e) => {
           const panel = e.target.value as JudgePanel;
-          start(async () => setResult(await reach(() => setJudgePanel(judge.id, panel))));
+          start(async () => {
+            const label = PANEL_OPTIONS.find((o) => o.value === panel)?.label ?? panel;
+            setResult(toastSaved(await reach(() => setJudgePanel(judge.id, panel)), `${judge.name}: ${label}`));
+          });
         }}
         className="field h-9 w-auto py-0 text-sm"
       >
@@ -42,7 +45,7 @@ function PanelSelect({ judge }: { judge: Judge }) {
           </option>
         ))}
       </select>
-      <FormMessage state={result} small />
+      <FormMessage state={result?.ok ? null : result} small />
     </div>
   );
 }
@@ -70,7 +73,7 @@ function TakeChair({ judge, pageant, onResult }: { judge: Judge; pageant: boolea
   const [pending, start] = useTransition();
   const label = pageant && judge.panel === "preliminary" ? "Make preliminary chair" : pageant && judge.panel === "proper" ? "Make pageant proper chair" : "Make chair";
   return (
-    <button type="button" className="text-action disabled:opacity-50" disabled={pending} onClick={() => start(async () => onResult(await reach(() => setChair(judge.id))))}>
+    <button type="button" className="text-action disabled:opacity-50" disabled={pending} onClick={() => start(async () => onResult(toastSaved(await reach(() => setChair(judge.id)))))}>
       {label}
       <span className="sr-only"> {judge.name}</span>
     </button>
@@ -117,7 +120,10 @@ export function JudgeEditor({
   /** They can take over as chair: they're on the same segments as a chair. */
   canChair: boolean;
 }) {
-  const [state, rename] = useActionState<FormResult, FormData>(renameJudge.bind(null, judge.id), null);
+  const [state, rename] = useActionState<FormResult, FormData>(async (previous, data) => {
+    const name = [data.get("first_name"), data.get("last_name")].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ");
+    return toastSaved(await renameJudge(judge.id, previous, data), `${name || judge.name} saved`);
+  }, null);
   // Save shows only once a name has been edited.
   const initial = nameParts(judge);
   const [edited, setEdited] = useState(initial);
@@ -136,7 +142,7 @@ export function JudgeEditor({
       if (photo) data.set("photo", photo, "photo.jpg");
       const result = await setJudgePhoto(judge.id, data);
       if (!result.ok) setPhotoError(result.error);
-      else toast(photo ? `${judge.name}'s photo added` : `${judge.name}'s photo removed`);
+      else toast(photo ? `${judge.name}'s photo updated` : `${judge.name}'s photo removed`);
     });
 
   return (
@@ -152,7 +158,7 @@ export function JudgeEditor({
             Save<span className="sr-only"> {judge.name}</span>
           </SubmitButton>
         </form>
-        <FormMessage state={state} small />
+        <FormMessage state={state?.ok ? null : state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {pageant && <PanelSelect judge={judge} />}
         {(judge.isChair || detail || canChair || (judge.photoUrl && !photoPending)) && (
@@ -167,7 +173,7 @@ export function JudgeEditor({
             )}
           </div>
         )}
-        <FormMessage state={chairResult && (!chairResult.ok || judge.isChair) ? chairResult : null} small />
+        <FormMessage state={chairResult && !chairResult.ok ? chairResult : null} small />
       </div>
     </div>
   );
@@ -188,7 +194,7 @@ export function RemoveJudge({ judge, scored }: { judge: Judge; scored: number })
       title={`Remove ${judge.name}?`}
       tone="danger"
       confirmLabel="Remove judge"
-      onConfirm={() => removeJudge(judge.id)}
+      onConfirm={async () => toastSaved(await removeJudge(judge.id), `${judge.name} removed`)}
     >
       {scored > 0
         ? `Their ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted, so averages will change. `

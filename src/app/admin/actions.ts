@@ -37,7 +37,7 @@ import { accountInUse } from "@/lib/in-use-server";
 import { pageantsAvailable, testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
-import { toLedFont, toLedLayout, toLedShape, toLedTheme, type LedFont, type LedLayout, type LedShape, type LedTheme } from "@/lib/led-style";
+import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
@@ -1452,7 +1452,7 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
  */
 export const setLedOptions = traced("setLedOptions", async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape; layout?: LedLayout },
+  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
@@ -1463,12 +1463,8 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
   if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
   if (options.theme !== undefined && toLedTheme(options.theme) === options.theme) update.led_theme = options.theme;
   if (options.shape !== undefined && toLedShape(options.shape) === options.shape) update.led_shape = options.shape;
-  if (options.layout !== undefined && toLedLayout(options.layout) === options.layout) update.led_layout = options.layout;
   if (Object.keys(update).length === 0) return ok();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
-  if (error && /led_layout/.test(error.message)) {
-    return needsMigration("The LED wall's photos layout needs a database update. Run supabase/migrations/039_led_layout_and_judges_lock.sql in the Supabase SQL editor.");
-  }
   if (error && /led_(font|theme|shape)/.test(error.message)) {
     return needsMigration("The LED wall's look needs a database update. Run supabase/migrations/014_led_look.sql in the Supabase SQL editor.");
   }

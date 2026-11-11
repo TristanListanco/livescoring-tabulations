@@ -9,6 +9,7 @@ import type { AdminAccount } from "@/lib/types";
 import { deleteOrganizer, setOrganizerPhoto, updateOrganizer } from "../../../account-actions";
 import type { FormResult } from "../../../actions";
 import { FormMessage } from "../../form-message";
+import { toastSaved } from "../../toaster";
 import { PasswordField } from "../../password-field";
 import { Section } from "../../section";
 
@@ -20,7 +21,7 @@ export function EditOrganizer({
   /** Names and whether judging is under way: an organizer's activities are private to them. */
   activities: { name: string; running: boolean }[];
 }) {
-  const [state, action] = useActionState<FormResult, FormData>(updateOrganizer.bind(null, organizer.id), null);
+  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => toastSaved(await updateOrganizer(organizer.id, previous, data)), null);
   const running = activities.filter((a) => a.running);
   const [photoPending, startPhoto] = useTransition();
   const [photoState, setPhotoState] = useState<FormResult>(null);
@@ -31,7 +32,7 @@ export function EditOrganizer({
       setPreview(url);
       const data = new FormData();
       if (photo) data.set("photo", photo, "photo.jpg");
-      const result = await setOrganizerPhoto(organizer.id, data);
+      const result = toastSaved(await setOrganizerPhoto(organizer.id, data), photo ? `${organizer.name}'s photo updated` : `${organizer.name}'s photo removed`);
       setPhotoState(result.ok ? null : result);
     });
 
@@ -80,7 +81,7 @@ export function EditOrganizer({
         {/* Under the cards rather than in one, so it reads as saving the whole account (name, email and password). */}
         <div className="mt-6 flex flex-wrap items-center gap-4">
           <SubmitButton>Save account details</SubmitButton>
-          <FormMessage state={state} />
+          <FormMessage state={state?.ok ? null : state} />
         </div>
       </form>
 

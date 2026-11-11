@@ -15,6 +15,15 @@ export function toast(text: string) {
 }
 
 /**
+ * A change saved from one of the panel's forms (a name, a photo, a setting): when it worked, a toast says so, in
+ * `text` or else the server's own words, and the form keeps only its problems beside it. The result passes through.
+ */
+export function toastSaved<T extends { ok: boolean; message?: string } | null | undefined>(result: T, text?: string): T {
+  if (result?.ok) toast((text ?? result.message ?? "Saved").replace(/\.$/, ""));
+  return result;
+}
+
+/**
  * For an action that, when it works, goes on to another page (deleting an activity, creating one): its redirect is how
  * it says so, and that's when `text` shows. An error or a lost request goes on as before, with no toast.
  */

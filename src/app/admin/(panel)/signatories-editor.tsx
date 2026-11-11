@@ -6,6 +6,7 @@ import { MAX_SIGNATORIES } from "@/lib/signatories";
 import type { ActionResult, Signatory } from "@/lib/types";
 import { saveSignatories } from "../actions";
 import { FormMessage } from "./form-message";
+import { toastSaved } from "./toaster";
 import { enterToNext, NEXT_LINE } from "./list-keys";
 
 const isBlank = (r: SignatoryRow) => !r.name.trim() && !r.designation.trim();
@@ -39,7 +40,7 @@ export function SignatoriesEditor({ activityId, initial }: { activityId: string;
         activityId,
         filled.map(({ name, designation }) => ({ name, designation })),
       );
-      setResult(r);
+      setResult(toastSaved(r));
       if (r.ok) {
         const saved = filled.map((row) => ({
           ...row,
@@ -63,7 +64,7 @@ export function SignatoriesEditor({ activityId, initial }: { activityId: string;
           <button type="button" className={`btn ${changed ? "btn-primary" : "btn-quiet"}`} onClick={save} disabled={pending || !changed}>
             {pending ? "Saving…" : "Save signatories"}
           </button>
-          <FormMessage state={result} />
+          <FormMessage state={result?.ok ? null : result} />
         </>
       }
     />

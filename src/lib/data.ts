@@ -7,10 +7,10 @@ import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
 import { withheldScores } from "./scoring";
-import { toLedFont, toLedLayout, toLedShape, toLedTheme } from "./led-style";
+import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
-import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
+import { detailsLine, toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
 import type { BrokenTie } from "./ties";
 import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
@@ -29,7 +29,6 @@ export type ActivityRow = {
   led_font?: string;
   led_theme?: string;
   led_shape?: string;
-  led_layout?: string;
   owner_id?: string | null;
   session_state?: string;
   /** Migration 020. */
@@ -158,7 +157,6 @@ export function toActivity(row: ActivityRow): Activity {
     ledFont: toLedFont(row.led_font),
     ledTheme: toLedTheme(row.led_theme),
     ledShape: toLedShape(row.led_shape),
-    ledLayout: toLedLayout(row.led_layout),
     ownerId: row.owner_id ?? null,
     // Pageants always score live; databases without migration 021 do too.
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),
@@ -665,8 +663,8 @@ export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, 
 
 /**
  * An event's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
- * pages and the results only: never part of a board, which judges and the public pages are sent. Null before migration
- * 033.
+ * pages, the results and the LED wall (withEntryDetails): never part of a board as it's read, which judges and the live
+ * results are sent. Null before migration 033.
  */
 export async function getEntryDetails(activityId: string): Promise<{ fields: EntryField[]; byEntry: Record<string, EntryDetails> } | null> {
   const [activity, entries] = await Promise.all([
@@ -677,6 +675,17 @@ export async function getEntryDetails(activityId: string): Promise<{ fields: Ent
   const fields = toEntryFields((activity.data as { entry_fields?: unknown } | null)?.entry_fields);
   const byEntry = Object.fromEntries((entries.data as { id: string; details: unknown }[]).map((e) => [e.id, toEntryDetails(e.details)]));
   return { fields, byEntry };
+}
+
+/**
+ * A board with each entry's details as one line, for the LED wall, which shows them under the entry's name: added only
+ * by the wall's own pages (its page and the LED wall tab's preview). A pageant's candidates have none.
+ */
+export async function withEntryDetails(board: Board): Promise<Board> {
+  if (board.activity.kind !== "event") return board;
+  const details = await getEntryDetails(board.activity.id);
+  if (!details?.fields.length) return board;
+  return { ...board, entries: board.entries.map((e) => ({ ...e, details: detailsLine(details.fields, details.byEntry[e.id]) || undefined })) };
 }
 
 /** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */

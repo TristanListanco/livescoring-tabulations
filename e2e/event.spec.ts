@@ -158,7 +158,7 @@ test.describe.serial("a full event", () => {
     await page.getByRole("button", { name: "Add signatory" }).click();
     await expect(page.getByLabel("Signatory 3 full name")).toBeVisible();
     await page.getByRole("button", { name: "Save signatories" }).click();
-    await expect(page.getByText("Saved. 2 signatories print on the results PDF.")).toBeVisible();
+    await expect(page.getByText("Saved. 2 signatories print on the results PDF", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Signatory 3 full name")).toHaveCount(0);
     await page.goto(adminPath);
 
@@ -254,7 +254,8 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
     await fillEntries(page, ["Dalisay"], "New entry");
     await page.getByRole("button", { name: "Add entries" }).click();
-    await expect(page.getByText("Dalisay added.")).toBeVisible();
+    // Saved changes are confirmed with a toast.
+    await expect(page.getByText("Dalisay added", { exact: true })).toBeVisible();
     // Not scored yet, so it can still go.
     await page.getByRole("button", { name: "Remove Dalisay" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Remove entry" }).click();
@@ -325,13 +326,8 @@ test.describe.serial("a full event", () => {
     await expect(led.getByText("Ana Cruz", { exact: true })).toHaveCount(0);
     // Only Ben has scored, so his 9.25 is both his score and the running average.
     await expect(led.getByText("9.25", { exact: true })).toHaveCount(2);
-    // Agila's photo sits above the bar: a new activity's green screen has the photos layout. The slim bar is a choice away.
+    // Agila's photo rises above the bar.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
-    await expect(led.locator("[data-led-layout=photos]")).toBeVisible();
-    await expect(page.getByRole("radio", { name: "Photos" })).toBeChecked();
-    await page.getByRole("radio", { name: "Slim bar" }).check();
-    await expect(led.locator("[data-led-layout=bar]")).toBeVisible(REALTIME);
-    await expect(led.getByText("9.25", { exact: true })).toHaveCount(2);
 
     // What the audience's screens show of the judges is with the activity's settings; the wall's display, on its tab.
     await page.goto(`${adminPath}?tab=settings`);

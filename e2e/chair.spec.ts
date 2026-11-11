@@ -78,10 +78,9 @@ test.describe.serial("the chair", () => {
     await expect(page.getByRole("button", { name: "Remove Ana Cruz" })).toBeDisabled();
 
     await page.getByRole("button", { name: "Make chair Ben Torres" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Ben Torres is now the chair." })).toBeVisible();
+    // A toast says so, and his row carries the Chair badge.
+    await expect(page.getByText("Ben Torres is now the chair", { exact: true })).toBeVisible();
     await expect(row(page, "Ben Torres")).toContainText("Chair");
-    // The message stays with him once his button has gone.
-    await expect(row(page, "Ben Torres").getByRole("status")).toHaveText("Ben Torres is now the chair.");
     await expect(page.getByRole("button", { name: "Make chair Ana Cruz" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Remove Ana Cruz" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Remove Ben Torres" })).toBeDisabled();
@@ -99,10 +98,10 @@ test.describe.serial("the chair", () => {
     await expect(page.getByRole("button", { name: "Make pageant proper chair Eli Santos" })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Make preliminary chair Eli Santos" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Eli Santos is now the preliminary chair." })).toBeVisible();
+    // Each says so in a toast, naming the board.
+    await expect(page.getByText("Eli Santos is now the preliminary chair", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Make pageant proper chair Gus Tan" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Gus Tan is now the pageant proper chair." })).toBeVisible();
-    await expect(row(page, "Eli Santos").getByRole("status")).toHaveText("Eli Santos is now the preliminary chair.");
+    await expect(page.getByText("Gus Tan is now the pageant proper chair", { exact: true })).toBeVisible();
     await expect(page.getByText("Separate boards. Preliminary: 3 judges, chaired by Eli Santos. Pageant proper: 3 judges, chaired by Gus Tan.")).toBeVisible();
     expect(await chairs(pageant.id)).toEqual(["Eli Santos", "Gus Tan"]);
     await snap(page, "pageant judges");
@@ -147,7 +146,7 @@ test.describe.serial("the chair", () => {
       // Live scoring on: only the organizer moves between entries, so the chair goes.
       await page.goto(`/admin/${id}?tab=settings`);
       await page.getByRole("switch", { name: "Show scores live" }).click();
-      await expect(page.getByText("Live scoring is on.")).toBeVisible();
+      await expect(page.getByText("Live scoring is on", { exact: true })).toBeVisible();
       expect(await chairs(id)).toEqual([]);
       await page.goto(`/admin/${id}?tab=judges`);
       await expect(page.getByRole("button", { name: /^Make chair/ })).toHaveCount(0);
@@ -162,7 +161,7 @@ test.describe.serial("the chair", () => {
       await expect(page.getByRole("dialog")).toContainText("Choose the chair of the board of judges on the Judges tab first.");
       await page.goto(`/admin/${id}?tab=judges`);
       await page.getByRole("button", { name: "Make chair Jo Lee" }).click();
-      await expect(page.getByText("Jo Lee is now the chair.")).toBeVisible();
+      await expect(page.getByText("Jo Lee is now the chair", { exact: true })).toBeVisible();
       expect(await chairs(id)).toEqual(["Jo Lee"]);
     } finally {
       await fetch(`${api.url}/rest/v1/activities?id=eq.${id}`, { method: "DELETE", headers: api.headers });

@@ -225,7 +225,7 @@ test.describe.serial("deliberation", () => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=settings`);
     await page.getByRole("switch", { name: "Judges see the overall ranking while they deliberate" }).click();
-    await expect(page.getByText("Judges see the ranking while they deliberate.")).toBeVisible();
+    await expect(page.getByText("Judges see the ranking while they deliberate", { exact: true })).toBeVisible();
 
     // Rank, entry and average, the tie broken by Ana's corrected score. Never another judge's score.
     const ranking = ana.getByRole("region", { name: "Overall ranking" });

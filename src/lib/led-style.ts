@@ -22,16 +22,6 @@ export type LedTheme =
   | "champagne"
   | "sky";
 export type LedShape = "square" | "soft" | "round";
-/**
- * The green screen's lower third: "photos", the entry's round photo rising above a bar with each judge's photo sitting
- * on it (the default for new activities), or "bar", one slim bar of tiles (activities from before the choice).
- */
-export type LedLayout = "photos" | "bar";
-
-export const LED_LAYOUTS: { value: LedLayout; label: string }[] = [
-  { value: "photos", label: "Photos" },
-  { value: "bar", label: "Slim bar" },
-];
 
 /** The CSS variable each font sets (see led-fonts.ts), or null for the app's own. */
 export const LED_FONTS: { value: LedFont; label: string; variable: string | null; fallback: string }[] = [
@@ -74,8 +64,6 @@ export const LED_SHAPES: { value: LedShape; label: string; overlay: string; full
 export const toLedFont = (value: unknown): LedFont => LED_FONTS.find((f) => f.value === value)?.value ?? "default";
 export const toLedTheme = (value: unknown): LedTheme => LED_THEMES.find((t) => t.value === value)?.value ?? "navy";
 export const toLedShape = (value: unknown): LedShape => LED_SHAPES.find((s) => s.value === value)?.value ?? "square";
-/** Missing (before migration 039) or unknown: the slim bar, as the wall showed before. */
-export const toLedLayout = (value: unknown): LedLayout => (value === "photos" ? "photos" : "bar");
 
 /** A theme's colours. */
 export const ledColors = (theme: LedTheme): LedColors => (LED_THEMES.find((t) => t.value === theme) ?? LED_THEMES[0]).colors;

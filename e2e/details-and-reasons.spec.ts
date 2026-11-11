@@ -64,7 +64,7 @@ test("an event's entries carry details only the organizer sees, in the results t
   // An entry added here gets its line of details too.
   await fillEntries(page, [{ name: "Kidlat", details: "Ateneo" }], "New entry");
   await page.getByRole("button", { name: "Add entries" }).click();
-  await expect(page.getByText("Kidlat added.")).toBeVisible();
+  await expect(page.getByText("Kidlat added", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Details for Kidlat", { exact: true })).toHaveValue("Ateneo", REALTIME);
   await expectAccessible(page);
 

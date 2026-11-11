@@ -3,7 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
 import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
-import { LED_FONTS, LED_LAYOUTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedLayout, type LedShape, type LedTheme } from "@/lib/led-style";
+import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
 import type { Board, Entry, Judge, Score } from "@/lib/types";
@@ -20,7 +20,6 @@ type LedOptions = {
   font: LedFont;
   theme: LedTheme;
   shape: LedShape;
-  layout: LedLayout;
 };
 
 /** A choice's radio, unseen over its whole label: the label is drawn as the control, and a tap anywhere on it is the radio's. */
@@ -105,31 +104,25 @@ const SHAPE_SAMPLE: Record<LedShape, number> = { square: 0, soft: 6, round: 14 }
 const TILE = "choice relative flex-col items-stretch gap-1.5 px-1.5 pt-1.5 pb-2 text-center";
 
 /**
- * Everything the wall can be set to, in one compact panel beside the preview: how it's shown (and, as a green screen,
- * which layout), then its colours, font and corners, each choice drawn as what it looks like. Saves on change; the wall
+ * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colours, font
+ * and corners, each choice drawn as what it looks like. Saves on change; the wall
  * follows within seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
  * activity's other settings (they change the live results too).
  */
 function WallSettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
   return (
     <div className="space-y-6">
-      <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
-        <Segmented
-          legend="Display"
-          name="led-display"
-          options={[
-            { value: false, label: "Green screen" },
-            { value: true, label: "Full screen" },
-          ]}
-          value={options.fullscreen}
-          onChange={(fullscreen) => onChange({ fullscreen })}
-          disabled={disabled}
-        />
-        {/* The full screen has one layout of its own. */}
-        {!options.fullscreen && (
-          <Segmented legend="Layout" name="led-layout" options={LED_LAYOUTS} value={options.layout} onChange={(layout) => onChange({ layout })} disabled={disabled} />
-        )}
-      </div>
+      <Segmented
+        legend="Display"
+        name="led-display"
+        options={[
+          { value: false, label: "Green screen" },
+          { value: true, label: "Full screen" },
+        ]}
+        value={options.fullscreen}
+        onChange={(fullscreen) => onChange({ fullscreen })}
+        disabled={disabled}
+      />
       <fieldset>
         {/* Swatches alone, so all thirteen fit in two rows: the chosen one is named beside the legend, every one on hover. */}
         <legend className="label">
@@ -195,7 +188,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       font: activity.ledFont,
       theme: activity.ledTheme,
       shape: activity.ledShape,
-      layout: activity.ledLayout,
     },
     (current, change) => ({ ...current, ...change }),
   );
@@ -222,7 +214,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ledFont: options.font,
       ledTheme: options.theme,
       ledShape: options.shape,
-      ledLayout: options.layout,
     },
   };
 

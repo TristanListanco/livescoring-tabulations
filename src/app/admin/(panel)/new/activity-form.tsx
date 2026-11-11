@@ -350,7 +350,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         {/* One general line of details for each entry, kept for the results: only the organizer sees it. */}
         {withDetails && <input type="hidden" name="entry_field" value="Details" />}
         <EntryRows rows={entries} setRows={setEntries} problemField={ENTRIES_ID} />
-        <p className="hint mt-3 max-w-2xl">Details are for you: they show on the Entries tab and in the results, never to judges or the audience.</p>
+        <p className="hint mt-3 max-w-2xl">Details show under the entry&apos;s name on the LED wall, and on the Entries tab and in the results. Judges don&apos;t see them.</p>
       </Section>
 
       {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}

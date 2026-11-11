@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased, withEntryDetails } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
 import { chairMovesEntries, judgesLocked } from "@/lib/judging";
 import { testToolsAllowed } from "@/lib/environment";
@@ -231,7 +231,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             />
           )}
           {tab === "segments" && pageant && <SegmentsTab board={board} />}
-          {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
+          {tab === "led" && <LedTab board={await withEntryDetails(deskBoard)} ledUrl={ledUrl} />}
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}

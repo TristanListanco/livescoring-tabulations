@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { ledScene } from "./led";
-import { toLedLayout } from "./led-style";
 import { activityFixture } from "./test-fixtures";
 import type { Board } from "./types";
 
@@ -77,14 +76,5 @@ describe("ledScene", () => {
     const scene = ledScene(board({ hold: false, onAir: "e1", scores: [] }));
     if (scene.kind !== "entry") throw new Error("expected an entry");
     expect(scene.average.state).toBe("none");
-  });
-});
-
-describe("toLedLayout", () => {
-  it("reads the photos layout, and anything else (a database from before migration 039) as the slim bar", () => {
-    expect(toLedLayout("photos")).toBe("photos");
-    expect(toLedLayout("bar")).toBe("bar");
-    expect(toLedLayout(undefined)).toBe("bar");
-    expect(toLedLayout("ribbon")).toBe("bar");
   });
 });

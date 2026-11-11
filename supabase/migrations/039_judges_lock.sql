@@ -1,8 +1,4 @@
--- The LED wall's layout, and the panel of judges locked in the database too.
---
--- activities.led_layout: the green screen graphic's layout. 'bar' is the slim bar along the bottom; 'photos' puts the
--- entry's photo above a dark bar, with the judges' photos sitting on it and the average at its end. Activities made
--- before keep the slim bar; new ones start with photos.
+-- The panel of judges locked in the database too.
 --
 -- check_judges_locked: judges can't be added or removed once the session has started, or after it did and the scores
 -- were reset (session_started_at stays set). The server says so first (judgesLocked in src/lib/judging.ts); this holds
@@ -16,16 +12,6 @@ do $migration$
 begin
   if to_regclass('public.activities') is null then
     return;
-  end if;
-
-  if not exists (
-    select 1 from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name = 'led_layout'
-  ) then
-    alter table public.activities add column led_layout text not null default 'bar';
-    alter table public.activities alter column led_layout set default 'photos';
-  end if;
-  if not exists (select 1 from pg_constraint where conname = 'activities_led_layout_check') then
-    alter table public.activities add constraint activities_led_layout_check check (led_layout in ('bar', 'photos'));
   end if;
 
   create or replace function public.check_judges_locked()
