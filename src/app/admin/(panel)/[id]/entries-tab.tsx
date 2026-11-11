@@ -86,30 +86,30 @@ function EntryRow({
           pixels={480}
           label={`Photo for ${entry.name} (optional, shown on the LED wall)`}
           onPick={(photo, url) => changePhoto(photo, url)}
+          onRemove={() => changePhoto(null, null)}
         />
       </div>
       <div className="min-w-56 flex-1 space-y-1">
-        <form action={rename} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label htmlFor={`entry-${entry.id}`} className="sr-only">
-              Entry {number} name
-            </label>
-            <input
-              id={`entry-${entry.id}`}
-              name="name"
-              required
-              maxLength={120}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="field max-w-md"
-            />
-            {/* On a phone it takes no room until there's something to save, so the name has the width. */}
-            <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible max-sm:hidden"}`} pendingLabel="Saving…">
-              Save<span className="sr-only"> {entry.name}</span>
-            </SubmitButton>
-          </div>
+        {/* The name and its details one width, one above the other; Save beside the name, in a column of its own. */}
+        <form action={rename} className="grid grid-cols-[minmax(0,28rem)_auto] items-center gap-x-2 gap-y-2">
+          <label htmlFor={`entry-${entry.id}`} className="sr-only">
+            Entry {number} name
+          </label>
+          <input
+            id={`entry-${entry.id}`}
+            name="name"
+            required
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="field"
+          />
+          {/* On a phone it takes no room until there's something to save, so the name has the width. */}
+          <SubmitButton className={`btn btn-quiet btn-sm ${dirty ? "" : "invisible max-sm:hidden"}`} pendingLabel="Saving…">
+            Save<span className="sr-only"> {entry.name}</span>
+          </SubmitButton>
           {fields.length > 0 && (
-            <div className="flex max-w-md flex-wrap gap-2">
+            <div className="col-start-1 flex flex-wrap gap-2">
               {fields.map((f) => (
                 <input
                   key={f.id}
@@ -119,19 +119,16 @@ function EntryRow({
                   maxLength={MAX_DETAIL}
                   value={values[f.id] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
-                  className="field h-9 min-w-32 flex-1 py-0 text-sm"
+                  className="field h-10 min-w-32 flex-1 py-0 text-sm"
                 />
               ))}
             </div>
           )}
-          <FormMessage state={state?.ok ? null : state} small />
+          <div className="col-span-2 empty:hidden">
+            <FormMessage state={state?.ok ? null : state} small />
+          </div>
         </form>
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
-        {entry.photoUrl && !photoPending && (
-          <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
-            Remove photo<span className="sr-only"> of {entry.name}</span>
-          </button>
-        )}
       </div>
       {/*
         Once the session has started (the note above says so), the order is fixed: no arrows to fade out. An entry that

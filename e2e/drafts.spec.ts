@@ -107,7 +107,7 @@ test.describe.serial("drafts", () => {
     // Back on the candidates, the draft kept their names and Bea's photo.
     await page.getByRole("button", { name: /Candidates \(done, go back\)/ }).click();
     await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Cora");
-    await expect(page.getByRole("button", { name: "Remove photo of Bea" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View photo of Bea" })).toBeVisible();
 
     // A draft that isn't needed anymore can be deleted from the Activities page.
     await page.goto("/admin");

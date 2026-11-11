@@ -7,7 +7,7 @@ import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { criteriaForCheck, typedLowest, type CriterionDraft, type ScoringDraft } from "@/lib/pageant-setup";
 import type { CriteriaDisplay, Decimals, ResultDecimals } from "@/lib/types";
 
-const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
+export const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
   { value: 0, label: "Whole numbers", example: "9" },
   { value: 1, label: "1 decimal place", example: "9.5" },
   { value: 2, label: "2 decimal places", example: "9.75" },
@@ -16,7 +16,7 @@ const DECIMAL_OPTIONS: { value: Decimals; label: string; example: string }[] = [
 ];
 
 export const DEFAULT_RESULT_DECIMALS: ResultDecimals = 2;
-const RESULT_DECIMAL_OPTIONS: ResultDecimals[] = [0, 1, 2, 3, 4];
+export const RESULT_DECIMAL_OPTIONS: ResultDecimals[] = [0, 1, 2, 3, 4];
 
 /**
  * How many decimal places averages and totals show. Rarely changed from 2, so it's under More options, which says the

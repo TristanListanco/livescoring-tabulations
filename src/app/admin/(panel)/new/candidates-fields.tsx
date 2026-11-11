@@ -74,8 +74,8 @@ export function CandidatesFields({
               <li
                 key={c.key}
                 // On phones the row's buttons go under the name, so the name keeps the width. From sm up they sit in a
-                // column wide enough for "Remove photo" too, right-aligned, so every row's arrows line up.
-                className="grid grid-cols-[2.5rem_3rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-2.5 sm:grid-cols-[2.5rem_3rem_minmax(0,28rem)_14rem] sm:pointer-coarse:grid-cols-[2.5rem_3rem_minmax(0,28rem)_17rem]"
+                // column of their own, right-aligned, so every row's arrows line up. (A photo is removed from its dialog.)
+                className="grid grid-cols-[2.5rem_3rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-2.5 sm:grid-cols-[2.5rem_3rem_minmax(0,28rem)_auto]"
               >
                 <span className="tabular text-right font-semibold text-prussian/75">
                   <span className="sr-only">No. </span>
@@ -89,6 +89,7 @@ export function CandidatesFields({
                   pixels={480}
                   label={`Photo for ${label} (optional, shown on the LED wall)`}
                   onPick={(photo, preview) => onChange(c.key, { photo, preview })}
+                  onRemove={() => onChange(c.key, { photo: null, preview: null })}
                 />
                 <div>
                   <label htmlFor={`candidate-${c.key}`} className="sr-only">
@@ -127,11 +128,6 @@ export function CandidatesFields({
                   <FieldProblem fieldId={`candidate-${c.key}`} />
                 </div>
                 <div className="col-start-3 flex items-center justify-end sm:col-start-auto">
-                  {c.photo && (
-                    <button type="button" className="btn btn-sm text-prussian/80 hover:bg-wash" onClick={() => onChange(c.key, { photo: null, preview: null })}>
-                      Remove photo<span className="sr-only"> of {label}</span>
-                    </button>
-                  )}
                   {/* One Tab stop for the three, so Tab goes from name to name; the arrow keys move between them. */}
                   <div role="toolbar" aria-label={`Move or remove ${label}`} className="flex items-center" onKeyDown={roveToolbar}>
                     <button

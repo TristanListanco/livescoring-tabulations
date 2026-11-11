@@ -4,6 +4,7 @@ import { KEY_GREEN } from "@/lib/led";
 import { getPublicBoard, withEntryDetails } from "@/lib/data";
 import type { Board } from "@/lib/types";
 import { LedView } from "./led-view";
+import { hasLedWall } from "@/lib/lifecycle";
 
 export const viewport: Viewport = { themeColor: KEY_GREEN };
 
@@ -13,7 +14,7 @@ export const viewport: Viewport = { themeColor: KEY_GREEN };
  * on the wall (and a wall left open would only keep asking the database for nothing).
  */
 const hasWall = (board: Board | null): board is Board =>
-  !!board && !board.activity.archivedAt && (board.activity.kind === "pageant" || board.activity.liveScoring);
+  !!board && hasLedWall(board.activity);
 
 export async function generateMetadata({ params }: PageProps<"/led/[publicId]">): Promise<Metadata> {
   const board = await getPublicBoard((await params).publicId);

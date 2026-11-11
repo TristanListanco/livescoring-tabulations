@@ -72,7 +72,7 @@ test("twelve candidates' photos go up with the new pageant", async ({ page }) =>
   activityId = new URL(page.url()).pathname.split("/").at(-1)!;
   expect(requests).toBe(3);
   await page.goto(`/admin/${activityId}?tab=entries`);
-  for (const name of CANDIDATES) await expect(page.getByRole("button", { name: `Remove photo of ${name}` })).toBeVisible();
+  for (const name of CANDIDATES) await expect(page.getByRole("button", { name: `View photo of ${name}` })).toBeVisible();
   expect(await photosOf(activityId)).toHaveLength(CANDIDATES.length);
 
   // Deleting the pageant takes its photos with it, just after the page has moved on.

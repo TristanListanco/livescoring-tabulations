@@ -248,15 +248,18 @@ p.archived-list {
     opacity: 0.55;
   }
 }
-.skeleton {
-  border-radius: 0.5rem;
-  background: var(--color-line);
-  opacity: 0.8;
-  animation: skeleton-pulse 1.6s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
+/* In the components layer, so a shape's own corners (rounded-full for a photo or a pill) win over the default. */
+@layer components {
   .skeleton {
-    animation: none;
+    border-radius: 0.5rem;
+    background: var(--color-line);
+    opacity: 0.8;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none;
+    }
   }
 }
 
@@ -936,6 +939,18 @@ dialog::backdrop {
 :root:has(.activity-tabs [data-tab-pending]) .tab-skeleton {
   display: block;
   animation: fade-in 180ms ease-out 150ms both;
+}
+/* Each tab's skeleton is on the page; only the one for the tab being opened shows. */
+.tab-skeleton [data-skeleton-for] {
+  display: none;
+}
+:root:has(.activity-tabs [data-tab-pending="session"]) [data-skeleton-for="session"],
+:root:has(.activity-tabs [data-tab-pending="judges"]) [data-skeleton-for="judges"],
+:root:has(.activity-tabs [data-tab-pending="led"]) [data-skeleton-for="led"],
+:root:has(.activity-tabs [data-tab-pending="entries"]) [data-skeleton-for="entries"],
+:root:has(.activity-tabs [data-tab-pending="segments"]) [data-skeleton-for="segments"],
+:root:has(.activity-tabs [data-tab-pending="settings"]) [data-skeleton-for="settings"] {
+  display: block;
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-pending-run {

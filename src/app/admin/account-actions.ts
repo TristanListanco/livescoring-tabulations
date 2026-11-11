@@ -201,12 +201,12 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
   // handed to the super admin when the account goes.
   await db().from("admin_sessions").delete().eq("admin_id", adminId);
   const { data: owned, error: listError } = await db().from("activities").select("id").eq("owner_id", adminId);
-  if (listError) return err(listError.message);
+  if (listError) return dbErr(listError);
   const activityIds = (owned as { id: string }[]).map((a) => a.id);
   if (activityIds.length) {
     // Judges, entries, scores and devices go with their activity; their photos once the response has been sent.
     const { error: deleteError } = await db().from("activities").delete().in("id", activityIds);
-    if (deleteError) return err(deleteError.message);
+    if (deleteError) return dbErr(deleteError);
     // Their change-feed rows too, so the deleted activities' ids aren't left readable by anyone.
     await db().from("activity_changes").delete().in("activity_id", activityIds);
     after(() => removeActivityPhotos(activityIds));

@@ -70,7 +70,7 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
             </svg>
             Approved<span className="sr-only">: </span>
           </span>
-          <span className="block truncate pl-6 text-prussian/80">{approved.label}</span>
+          <span className="block pl-6 break-words text-prussian/80">{approved.label}</span>
         </p>
       ) : requests.length > 0 ? (
         <p className="flex items-center gap-2 font-semibold text-prussian">
@@ -89,7 +89,7 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
             <span>No device approved</span>
           </span>
           {lastSignedOut && requests.length === 0 && (
-            <span className="block truncate pl-6">
+            <span className="block pl-6 break-words">
               <span className="sr-only">. </span>Last device signed out: {lastSignedOut.label}
             </span>
           )}
@@ -120,7 +120,7 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
                   Deny
                 </button>
               </div>
-              <p className="truncate text-prussian/75">{d.label}</p>
+              <p className="break-words text-prussian/75">{d.label}</p>
             </li>
           ))}
           {approved && <li className="hint text-sm">Approving another device signs out {approved.label}.</li>}

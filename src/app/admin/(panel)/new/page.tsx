@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { getDraft } from "@/lib/data";
-import { pageantsAvailable } from "@/lib/environment";
 import { requireAdmin } from "@/lib/session";
 import { NewActivity } from "./new-activity";
 import { BackLink } from "../back-link";
@@ -23,7 +22,6 @@ export default async function NewActivityPage({ searchParams }: PageProps<"/admi
         key={draft?.id ?? "new"}
         draft={draft ? { id: draft.id, kind: draft.kind, data: draft.data, savedAt: draft.updatedAt } : null}
         missingDraft={draftId !== null && !draft}
-        pageantsOpen={pageantsAvailable()}
       />
     </>
   );

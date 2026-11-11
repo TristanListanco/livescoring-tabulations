@@ -1,4 +1,5 @@
 import type { Activity } from "@/lib/types";
+import { scoresGoOutLive } from "@/lib/lifecycle";
 
 /**
  * In the order of an event day: what runs the show (the session desk, the judges and their devices, the LED wall),
@@ -44,7 +45,8 @@ export const askedTab = (requested: string | string[] | undefined) => (typeof re
  * too), with checking a CSV and deleting it under them.
  */
 export function activityTabs(activity: Pick<Activity, "kind" | "archivedAt" | "sessionState" | "liveScoring">, asked: string | undefined) {
-  const all = activity.kind === "pageant" ? PAGEANT_TABS : activity.liveScoring ? TABS : TABS.filter((t) => t.id !== "led");
+  // An LED wall only where scores go out live (see scoresGoOutLive in lifecycle.ts).
+  const all = activity.kind === "pageant" ? PAGEANT_TABS : scoresGoOutLive(activity) ? TABS : TABS.filter((t) => t.id !== "led");
   const tabs =
     activity.archivedAt !== null
       ? all.filter((t) => t.id === "session").map((t) => ({ ...t, label: "Results" }))

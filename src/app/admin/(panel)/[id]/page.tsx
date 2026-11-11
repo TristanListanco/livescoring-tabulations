@@ -27,6 +27,7 @@ import { SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 import { activityTabs, askedTab } from "./tabs";
 import { PanelSkeleton } from "../skeletons";
+import { archiveBlocked, scoresGoOutLive } from "@/lib/lifecycle";
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -136,7 +137,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               scroll={false}
               className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
             >
-              <SessionStatus state={activity.sessionState} onAir={activity.kind === "pageant" || activity.liveScoring} pulse />
+              <SessionStatus state={activity.sessionState} onAir={scoresGoOutLive(activity)} pulse />
             </Link>
           )}
           {!archived && waitingDevices > 0 && (
@@ -170,7 +171,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           <ul className="grid grid-cols-6 gap-1 rounded-[1.375rem] bg-wash p-1 md:flex md:w-max md:max-w-full md:flex-wrap md:rounded-full">
             {tabs.map((t) => (
               <li key={t.id} className={span.get(t.id)}>
-                <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} active={t.id === tab}>
+                <TabLink look="pill" href={`/admin/${activity.id}?tab=${t.id}`} tab={t.id} active={t.id === tab}>
                   {t.label}
                 </TabLink>
               </li>
@@ -237,6 +238,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               activity={activity}
               developer={testToolsAllowed()}
               scoreCount={scores.length}
+              archiveBlocked={archiveBlocked(activity, progress)}
               signatories={settingsSignatories ?? []}
               organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}
             />

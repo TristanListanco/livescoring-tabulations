@@ -18,7 +18,7 @@ export async function ActivityTree({ id, requested, away = false }: { id: string
   const { tabs, tab } = activityTabs(activity, askedTab(requested));
   const links = tabs.map((t, i) => (
     <li key={t.id} className={i > 0 && tabs[i - 1].group !== t.group ? "mt-2" : undefined}>
-      <TabLink look="tree" href={`/admin/${activity.id}?tab=${t.id}`} active={!away && t.id === tab}>
+      <TabLink look="tree" href={`/admin/${activity.id}?tab=${t.id}`} tab={t.id} active={!away && t.id === tab}>
         {t.label}
       </TabLink>
     </li>

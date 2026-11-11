@@ -10,10 +10,30 @@ const KEYLEN = 64;
 
 export { MIN_PASSWORD_LENGTH } from "./password-rules";
 
+/**
+ * Hashing a password is slow on purpose (scrypt, 16 MB) and runs on Node's small shared pool of worker threads, which
+ * also looks up the database's address for every request. At most two at a time, so a burst of sign-in attempts waits
+ * its turn instead of holding up judges' scores. A finished check hands its place straight to the next one waiting.
+ */
+const MAX_HASHING = 2;
+let hashing = 0;
+const waiting: (() => void)[] = [];
+export async function oneOfFew<T>(work: () => Promise<T>): Promise<T> {
+  if (hashing < MAX_HASHING) hashing++;
+  else await new Promise<void>((take) => waiting.push(take));
+  try {
+    return await work();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else hashing--;
+  }
+}
+
 /** scrypt with a random salt, stored as `scrypt$N$r$p$salt$hash` (base64url). */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const key = await scrypt(password, salt, KEYLEN, { N, r: R, p: P });
+  const key = await oneOfFew(() => scrypt(password, salt, KEYLEN, { N, r: R, p: P }));
   return ["scrypt", N, R, P, salt.toString("base64url"), key.toString("base64url")].join("$");
 }
 
@@ -21,7 +41,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const [scheme, n, r, p, saltText, hashText] = stored.split("$");
   if (scheme !== "scrypt" || !saltText || !hashText) return false;
   const expected = Buffer.from(hashText, "base64url");
-  const key = await scrypt(password, Buffer.from(saltText, "base64url"), expected.length, { N: Number(n), r: Number(r), p: Number(p) });
+  const key = await oneOfFew(() => scrypt(password, Buffer.from(saltText, "base64url"), expected.length, { N: Number(n), r: Number(r), p: Number(p) }));
   return key.length === expected.length && timingSafeEqual(key, expected);
 }
 

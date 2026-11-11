@@ -57,6 +57,16 @@ test.describe.serial("deliberation", () => {
     // Settings says so, and it can still change before the session starts.
     await page.goto(`${adminPath}?tab=settings`);
     await expect(page.getByRole("switch", { name: "Show scores live" })).toHaveAttribute("aria-checked", "false");
+    // So can the decimal places judges score with, until the session starts: changed and changed back, saved each time.
+    const places = page.getByRole("group", { name: "Judges score with" });
+    await expect(places.getByRole("radio", { name: /^3 decimal places/ })).toBeChecked();
+    await places.getByRole("radio", { name: /^2 decimal places/ }).check();
+    await page.getByRole("button", { name: "Save decimal places" }).click();
+    await expect(page.getByText("Decimal places saved", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save decimal places" })).toHaveCount(0);
+    await places.getByRole("radio", { name: /^3 decimal places/ }).check();
+    await page.getByRole("button", { name: "Save decimal places" }).click();
+    await expect(page.getByRole("button", { name: "Save decimal places" })).toHaveCount(0);
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByText(/Live scoring is off, so the judges deliberate and sign before the results show/)).toBeVisible();
     livePath = await screenPath(page, "Open live results");

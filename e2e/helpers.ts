@@ -135,8 +135,9 @@ export async function exportFile(page: Page, file: string, menu = "Export") {
 
 /** The judges' codes on an activity's Judges tab, once they're there: a new activity opens on its skeleton first. */
 export async function judgeCodes(page: Page): Promise<string[]> {
+  // Each judge's code is in their Sign-in dialog (closed, but on the page).
   const codes = page.locator("p").filter({ hasText: /^Judge code [A-Z0-9]{6}$/ });
-  await expect(codes.first()).toBeVisible({ timeout: 20_000 });
+  await expect(codes.first()).toBeAttached({ timeout: 20_000 });
   return (await codes.allTextContents()).map((t) => t.replace("Judge code ", ""));
 }
 

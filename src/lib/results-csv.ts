@@ -28,7 +28,7 @@ export function renderCsv(
     ...(meta.reportId ? [["Report ID", meta.reportId]] : []),
     ["Exported", meta.exportedAt],
     [FINGERPRINT, fingerprint],
-    ["Note", "A read-only copy: any change to the rows below stops them matching the fingerprint. Check a copy on the Session tab."],
+    ["Note", "A read-only copy. The fingerprint is of the rows below: to check a copy, export the results again and compare the two fingerprints."],
   ];
   return { text: BOM + header.map(csvRow).join(LINE) + LINE + LINE + rows + LINE, fingerprint };
 }

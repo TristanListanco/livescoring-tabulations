@@ -48,13 +48,9 @@ export function EditOrganizer({
                   currentUrl={photoPending ? preview : organizer.photoUrl}
                   size={80}
                   onPick={(blob, url) => changePhoto(blob, url)}
+                  onRemove={() => changePhoto(null, null)}
                 />
               </div>
-              {organizer.photoUrl && !photoPending && (
-                <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
-                  Remove photo
-                </button>
-              )}
               <FormMessage state={photoState} />
             </div>
             <div className="min-w-64 flex-1 space-y-4">

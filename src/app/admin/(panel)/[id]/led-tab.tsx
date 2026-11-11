@@ -3,7 +3,7 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
 import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
-import { LED_FONTS, LED_SHAPES, LED_THEMES, ledFontFamily, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
+import { LED_FONTS, LED_THEMES, ledFontFamily, type LedFont, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { reach } from "@/lib/reach";
 import type { Board, Entry, Judge, Score } from "@/lib/types";
@@ -19,13 +19,12 @@ type LedOptions = {
   anonymous: boolean;
   font: LedFont;
   theme: LedTheme;
-  shape: LedShape;
 };
 
 /** A choice's radio, unseen over its whole label: the label is drawn as the control, and a tap anywhere on it is the radio's. */
 const COVER = "absolute inset-0 size-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed";
 
-/** One of a few choices, side by side in a pill, the chosen one filled: Display, Layout and Corners. */
+/** One of a few choices, side by side in a pill, the chosen one filled: the Display. */
 function Segmented<T extends string | boolean>({
   legend,
   name,
@@ -97,16 +96,13 @@ function useSample(board: Board, playing: boolean): Board {
   return { ...board, judges, entries: board.entries.length ? board.entries : [entry], scores, activity: { ...activity, ledEntryId: entry.id } };
 }
 
-/** Corner radius for the small shape on each corner choice, in pixels. */
-const SHAPE_SAMPLE: Record<LedShape, number> = { square: 0, soft: 6, round: 14 };
-
 /** A font drawn as a tile, its sample over its name: the tile is the target, filled when chosen (see .choice). */
 const TILE = "choice relative flex-col items-stretch gap-1.5 px-1.5 pt-1.5 pb-2 text-center";
 
 /**
- * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colours, font
- * and corners, each choice drawn as what it looks like. Saves on change; the wall
- * follows within seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
+ * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colour and font,
+ * each choice drawn as what it looks like (its panels are always rounded). Saves on change; the wall follows within
+ * seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
  * activity's other settings (they change the live results too).
  */
 function WallSettings({ options, onChange, disabled }: { options: LedOptions; onChange: (next: Partial<LedOptions>) => void; disabled: boolean }) {
@@ -124,14 +120,14 @@ function WallSettings({ options, onChange, disabled }: { options: LedOptions; on
         disabled={disabled}
       />
       <fieldset>
-        {/* Swatches alone, so all thirteen fit in two rows: the chosen one is named beside the legend, every one on hover. */}
+        {/* Swatches alone, so all ten fit in two rows: the chosen one is named beside the legend, every one on hover. */}
         <legend className="label">
           Colour{" "}
           <span aria-hidden className="font-normal text-prussian/75">
             · {LED_THEMES.find((t) => t.value === options.theme)?.label}
           </span>
         </legend>
-        <div className="grid grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5">
           {LED_THEMES.map((t) => (
             <label key={t.value} title={t.label} className="choice relative p-1">
               <input type="radio" name="led-theme" className={COVER} checked={options.theme === t.value} onChange={() => onChange({ theme: t.value })} disabled={disabled} />
@@ -161,18 +157,6 @@ function WallSettings({ options, onChange, disabled }: { options: LedOptions; on
           ))}
         </div>
       </fieldset>
-      <Segmented
-        legend="Corners"
-        name="led-shape"
-        options={LED_SHAPES.map((shape) => ({
-          value: shape.value,
-          label: shape.label,
-          icon: <span aria-hidden className="block h-3.5 w-5 shrink-0 border-2 border-current" style={{ borderRadius: SHAPE_SAMPLE[shape.value] / 2 }} />,
-        }))}
-        value={options.shape}
-        onChange={(shape) => onChange({ shape })}
-        disabled={disabled}
-      />
     </div>
   );
 }
@@ -187,7 +171,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       anonymous: activity.ledAnonymous,
       font: activity.ledFont,
       theme: activity.ledTheme,
-      shape: activity.ledShape,
     },
     (current, change) => ({ ...current, ...change }),
   );
@@ -213,7 +196,6 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ledAnonymous: options.anonymous,
       ledFont: options.font,
       ledTheme: options.theme,
-      ledShape: options.shape,
     },
   };
 

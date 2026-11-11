@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { CopyButton } from "./copy-button";
 import { Qr } from "./qr";
 
 type OrientationPermission = { requestPermission?: () => Promise<"granted" | "denied"> };
@@ -48,8 +49,11 @@ export function QrDialog({
   title,
   svg,
   label,
+  link,
   children,
 }: {
+  /** The address the QR code opens, shown under it with Copy link: to send it rather than show it. */
+  link?: string;
   /** The button's text; with the QR glyph before it. */
   trigger: ReactNode;
   triggerClassName: string;
@@ -107,6 +111,14 @@ export function QrDialog({
             )}
           </div>
           <div className="mt-4 leading-relaxed text-balance text-prussian/75">{children}</div>
+          {link && (
+            <div className="mt-4 flex items-center gap-2 text-left">
+              <code className="tabular min-w-0 flex-1 truncate rounded-full border border-line bg-white px-3.5 py-2 text-sm" title={link}>
+                {link.replace(/^https?:\/\//, "")}
+              </code>
+              <CopyButton value={link} label="Copy link" ariaLabel={`Copy link: ${link}`} className="btn btn-quiet btn-sm shrink-0" />
+            </div>
+          )}
           <button type="button" className="btn btn-quiet mt-6 w-full" onClick={close}>
             Close
           </button>

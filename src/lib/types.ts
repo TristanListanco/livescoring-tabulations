@@ -1,4 +1,4 @@
-import type { LedFont, LedShape, LedTheme } from "./led-style";
+import type { LedFont, LedTheme } from "./led-style";
 
 /** Decimal places judges enter scores with. Three only for events; a pageant's sub-activities use 0 to 2. */
 export type Decimals = 0 | 1 | 2 | 3;
@@ -96,7 +96,6 @@ export type Activity = {
   /** The LED wall's look: its font, colour theme and how rounded its panels are (see led-style.ts). */
   ledFont: LedFont;
   ledTheme: LedTheme;
-  ledShape: LedShape;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;
@@ -269,4 +268,8 @@ export type ScoredMark = { entryId: string; judgeId: string; roundId: string | n
  */
 export type JudgeSignature = { judgeId: string; method: "drawn" | "checked"; drawing: string | null; signedAt: string };
 
-export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
+/**
+ * What an action did. A refusal can carry a `code` for the screen to act on rather than its words, which may change:
+ * "draft-gone", the draft being created was already created or deleted in another window.
+ */
+export type ActionResult = { ok: true; message?: string } | { ok: false; error: string; code?: "draft-gone" };
