@@ -18,6 +18,11 @@
   /* On air: the tally-light red of a live session. Only ever a dot, never text, so 3:1 is enough. */
   --color-tally: #e5484d;
   /*
+   * Judging without live scoring: the session is on, but the scores stay with the judges until they've deliberated, so
+   * it isn't "on air". A teal dot, apart from live's red: at least 3:1 on the panel's backgrounds in both themes.
+   */
+  --color-judging: #0f8a7a;
+  /*
    * Errors and warnings on the navy surfaces (the session desk, the judges' screens), where --color-danger is
    * too dark to read. Those surfaces keep their colours in dark mode, so this has no dark variant.
    */
@@ -774,15 +779,13 @@ html:has(.share-ledger) {
     }
   }
   /*
-   * A judge's screen. While the entry on it has a scoring timer running, the whole screen takes the timer's colour
-   * (green, yellow as it's about to close, red once it has), so a judge sees where it stands without reading it, even
-   * from the corner of their eye; it's navy before the entry is shown and again once they've scored it.
+   * A judge's screen. While the entry on it has a scoring timer running, the screen takes a deep shade of the timer's
+   * colour (green, amber as it's about to close, red once it has), so a judge sees where it stands from the corner of
+   * their eye without a bright colour glaring up at them all show; it's navy before the entry is shown and again once
+   * they've scored it. The bright colour itself is saved for the timer bar, which says it loudly.
    *
-   * On the colour, text, hairlines and hover fills are in that colour's own deep ink (--judge-ink), so each screen reads
-   * as one colour printed in its own ink: navy text beside it looks like a second ink, and navy mixed into green, yellow
-   * or red turns muddy. The pieces set on it (.navy: the keypad, the readout, the criteria, the notes box) turn light,
-   * the colour seen through white, with the ink on them: dark navy blocks on a bright colour strain the eye. The few
-   * dark things are in the ink too: the timer bar, the main button, Assist me. Dialogs keep their usual colours.
+   * On the shade, everything reads as it does on navy: light mint text, keys and rows a little lighter than the screen
+   * (white over it, as oxford is over navy), the main button mint with navy text. Dialogs keep their usual colours.
    */
   .judge-screen {
     --judge-screen: var(--color-prussian);
@@ -790,55 +793,24 @@ html:has(.share-ledger) {
     transition: background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .judge-screen[data-timer] {
-    --color-mint: var(--judge-ink);
-    --color-powder: color-mix(in srgb, var(--judge-ink) 85%, var(--judge-screen));
-    --color-oxford: color-mix(in srgb, var(--judge-ink) 40%, transparent);
-    --color-danger-soft: #8c1d17;
+    --color-oxford: rgb(255 255 255 / 0.1);
+    --color-regal: rgb(255 255 255 / 0.22);
+    --color-powder: color-mix(in oklab, var(--color-mint) 78%, var(--judge-screen));
   }
-  /* Each ink is 6:1 or more on its colour, and the quieter text (85% of it) 4.8:1 or more; errors are 5.2:1. */
+  /* Mint text is 7:1 or more on each shade, and the quieter text 4.5:1 or more. */
   .judge-screen[data-timer="open"] {
-    --judge-screen: var(--color-go);
-    --judge-ink: #0a371b;
+    --judge-screen: oklch(0.33 0.07 155);
   }
   .judge-screen[data-timer="closing"] {
-    --judge-screen: var(--color-caution);
-    --judge-ink: #462400;
+    --judge-screen: oklch(0.38 0.075 70);
   }
-  /* On red, an error in red wouldn't read: in the ink, with its warning sign. */
   .judge-screen[data-timer="closed"] {
-    --judge-screen: var(--color-stop);
-    --judge-ink: #2e100d;
-    --color-danger-soft: var(--judge-ink);
+    --judge-screen: oklch(0.34 0.09 25);
   }
   .judge-screen[data-timer] dialog {
-    --color-mint: #eef4ed;
     --color-powder: #8da9c4;
     --color-oxford: #13315c;
-    --color-danger-soft: #f4b4ae;
-  }
-  /*
-   * Inside a piece the palette turns over: mint (its text, and the main button's fill) is the ink; prussian (text on
-   * that fill, and light fills) is white; oxford, the keys' and rows' fill, is white over the colour; regal, a pressed
-   * key or the chosen criterion, nearly white.
-   */
-  .judge-screen[data-timer] :is(.navy, textarea) {
-    --color-mint: var(--judge-ink);
-    --color-prussian: #fff;
-    --color-oxford: rgb(255 255 255 / 0.6);
-    --color-regal: rgb(255 255 255 / 0.9);
-    --color-powder: color-mix(in srgb, var(--judge-ink) 80%, #fff);
-    --color-white: color-mix(in srgb, var(--judge-ink) 82%, #fff);
-    --color-danger-soft: #8c1d17;
-    color: var(--color-mint);
-  }
-  /*
-   * The main button while it can't be pressed (nothing typed yet, or time's up): only its outline, in the colour's shade,
-   * so it isn't taken for one more navy key. It fills white once there's a score to submit.
-   */
-  .judge-screen[data-timer] .navy:disabled {
-    --color-oxford: transparent;
-    --color-powder: var(--judge-ink);
-    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--judge-ink) 45%, transparent);
+    --color-regal: #134074;
   }
 }
 

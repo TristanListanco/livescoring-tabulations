@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { choosePhoto, deleteActivityNamed, deleteDraftsNamed, signInAsSuperAdmin } from "./helpers";
+import { choosePhoto, deleteActivityNamed, deleteDraftsNamed, signInAsSuperAdmin, fillEntries, pickScoring } from "./helpers";
 
 // Setting up an activity can be saved as a draft and finished later, and leaving with unsaved changes asks first.
 const RUN = Date.now().toString(36);
 const EVENT = `E2E Draft ${RUN}`;
 const EDITED = `${EVENT} edited`;
 const PAGEANT = `E2E Draft Pageant ${RUN}`;
+const TWICE = `E2E Draft twice ${RUN}`;
 
 /** The "Activities" link above the form (not the one in the header). */
 const backToActivities = (page: Page) => page.getByRole("navigation", { name: "Admin" }).getByRole("link", { name: "Activities", exact: true });
@@ -20,7 +21,7 @@ const promptsOnUnload = (page: Page) =>
 
 test.describe.serial("drafts", () => {
   test.afterAll(async () => {
-    for (const name of [EVENT, EDITED, PAGEANT]) {
+    for (const name of [EVENT, EDITED, PAGEANT, TWICE]) {
       await deleteDraftsNamed(name);
       await deleteActivityNamed(name);
     }
@@ -73,8 +74,9 @@ test.describe.serial("drafts", () => {
     await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 2 first name").fill("Ben");
     await page.getByLabel("Judge 2 last name").fill("Torres");
+    await pickScoring(page, { live: false });
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-    await page.getByLabel("Entry names, one per line").fill("Agila");
+    await fillEntries(page, ["Agila"]);
     await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
     await expect(page).toHaveURL(/\/admin\/[0-9a-f-]{36}$/, { timeout: 20_000 });
@@ -126,5 +128,32 @@ test.describe.serial("drafts", () => {
     await page.getByRole("radio", { name: /^Pageant/ }).click();
     await leaveDialog(page).getByRole("button", { name: "Leave without saving" }).click();
     await expect(page.getByLabel("Pageant name")).toBeVisible();
+  });
+
+  test("the same draft open in two windows: the one opened before a save is told, not saved over it", async ({ page, browser }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto("/admin/new");
+    await page.getByLabel("Name", { exact: true }).fill(TWICE);
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/new\?draft=[0-9a-f-]{36}$/);
+
+    // Opened in a second window (another laptop at the desk, signed in to the same account).
+    const other = await (await browser.newContext()).newPage();
+    await signInAsSuperAdmin(other);
+    await other.goto(page.url());
+    await expect(other.getByLabel("Name", { exact: true })).toHaveValue(TWICE);
+
+    // The first window saves a change; the second's save would undo it, so it says so instead.
+    await page.getByLabel("Location").fill("Gym");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByRole("status").filter({ hasText: /^Draft saved at / })).toBeVisible();
+    await other.getByLabel("Location").fill("Hall");
+    await other.getByRole("button", { name: "Save draft" }).click();
+    await expect(other.getByText("This draft was changed in another window since you opened it. Open it again from your activities to see those changes.")).toBeVisible();
+
+    // Opened again, it has the first window's change.
+    await other.goto(page.url());
+    await expect(other.getByLabel("Location")).toHaveValue("Gym");
+    await other.context().close();
   });
 });

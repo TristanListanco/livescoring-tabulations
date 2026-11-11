@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newFileTag } from "@/lib/codes";
+import { accountInUse } from "@/lib/in-use-server";
 import { getAdminCredentials } from "@/lib/data";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { MAX_PASSWORD_LENGTH, passwordProblem } from "@/lib/password-rules";
@@ -186,6 +187,15 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
   if (!isUuid(adminId)) return err("Organizer not found.");
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
   if (!current) return err("Organizer not found.");
+  // Not while judges are on one of their activities: deleting it would end the show (or the judges' wait) mid-way.
+  const inUse = await accountInUse(adminId);
+  if (inUse) {
+    return err(
+      inUse.running
+        ? `Their activity ${inUse.name} is running. Delete the organizer once it has ended.`
+        : `Judges are waiting on their activity ${inUse.name}. Delete the organizer once it has ended, or its judges' devices are signed out.`,
+    );
+  }
 
   // Signed out first, everywhere: an activity they created while theirs were being deleted would outlive them,
   // handed to the super admin when the account goes.

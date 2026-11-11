@@ -21,7 +21,7 @@ export default async function NewActivityPage({ searchParams }: PageProps<"/admi
       <NewActivity
         // A fresh form for each draft opened, so its saved state is what the form starts from.
         key={draft?.id ?? "new"}
-        draft={draft ? { id: draft.id, kind: draft.kind, data: draft.data } : null}
+        draft={draft ? { id: draft.id, kind: draft.kind, data: draft.data, savedAt: draft.updatedAt } : null}
         missingDraft={draftId !== null && !draft}
         pageantsOpen={pageantsAvailable()}
       />

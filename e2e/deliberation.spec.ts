@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // An event without live scoring, scored to three decimal places. The audience sees no scores until the judges have
 // deliberated and signed, and there's no LED wall; a judge corrects their own score, saying why, until they sign.
@@ -33,9 +33,10 @@ test.describe.serial("deliberation", () => {
     await signInAsSuperAdmin(page);
     await page.goto("/admin/new");
     await page.getByLabel("Name", { exact: true }).fill(NAME);
-    await page.getByRole("group", { name: "Judges score with" }).getByRole("radio", { name: /^3 decimal places/ }).check();
-    // A new event starts without live scoring.
-    await expect(page.getByRole("checkbox", { name: /Show scores live/ })).not.toBeChecked();
+    // When the results go out starts unpicked: this one after a deliberation.
+    await expect(page.getByRole("radio", { name: /^After a deliberation/ })).not.toBeChecked();
+    await expect(page.getByRole("radio", { name: /^Live results/ })).not.toBeChecked();
+    await pickScoring(page, { decimals: "3 decimal places", live: false });
     // Judges seeing the ranking while they deliberate is offered, and off unless ticked (it's turned on later, in Settings).
     await expect(page.getByRole("checkbox", { name: /Judges see the overall ranking while they deliberate/ })).not.toBeChecked();
     await page.getByRole("button", { name: "Remove judge 3" }).click();
@@ -44,7 +45,7 @@ test.describe.serial("deliberation", () => {
     await page.getByLabel("Judge 2 first name").fill("Ben");
     await page.getByLabel("Judge 2 last name").fill("Torres");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 2" }).check();
-    await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis");
+    await fillEntries(page, ["Agila", "Bagwis"]);
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();
@@ -80,6 +81,8 @@ test.describe.serial("deliberation", () => {
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
+    // Without live scoring it's judging, not live: the header says so, in its own colour.
+    await expect(page.getByRole("link", { name: "Judging", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Show first entry" }).click();
 
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Agila", REALTIME);
@@ -222,7 +225,7 @@ test.describe.serial("deliberation", () => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=settings`);
     await page.getByRole("switch", { name: "Judges see the overall ranking while they deliberate" }).click();
-    await expect(page.getByText("Judges see the ranking while they deliberate.")).toBeVisible();
+    await expect(page.getByText("Judges see the ranking while they deliberate", { exact: true })).toBeVisible();
 
     // Rank, entry and average, the tie broken by Ana's corrected score. Never another judge's score.
     const ranking = ana.getByRole("region", { name: "Overall ranking" });
@@ -240,7 +243,7 @@ test.describe.serial("deliberation", () => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("note")).toHaveText("The judges are deliberating, so no entries can be added. Names can still be corrected.");
-    await expect(page.getByLabel("Add entries, one per line")).toHaveCount(0);
+    await expect(page.getByLabel("New entry 1 name")).toHaveCount(0);
   });
 
   test("each judge reviews their scores and signs, then the organizer signs the results to end it", async ({ page }) => {

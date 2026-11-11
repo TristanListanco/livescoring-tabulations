@@ -9,9 +9,9 @@ const api = supabaseAdmin()!;
 const activity = { id: randomUUID(), publicId: randomBytes(5).toString("hex") };
 const ENTRIES = 14;
 
-async function rest(path: string, body: unknown) {
+async function rest(path: string, body: unknown, method = "POST") {
   const response = await fetch(`${api.url}/rest/v1/${path}`, {
-    method: "POST",
+    method,
     headers: { ...api.headers, "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify(body),
   });
@@ -19,7 +19,7 @@ async function rest(path: string, body: unknown) {
 }
 
 test.beforeAll(async () => {
-  await rest("activities", { id: activity.id, name: "E2E Projected board", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live", show_rank: true });
+  await rest("activities", { id: activity.id, name: "E2E Projected board", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, show_rank: true });
   const judges = [0, 1, 2].map((position) => ({ id: randomUUID(), first_name: "Judge", last_name: `P${position}`, position }));
   await rest(
     "judges",
@@ -27,6 +27,8 @@ test.beforeAll(async () => {
   );
   const entries = Array.from({ length: ENTRIES }, (_, i) => ({ id: randomUUID(), activity_id: activity.id, name: `Crew ${i + 1}`, position: i }));
   await rest("entries", entries);
+  // Judges join while it's not started: once it has, the panel is locked, in the database too.
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "live" }, "PATCH");
   // Every score but the third judge's for the last entry, which comes in during a test.
   await rest(
     "scores",

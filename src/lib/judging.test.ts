@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryNeighbors, eventTimer, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns } from "./judging";
+import { entryNeighbors, eventTimer, judgesLocked, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns } from "./judging";
 import { activityFixture } from "./test-fixtures";
 
 const entries = [
@@ -119,5 +119,15 @@ describe("an event's scoring timer", () => {
     expect(showColumns(board({}), "e1", now)).toEqual({ columns: { current_entry_id: "e1", led_entry_id: "e1" } });
     expect(eventTimer(activityFixture({ timerSeconds: 30, liveScoring: false, independentScoring: true }))).toBeNull();
     expect(eventTimer(activityFixture({ timerSeconds: 30, kind: "pageant" }))).toBeNull();
+  });
+});
+
+describe("judgesLocked", () => {
+  it("locks the panel once judging has started, and keeps it locked after the scores are reset", () => {
+    expect(judgesLocked({ sessionState: "draft", sessionStartedAt: null })).toBe(false);
+    expect(judgesLocked({ sessionState: "live", sessionStartedAt: "2026-11-08T00:00:00Z" })).toBe(true);
+    expect(judgesLocked({ sessionState: "ended", sessionStartedAt: "2026-11-08T00:00:00Z" })).toBe(true);
+    // Reset: back to not started, but it started once.
+    expect(judgesLocked({ sessionState: "draft", sessionStartedAt: "2026-11-08T00:00:00Z" })).toBe(true);
   });
 });

@@ -31,6 +31,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     privacyScreen: false,
     sessionState: "draft",
     sessionEndedAt: null,
+    sessionStartedAt: null,
     signedOffAt: null,
     archivedAt: null,
     currentEntryId: null,

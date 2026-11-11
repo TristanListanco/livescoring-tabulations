@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { notFound } from "next/navigation";
 import { KEY_GREEN } from "@/lib/led";
-import { getPublicBoard } from "@/lib/data";
+import { getPublicBoard, withEntryDetails } from "@/lib/data";
 import type { Board } from "@/lib/types";
 import { LedView } from "./led-view";
 
@@ -25,5 +25,6 @@ export async function generateMetadata({ params }: PageProps<"/led/[publicId]">)
 export default async function LedPage({ params }: PageProps<"/led/[publicId]">) {
   const board = await getPublicBoard((await params).publicId);
   if (!hasWall(board)) notFound();
-  return <LedView board={board} />;
+  // The wall shows each entry's details under its name; the live results page doesn't, so they're added here alone.
+  return <LedView board={await withEntryDetails(board)} />;
 }

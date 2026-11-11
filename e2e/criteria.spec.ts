@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -38,9 +38,17 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("radio", { name: /^Criteria/ }).check();
     await page.getByLabel("Criterion 1 name").fill("Innovativeness");
     await page.getByLabel("Criterion 1 max points").fill("30");
-    // A guide for judges: what to look for, shown on their screen while they score the criterion.
-    await page.getByRole("button", { name: "Add guide for judges to criterion 1" }).click();
-    await page.getByLabel("Criterion 1 Guide for judges").fill("Is the idea new?\nDoes it solve a real problem?");
+    // A guide for judges: what to look for, shown on their screen while they score the criterion. Closed, it says there
+    // isn't one yet; opening it puts the cursor in it.
+    const guide = page.getByRole("button", { name: /^Guide for judges on Innovativeness/ });
+    await expect(guide).toHaveAttribute("aria-expanded", "false");
+    await expect(guide).toContainText("None yet");
+    await guide.click();
+    await expect(page.getByLabel("Guide for judges on Innovativeness")).toBeFocused();
+    await page.keyboard.type("Is the idea new?\nDoes it solve a real problem?");
+    // Closed again, it shows how it starts.
+    await guide.click();
+    await expect(guide).toContainText("Is the idea new?");
     await page.getByLabel("Criterion 2 name").fill("Design");
     await page.getByLabel("Criterion 2 max points").fill("60");
     await page.getByRole("group", { name: "Judges give points in" }).getByRole("radio", { name: /1 decimal place/ }).check();
@@ -53,10 +61,9 @@ test.describe.serial("criteria scoring", () => {
     await page.getByRole("button", { name: "Remove judge 2" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
-    await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-    await page.getByLabel("Entry names, one per line").fill("Agila");
-    // New events start without live scoring; this one scores live.
-    await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+    await fillEntries(page, ["Agila"]);
+    // This one scores live.
+    await pickScoring(page, { method: "Criteria", decimals: "1 decimal place", live: true });
 
     // Like a score sheet's "lowest possible score", each criterion can have a lowest score, in points.
     await page.getByLabel("Criterion 1 lowest score").fill("21");
@@ -219,14 +226,13 @@ test.describe.serial("criteria scoring", () => {
     await expect(dialog).toContainText("permanently deletes");
     await dialog.getByRole("button", { name: "Cancel" }).click();
 
-    // Resetting the scores puts the session back to not started.
+    // Resetting the scores, with the password, puts the session back to not started.
     await page.getByRole("button", { name: "Reset scores" }).click();
     dialog = page.getByRole("dialog");
-    await dialog.getByRole("textbox").fill("RESET");
-    await dialog.getByRole("button", { name: "Delete all scores" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "All scores and judges' notes were deleted" })).toHaveText(
-      "All scores and judges' notes were deleted, every judge was signed out, and the session is back to not started.",
-    );
+    await dialog.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await dialog.getByRole("button", { name: "Reset scores" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("link", { name: "Not started" })).toBeVisible();
 
     await page.getByRole("button", { name: "Delete activity" }).click();
     dialog = page.getByRole("dialog");

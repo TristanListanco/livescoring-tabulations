@@ -36,7 +36,6 @@ test.beforeAll(async () => {
     ],
     criteria_display: "percent",
     live_scoring: false,
-    session_state: "live",
   });
   await rest("judges", [
     { id: judges[0], activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true },
@@ -46,6 +45,8 @@ test.beforeAll(async () => {
     { id: entries[0], activity_id: activity.id, name: "Agila", position: 0 },
     { id: entries[1], activity_id: activity.id, name: "Bagwis", position: 1 },
   ]);
+  // Judges join while it's not started: once it has, the panel is locked, in the database too.
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "live" }, "PATCH");
   // Ana has scored Agila; nobody has scored Bagwis yet.
   await rest("scores", { activity_id: activity.id, entry_id: entries[0], judge_id: judges[0], value: 87.5, breakdown: { c1: 52.5, c2: 35 } });
 });

@@ -21,9 +21,11 @@ async function rest(path: string, body: unknown, method = "POST") {
 }
 
 test.beforeAll(async () => {
-  await rest("activities", { id: activity.id, name: "E2E Live cache", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+  await rest("activities", { id: activity.id, name: "E2E Live cache", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2 });
   await rest("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
   await rest("entries", { id: entry, activity_id: activity.id, name: "Agila", position: 0 });
+  // Judges join while it's not started: once it has, the panel is locked, in the database too.
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "live" }, "PATCH");
 });
 
 test.afterAll(async () => {

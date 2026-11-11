@@ -24,7 +24,7 @@ async function rest(path: string, body: unknown, method = "POST") {
 
 test.beforeAll(async () => {
   // The super admin's own activity, live, with the first entry on and every judge's score in for it.
-  await rest("activities", { id: activity.id, name: "E2E Hardened screens", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+  await rest("activities", { id: activity.id, name: "E2E Hardened screens", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2 });
   await rest(
     "judges",
     judges.map(({ id, first_name, last_name, position }) => ({ id, activity_id: activity.id, name: `${first_name} ${last_name}`, first_name, last_name, position, is_chair: position === 0 })),
@@ -33,6 +33,8 @@ test.beforeAll(async () => {
     "entries",
     entries.map((e) => ({ ...e, activity_id: activity.id })),
   );
+  // Judges join while it's not started: once it has, the panel is locked, in the database too.
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "live" }, "PATCH");
   await rest(
     "scores",
     judges.map((j) => ({ activity_id: activity.id, entry_id: entries[0].id, judge_id: j.id, value: 9 })),

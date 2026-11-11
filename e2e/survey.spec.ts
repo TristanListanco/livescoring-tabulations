@@ -31,10 +31,12 @@ test.describe.serial("feedback survey", () => {
   test.skip(!SURVEY_URL, "No survey yet: src/lib/survey.ts has no link.");
 
   test.beforeAll(async () => {
-    await restOk("activities", { id: activity.id, name: `E2E Survey ${RUN}`, public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+    await restOk("activities", { id: activity.id, name: `E2E Survey ${RUN}`, public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2 });
     await restOk("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
     await restOk("judge_access", { judge_id: judge, code: CODE });
     await restOk("entries", { id: randomUUID(), activity_id: activity.id, name: "Agila", position: 0 });
+    // Judges join while it's not started: once it has, the panel is locked, in the database too.
+    await restOk(`activities?id=eq.${activity.id}`, { session_state: "live" }, "PATCH");
     await restOk(`activities?id=eq.${activity.id}`, { session_state: "ended", session_ended_at: new Date().toISOString() }, "PATCH");
   });
 

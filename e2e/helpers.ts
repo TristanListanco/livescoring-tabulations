@@ -49,7 +49,33 @@ export async function openJudgeLink(page: Page, code: string) {
   await expect(page).toHaveURL(/\/judge\/score$/);
 }
 
+/**
+ * Type entries into a list of them (the create form's, or the Entries tab's with `label` "New entry"): each a name, and
+ * optionally its line of details, a row each.
+ */
+export async function fillEntries(page: Page, entries: (string | { name: string; details?: string })[], label = "Entry") {
+  for (const [i, entry] of entries.entries()) {
+    const { name, details } = typeof entry === "string" ? { name: entry, details: "" } : entry;
+    if (i > 0) await page.getByRole("button", { name: "Add an entry" }).click();
+    await page.getByLabel(`${label} ${i + 1} name`, { exact: true }).fill(name);
+    if (details) await page.getByLabel(`Details for ${name}`, { exact: true }).fill(details);
+  }
+}
+
 /** Tap a score into the judge keypad. */
+/**
+ * The create form's picks that start unpicked: how judges score, the decimal places, and when the results go out
+ * (`live`: as each score comes in, with no chair; otherwise after a deliberation, with a chair to choose).
+ */
+export async function pickScoring(page: Page, { method = "Simple", decimals = "2 decimal places", live }: { method?: "Simple" | "Criteria"; decimals?: string; live: boolean }) {
+  await page.getByRole("radio", { name: new RegExp(`^${method}`) }).check();
+  await page
+    .getByRole("group", { name: /^(Judges score with|Judges give points in)$/ })
+    .getByRole("radio", { name: new RegExp(`^${decimals}`) })
+    .check();
+  await page.getByRole("radio", { name: live ? /^Live results/ : /^After a deliberation/ }).check();
+}
+
 export async function tapScore(page: Page, score: string) {
   for (const ch of score) {
     await page.getByRole("button", { name: ch === "." ? "Decimal point" : ch, exact: true }).click();

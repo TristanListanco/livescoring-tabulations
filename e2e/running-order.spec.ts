@@ -58,7 +58,7 @@ test.describe.serial("running order", () => {
       const status = page.getByRole("status").filter({ hasText: /^Shuffled\. .+ is now first\.$/ });
       await expect(status).toBeVisible();
       const first = (await status.textContent())!.replace(/^Shuffled\. (.+) is now first\.$/, "$1");
-      await expect(page.getByLabel("Entry 1 name")).toHaveValue(first);
+      await expect(page.getByLabel("Entry 1 name", { exact: true })).toHaveValue(first);
       const order = await stored();
       expect([...order].sort()).toEqual(NAMES);
       // The message can come a moment before the list it describes: wait for the list.
@@ -70,7 +70,7 @@ test.describe.serial("running order", () => {
     // Moving an entry by hand afterwards still works, and the message about who's first goes.
     const second = (await stored())[1];
     await page.getByRole("button", { name: `Move ${second} up` }).click();
-    await expect(page.getByLabel("Entry 1 name")).toHaveValue(second);
+    await expect(page.getByLabel("Entry 1 name", { exact: true })).toHaveValue(second);
     await expect(page.getByRole("status").filter({ hasText: /is now first/ })).toHaveCount(0);
     expect((await stored())[0]).toBe(second);
   });
@@ -90,6 +90,19 @@ test.describe.serial("running order", () => {
     test.skip(code === "PGRST202", "This database doesn't have migration 030 yet.");
     expect(code).toBe("55000");
     expect(await stored()).toEqual(before);
+  });
+
+  test("the entry on the judges' screens can't be removed, even before anyone scores it", async ({ page }) => {
+    const [id] = await stored("id");
+    const [name] = await stored();
+    await restOk(`activities?id=eq.${activity.id}`, { current_entry_id: id }, "PATCH");
+    await signInAsSuperAdmin(page);
+    await page.goto(`/admin/${activity.id}?tab=entries`);
+    await page.getByRole("button", { name: `Remove ${name}` }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Remove entry" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("It's on the judges' screens now. Show another entry first, then remove it.");
+    expect(await stored()).toContain(name);
   });
 
   test("only the server can set the order", async () => {

@@ -83,6 +83,27 @@ export async function startOrganizerSession(adminId: string, passwordHash: strin
   (await cookies()).set(ADMIN_COOKIE, token, await cookieOptions(ADMIN_TTL_S));
 }
 
+/** Renewed once less than this is left: a panel left open keeps signing in again, at most every few hours. */
+const RENEW_BELOW_S = 60 * 60 * 8;
+
+/**
+ * Keep the signed-in admin's session open while their panel is in use: a session lasts 12 hours from sign-in, and a
+ * long day (a rehearsal in the morning, the show at night) would otherwise end it mid-show, with the desk going back to
+ * the login page. Once less than 8 hours are left, its row and cookie get 12 more from now. Only a session that's still
+ * open is renewed: one signed out elsewhere, or after a password change, stays ended.
+ */
+export async function renewAdminSession(): Promise<void> {
+  const payload = verifyToken((await cookies()).get(ADMIN_COOKIE)?.value, "admin");
+  if (!payload || payload.exp - Date.now() > RENEW_BELOW_S * 1000) return;
+  if (!(await currentAdmin())) return;
+  const exp = Date.now() + ADMIN_TTL_S * 1000;
+  if (payload.sid && isUuid(payload.sid)) {
+    const { error } = await db().from("admin_sessions").update({ expires_at: new Date(exp).toISOString() }).eq("id", payload.sid);
+    if (error) return;
+  }
+  (await cookies()).set(ADMIN_COOKIE, signToken({ ...payload, exp }), await cookieOptions(ADMIN_TTL_S));
+}
+
 /** Signing out: the session's row goes, so a copy of the cookie stops working too, and then the cookie. */
 export async function endAdminSession() {
   const payload = verifyToken((await cookies()).get(ADMIN_COOKIE)?.value, "admin");

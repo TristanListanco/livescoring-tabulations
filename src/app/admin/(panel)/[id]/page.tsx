@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased } from "@/lib/data";
+import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased, withEntryDetails } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
+import { chairMovesEntries, judgesLocked } from "@/lib/judging";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -124,11 +125,10 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         {/* Under the name: where the session stands (or when it was archived), devices waiting, and where it happens. */}
         <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-2">
           {archived ? (
-            <p className="inline-flex items-center gap-2 rounded-full bg-wash px-3 py-1 text-sm font-semibold">
-              <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-              </svg>
-              Archived {dateFormat.format(new Date(activity.archivedAt!))}
+            // Just the date: it sits under Archived in the sidebar already. Screen readers hear what it's the date of.
+            <p className="text-sm text-prussian/75">
+              <span className="sr-only">Archived </span>
+              <time dateTime={activity.archivedAt!}>{dateFormat.format(new Date(activity.archivedAt!))}</time>
             </p>
           ) : (
             <Link
@@ -136,7 +136,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               scroll={false}
               className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
             >
-              <SessionStatus state={activity.sessionState} pulse />
+              <SessionStatus state={activity.sessionState} onAir={activity.kind === "pageant" || activity.liveScoring} pulse />
             </Link>
           )}
           {!archived && waitingDevices > 0 && (
@@ -189,13 +189,16 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               activityId={activity.id}
               devices={devices}
               origin={origin}
-              judges={judges}
+              // With live scoring there's no chair (only the organizer moves between entries), even one set before.
+              judges={chairMovesEntries(activity) ? judges : judges.map((j) => ({ ...j, isChair: false }))}
+              chairs={chairMovesEntries(activity)}
               codes={codes}
               scoredBy={scoredBy}
               entryCount={entries.length}
               // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
               expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
-              locked={started}
+              locked={judgesLocked(activity)}
+              reset={!started && judgesLocked(activity)}
               ended={activity.sessionState === "ended"}
               pageant={pageant}
             />
@@ -228,7 +231,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
             />
           )}
           {tab === "segments" && pageant && <SegmentsTab board={board} />}
-          {tab === "led" && <LedTab board={deskBoard} ledUrl={ledUrl} />}
+          {tab === "led" && <LedTab board={await withEntryDetails(deskBoard)} ledUrl={ledUrl} />}
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}

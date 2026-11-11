@@ -1,8 +1,9 @@
 /**
  * Entry details (migration 033): up to three things an event keeps about each entry besides its name, such as a school,
  * a division or a region. The organizer names the fields; each entry's values are kept by field id, so renaming or
- * removing a field never moves another's values. Only the organizer sees them, on the Entries tab and in the results
- * (PDF and CSV): never the judges or the public pages. Pure, for the forms and the server alike.
+ * removing a field never moves another's values. The organizer sees them on the Entries tab and in the results (PDF
+ * and CSV), and the LED wall shows them under the entry's name: never the judges' screens or the live results page.
+ * Pure, for the forms and the server alike.
  */
 
 export type EntryField = { id: string; name: string };
@@ -10,6 +11,11 @@ export type EntryField = { id: string; name: string };
 export type EntryDetails = Record<string, string>;
 
 export const MAX_ENTRY_FIELDS = 3;
+/**
+ * The one general field new events keep, a line of details about each entry ("Grade 10, St. Mary's"). Older events
+ * may have named up to three fields of their own, which they keep.
+ */
+export const GENERAL_DETAILS = "Details";
 export const MAX_FIELD_NAME = 40;
 export const MAX_DETAIL = 120;
 

@@ -11,10 +11,16 @@ function fit(box: HTMLElement, text: HTMLElement, wrap: boolean, minScale: numbe
   text.style.fontSize = "";
   if (!wrap) {
     text.style.maxWidth = "none";
-    const natural = text.getBoundingClientRect().width;
     const available = box.getBoundingClientRect().width;
+    let natural = text.getBoundingClientRect().width;
+    // Measured again after each shrink: letter spacing set on the box (the LED wall's tracked capitals) is fixed in
+    // pixels by the time the text inherits it, so it doesn't shrink with the letters, and one guess can fall a pixel short.
+    for (let scale = 1, i = 0; i < 3 && natural > available && natural > 0 && scale > minScale; i++) {
+      scale = Math.max(minScale, scale * (available / natural) * 0.98);
+      text.style.fontSize = `${scale}em`;
+      natural = text.getBoundingClientRect().width;
+    }
     text.style.maxWidth = "";
-    if (natural > available && natural > 0) text.style.fontSize = `${Math.max(minScale, (available / natural) * 0.98)}em`;
     return;
   }
   const fits = () => text.scrollHeight <= box.clientHeight + 1 && text.scrollWidth <= text.clientWidth + 1;
@@ -61,7 +67,9 @@ export function FitText({
     if (box.current && text.current) fit(box.current, text.current, wrap, minScale);
   });
 
-  // The screen or stage resizing, and the font arriving after the first fit.
+  // The screen or stage resizing, and a font arriving after the first fit. Any font, whenever it arrives: the LED wall's
+  // own starts loading only once text uses it, after `ready` may have settled, and text fitted to the fallback's
+  // narrower letters is cut off once the real ones are in (until something else redraws it, such as a score coming in).
   useEffect(() => {
     const outer = box.current;
     const inner = text.current;
@@ -70,10 +78,13 @@ export function FitText({
     const observer = new ResizeObserver(refit);
     observer.observe(outer);
     let active = true;
-    void document.fonts?.ready.then(() => active && refit());
+    const fonts = document.fonts;
+    void fonts?.ready.then(() => active && refit());
+    fonts?.addEventListener("loadingdone", refit);
     return () => {
       active = false;
       observer.disconnect();
+      fonts?.removeEventListener("loadingdone", refit);
     };
   }, [wrap, minScale]);
 

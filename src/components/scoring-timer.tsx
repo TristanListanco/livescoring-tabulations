@@ -47,8 +47,8 @@ type TimerBarProps = {
   closedHint?: string;
   compact?: boolean;
   /**
-   * On a judge's screen, which takes the timer's colour itself (see .judge-screen): the bar is in that colour's deep
-   * ink, with a dot and the time left draining in the colour, so it still stands out from the screen around it.
+   * On a judge's screen, which takes a deep shade of the timer's colour (see .judge-screen): the bar is the one bright
+   * thing on it, larger when compact, with the time left said to be left.
    */
   onColour?: boolean;
 };
@@ -68,19 +68,12 @@ export function TimerBar({ state, timerSeconds, closingHint, closedHint, compact
       : { box: "px-3 py-1.5", label: "text-sm", hint: "text-xs", clock: "text-lg" }
     : { box: "px-4 py-3", label: "text-lg", hint: "text-sm", clock: "text-3xl" };
   return (
-    <div
-      className={`relative overflow-hidden rounded-xl ${
-        // On the colour, mint is its ink and prussian white (see .judge-screen): an ink bar with white words.
-        onColour ? "navy bg-mint text-prussian" : `text-prussian ${TONE[state.phase]}`
-      } ${size.box}`}
-    >
+    <div className={`relative overflow-hidden rounded-xl text-prussian ${TONE[state.phase]} ${size.box}`}>
       <div className="flex items-center gap-3">
         {/* Announced when the phase changes; the ticking clock beside it isn't. */}
         <span role="status" className={`min-w-0 flex-1 font-bold ${size.label}`}>
-          {/* On the colour, the words are white (the screen already says which colour), with a dot of it. */}
-          {onColour && <span aria-hidden className={`mr-2 inline-block size-2.5 -translate-y-px rounded-full ${TONE[state.phase]}`} />}
           {LABEL[state.phase]}
-          {hint && <span className={`block font-semibold ${size.hint} ${onColour ? "text-prussian/85" : ""}`}>{hint}</span>}
+          {hint && <span className={`block font-semibold ${size.hint}`}>{hint}</span>}
         </span>
         {running && (
           <span className={`tabular shrink-0 font-bold ${size.clock}`}>
@@ -88,7 +81,7 @@ export function TimerBar({ state, timerSeconds, closingHint, closedHint, compact
             {clock(state.secondsLeft)}
             {/* What the number is, on a judge's screen: the time left to score this entry. */}
             {onColour && (
-              <span aria-hidden className="ml-1.5 text-sm font-semibold text-prussian/70">
+              <span aria-hidden className="ml-1.5 text-sm font-semibold">
                 left
               </span>
             )}
@@ -99,7 +92,7 @@ export function TimerBar({ state, timerSeconds, closingHint, closedHint, compact
       {running && (
         <span aria-hidden className="absolute inset-x-0 bottom-0 h-1 bg-prussian/15">
           <span
-            className={`block h-full transition-[width] duration-300 ease-linear ${onColour ? TONE[state.phase] : "bg-prussian/60"}`}
+            className="block h-full bg-prussian/60 transition-[width] duration-300 ease-linear"
             style={{ width: `${share * 100}%` }}
           />
         </span>

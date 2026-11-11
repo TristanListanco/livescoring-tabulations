@@ -5,15 +5,17 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
+import { judgesLocked } from "@/lib/judging";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
+import { toastOnRedirect, toastSaved } from "../toaster";
 import { Section } from "../section";
 import { SignatoriesEditor } from "../signatories-editor";
 import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
-import { toastOnRedirect } from "../toaster";
+import { ResetScoresButton } from "./reset-scores";
 import { ArchiveButton } from "../archive-controls";
 
 /** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
@@ -22,7 +24,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
   const criteria = activity.scoringMode === "criteria";
   // An event's timer is changeable until judging starts (see EventTimer); then it's one of the rules, shown here.
   const timeLimit: [string, React.ReactNode][] =
-    activity.sessionState === "draft" ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
+    !judgesLocked(activity) ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
   const rows: [string, React.ReactNode][] = activity.kind === "pageant"
     ? [
         ["Method", "Pageant: each sub-activity has its own scoring, on the Segments tab"],
@@ -95,7 +97,7 @@ function EventTimer({ activity }: { activity: Activity }) {
   const seconds = value === "" ? null : Number(value);
   const save = () =>
     startTransition(async () => {
-      setResult(await reach(() => setEventTimer(activity.id, seconds)));
+      setResult(toastSaved(await reach(() => setEventTimer(activity.id, seconds)), seconds === null ? "Time limit turned off" : `Time limit saved: ${seconds} seconds per entry`));
     });
   return (
     <div className="mt-6 border-t border-line pt-5">
@@ -129,7 +131,7 @@ function EventTimer({ activity }: { activity: Activity }) {
             {pending ? "Saving…" : "Save timer"}
           </button>
         )}
-        <FormMessage state={result} small />
+        <FormMessage state={result?.ok ? null : result} small />
       </div>
     </div>
   );
@@ -140,7 +142,10 @@ function EventTimer({ activity }: { activity: Activity }) {
  * starts, so every entry is judged against the same guides; read-only after.
  */
 function CriterionGuides({ activity }: { activity: Activity }) {
-  const [state, action] = useActionState<FormResult, FormData>(updateCriterionGuides.bind(null, activity.id), null);
+  const [state, action] = useActionState<FormResult, FormData>(
+    async (previous, data) => toastSaved(await updateCriterionGuides(activity.id, previous, data), "Guides saved"),
+    null,
+  );
   if (activity.sessionState !== "draft") {
     return (
       <ul className="max-w-2xl space-y-4">
@@ -173,7 +178,7 @@ function CriterionGuides({ activity }: { activity: Activity }) {
       ))}
       <div className="flex flex-wrap items-center gap-4">
         <SubmitButton>Save guides</SubmitButton>
-        <FormMessage state={state} />
+        <FormMessage state={state?.ok ? null : state} />
       </div>
     </form>
   );
@@ -184,12 +189,14 @@ function LiveScoring({ activity }: { activity: Activity }) {
   const [on, setOn] = useState(activity.liveScoring);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const editable = activity.sessionState === "draft";
+  // Until judging starts, and not after a reset either: it's one of the rules judges scored by.
+  const editable = !judgesLocked(activity);
   const toggle = () => {
     const next = !on;
     setOn(next);
     startTransition(async () => {
-      const r = await reach(() => setLiveScoring(activity.id, next));
+      // In the server's words, which say what follows (no chair, or one to choose).
+      const r = toastSaved(await reach(() => setLiveScoring(activity.id, next)));
       setResult(r);
       if (!r.ok) setOn(!next);
     });
@@ -204,10 +211,10 @@ function LiveScoring({ activity }: { activity: Activity }) {
       </div>
       {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
       <p className="hint pl-16">
-        {on && "Only you move between entries: the chair judges as the others do. "}
+        {on && "Only you move between entries, so there's no chair of judges. "}
         {editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}
       </p>
-      <FormMessage state={result} small className="pl-16" />
+      <FormMessage state={result?.ok ? null : result} small className="pl-16" />
     </div>
   );
 }
@@ -242,7 +249,9 @@ function OptionSwitch({
     const next = !on;
     setOn(next);
     startTransition(async () => {
-      const r = await reach(() => save(next));
+      const saved = await reach(() => save(next));
+      // The server's words when it has some ("Judges see the ranking while they deliberate"), else the switch's own.
+      const r = toastSaved(saved, saved.ok && saved.message ? undefined : `${label}: ${next ? "on" : "off"}`);
       setResult(r);
       if (!r.ok) setOn(!next);
     });
@@ -256,7 +265,7 @@ function OptionSwitch({
         </p>
       </div>
       {hint && <p className="hint pl-16">{hint}</p>}
-      <FormMessage state={result} small className="pl-16" />
+      <FormMessage state={result?.ok ? null : result} small className="pl-16" />
     </div>
   );
 }
@@ -309,7 +318,7 @@ function OwnerPicker({ activity, organizers }: { activity: Activity; organizers:
           triggerDisabled={!chosen}
           title={`Hand ${activity.name} to ${chosen?.name ?? "this organizer"}?`}
           confirmLabel="Hand over"
-          onConfirm={() => setActivityOwner(activity.id, owner)}
+          onConfirm={() => toastOnRedirect(setActivityOwner(activity.id, owner), `${activity.name} handed to ${chosen?.name ?? "the organizer"}`)}
         >
           They&apos;ll manage it from their own admin panel. After this you&apos;ll only see its name in your list: you won&apos;t be able to open it,
           change it or export its results.
@@ -336,7 +345,10 @@ export function SettingsTab({
   /** Scores submitted so far, for resetting them on a test site. */
   scoreCount?: number;
 }) {
-  const [state, action] = useActionState<FormResult, FormData>(updateSettings.bind(null, activity.id), null);
+  const [state, action] = useActionState<FormResult, FormData>(
+    async (previous, data) => toastSaved(await updateSettings(activity.id, previous, data), "Details saved"),
+    null,
+  );
 
   return (
     <div className="max-w-4xl">
@@ -359,14 +371,14 @@ export function SettingsTab({
           />
           <div className="mt-4 flex flex-wrap items-center gap-4">
             <SubmitButton>Save details</SubmitButton>
-            <FormMessage state={state} />
+            <FormMessage state={state?.ok ? null : state} />
           </div>
         </Section>
       </form>
 
       <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
-        {activity.kind === "event" && activity.sessionState === "draft" && <EventTimer activity={activity} />}
+        {activity.kind === "event" && !judgesLocked(activity) && <EventTimer activity={activity} />}
       </Section>
 
       {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
@@ -401,7 +413,7 @@ export function SettingsTab({
                 activity={activity}
                 option="independentScoring"
                 label="Judges score at their own pace"
-                editable={activity.sessionState === "draft"}
+                editable={!judgesLocked(activity)}
               />
               <OptionSwitch
                 activity={activity}
@@ -439,8 +451,11 @@ export function SettingsTab({
 
       <ManageActivity
         end={
-          developer ? (
-            <TestSiteTools activity={activity} scoreCount={scoreCount} />
+          <>
+            {/* Judging can start over any time until it's archived: with something to reset, once it has started. */}
+            {!activity.archivedAt && (judgesLocked(activity) || scoreCount > 0) && <ResetScoresButton activity={activity} scoreCount={scoreCount} />}
+            {developer ? (
+            <TestSiteTools activity={activity} />
           ) : activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
             <p role="note" className="hint">
               End the session to delete this activity.
@@ -458,7 +473,8 @@ export function SettingsTab({
               This permanently deletes <strong>{activity.name}</strong> with its judges, entries, scores and photos. Judge codes and the live results
               link stop working.
             </ConfirmDialog>
-          )
+          )}
+          </>
         }
       >
         {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} />}

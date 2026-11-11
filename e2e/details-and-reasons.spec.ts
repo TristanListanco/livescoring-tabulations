@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { devices, expect, test } from "@playwright/test";
-import { deleteActivityNamed, expectAccessible, openJudgeLink, signInAsSuperAdmin, submitScore, supabaseAdmin, tapScore } from "./helpers";
+import { deleteActivityNamed, expectAccessible, openJudgeLink, signInAsSuperAdmin, submitScore, supabaseAdmin, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // An event can keep up to three details about each entry (a school, a division), seen only by the organizer: on the
 // Entries tab and in the results, never by judges or the public. And without live scoring, the organizer can have
@@ -40,16 +40,12 @@ test("an event's entries carry details only the organizer sees, in the results t
   await page.getByRole("button", { name: "Remove judge 2" }).click();
   await page.getByLabel("Judge 1 first name").fill("Ana");
   await page.getByLabel("Judge 1 last name").fill("Cruz");
-  await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-  // The names, then two details (folded away until asked for), filled in entry by entry.
-  await page.getByLabel("Entry names, one per line").fill("Agila\nBagwis");
-  await page.getByText("Details for each entry", { exact: true }).click();
-  await page.getByLabel("Detail 1 name").fill("School");
-  await page.getByLabel("Detail 2 name").fill("Division");
-  await page.getByLabel("School for Agila").fill("Xavier University");
-  await page.getByLabel("Division for Agila").fill("Division 2");
-  await page.getByLabel("School for Bagwis").fill("MSU-IIT");
-  await page.getByRole("checkbox", { name: /Show scores live/ }).check();
+  // Each entry, with a line of details under its name.
+  await fillEntries(page, [
+    { name: "Agila", details: "Xavier University" },
+    { name: "Bagwis", details: "MSU-IIT" },
+  ]);
+  await pickScoring(page, { live: true });
   await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   await page.getByRole("checkbox", { name: /I have their consent/ }).check();
   await page.getByRole("button", { name: "Create activity" }).click();
@@ -57,18 +53,19 @@ test("an event's entries carry details only the organizer sees, in the results t
   const adminPath = new URL(page.url()).pathname;
   const activityId = adminPath.split("/").at(-1)!;
 
-  // The Entries tab has them, to change.
+  // The Entries tab has them, to change: one line of details each, with no fields of their own to name.
   await page.goto(`${adminPath}?tab=entries`);
-  await expect(page.getByLabel("School for Agila")).toHaveValue("Xavier University");
-  await expect(page.getByLabel("Division for Agila")).toHaveValue("Division 2");
-  await expect(page.getByLabel("School for Bagwis")).toHaveValue("MSU-IIT");
-  await page.getByLabel("Division for Bagwis").fill("Division 1");
+  await expect(page.getByLabel("Details for Agila", { exact: true })).toHaveValue("Xavier University");
+  await expect(page.getByLabel("Details for Bagwis", { exact: true })).toHaveValue("MSU-IIT");
+  await expect(page.getByRole("button", { name: "Save details for each entry" })).toHaveCount(0);
+  await page.getByLabel("Details for Bagwis", { exact: true }).fill("MSU-IIT Division 1");
   await page.getByRole("button", { name: "Save Bagwis" }).click();
   await expect(page.getByRole("button", { name: "Save Bagwis" })).toBeHidden();
-  // Renaming a detail keeps its values.
-  await page.getByLabel("Detail 2 name").fill("Category");
-  await page.getByRole("button", { name: "Save details for each entry" }).click();
-  await expect(page.getByLabel("Category for Bagwis")).toHaveValue("Division 1", REALTIME);
+  // An entry added here gets its line of details too.
+  await fillEntries(page, [{ name: "Kidlat", details: "Ateneo" }], "New entry");
+  await page.getByRole("button", { name: "Add entries" }).click();
+  await expect(page.getByText("Kidlat added", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Details for Kidlat", { exact: true })).toHaveValue("Ateneo", REALTIME);
   await expectAccessible(page);
 
   // Judged and ended (straight through the database), the results carry them, a column each.
@@ -82,9 +79,9 @@ test("an event's entries carry details only the organizer sees, in the results t
   await restOk("scores", entries.map((e, i) => ({ activity_id: activityId, entry_id: e.id, judge_id: judge, value: 9 - i })));
   await restOk(`activities?id=eq.${activityId}`, { session_state: "ended", session_ended_at: new Date().toISOString() }, "PATCH");
   const csv = await (await page.request.get(`${adminPath}/export?format=csv`)).text();
-  expect(csv).toContain("Rank,No.,Entry,School,Category,Ana Cruz,Average");
-  expect(csv).toContain("Agila,Xavier University,Division 2,");
-  expect(csv).toContain("Bagwis,MSU-IIT,Division 1,");
+  expect(csv).toContain("Rank,No.,Entry,Details,Ana Cruz,Average");
+  expect(csv).toContain("Agila,Xavier University,");
+  expect(csv).toContain("Bagwis,MSU-IIT Division 1,");
 
   // Never on the public page.
   await page.goto(`/live/${publicId}`);

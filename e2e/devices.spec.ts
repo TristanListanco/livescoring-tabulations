@@ -1,5 +1,5 @@
 import { devices, expect, test, type Page } from "@playwright/test";
-import { deleteActivityNamed, judgeCodes, openJudgeLink, signInAsSuperAdmin } from "./helpers";
+import { deleteActivityNamed, judgeCodes, openJudgeLink, signInAsSuperAdmin, fillEntries, pickScoring } from "./helpers";
 
 // A judge's phone whose realtime connection is down (venue Wi-Fi, or the browser was in the background
 // while the camera scanned a QR code) must still open within seconds of the organizer's approval.
@@ -35,8 +35,9 @@ test.describe.serial("judge devices without realtime", () => {
     await page.getByLabel("Judge 1 last name").fill("Alpha");
     await page.getByLabel("Judge 2 first name").fill("Judge");
     await page.getByLabel("Judge 2 last name").fill("Bravo");
+    await pickScoring(page, { live: false });
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-    await page.getByLabel("Entry names, one per line").fill("Agila");
+    await fillEntries(page, ["Agila"]);
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
     await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create activity" }).click();

@@ -10,7 +10,7 @@ import { withheldScores } from "./scoring";
 import { toLedFont, toLedShape, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
-import { toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
+import { detailsLine, toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
 import type { BrokenTie } from "./ties";
 import type { Activity, AdminAccount, Board, Criterion, Decimals, Deduction, Entry, Judge, JudgeDevice, JudgeSignature, ResultDecimals, Round, Score, SessionState, Signatory, Violation } from "./types";
 
@@ -33,6 +33,7 @@ export type ActivityRow = {
   session_state?: string;
   /** Migration 020. */
   session_ended_at?: string | null;
+  session_started_at?: string | null;
   archived_at?: string | null;
   /** Migration 021. */
   live_scoring?: boolean;
@@ -167,6 +168,7 @@ export function toActivity(row: ActivityRow): Activity {
     privacyScreen: row.privacy_screen ?? false,
     sessionState: toSessionState(row.session_state),
     sessionEndedAt: row.session_state === "ended" ? (row.session_ended_at ?? null) : null,
+    sessionStartedAt: row.session_started_at ?? null,
     signedOffAt: row.session_state === "ended" ? (row.signed_off_at ?? null) : null,
     archivedAt: row.archived_at ?? null,
     currentEntryId: row.current_entry_id ?? null,
@@ -373,6 +375,8 @@ export type OrganizerActivityStatus = {
   kind: Activity["kind"];
   organizer: string;
   sessionState: SessionState;
+  /** Whether its scores show as they come in (see sessionLabel): "Live" rather than "Judging" while it runs. */
+  liveScoring: boolean;
   judgeCount: number;
   entryCount: number;
   scoreCount: number;
@@ -399,8 +403,8 @@ export async function listOrganizerActivities(
   await connection();
   const after = before && isTimestamp(before) ? before : undefined;
   const counts =
-    "session_state, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
-  type Row = { id: string; name: string; kind?: string; session_state?: string; created_at: string; owner: { name: string } | null } & Record<
+    "session_state, live_scoring, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
+  type Row = { id: string; name: string; kind?: string; session_state?: string; live_scoring?: boolean; created_at: string; owner: { name: string } | null } & Record<
     "judges" | "entries" | "scores",
     { count: number }[]
   >;
@@ -420,6 +424,7 @@ export async function listOrganizerActivities(
       kind: row.kind === "pageant" ? "pageant" : "event",
       organizer: row.owner?.name ?? "",
       sessionState: toSessionState(row.session_state),
+      liveScoring: row.live_scoring ?? true,
       judgeCount: row.judges[0]?.count ?? 0,
       entryCount: row.entries[0]?.count ?? 0,
       scoreCount: row.scores[0]?.count ?? 0,
@@ -658,8 +663,8 @@ export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, 
 
 /**
  * An event's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
- * pages and the results only: never part of a board, which judges and the public pages are sent. Null before migration
- * 033.
+ * pages, the results and the LED wall (withEntryDetails): never part of a board as it's read, which judges and the live
+ * results are sent. Null before migration 033.
  */
 export async function getEntryDetails(activityId: string): Promise<{ fields: EntryField[]; byEntry: Record<string, EntryDetails> } | null> {
   const [activity, entries] = await Promise.all([
@@ -670,6 +675,17 @@ export async function getEntryDetails(activityId: string): Promise<{ fields: Ent
   const fields = toEntryFields((activity.data as { entry_fields?: unknown } | null)?.entry_fields);
   const byEntry = Object.fromEntries((entries.data as { id: string; details: unknown }[]).map((e) => [e.id, toEntryDetails(e.details)]));
   return { fields, byEntry };
+}
+
+/**
+ * A board with each entry's details as one line, for the LED wall, which shows them under the entry's name: added only
+ * by the wall's own pages (its page and the LED wall tab's preview). A pageant's candidates have none.
+ */
+export async function withEntryDetails(board: Board): Promise<Board> {
+  if (board.activity.kind !== "event") return board;
+  const details = await getEntryDetails(board.activity.id);
+  if (!details?.fields.length) return board;
+  return { ...board, entries: board.entries.map((e) => ({ ...e, details: detailsLine(details.fields, details.byEntry[e.id]) || undefined })) };
 }
 
 /** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */

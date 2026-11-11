@@ -5,10 +5,15 @@ import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
-import { detailsLine, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
+import { detailsLine, GENERAL_DETAILS, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import type { ActionResult, Entry } from "@/lib/types";
 import { addEntries, moveEntry, removeEntry, renameEntry, setEntryFields, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
+import { blankEntry, entryLines, EntryRows, type EntryRow as NewEntry } from "../entry-rows";
 import { FormMessage } from "../form-message";
+import { toastSaved } from "../toaster";
+
+/** An event without details yet: its first line of details gives it the general field (see fieldsWithDetails). */
+const GENERAL_FIELD: EntryField = { id: "general", name: GENERAL_DETAILS };
 
 function Arrow({ up }: { up?: boolean }) {
   return (
@@ -41,7 +46,10 @@ function EntryRow({
   fields: EntryField[];
   details: EntryDetails;
 }) {
-  const [state, rename] = useActionState<FormResult, FormData>(renameEntry.bind(null, entry.id), null);
+  const [state, rename] = useActionState<FormResult, FormData>(
+    async (previous, data) => toastSaved(await renameEntry(entry.id, previous, data), `${String(data.get("name") ?? "").trim() || entry.name} saved`),
+    null,
+  );
   // Save shows only once the name or a detail has been edited, so an untouched list isn't a column of buttons.
   const [name, setName] = useState(entry.name);
   const [values, setValues] = useState(details);
@@ -62,7 +70,7 @@ function EntryRow({
       setPreview(previewUrl);
       const data = new FormData();
       if (photo) data.set("photo", photo, "photo.jpg");
-      const result = await setEntryPhoto(entry.id, data);
+      const result = toastSaved(await setEntryPhoto(entry.id, data), photo ? `${entry.name}'s photo updated` : `${entry.name}'s photo removed`);
       if (!result.ok) setPhotoError(result.error);
     });
 
@@ -107,7 +115,7 @@ function EntryRow({
                   key={f.id}
                   name={`detail-${f.id}`}
                   aria-label={`${f.name} for ${entry.name}`}
-                  placeholder={f.name}
+                  placeholder={f.id === GENERAL_FIELD.id ? `${f.name} (optional)` : f.name}
                   maxLength={MAX_DETAIL}
                   value={values[f.id] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
@@ -167,9 +175,9 @@ function EntryRow({
             title={`Remove ${entry.name}?`}
             tone="danger"
             confirmLabel="Remove entry"
-            onConfirm={() => {
+            onConfirm={async () => {
               onReorder();
-              return removeEntry(entry.id);
+              return toastSaved(await removeEntry(entry.id), `${entry.name} removed`);
             }}
           >
             {scored > 0 ? `Its ${scored} submitted ${scored === 1 ? "score" : "scores"} will be deleted too.` : "No judge has scored it yet."}
@@ -182,10 +190,13 @@ function EntryRow({
 
 /**
  * An event's entry details: the names of up to three fields (a school, a division), saved together. Renaming one keeps
- * its values; clearing one takes it off. Only the organizer sees them, here and on the results.
+ * its values; clearing one takes it off. They show here, in the results, and under the entry's name on the LED wall.
  */
 function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: EntryField[] }) {
-  const [state, action] = useActionState<FormResult, FormData>(setEntryFields.bind(null, activityId), null);
+  const [state, action] = useActionState<FormResult, FormData>(
+    async (previous, data) => toastSaved(await setEntryFields(activityId, previous, data), "Details for each entry saved"),
+    null,
+  );
   const slots = Array.from({ length: MAX_ENTRY_FIELDS }, (_, i) => fields[i] ?? null);
   return (
     <form action={action} className="mt-6 max-w-xl">
@@ -211,14 +222,44 @@ function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: E
         <SubmitButton className="btn btn-quiet btn-sm" pendingLabel="Saving…">
           Save details<span className="sr-only"> for each entry</span>
         </SubmitButton>
-        <FormMessage state={state} small />
+        <FormMessage state={state?.ok ? null : state} small />
       </div>
     </form>
   );
 }
 
+/**
+ * Adding entries, as on the create form: a list, each entry a name with a line of details under it (an event keeping
+ * several named details, from before, fills the first). Cleared once they're added.
+ */
+function AddEntryRows({ activityId, fields }: { activityId: string; fields: EntryField[] }) {
+  const [rows, setRows] = useState<NewEntry[]>(() => [blankEntry(0)]);
+  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
+    const result = toastSaved(await addEntries(activityId, previous, data));
+    if (result?.ok) setRows([blankEntry(0)]);
+    return result;
+  }, null);
+  const lines = entryLines(rows);
+  return (
+    <form action={action} className="mt-8">
+      <h3 className="label">Add entries</h3>
+      <input type="hidden" name="names" value={lines} />
+      {rows.some((r) => r.name.trim() && r.details.trim()) && <input type="hidden" name="with_details" value="on" />}
+      <EntryRows
+        rows={rows}
+        setRows={setRows}
+        detailsLabel={fields[0]?.name ?? GENERAL_DETAILS}
+        label="New entry"
+        footer={<SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>}
+      />
+      <FormMessage state={state?.ok ? null : state} small className="mt-2" />
+    </form>
+  );
+}
+
 function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; pageant: boolean; fields: EntryField[] }) {
-  const [state, action] = useActionState<FormResult, FormData>(addEntries.bind(null, activityId), null);
+  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => toastSaved(await addEntries(activityId, previous, data)), null);
+  if (!pageant) return <AddEntryRows activityId={activityId} fields={fields} />;
   return (
     <form action={action} className="mt-8 max-w-xl space-y-2">
       <label htmlFor="new-entries" className="label">
@@ -234,7 +275,7 @@ function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; p
       />
       <div className="flex items-center gap-3">
         <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>
-        <FormMessage state={state} small />
+        <FormMessage state={state?.ok ? null : state} small />
       </div>
     </form>
   );
@@ -271,26 +312,7 @@ export function EntriesTab({
   const fields = details?.fields ?? [];
   return (
     <div className="max-w-3xl">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 className="sr-only">{pageant ? "Candidates" : "Entries"}</h2>
-        {canShuffle && (
-          <ConfirmDialog
-            triggerLabel="Shuffle order"
-            triggerClassName="btn btn-quiet btn-sm"
-            title="Shuffle the running order?"
-            confirmLabel="Shuffle"
-            onConfirm={async () => {
-              const result = await shuffleEntries(activityId);
-              if (result.ok) setShuffled(result);
-              return result;
-            }}
-          >
-            Tabulous draws a new order at random, in place of the current one. Until the session starts you can shuffle again or move entries by hand.
-            Starting the session locks the order.
-          </ConfirmDialog>
-        )}
-      </div>
-      {canShuffle && <FormMessage state={shuffled} small className="mt-1" />}
+      <h2 className="sr-only">{pageant ? "Candidates" : "Entries"}</h2>
       {ended ? (
         <>
           <p role="note" className="note mt-3">
@@ -344,14 +366,51 @@ export function EntriesTab({
                   started={started}
                   // The shuffle's "is now first" no longer holds.
                   onReorder={() => setShuffled(null)}
-                  fields={fields}
+                  // An event's entries each have a line of details: its own named fields, or the general one.
+                  fields={details ? (fields.length ? fields : [GENERAL_FIELD]) : []}
                   details={details?.byEntry[e.id] ?? {}}
                 />
               ))}
             </ol>
           )}
+          {/* Under the list it reorders: the order drawn at random, as often as the organizer likes before the start. */}
+          {canShuffle && (
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <ConfirmDialog
+                triggerLabel={
+                  <>
+                    <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                      <path
+                        d="M2 4.5h2.2c1.2 0 2.2.6 2.9 1.6l1.8 3.8c.7 1 1.7 1.6 2.9 1.6H14M2 11.5h2.2c1 0 1.9-.4 2.5-1.2M14 4.5h-2.2c-1 0-1.9.4-2.5 1.2M12 2.5l2 2-2 2M12 9.5l2 2-2 2"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    Shuffle order
+                  </>
+                }
+                triggerClassName="btn btn-primary btn-sm"
+                title="Shuffle the running order?"
+                confirmLabel="Shuffle"
+                onConfirm={async () => {
+                  const result = await shuffleEntries(activityId);
+                  if (result.ok) setShuffled(result);
+                  return result;
+                }}
+              >
+                Tabulous draws a new order at random, in place of the current one. Until the session starts you can shuffle again or move entries by hand.
+                Starting the session locks the order.
+              </ConfirmDialog>
+              <p className="hint min-w-48 flex-1">Draws the running order at random. You can shuffle again until the session starts.</p>
+              <FormMessage state={shuffled} small className="basis-full" />
+            </div>
+          )}
           {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} fields={fields} />}
-          {details && <EntryFieldsForm activityId={activityId} fields={fields} />}
+          {/* Naming fields of their own is for events made before details were one general line, which keep theirs. */}
+          {details && fields.some((f) => f.name !== GENERAL_DETAILS) && <EntryFieldsForm activityId={activityId} fields={fields} />}
         </div>
       )}
     </div>

@@ -26,7 +26,7 @@ async function rest(path: string, body: unknown, method = "POST") {
 
 test.describe.serial("outages", () => {
   test.beforeAll(async () => {
-    await rest("activities", { id: activity.id, name: "E2E Outages", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+    await rest("activities", { id: activity.id, name: "E2E Outages", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2 });
     await rest("judges", [
       { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true },
       { id: otherJudge, activity_id: activity.id, name: "Ben Torres", first_name: "Ben", last_name: "Torres", position: 1, is_chair: false },
@@ -36,7 +36,8 @@ test.describe.serial("outages", () => {
       { id: entry, activity_id: activity.id, name: "Agila", position: 0 },
       { id: nextEntry, activity_id: activity.id, name: "Banog", position: 1 },
     ]);
-    await rest(`activities?id=eq.${activity.id}`, { current_entry_id: entry }, "PATCH");
+    // Judges join while it's not started: once it has, the panel is locked, in the database too.
+    await rest(`activities?id=eq.${activity.id}`, { session_state: "live", current_entry_id: entry }, "PATCH");
   });
 
   test.afterAll(async () => {

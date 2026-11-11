@@ -21,7 +21,8 @@ export function SignOut() {
       confirmLabel="Sign out"
       onConfirm={() => logout()}
     >
-      You&apos;ll need your email and password to sign in again. Judges and screens carry on as they are.
+      You&apos;ll need your email and password to sign in again. Not while judges are on one of your activities: a show running, or judges
+      waiting for it to start.
     </ConfirmDialog>
   );
 }

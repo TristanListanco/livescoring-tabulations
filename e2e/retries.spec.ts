@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { devices, expect, test, type Page, type Request } from "@playwright/test";
-import { deleteActivityNamed, openJudgeLink, SAVED, signInAsSuperAdmin, supabaseAdmin, tapScore } from "./helpers";
+import { deleteActivityNamed, openJudgeLink, SAVED, signInAsSuperAdmin, supabaseAdmin, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // On venue Wi-Fi a request can reach the server and its reply be lost: the screen says it didn't go through, and the
 // person sends it again. The second send is answered with what the first did, never done twice.
@@ -43,7 +43,7 @@ async function loseNextReply(page: Page): Promise<Request> {
 }
 
 test.beforeAll(async () => {
-  await rest("activities", { id: activity.id, name: "E2E Retry scores", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2, session_state: "live" });
+  await rest("activities", { id: activity.id, name: "E2E Retry scores", public_id: activity.publicId, min_score: 1, max_score: 10, decimals: 2 });
   await rest("judges", { id: judge, activity_id: activity.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true });
   await rest("judge_access", { judge_id: judge, code: CODE });
   // Two entries, so the one score doesn't end judging by itself (it scores live).
@@ -51,7 +51,8 @@ test.beforeAll(async () => {
     { id: entry, activity_id: activity.id, name: "Agila", position: 0 },
     { id: randomUUID(), activity_id: activity.id, name: "Bagwis", position: 1 },
   ]);
-  await rest(`activities?id=eq.${activity.id}`, { current_entry_id: entry }, "PATCH");
+  // Judges join while it's not started: once it has, the panel is locked, in the database too.
+  await rest(`activities?id=eq.${activity.id}`, { session_state: "live", current_entry_id: entry }, "PATCH");
 });
 
 test.afterAll(async () => {
@@ -91,8 +92,9 @@ test("an activity sent again after its reply was lost is created once", async ({
   await page.getByRole("button", { name: "Remove judge 2" }).click();
   await page.getByLabel("Judge 1 first name").fill("Ana");
   await page.getByLabel("Judge 1 last name").fill("Cruz");
+  await pickScoring(page, { live: false });
   await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-  await page.getByLabel("Entry names, one per line").fill("Agila");
+  await fillEntries(page, ["Agila"]);
 
   await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
   const lost = loseNextReply(page);

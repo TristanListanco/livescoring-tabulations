@@ -271,9 +271,9 @@ export function SessionTab({
   );
 
   /**
-   * The audience's screen, one compact card beside the live desk and under the desk before and during deliberation:
-   * the live results (copy, open, QR code), and under them whether they show ranks. The LED wall's link is on its own
-   * tab, with its settings. `extra`: what follows them (the results downloads, mid-show).
+   * The audience's screen mid-show, one compact card beside the live desk: the live results (copy, open, QR code), and
+   * under them whether they show ranks. The LED wall's link is on its own tab, with its settings. `extra`: what follows
+   * them (the results downloads). Before and after the show it's liveResultsCard, under the desk.
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
@@ -312,27 +312,61 @@ export function SessionTab({
   );
 
   /*
-   * Once judging has ended, the live results show the final standings until the activity is archived: a card of its
-   * own under the ended desk, as wide as it, in the panel's own terms. Its name and whether it ranks on top; under them
-   * the address, as the judge portal and the LED wall show theirs, with Copy, Open and the QR code as one row of buttons.
+   * The live results, under the desk whenever it isn't running the show (before it, while the judges deliberate, and
+   * once judging has ended, until the activity is archived): what the audience sees there now, then the address with
+   * Copy, Open and the QR code as one group, and whether it ranks, on a row of its own. Mid-show it's the compact card
+   * beside the desk (screens).
    */
-  const finalScreen = (
-    <section aria-labelledby="live-results" className="card px-5 py-5 sm:px-6">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-        <h2 id="live-results" className="title-sm">
-          Live results
-        </h2>
-        <RankingSwitch activity={activity} compact />
+  const segment =
+    "inline-flex h-10 items-center justify-center gap-1.5 px-4 text-sm font-semibold text-regal transition-colors hover:bg-wash max-sm:flex-1 pointer-coarse:h-11";
+  const liveResultsCard = (now: string) => (
+    <section aria-labelledby="live-results" className="card overflow-hidden">
+      <div className="px-5 pt-5 sm:px-6">
+        <div className="flex items-start gap-3.5">
+          {/* A screen with a rising bar: the page the audience follows. */}
+          <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-regal text-mint">
+            <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2.5" y="3.5" width="15" height="10.5" rx="2" />
+              <path d="M7 17h6M6.5 11V9M10 11V6.5M13.5 11V8" />
+            </svg>
+          </span>
+          <div className="min-w-0">
+            <h2 id="live-results" className="title-sm">
+              Live results
+            </h2>
+            <p className="mt-0.5 text-[15px] text-prussian/75">{now}</p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <code className="tabular min-w-0 flex-1 basis-full truncate rounded-full border border-line bg-wash/50 px-4 py-2 text-[15px] sm:basis-0">
+            {liveUrl.replace(/^https?:\/\//, "")}
+          </code>
+          <div className="flex divide-x divide-line overflow-hidden rounded-full border border-line bg-white max-sm:w-full">
+            <CopyButton value={liveUrl} label="Copy link" ariaLabel="Copy link to live results" className={segment} />
+            <a href={liveUrl} target="_blank" rel="noreferrer" aria-label="Open live results" className={segment}>
+              Open
+              <svg viewBox="0 0 16 16" className="size-3.5" aria-hidden>
+                <path d="M6 3.5h6.5V10M12.5 3.5L4 12" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+            {liveQrDialog(segment)}
+          </div>
+        </div>
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <code className="tabular min-w-0 flex-1 basis-full truncate rounded-lg border border-line bg-white px-3 py-2.5 text-[15px] sm:basis-0">
-          {liveUrl}
-        </code>
-        <CopyButton value={liveUrl} ariaLabel="Copy link to live results" className="btn btn-quiet btn-sm min-w-20 max-sm:flex-1" />
-        <a href={liveUrl} target="_blank" rel="noreferrer" className="btn btn-quiet btn-sm max-sm:flex-1">
-          Open<span className="sr-only"> live results</span>
-        </a>
-        {liveQrDialog("btn btn-quiet btn-sm gap-1.5 max-sm:flex-1")}
+      <div className="mt-5 space-y-3 border-t border-line px-5 py-4 sm:px-6">
+        <RankingSwitch activity={activity} compact />
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
+        {state !== "ended" && !activity.liveScoring && !pageant && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-medium">Private tally</span>
+            <span className="hint text-sm">Every score so far, for you alone</span>
+            <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={`${textAction} ml-auto`}>
+              Open
+            </a>
+          </div>
+        )}
+        {/* The judges' notes, until the show ends; then they download with the results. */}
+        {state !== "ended" && hasNotes && <DownloadResults activityId={activity.id} notes className={`${textAction} -ml-1.5`} />}
       </div>
     </section>
   );
@@ -1121,7 +1155,16 @@ export function SessionTab({
               )}
             </section>
           )}
-          {state === "ended" && !archived && finalScreen}
+          {!archived &&
+            liveResultsCard(
+              state === "draft"
+                ? `Share it now: the audience sees that judging hasn't started, then ${
+                    pageant || activity.liveScoring ? "each score as it comes in." : "the results once the judges have deliberated and signed."
+                  }`
+                : state === "deliberation"
+                  ? "The audience sees that the judges are deliberating. The results show once they've all signed, and you have."
+                  : "The final standings, until you archive the activity.",
+            )}
 
           {/*
             Archived, nothing is left to run: no heading to say judging ended (the archived mark under the name says it),
@@ -1147,7 +1190,6 @@ export function SessionTab({
         {runningOrder(false)}
         {cutDialog}
 
-        {state !== "ended" && <div className="sm:max-w-md">{screens()}</div>}
       </div>
     </PdfHold>
   );

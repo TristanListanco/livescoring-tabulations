@@ -132,6 +132,11 @@ export type Activity = {
   /** When the session last ended (ISO time), while it's ended; null before migration 020 or if it never has. */
   sessionEndedAt: string | null;
   /**
+   * When the session first started (ISO time), or null if it never has. Resetting the scores keeps it: judging has
+   * started once, so the panel of judges stays as it was (see judgesLocked).
+   */
+  sessionStartedAt: string | null;
+  /**
    * When the activity was archived (ISO time), or null. Only an ended session can be, and for good: it can't be
    * reopened or changed after that, only read and deleted.
    */
@@ -195,6 +200,11 @@ export type Entry = {
    * candidates keep their number through every cut. Otherwise the number is the place in the list shown.
    */
   number?: number;
+  /**
+   * An event's details about it, as one line ("MX. IT", "Grade 10 · St. Mary's"), under its name on the LED wall.
+   * Only the wall's pages add them (see withEntryDetails): judges' screens and the live results never carry them.
+   */
+  details?: string;
 };
 
 /** A pageant violation set up in advance, e.g. "Late for call time", 1 point. */

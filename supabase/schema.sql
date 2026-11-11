@@ -444,8 +444,9 @@ begin
   end if;
 end;
 $location$;
--- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): seen only by the organizer, on
--- the Entries tab and the results. Each entry's values are in entries.details, by field id.
+-- Up to three details an event keeps about each entry, [{ id, name }] (migration 033): on the Entries tab, the results
+-- and under the entry's name on the LED wall, never on judges' screens. Each entry's values are in entries.details, by
+-- field id.
 alter table public.activities add column if not exists entry_fields jsonb not null default '[]'::jsonb;
 -- Judges' phones and tablets hide the screen when tilted off axis while judging (migration 032): on for new activities,
 -- off for those from before it.
@@ -646,6 +647,32 @@ drop trigger if exists check_entry_added on public.entries;
 create trigger check_entry_added
   before insert on public.entries
   for each row execute function public.check_entry_added();
+
+-- The panel of judges is locked once the session has started, and after it did and the scores were reset
+-- (session_started_at stays set), as the server says first (judgesLocked, migration 039). Deleting the activity itself
+-- still takes its judges with it.
+create or replace function public.check_judges_locked()
+returns trigger
+language plpgsql
+as $fn$
+declare
+  a public.activities%rowtype;
+begin
+  -- The activity being deleted takes its judges with it.
+  if tg_op = 'DELETE' and pg_trigger_depth() > 1 then
+    return old;
+  end if;
+  select * into a from public.activities where id = coalesce(new.activity_id, old.activity_id);
+  if found and (a.session_state <> 'draft' or a.session_started_at is not null) then
+    raise exception 'The session has started, so the panel of judges is locked.' using errcode = '55000';
+  end if;
+  return coalesce(new, old);
+end;
+$fn$;
+drop trigger if exists judges_locked on public.judges;
+create trigger judges_locked
+  before insert or delete on public.judges
+  for each row execute function public.check_judges_locked();
 
 -- An activity's running order: these entries first, in this order, then any not listed (added meanwhile) in the order
 -- they had, numbered from 0. Only before its session starts, checked and written in one step (migration 030), so a

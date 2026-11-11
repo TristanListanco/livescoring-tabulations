@@ -8,6 +8,7 @@ import { formatBound, rulesSummary } from "@/lib/scoring";
 import type { ActionResult, Board, Round } from "@/lib/types";
 import { savePageant } from "../../actions";
 import { FormMessage } from "../form-message";
+import { toastSaved } from "../toaster";
 import { SegmentEditor } from "../program-editor";
 
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
@@ -120,7 +121,7 @@ export function SegmentsTab({ board }: { board: Board }) {
         setResult({ ok: false, error: checked.error });
         return;
       }
-      setResult(await reach(() => savePageant(activity.id, JSON.stringify(draft))));
+      setResult(toastSaved(await reach(() => savePageant(activity.id, JSON.stringify(draft)))));
     });
 
   return (
@@ -142,7 +143,7 @@ export function SegmentsTab({ board }: { board: Board }) {
         <button type="button" className="btn btn-primary" onClick={save} disabled={pending}>
           {pending ? "Saving…" : "Save program"}
         </button>
-        <FormMessage state={result} />
+        <FormMessage state={result?.ok ? null : result} />
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { reach } from "@/lib/reach";
 import { browserClient } from "@/lib/supabase/browser";
@@ -41,11 +41,11 @@ export function CatchUp({ activityId, since }: { activityId: string; since: stri
 }
 
 /**
- * One judge's devices. Every device that signs in with the judge's code waits here; the organizer approves
- * the one whose pairing code the judge reads out. Only that device can score, and approving it signs out
- * the rest.
+ * One judge's devices, as the Judges tab's Device column. Every device that signs in with the judge's code waits here;
+ * the organizer approves the one whose pairing code the judge reads out. Only that device can score, and approving it
+ * signs out the rest. `end`: the row's last action (Remove), at the foot of the column.
  */
-export function DeviceApproval({ judge, devices }: { judge: Judge; devices: JudgeDevice[] }) {
+export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices: JudgeDevice[]; end?: ReactNode }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
   const act = (fn: () => Promise<ActionResult>) =>
@@ -60,23 +60,87 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
   const lastSignedOut = devices.find((d) => d.status === "revoked");
 
   return (
-    <div className="mt-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {approved ? (
-          <>
-            <p className="flex min-w-0 items-center gap-1.5 text-sm text-regal">
-              <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-hidden>
-                <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="truncate">Approved: {approved.label}</span>
-            </p>
+    <div className="space-y-2.5 text-sm">
+      {/* Where the judge's device is, in a word and a mark: approved, waiting for you, or none yet. */}
+      {approved ? (
+        <p className="min-w-0">
+          <span className="flex items-center gap-2 font-semibold text-regal">
+            <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-hidden>
+              <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Approved<span className="sr-only">: </span>
+          </span>
+          <span className="block truncate pl-6 text-prussian/80">{approved.label}</span>
+        </p>
+      ) : requests.length > 0 ? (
+        <p className="flex items-center gap-2 font-semibold text-prussian">
+          <span aria-hidden className="relative flex size-4 shrink-0 items-center justify-center">
+            <span className="absolute size-2.5 rounded-full bg-caution motion-safe:animate-ping" />
+            <span className="size-2.5 rounded-full bg-caution ring-1 ring-prussian/25" />
+          </span>
+          Waiting for you to approve
+        </p>
+      ) : (
+        <p className="min-w-0 text-prussian/75">
+          <span className="flex items-center gap-2">
+            <span aria-hidden className="flex size-4 shrink-0 items-center justify-center">
+              <span className="size-2.5 rounded-full border-[1.5px] border-prussian/45" />
+            </span>
+            <span>No device approved</span>
+          </span>
+          {lastSignedOut && requests.length === 0 && (
+            <span className="block truncate pl-6">
+              <span className="sr-only">. </span>Last device signed out: {lastSignedOut.label}
+            </span>
+          )}
+        </p>
+      )}
+      {requests.length > 0 && (
+        <ul className="space-y-2.5">
+          {requests.map((d) => (
+            <li key={d.id} className="space-y-1">
+              {/* The pairing code on the button, as on the judge's screen, so the two can be matched at a glance. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => act(() => approveDevice(d.id))}
+                  disabled={pending}
+                  aria-label={`Approve ${judge.name}'s device ${d.pairingCode}`}
+                >
+                  Approve <span className="tabular tracking-[0.15em]">{d.pairingCode}</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  onClick={() => act(() => revokeDevice(d.id))}
+                  disabled={pending}
+                  aria-label={`Deny ${judge.name}'s device ${d.pairingCode}`}
+                >
+                  Deny
+                </button>
+              </div>
+              <p className="truncate text-prussian/75">{d.label}</p>
+            </li>
+          ))}
+          {approved && <li className="hint text-sm">Approving another device signs out {approved.label}.</li>}
+        </ul>
+      )}
+      {result && !result.ok && (
+        <p role="alert" className="font-semibold text-danger">
+          {result.error}
+        </p>
+      )}
+      {(approved || end) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {approved && (
             <ConfirmDialog
               triggerLabel={
                 <>
                   Sign out<span className="sr-only"> {judge.name}&apos;s device</span>
                 </>
               }
-              triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+              triggerClassName="btn btn-quiet btn-sm"
               triggerDisabled={pending}
               title={`Sign out ${judge.name}'s device?`}
               tone="danger"
@@ -86,51 +150,9 @@ export function DeviceApproval({ judge, devices }: { judge: Judge; devices: Judg
               {approved.label} can&apos;t score from now on. {judge.name} signs in again with their code, and you approve the new device here. Scores
               they&apos;ve already submitted stay.
             </ConfirmDialog>
-          </>
-        ) : (
-          <p className="hint text-sm">
-            No device approved
-            {lastSignedOut && requests.length === 0 && <>. Last device signed out: {lastSignedOut.label}</>}
-          </p>
-        )}
-      </div>
-      {result && !result.ok && (
-        <p role="alert" className="text-sm font-semibold text-danger">
-          {result.error}
-        </p>
-      )}
-      {requests.length > 0 && (
-        <ul className="space-y-2">
-          {requests.map((d) => (
-            <li key={d.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-field bg-white px-3 py-2.5">
-              {/* The same words as on the judge's screen, so the two can be matched at a glance. */}
-              <span className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-prussian/70">Pairing code</span>
-                <span className="tabular rounded-md bg-prussian px-2.5 py-1 text-lg font-bold tracking-[0.2em] text-mint">{d.pairingCode}</span>
-              </span>
-              <span className="min-w-0 flex-1 truncate text-sm">{d.label}</span>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => act(() => approveDevice(d.id))}
-                disabled={pending}
-                aria-label={`Approve ${judge.name}'s device ${d.pairingCode}`}
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                className="btn btn-quiet btn-sm"
-                onClick={() => act(() => revokeDevice(d.id))}
-                disabled={pending}
-                aria-label={`Deny ${judge.name}'s device ${d.pairingCode}`}
-              >
-                Deny
-              </button>
-            </li>
-          ))}
-          {approved && <li className="hint text-sm">Approving another device signs out {approved.label}.</li>}
-        </ul>
+          )}
+          {end && <span className="ml-auto">{end}</span>}
+        </div>
       )}
     </div>
   );
