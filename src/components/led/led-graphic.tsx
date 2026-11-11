@@ -121,7 +121,7 @@ function AverageMark() {
 
 /**
  * The photos lower third, on a 1920×1080 stage, as a broadcast pageant's: a dark bar along the bottom with the entry's
- * round photo rising above its left end (or its number, without a photo), its name in capitals under it; each judge's
+ * round photo rising above its left end (when it has one), its name in capitals under it; each judge's
  * photo sitting on the bar's top edge with their first name and score under it; the average at the right, in the
  * theme's highlight. Every shape is solid, in the theme's colours and the corners chosen on the LED tab, so the green
  * around it keys out cleanly.
@@ -140,24 +140,16 @@ function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; s
       className="led-fade absolute inset-x-12 bottom-12 flex bg-prussian text-mint"
       style={{ height: PHOTO_BAR, borderRadius: BAR_ROUNDED }}
     >
-      {/* The entry: its photo in a ring above the bar (its number in it, without one), its name in the bar below. */}
-      <div className="relative flex shrink-0 flex-col justify-end pr-6 pb-4 pl-10" style={{ width: size.nameBlock }}>
-        <div className="absolute left-9" style={{ top: CIRCLE_DIP - ENTRY_CIRCLE, width: ENTRY_CIRCLE, height: ENTRY_CIRCLE }}>
-          {photo ? (
+      {/*
+        The entry: its photo in a ring above the bar, its name in the bar below. No number: the name says who it is.
+        Without a photo, the name and details sit in the middle of the bar.
+      */}
+      <div className={`relative flex shrink-0 flex-col pr-6 pl-10 ${photo ? "justify-end pb-4" : "justify-center"}`} style={{ width: size.nameBlock }}>
+        {photo && (
+          <div className="absolute left-9" style={{ top: CIRCLE_DIP - ENTRY_CIRCLE, width: ENTRY_CIRCLE, height: ENTRY_CIRCLE }}>
             <EntryPhoto src={photo} style={{ width: ENTRY_CIRCLE, height: ENTRY_CIRCLE, borderRadius: "50%" }} className="border-[5px] border-powder bg-prussian" />
-          ) : (
-            <span className="flex size-full flex-col items-center justify-center rounded-full border-[5px] border-powder bg-prussian">
-              <span className="text-[26px] leading-none font-semibold text-powder">No.</span>
-              <span className="tabular text-[92px] leading-none font-bold">{scene.number}</span>
-            </span>
-          )}
-          {photo && (
-            <span className="tabular absolute right-0 bottom-6 flex size-[60px] items-center justify-center rounded-full bg-mint text-[30px] font-bold text-prussian ring-[5px] ring-prussian">
-              <span className="sr-only">No. </span>
-              {scene.number}
-            </span>
-          )}
-        </div>
+          </div>
+        )}
         <FitText className="text-[36px] leading-[1.1] font-bold tracking-[0.01em] uppercase" minScale={0.5}>
           {scene.entry.name}
         </FitText>
@@ -328,7 +320,7 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
   const { board, round } = showingBoard(full);
   const scene = ledScene(board);
   const { activity } = board;
-  const look = { font: activity.ledFont, theme: activity.ledTheme, shape: activity.ledShape };
+  const look = { font: activity.ledFont, theme: activity.ledTheme };
   if (activity.ledFullscreen) {
     return (
       <div

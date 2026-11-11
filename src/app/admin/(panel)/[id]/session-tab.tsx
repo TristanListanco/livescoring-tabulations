@@ -20,6 +20,7 @@ import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } f
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { setCurrentEntry, setSessionState } from "../../actions";
 import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
+import { archiveBlocked } from "@/lib/lifecycle";
 import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
@@ -27,7 +28,6 @@ import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
-import { RankingSwitch } from "./ranking-switch";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
 
@@ -52,7 +52,11 @@ function useNow(active: boolean, everyMs = 5000): number | null {
 
 // On the desk the session itself is "Live", so the connection says whether this screen is keeping up. These names
 // are announced when the connection changes; the freshness only shows, so it isn't re-read every tick.
-const CONNECTION_LABELS = { live: "Connected", polling: "Updating every 15 seconds" };
+/**
+ * Whether this desk keeps itself current: it's about the desk's own connection, not the judges' (the desk lists who's
+ * paired), so it says what the desk does rather than "Connected", which read as the judges being in.
+ */
+const CONNECTION_LABELS = { live: "Updating live", polling: "Updating every 15 seconds" };
 
 /**
  * The desk's connection badge. It owns the "updated N seconds ago" clock, so each tick re-renders just this badge
@@ -271,9 +275,9 @@ export function SessionTab({
   );
 
   /**
-   * The audience's screen mid-show, one compact card beside the live desk: the live results (copy, open, QR code), and
-   * under them whether they show ranks. The LED wall's link is on its own tab, with its settings. `extra`: what follows
-   * them (the results downloads). Before and after the show it's liveResultsCard, under the desk.
+   * The audience's screen mid-show, one compact card beside the live desk: the live results (copy, open, QR code).
+   * Whether they rank is in Settings, and the LED wall's link is on its own tab. `extra`: what follows them (the
+   * results downloads). Before and after the show it's liveResultsCard, under the desk.
    */
   const screens = (extra?: React.ReactNode) => (
     <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
@@ -290,7 +294,6 @@ export function SessionTab({
           </a>
           {liveQrDialog(`${textAction} gap-1.5`)}
         </div>
-        <RankingSwitch activity={activity} compact />
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
         {!activity.liveScoring && !pageant && (
           <div className="flex flex-wrap items-center gap-x-1 border-t border-line pt-2">
@@ -314,14 +317,14 @@ export function SessionTab({
   /*
    * The live results, under the desk whenever it isn't running the show (before it, while the judges deliberate, and
    * once judging has ended, until the activity is archived): what the audience sees there now, then the address with
-   * Copy, Open and the QR code as one group, and whether it ranks, on a row of its own. Mid-show it's the compact card
-   * beside the desk (screens).
+   * Copy, Open and the QR code as one group (whether it ranks is in Settings). Mid-show it's the compact card beside
+   * the desk (screens).
    */
   const segment =
     "inline-flex h-10 items-center justify-center gap-1.5 px-4 text-sm font-semibold text-regal transition-colors hover:bg-wash max-sm:flex-1 pointer-coarse:h-11";
   const liveResultsCard = (now: string) => (
     <section aria-labelledby="live-results" className="card overflow-hidden">
-      <div className="px-5 pt-5 sm:px-6">
+      <div className="p-5 sm:px-6">
         <div className="flex items-start gap-3.5">
           {/* A screen with a rising bar: the page the audience follows. */}
           <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-regal text-mint">
@@ -353,8 +356,8 @@ export function SessionTab({
           </div>
         </div>
       </div>
-      <div className="mt-5 space-y-3 border-t border-line px-5 py-4 sm:px-6">
-        <RankingSwitch activity={activity} compact />
+      {/* Whether the page ranks is set in Settings. Under the address, what's for the organizer alone, while it's on. */}
+      <div className="space-y-3 border-t border-line px-5 py-4 empty:hidden sm:px-6">
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
         {state !== "ended" && !activity.liveScoring && !pageant && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -1113,7 +1116,7 @@ export function SessionTab({
                 </div>
                 <div className="flex flex-wrap items-center gap-3 max-sm:w-full">
                   {exportMenu("btn btn-primary max-sm:w-full")}
-                  <ArchiveButton activityId={activity.id} name={activity.name} className="btn btn-quiet max-sm:flex-1" />
+                  <ArchiveButton activityId={activity.id} name={activity.name} blocked={archiveBlocked(activity, progress)} className="btn btn-quiet max-sm:flex-1" />
                   {/*
                     A deliberated session deliberates again, with the password ending took: it reopens the signed record. Any
                     other reopens, and at least asks.

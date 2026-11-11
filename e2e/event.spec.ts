@@ -251,7 +251,13 @@ test.describe.serial("a full event", () => {
     await expect(page.getByRole("button", { name: "Move Agila down" })).toHaveCount(0);
     // Photos can still change: they're only for the LED wall.
     await choosePhoto(page, "Photo for Agila");
-    await expect(page.getByRole("button", { name: "Remove photo" })).toBeVisible();
+    // A photo opens large, to change it, remove it or just close it.
+    await page.getByRole("button", { name: "View photo of Agila" }).click();
+    const viewer = page.getByRole("dialog", { name: "Agila's photo" });
+    await expect(viewer.getByRole("button", { name: "Remove photo of Agila" })).toBeVisible();
+    await expect(viewer.getByRole("button", { name: "Change photo of Agila" })).toBeVisible();
+    await viewer.getByRole("button", { name: "Close" }).click();
+    await expect(viewer).toBeHidden();
     await fillEntries(page, ["Dalisay"], "New entry");
     await page.getByRole("button", { name: "Add entries" }).click();
     // Saved changes are confirmed with a toast.
@@ -411,22 +417,22 @@ test.describe.serial("a full event", () => {
 
   test("hiding ranks switches the public board to running order", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
-    // Ranks are a show-time control, on the Session tab next to the live results link.
-    await page.goto(`${adminPath}?tab=session`);
+    // Ranks are with the activity's settings, on unless turned off; a toast says each change saved.
+    await page.goto(`${adminPath}?tab=settings`);
     const toggle = page.getByRole("switch", { name: "Show ranks on the live results page" });
-    const message = page.getByRole("status").filter({ hasText: "Rankings are" });
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
     // Judging has ended, so the live results check only every half minute: reloaded here rather than waited for.
     await toggle.click();
-    await expect(message).toHaveText("Rankings are hidden on the live results page.");
+    await expect(page.getByText("Rankings are hidden on the live results page", { exact: true })).toBeVisible();
     await live.reload();
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Bagwis", "Kidlat"]);
     await toggle.click();
-    await expect(message).toHaveText("Rankings are showing on the live results page.");
+    await expect(page.getByText("Rankings are showing on the live results page", { exact: true })).toBeVisible();
     await live.reload();
     await expect.poll(() => boardOrder(live), REALTIME).toEqual(["Agila", "Kidlat", "Bagwis"]);
   });
 
-  test("scoring can't be changed once the activity is created", async ({ page }) => {
+  test("scoring can't be changed once judging has started", async ({ page }) => {
     await signInAsOrganizer(page, ORGANIZER.email, ORGANIZER.password);
     await page.goto(`${adminPath}?tab=settings`);
     const scoring = page.locator("dl");

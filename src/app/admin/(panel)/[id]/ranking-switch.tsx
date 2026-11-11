@@ -5,10 +5,14 @@ import { reach } from "@/lib/reach";
 import type { Activity, ActionResult } from "@/lib/types";
 import { setShowRank } from "../../actions";
 import { FormMessage } from "../form-message";
+import { toastSaved } from "../toaster";
 import { Switch } from "../switch";
 
-/** Ranks on or off on the public live results page: something an organizer flips during the show, before the reveal. */
-export function RankingSwitch({ activity, compact = false }: { activity: Activity; compact?: boolean }) {
+/**
+ * Ranks on or off on the public live results page, with the activity's other settings (on unless turned off): the
+ * entries sorted by average, the top three standing out, or kept in running order. Saved at once, with a toast.
+ */
+export function RankingSwitch({ activity, editable = true }: { activity: Activity; editable?: boolean }) {
   const [on, setOn] = useState(activity.showRank);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -17,7 +21,7 @@ export function RankingSwitch({ activity, compact = false }: { activity: Activit
     const next = !on;
     setOn(next);
     startTransition(async () => {
-      const r = await reach(() => setShowRank(activity.id, next));
+      const r = toastSaved(await reach(() => setShowRank(activity.id, next)));
       setResult(r);
       if (!r.ok) setOn(!next);
     });
@@ -25,14 +29,14 @@ export function RankingSwitch({ activity, compact = false }: { activity: Activit
 
   return (
     <div className="space-y-2">
-      <div className={`flex items-center ${compact ? "gap-3" : "gap-4"}`}>
-        <Switch checked={on} onChange={toggle} labelledBy="rank-label" disabled={pending} />
-        {/* Under the live results it's for, "Show ranks" says enough; screen readers hear which page too. */}
-        <p id="rank-label" className={compact ? "font-medium" : "font-semibold"}>
-          Show ranks<span className={compact ? "sr-only" : undefined}> on the live results page</span>
+      <div className="flex items-center gap-4">
+        <Switch checked={on} onChange={toggle} labelledBy="rank-label" disabled={pending || !editable} />
+        <p id="rank-label" className="font-semibold">
+          Show ranks on the live results page
         </p>
       </div>
-      <FormMessage state={result} small />
+      <p className="hint pl-16">Sorted by average, the top three standing out. Off, the entries stay in running order.</p>
+      <FormMessage state={result?.ok ? null : result} small className="pl-16" />
     </div>
   );
 }

@@ -13,11 +13,13 @@ export function TallyMark({ className = "" }: { className?: string }) {
 
 /**
  * The mark drawn large, drawing itself: the four strokes one after another, then the slash that counts the fifth (see
- * .tally-draw in globals.css). Colours from `strokes` and `slash`; sized by `className`.
+ * .tally-draw in globals.css). Colours from `strokes` and `slash`; sized by `className`. `flush`: the box ends where the
+ * drawing does (the slash's round ends, the strokes' tops and bottoms), so it lines up with text beside it; size it by
+ * its width then. Otherwise it's square, with the mark centred in it, as an icon is.
  */
-export function TallyGate({ className = "", strokes, slash }: { className?: string; strokes: string; slash: string }) {
+export function TallyGate({ className = "", strokes, slash, flush = false }: { className?: string; strokes: string; slash: string; flush?: boolean }) {
   return (
-    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" aria-hidden className={`tally-draw ${className}`}>
+    <svg viewBox={flush ? "3.75 9.25 40.5 29.5" : "0 0 48 48"} fill="none" stroke="currentColor" strokeWidth={3.5} strokeLinecap="round" aria-hidden className={`tally-draw ${className}`}>
       {["M12 11v26", "M20 11v26", "M28 11v26", "M36 11v26"].map((d) => (
         <path key={d} pathLength={1} className={strokes} d={d} />
       ))}

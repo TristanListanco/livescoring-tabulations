@@ -14,17 +14,14 @@ const KINDS: { value: ActivityKind; label: string }[] = [
 
 /**
  * A new activity: an event, or a pageant set up step by step. Either can be saved as a draft and continued later,
- * and leaving with unsaved changes asks first (see useLeaveGuard). Where pageants aren't open yet (the live site,
- * `pageantsOpen` false), choosing Pageant says it's coming soon instead.
+ * and leaving with unsaved changes asks first (see useLeaveGuard).
  */
 export function NewActivity({
   draft,
   missingDraft,
-  pageantsOpen,
 }: {
   draft: (OpenedDraft & { kind: ActivityKind }) | null;
   missingDraft: boolean;
-  pageantsOpen: boolean;
 }) {
   const [kind, setKind] = useState<ActivityKind>(draft?.kind ?? "event");
   const [dirty, setDirty] = useState(false);
@@ -58,24 +55,15 @@ export function NewActivity({
                   })
                 }
               />
-              <span className="flex flex-wrap items-center gap-x-2 font-semibold">
-                {k.label}
-                {k.value === "pageant" && !pageantsOpen && <span className="text-sm font-semibold opacity-80">· Coming soon</span>}
-              </span>
+              <span className="font-semibold">{k.label}</span>
             </label>
           ))}
         </div>
       </fieldset>
       {kind === "event" ? (
         <ActivityForm draft={opened} onDirty={setDirty} formRef={formRef} saveRef={saveRef} />
-      ) : pageantsOpen ? (
-        <PageantForm draft={opened} onDirty={setDirty} formRef={formRef} saveRef={saveRef} />
       ) : (
-        <section aria-labelledby="pageant-soon" className="card mt-8 max-w-3xl border-dashed border-powder px-6 py-12 text-center">
-          <h2 id="pageant-soon" className="title-sm text-2xl">
-            Pageant mode is coming soon
-          </h2>
-        </section>
+        <PageantForm draft={opened} onDirty={setDirty} formRef={formRef} saveRef={saveRef} />
       )}
       {guard.dialog}
     </>

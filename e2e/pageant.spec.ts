@@ -119,7 +119,7 @@ test.describe.serial("a pageant", () => {
     await expectAccessible(page);
     await crop.getByRole("button", { name: "Use photo" }).click();
     await expect(crop).toBeHidden();
-    await expect(page.getByRole("button", { name: "Remove photo of Ayla" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View photo of Ayla" })).toBeVisible();
     await expectAccessible(page);
     await page.getByRole("button", { name: "Continue to judges" }).click();
 
@@ -280,7 +280,7 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("link", { name: "Segments", exact: true })).toBeVisible();
     // Ayla's photo from the setup went up with the pageant.
     await page.goto(`${adminPath}?tab=entries`);
-    await expect(page.getByRole("button", { name: "Remove photo of Ayla" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View photo of Ayla" })).toBeVisible();
     await page.goto(`${adminPath}?tab=session`);
     livePath = await screenPath(page, "Open live results");
     await page.goto(`${adminPath}?tab=led`);

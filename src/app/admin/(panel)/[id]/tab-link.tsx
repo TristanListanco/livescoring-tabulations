@@ -7,7 +7,20 @@ import Link, { useLinkStatus } from "next/link";
  * Opening a tab can take a moment when it isn't cached, so the tab picked shows it at once: it lights up with a bar
  * running under it, and the panel dims until the new one arrives (see .activity-tabs in globals.css).
  */
-export function TabLink({ href, active, look, children }: { href: string; active: boolean; look: "tree" | "pill"; children: React.ReactNode }) {
+export function TabLink({
+  href,
+  tab,
+  active,
+  look,
+  children,
+}: {
+  href: string;
+  /** Which tab it opens: while it does, the panel shows that tab's skeleton (see PanelSkeleton). */
+  tab: string;
+  active: boolean;
+  look: "tree" | "pill";
+  children: React.ReactNode;
+}) {
   const shape =
     look === "tree"
       ? // The open tab's mark sits on the tree's line, beside it.
@@ -28,16 +41,16 @@ export function TabLink({ href, active, look, children }: { href: string; active
       className={`relative transition-colors has-[[data-tab-pending]]:text-regal ${shape}`}
     >
       {look === "pill" ? <span className="min-w-0 truncate">{children}</span> : children}
-      <Pending />
+      <Pending tab={tab} />
     </Link>
   );
 }
 
 /** While its tab is opening: a bar under it, and the mark the panel dims by. Always rendered, so nothing shifts. */
-function Pending() {
+function Pending({ tab }: { tab: string }) {
   const { pending } = useLinkStatus();
   return (
-    <span aria-hidden data-tab-pending={pending || undefined} className="tab-pending absolute inset-x-3 bottom-1 h-0.5 overflow-hidden rounded-full">
+    <span aria-hidden data-tab-pending={pending ? tab : undefined} className="tab-pending absolute inset-x-3 bottom-1 h-0.5 overflow-hidden rounded-full">
       <span className="tab-pending-run block h-full w-1/2 bg-regal" />
     </span>
   );

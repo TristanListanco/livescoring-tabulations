@@ -9,7 +9,6 @@ import { newRequestId } from "@/lib/request-id";
 import type { ResultDecimals } from "@/lib/types";
 import { createActivity, type FormResult } from "../../actions";
 import { toastOnRedirect } from "../toaster";
-import { DRAFT_GONE } from "@/lib/draft-messages";
 import { parseEntryLine } from "@/lib/entry-details";
 import { checkScoring } from "@/lib/scoring-rules";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
@@ -171,7 +170,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const [state, dispatch] = useActionState<FormResult, FormData>(async (previous, data) => {
     try {
       const result = await toastOnRedirect(createActivity(previous, data), `${String(data.get("name") ?? "").trim() || "Event"} created`);
-      if (result && !result.ok && result.error === DRAFT_GONE) draft.forget();
+      if (result && !result.ok && result.code === "draft-gone") draft.forget();
       return result;
     } catch (error) {
       // Going to the new activity arrives as a thrown signal: it carries on.

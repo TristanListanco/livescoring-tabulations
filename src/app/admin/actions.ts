@@ -34,10 +34,11 @@ import { touchJudge } from "@/lib/devices";
 import { DRAFT_GONE } from "@/lib/draft-messages";
 import { inUseMessage } from "@/lib/in-use";
 import { accountInUse } from "@/lib/in-use-server";
-import { pageantsAvailable, testToolsAllowed } from "@/lib/environment";
+import { testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
-import { toLedFont, toLedShape, toLedTheme, type LedFont, type LedShape, type LedTheme } from "@/lib/led-style";
+import { canApprove, canMove, editable, phaseOf, type DeviceStatus } from "@/lib/lifecycle";
+import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
 import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
@@ -88,7 +89,6 @@ const dbErr = (error: { message: string; code?: string }): ActionResult => {
   return err("That didn't save. Check the connection and try again.");
 };
 const NOT_FOUND = err("Activity not found.");
-const PAGEANTS_SOON = "Pageant mode is coming soon. It isn't available on this site yet.";
 
 function check(error: { message: string } | null) {
   if (error) throw new Error(error.message);
@@ -331,10 +331,16 @@ const SESSION_HINT = "Judging sessions need a database update. Run supabase/migr
 const JUDGES_LOCKED = err("The session has started, so the panel of judges is locked.");
 const ENTRIES_ENDED = err("Judging has ended, so entries can't be changed.");
 
-/** The activity's judging session. Databases without migration 005 behave as "not started". */
+/**
+ * The activity's judging session. Databases without migration 005 behave as "not started". Any other failure to read it
+ * stops the action rather than guessing "not started", which would unlock the panel of judges on a database blip.
+ */
 async function sessionOf(activityId: string): Promise<{ state: SessionState; currentEntryId: string | null; startedAt: string | null }> {
   const { data, error } = await db().from("activities").select("session_state, current_entry_id, session_started_at").eq("id", activityId).maybeSingle();
-  if (error) return { state: "draft", currentEntryId: null, startedAt: null };
+  if (error && /session_state|current_entry_id|session_started_at/.test(error.message) && /schema cache|does not exist/.test(error.message)) {
+    return { state: "draft", currentEntryId: null, startedAt: null };
+  }
+  check(error);
   const row = data as { session_state: string; current_entry_id: string | null; session_started_at: string | null } | null;
   return { state: toSessionState(row?.session_state), currentEntryId: row?.current_entry_id ?? null, startedAt: row?.session_started_at ?? null };
 }
@@ -520,7 +526,7 @@ export const savePageant = traced("savePageant", async function savePageant(acti
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
-  if (board.activity.sessionState !== "draft") return err("The session has started, so the program is final and can't be changed.");
+  if (!editable(board.activity, "program")) return err("The session has started, so the program is final and can't be changed.");
   const draft = parsePageantDraft(json);
   if (!draft) return err("The program couldn't be read. Try again.");
   const checked = checkPageant(draft, board.entries.length, newCriterionId);
@@ -641,6 +647,10 @@ export const confirmCut = traced("confirmCut", async function confirmCut(activit
   const round = board.rounds.find((r) => r.id === roundId);
   if (!round || round.cutSize === null) return err("That cut isn't part of this pageant.");
   if (round.cutEntryIds !== null) return err("That cut is already confirmed.");
+  // A correction still open could change the scores the cut ranks by: it's settled first.
+  if ((await getCorrections(activityId))?.some((c) => c.status === "open")) {
+    return err("A score correction is still waiting. Settle it before confirming the cut.");
+  }
   const plan = cutPlan(board, round);
   const cleanPicks = Array.isArray(picks) ? picks.map((p) => (Array.isArray(p) ? p.map(String) : [])) : [];
   const result = cutResult(plan, cleanPicks);
@@ -761,7 +771,7 @@ export const createActivity = traced("createActivity", async function createActi
 
 /** A new activity: where to find it, and its entries' ids in running order (for adding their photos next). */
 type Created = { activityId: string; entryIds: string[] };
-export type CreateResult = ({ ok: true } & Created) | { ok: false; error: string };
+export type CreateResult = ({ ok: true } & Created) | Extract<ActionResult, { ok: false }>;
 
 /**
  * Create a pageant without leaving the page, so the setup can then upload each candidate's photo on its own:
@@ -776,7 +786,6 @@ export const createPageant = traced("createPageant", async function createPagean
 async function createFromForm(formData: FormData): Promise<ActionResult | Created> {
   const session = await requireAdmin();
   const pageant = formData.get("kind") === "pageant";
-  if (pageant && !pageantsAvailable()) return err(PAGEANTS_SOON);
   // The organizer confirms they have the consent of the people they name in it (see ConsentField).
   if (formData.get("consent") !== "on") return err("Confirm you have the consent of the people named here.");
 
@@ -897,7 +906,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       // A resend of this same form, whose first send created the activity (and used the draft): that activity.
       const { data: made } = await db().from("activities").select("id").eq("id", id).maybeSingle();
       if (made) return createdBefore(id, owner_id);
-      return err(DRAFT_GONE);
+      return { ok: false, error: DRAFT_GONE, code: "draft-gone" };
     }
   }
   const insert = async (): Promise<ActionResult | Created> => {
@@ -1029,7 +1038,7 @@ export const setLiveScoring = traced("setLiveScoring", async function setLiveSco
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event") return err("Only an event's live scoring can change.");
-  if (judgesLocked(activity)) return err("Live scoring can't change once judging has started.");
+  if (!editable(activity, "rules")) return err("Live scoring can't change once judging has started.");
   const { error } = await db().from("activities").update({ live_scoring: on }).eq("id", activityId).eq("session_state", "draft");
   if (error) return /live_scoring/.test(error.message) ? needsMigration(DELIBERATION_HINT) : dbErr(error);
   // With live scoring there's no chair: only the organizer moves between entries. Turned off again, one is chosen on
@@ -1048,11 +1057,55 @@ export const setEventTimer = traced("setEventTimer", async function setEventTime
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event") return err("Only an event has a timer of its own: a pageant's are its sub-activities'.");
-  if (judgesLocked(activity)) return err("The timer can't change once judging has started.");
+  if (!editable(activity, "rules")) return err("The timer can't change once judging has started.");
   const { error } = await db().from("activities").update({ timer_seconds: seconds }).eq("id", activityId).eq("session_state", "draft");
   if (error) return /timer_seconds/.test(error.message) ? needsMigration(TIMER_HINT) : dbErr(error);
   changed();
   return ok(seconds ? `Judges get ${seconds} seconds per entry.` : "No time limit.");
+});
+
+/**
+ * The decimal places judges score with (an event's; a pageant's are its sub-activities') and those its results show,
+ * until judging first starts: one of the rules, like the timer. The rules as they stand must still hold with the new
+ * places (a range like 7.5 to 10 needs a decimal place, as on the create form). Only while it's still not started.
+ */
+export const setScoringPlaces = traced("setScoringPlaces", async function setScoringPlaces(
+  activityId: string,
+  decimals: number | null,
+  resultDecimals: number,
+): Promise<ActionResult> {
+  if (!(await manage(activityId))) return NOT_FOUND;
+  const activity = await getActivity(activityId);
+  if (!activity) return NOT_FOUND;
+  if (!editable(activity, "rules")) return err("Judging has started, so the decimal places can't change.");
+  if (!Number.isInteger(resultDecimals) || resultDecimals < 0 || resultDecimals > 4) return err("Decimal places shown in results must be a whole number from 0 to 4.");
+  const update: Record<string, number> = { result_decimals: resultDecimals };
+  if (activity.kind === "event" && decimals !== null) {
+    const checked = checkScoring(
+      {
+        mode: activity.scoringMode,
+        min: String(activity.min),
+        max: String(activity.max),
+        decimals,
+        criteria: activity.criteria,
+        display: activity.criteriaDisplay,
+      },
+      newCriterionId,
+      { maxDecimals: 3 },
+    );
+    if ("error" in checked) return err(checked.error);
+    update.decimals = decimals;
+  }
+  const { error, count } = await db()
+    .from("activities")
+    .update(update, { count: "exact" })
+    .eq("id", activityId)
+    .eq("session_state", "draft")
+    .is("session_started_at", null);
+  if (error) return /result_decimals/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
+  if (!count) return err("Judging has started, so the decimal places can't change.");
+  changed();
+  return ok("Decimal places saved.");
 });
 
 /** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
@@ -1089,9 +1142,9 @@ export const setActivityOption = traced("setActivityOption", async function setA
   const { activity } = managed;
   if (option !== "privacyScreen") {
     if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has corrections and a deliberation.");
-    if (activity.sessionState === "ended") return err("Judging has ended, so this can't change.");
+    if (!editable(activity, "judgeOptions")) return err("Judging has ended, so this can't change.");
     // How judges move through the entries is set before judging starts.
-    if (option === "independentScoring" && judgesLocked(activity)) return err("Judging has started, so this can't change.");
+    if (option === "independentScoring" && !editable(activity, "rules")) return err("Judging has started, so this can't change.");
   }
   const column = columns[option];
   const { error } = await db().from("activities").update({ [column]: on }).eq("id", activityId);
@@ -1127,7 +1180,13 @@ export const answerAssistance = traced("answerAssistance", async function answer
   const { data } = await db().from("assistance_requests").select("activity_id").eq("id", requestId).maybeSingle();
   const activityId = (data as { activity_id: string } | null)?.activity_id;
   if (!activityId || !(await manage(activityId, { archived: true }))) return err("That call wasn't found.");
-  const { error } = await db().from("assistance_requests").update({ answered_at: new Date().toISOString() }).eq("id", requestId).is("answered_at", null);
+  // Still open: a call the judge has cancelled stays cancelled, not answered as well.
+  const { error } = await db()
+    .from("assistance_requests")
+    .update({ answered_at: new Date().toISOString() })
+    .eq("id", requestId)
+    .is("answered_at", null)
+    .is("cancelled_at", null);
   if (error) return dbErr(error);
   changed();
   return ok();
@@ -1158,7 +1217,7 @@ export const updateCriterionGuides = traced("updateCriterionGuides", async funct
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity || activity.kind !== "event" || activity.scoringMode !== "criteria") return err("This activity isn't scored by criteria.");
-  if (activity.sessionState !== "draft") return err("The guides can't change once judging has started.");
+  if (!editable(activity, "guides")) return err("The guides can't change once judging has started.");
   // A blank guide is left out of the stored criteria (JSON drops undefined).
   const criteria = activity.criteria.map((c) => ({ ...c, guide: cleanGuide(formData.get(`guide-${c.id}`)) || undefined }));
   const { error } = await db().from("activities").update({ criteria }).eq("id", activityId);
@@ -1249,17 +1308,23 @@ export const setSessionState = traced("setSessionState", async function setSessi
     const refused = await confirmPassword(session, password);
     if (refused) return refused;
   }
-  const current = await sessionOf(activityId);
-  if (state === "live" && current.state === "deliberation") return err("The judges are deliberating. The session ends once they've all signed.");
-  if (state === "live" && current.state === "ended") {
-    // The judges and the organizer signed these results: they're reopened only by deliberating again, which asks for the
-    // password as ending did.
-    const ended = await getActivity(activityId);
-    if (ended?.kind === "event" && !ended.liveScoring && ended.signedOffAt) {
-      return err("The judges signed these results, so deliberate again instead. It asks for your password.");
-    }
+  const now = await getActivity(activityId);
+  if (!now) return NOT_FOUND;
+  const current = { state: now.sessionState, startedAt: now.sessionStartedAt };
+  // Which move this is, and whether it exists from where the session stands (see SESSION_MOVES in lifecycle.ts).
+  const move = state === "ended" ? "end" : current.state === "ended" ? "reopen" : "start";
+  // Started already (a second click, or a request sent again): nothing to do, and it says so as the first did.
+  if (move === "start" && current.state === "live") return ok("The session has started. Show the first entry when you're ready.");
+  if (!canMove(now, move)) {
+    if (now.archivedAt) return err("An archived activity can't be changed.");
+    if (move === "end") return err("The session isn't running.");
+    if (current.state === "deliberation") return err("The judges are deliberating. The session ends once they've all signed.");
+    // The judges and the organizer signed these results: they're reopened only by deliberating again, which asks for
+    // the password as ending did.
+    if (phaseOf(now) === "signed-off") return err("The judges signed these results, so deliberate again instead. It asks for your password.");
+    return err("That isn't a change the session can make now.");
   }
-  if (state === "live" && current.state === "draft") {
+  if (move === "start") {
     const [judges, entries] = await Promise.all([
       db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
       db().from("entries").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
@@ -1276,7 +1341,6 @@ export const setSessionState = traced("setSessionState", async function setSessi
       return err("Choose the chair of the board of judges on the Judges tab first.");
     }
   }
-  if (state === "ended" && current.state !== "live" && current.state !== "deliberation") return err("The session isn't running.");
   // An event with live scoring that ended with every score in (by itself, see endWhenEveryScoreIsIn) is over for good:
   // its scores are final, so there's nothing to reopen for. One ended early, with scores missing, can still be reopened.
   if (state === "live" && current.state === "ended") {
@@ -1287,6 +1351,9 @@ export const setSessionState = traced("setSessionState", async function setSessi
   }
   // Without live scoring, a fully scored session ends through the deliberation, once every judge has signed.
   let signedOff = false;
+  // When this request signed the results: if the session changed meanwhile, only this signature is taken back, never
+  // one another desk wrote as it ended the session.
+  let signedAt: string | null = null;
   if (state === "ended") {
     const board = await getBoard(activityId);
     if (board && !board.activity.liveScoring && current.state === "live" && scoreProgress(board).complete) {
@@ -1302,10 +1369,11 @@ export const setSessionState = traced("setSessionState", async function setSessi
       if (signature === undefined) return err("Sign the results to end the session.");
       const drawn = signature === null ? null : cleanSignature(signature);
       if (signature !== null && !drawn) return err("Draw your signature in the box, then end the session.");
+      signedAt = new Date().toISOString();
       const { error: signing } = await db()
         .from("activity_signoffs")
         .upsert(
-          { activity_id: activityId, signed_by: session.kind === "organizer" ? session.admin.name : "Super admin", method: drawn ? "drawn" : "checked", drawing: drawn, signed_at: new Date().toISOString() },
+          { activity_id: activityId, signed_by: session.kind === "organizer" ? session.admin.name : "Super admin", method: drawn ? "drawn" : "checked", drawing: drawn, signed_at: signedAt },
           { onConflict: "activity_id" },
         );
       if (signing) return signing.code === "42P01" || signing.code === "PGRST205" ? needsMigration(SIGNOFF_HINT) : dbErr(signing);
@@ -1338,8 +1406,8 @@ export const setSessionState = traced("setSessionState", async function setSessi
     ({ error, count } = await write());
   }
   if (error || !count) {
-    // Not ended after all: the organizer's signature waits for the next try.
-    if (signedOff) await db().from("activity_signoffs").delete().eq("activity_id", activityId);
+    // Not ended after all: the organizer's signature waits for the next try. Only the one this request wrote.
+    if (signedOff && signedAt) await db().from("activity_signoffs").delete().eq("activity_id", activityId).eq("signed_at", signedAt);
     if (!error) {
       changed();
       return err("The session changed meanwhile, so nothing was changed. Check where it stands now.");
@@ -1365,9 +1433,18 @@ async function redeliberate(activityId: string, session: AdminSession, password:
   if (!board) return NOT_FOUND;
   const { activity } = board;
   if (activity.archivedAt) return err("An archived activity can't be changed.");
-  if (activity.kind !== "event" || activity.liveScoring || !activity.signedOffAt) return err("Only a session the judges signed in a deliberation can be deliberated again.");
-  const { error } = await db().from("activities").update({ session_state: "deliberation", signed_off_at: null, session_ended_at: null }).eq("id", activityId).eq("session_state", "ended");
+  if (!canMove(activity, "redeliberate")) return err("Only a session the judges signed in a deliberation can be deliberated again.");
+  const { error, count } = await db()
+    .from("activities")
+    .update({ session_state: "deliberation", signed_off_at: null, session_ended_at: null }, { count: "exact" })
+    .eq("id", activityId)
+    .eq("session_state", "ended");
   if (error) return dbErr(error);
+  // Changed meanwhile (a second click, another desk): the signatures judges have given since stay.
+  if (!count) {
+    changed(activity.publicId);
+    return err("The session changed meanwhile, so nothing was changed. Check where it stands now.");
+  }
   // Everyone signs again: the judges, once they've reviewed, then the organizer.
   await db().from("judge_signatures").delete().eq("activity_id", activityId);
   await db().from("activity_signoffs").delete().eq("activity_id", activityId);
@@ -1394,8 +1471,13 @@ export const setCurrentEntry = traced("setCurrentEntry", async function setCurre
   if (entryId !== null && !entry?.data) return err("That entry isn't part of this activity.");
   const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };
   if ("error" in show) return err(show.error);
-  const { error } = await db().from("activities").update(show.columns).eq("id", activityId);
+  // Only while it's still live: a click from a desk that hasn't caught up mustn't move a session that has moved on.
+  const { error, count } = await db().from("activities").update(show.columns, { count: "exact" }).eq("id", activityId).eq("session_state", "live");
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
+  if (!count) {
+    changed(activity.publicId);
+    return err("The session isn't live any more. Check where it stands now.");
+  }
   changed(activity.publicId);
   return ok();
 });
@@ -1403,18 +1485,22 @@ export const setCurrentEntry = traced("setCurrentEntry", async function setCurre
 // Judge devices -----------------------------------------------------------------------
 
 /** The judge and activity a device belongs to, if the signed-in admin manages that activity. */
-async function managedDevice(deviceId: string): Promise<{ judgeId: string } | null> {
+async function managedDevice(deviceId: string): Promise<{ judgeId: string; status: DeviceStatus } | null> {
   if (!isUuid(deviceId)) return null;
-  const { data } = await db().from("judge_devices").select("judge_id").eq("id", deviceId).maybeSingle();
-  const judgeId = (data as { judge_id: string } | null)?.judge_id;
-  if (!judgeId || !(await manage(await parentActivity("judges", judgeId)))) return null;
-  return { judgeId };
+  const { data } = await db().from("judge_devices").select("judge_id, status").eq("id", deviceId).maybeSingle();
+  const row = data as { judge_id: string; status: DeviceStatus } | null;
+  if (!row?.judge_id || !(await manage(await parentActivity("judges", row.judge_id)))) return null;
+  return { judgeId: row.judge_id, status: row.status };
 }
 
 /** Let this device score for its judge. Every other device of that judge is signed out, so only one can record scores. */
 export const approveDevice = traced("approveDevice", async function approveDevice(deviceId: string): Promise<ActionResult> {
   const device = await managedDevice(deviceId);
   if (!device) return err("That device request is gone. The judge may have signed in again.");
+  // Only a request still waiting: a stale one on another screen mustn't sign the judge out of the device they're using.
+  if (!canApprove(device.status)) {
+    return err(device.status === "approved" ? "That device is already approved." : "That request was turned away or replaced. Ask the judge to sign in again.");
+  }
   const now = new Date().toISOString();
   const { error } = await db()
     .from("judge_devices")
@@ -1423,7 +1509,8 @@ export const approveDevice = traced("approveDevice", async function approveDevic
     .neq("id", deviceId)
     .neq("status", "revoked");
   if (error) return dbErr(error);
-  const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }).eq("id", deviceId);
+  const approved = await db().from("judge_devices").update({ status: "approved", decided_at: now }, { count: "exact" }).eq("id", deviceId).eq("status", "pending");
+  if (!approved.error && !approved.count) return err("That request changed meanwhile. Check the Judges tab.");
   if (approved.error?.code === "23505") return err("Another device was approved for this judge just now. Check which one is approved.");
   if (approved.error) return dbErr(approved.error);
   await touchJudge(device.judgeId);
@@ -1452,7 +1539,7 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
  */
 export const setLedOptions = traced("setLedOptions", async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; shape?: LedShape },
+  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
@@ -1462,7 +1549,6 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
   // Only the choices the wall knows; anything else is ignored.
   if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
   if (options.theme !== undefined && toLedTheme(options.theme) === options.theme) update.led_theme = options.theme;
-  if (options.shape !== undefined && toLedShape(options.shape) === options.shape) update.led_shape = options.shape;
   if (Object.keys(update).length === 0) return ok();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
   if (error && /led_(font|theme|shape)/.test(error.message)) {
@@ -1502,7 +1588,25 @@ export const addJudge = traced("addJudge", async function addJudge(activityId: s
     await assignCodes([judgeId]);
   } catch (e) {
     await db().from("judges").delete().eq("id", judgeId);
-    return err(e instanceof Error ? e.message : "Could not add the judge.");
+    // Why goes to the log; the screen gets words the organizer can act on.
+    log("error", "judge_code_not_saved", { error: e instanceof Error ? e.message.slice(0, 200) : String(e) });
+    return err("The judge couldn't be added. Try again.");
+  }
+  // Their photo, chosen as they were added. The judge is added either way: a photo that doesn't go up can be added from
+  // their row.
+  const photo = await photoFile(formData.get("photo"));
+  if (photo === "invalid") {
+    changed();
+    return ok(`${judgeName.name} added, without the photo: photos must be images under 2 MB.`);
+  }
+  if (photo) {
+    try {
+      const path = await uploadPhoto(activityId, judgeId, photo);
+      const { error: saving } = await db().from("judges").update({ photo_path: path }).eq("id", judgeId);
+      if (saving) removeFiles([path]);
+    } catch {
+      // Added all the same; the photo goes on from their row.
+    }
   }
   changed();
   return ok(`${judgeName.name} added.`);
@@ -1616,7 +1720,7 @@ export const removeJudge = traced("removeJudge", async function removeJudge(judg
 export const addEntries = traced("addEntries", async function addEntries(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const { state } = await sessionOf(activityId);
-  if (state === "ended") return ENTRIES_ENDED;
+  if (!editable({ sessionState: state }, "entries")) return ENTRIES_ENDED;
   // The judges are reviewing and signing every entry's scores, and no one can score a new one now (judging doesn't
   // reopen from the deliberation): it would hold the results back for good.
   if (state === "deliberation") return err("The judges are deliberating, so no entries can be added now.");
@@ -1642,7 +1746,7 @@ export const addEntries = traced("addEntries", async function addEntries(activit
 export const renameEntry = traced("renameEntry", async function renameEntry(entryId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state === "ended") return ENTRIES_ENDED;
+  if (!editable({ sessionState: (await sessionOf(activityId)).state }, "entries")) return ENTRIES_ENDED;
   const name = cleanName(formData.get("name"));
   if (!name) return err("Entries need a name.");
   // Its details too, for the activity's fields (`detail-<field id>`), or the first line of details for one without any
@@ -1665,7 +1769,7 @@ export const setEntryFields = traced("setEntryFields", async function setEntryFi
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
   if (managed.activity.kind !== "event") return err("Only an event's entries have details.");
-  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
+  if (!editable(managed.activity, "entries")) return ENTRIES_ENDED;
   const kept = new Set((await entryFieldsOf(activityId)).map((f) => f.id));
   const ids = formData.getAll("field-id").map(String);
   const fields: EntryField[] = formData
@@ -1695,7 +1799,7 @@ export const setEntryPhoto = traced("setEntryPhoto", async function setEntryPhot
 export const addCandidatePhotos = traced("addCandidatePhotos", async function addCandidatePhotos(activityId: string, formData: FormData): Promise<ActionResult & { missed?: string[] }> {
   const managed = await manageActivity(activityId);
   if (!managed) return err("Pageant not found.");
-  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
+  if (!editable(managed.activity, "entries")) return ENTRIES_ENDED;
   const entryIds = formData.getAll("entry").map(String);
   const files = formData.getAll("photo");
   if (!entryIds.length || entryIds.length !== files.length || entryIds.length > PHOTOS_PER_REQUEST || !entryIds.every(isUuid)) {
@@ -1727,7 +1831,7 @@ async function storeEntryPhoto(entryId: string, formData: FormData): Promise<Act
   // The check reads the activity, session state and all.
   const managed = await manageActivity(activityId);
   if (!activityId || !managed) return err("Entry not found.");
-  if (managed.activity.sessionState === "ended") return ENTRIES_ENDED;
+  if (!editable(managed.activity, "entries")) return ENTRIES_ENDED;
   const photo = await photoFile(formData.get("photo"));
   if (photo === "invalid") return err("Photos must be images under 2 MB.");
 
@@ -1808,7 +1912,7 @@ export const moveEntry = traced("moveEntry", async function moveEntry(entryId: s
   if (direction !== -1 && direction !== 1) return err("Move an entry up or down one place.");
   const activityId = await parentActivity("entries", entryId);
   if (!activityId || !(await manage(activityId))) return err("Entry not found.");
-  if ((await sessionOf(activityId)).state !== "draft") return ORDER_LOCKED;
+  if (!editable({ sessionState: (await sessionOf(activityId)).state }, "order")) return ORDER_LOCKED;
 
   const order = (await runningOrder(activityId)).map((e) => e.id);
   const from = order.indexOf(entryId);
@@ -1828,7 +1932,7 @@ export const shuffleEntries = traced("shuffleEntries", async function shuffleEnt
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
   if (managed.activity.kind !== "event") return err("A pageant's candidates are moved by hand.");
-  if (managed.activity.sessionState !== "draft") return ORDER_LOCKED;
+  if (!editable(managed.activity, "order")) return ORDER_LOCKED;
 
   const entries = await runningOrder(activityId);
   if (entries.length < 2) return ok();
@@ -1855,28 +1959,43 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   if (refused) return refused;
   const activity = await getActivity(activityId);
   if (!activity) return NOT_FOUND;
-  if (activity.archivedAt) return err("This activity is archived, so its scores stay as they are.");
-  const { error } = await db().from("scores").delete().eq("activity_id", activityId);
-  if (error) return dbErr(error);
-  // The corrections were to those scores (votes go with them). Fails harmlessly before migration 019.
-  await db().from("score_corrections").delete().eq("activity_id", activityId);
-  // Judges' notes go with the scores (fails harmlessly before migration 018), and so do their signatures (021).
-  await db().from("judge_notes").delete().eq("activity_id", activityId);
-  await db().from("judge_signatures").delete().eq("activity_id", activityId);
-  // The ties those scores made, and the organizer's signature on their results (fail harmlessly before migration 026).
-  await db().from("tie_breaks").delete().eq("activity_id", activityId);
-  await db().from("activity_signoffs").delete().eq("activity_id", activityId);
-  // Every judge's device is signed out, and their screens hear of it: judges enter their codes and pair again.
+  if (!canMove(activity, "reset")) return err("This activity is archived, so its scores stay as they are.");
+  // Everything the scores made: the scores, corrections to them (votes go with them), judges' notes (018) and signatures
+  // (021), the ties they made and the organizer's signature on their results (026). Each fails harmlessly on a database
+  // without its table.
+  const clearScores = async () => {
+    const { error } = await db().from("scores").delete().eq("activity_id", activityId);
+    if (error) return error;
+    for (const table of ["score_corrections", "judge_notes", "judge_signatures", "tie_breaks", "activity_signoffs"]) {
+      await db().from(table).delete().eq("activity_id", activityId);
+    }
+    return null;
+  };
+  // Back to not started. session_started_at stays: it's what keeps the panel of judges locked. While the session is
+  // live a judge's score can still land between the delete and this (the database then refuses to go back to not
+  // started with scores in it): the stray scores go too, and it tries again.
+  let moved = false;
+  for (let attempt = 0; attempt < 3 && !moved; attempt++) {
+    const cleared = await clearScores();
+    if (cleared) return dbErr(cleared);
+    const { error } = await db()
+      .from("activities")
+      .update({ session_state: "draft", current_entry_id: null, led_entry_id: null, session_ended_at: null })
+      .eq("id", activityId);
+    if (!error) moved = true;
+    else if (error.code !== "P0001" && !/can't go back to not started/.test(error.message)) return dbErr(error);
+  }
+  if (!moved) return err("Judges were still scoring, so the session didn't go back to not started. End the session, then reset the scores.");
+  // Each fails harmlessly on a database without its column.
+  await db().from("activities").update({ signed_off_at: null }).eq("id", activityId);
+  await db().from("activities").update({ scoring_closes_at: null }).eq("id", activityId);
+  // Only now, with the session back to not started, every judge's device is signed out, and their screens hear of it:
+  // judges enter their codes and pair again.
   const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
   if (judgeRows?.length) {
     await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
     await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
   }
-  // Back to not started. session_started_at stays: it's what keeps the panel of judges locked.
-  await db().from("activities").update({ session_state: "draft", current_entry_id: null, session_ended_at: null }).eq("id", activityId);
-  // Each fails harmlessly on a database without its column.
-  await db().from("activities").update({ signed_off_at: null }).eq("id", activityId);
-  await db().from("activities").update({ scoring_closes_at: null }).eq("id", activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
   if (activity.kind === "pageant") {
     await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
@@ -1913,18 +2032,23 @@ export const archiveActivity = traced("archiveActivity", async function archiveA
   const refused = await confirmPassword(session, password);
   if (refused) return refused;
   const activity = await getActivity(activityId);
-  if (!activity || activity.sessionState !== "ended") return err("Only an activity whose session has ended can be archived.");
+  if (!activity || !canMove(activity, "archive")) return err("Only an activity whose session has ended can be archived.");
   // Its results wait on an open correction, so it's settled first.
   if ((await getCorrections(activityId))?.some((c) => c.status === "open")) {
     return err("A score correction is still waiting. Settle it on the Session tab before archiving.");
   }
-  const { error } = await db()
+  const { error, count } = await db()
     .from("activities")
-    .update({ archived_at: new Date().toISOString() })
+    .update({ archived_at: new Date().toISOString() }, { count: "exact" })
     .eq("id", activityId)
     .eq("session_state", "ended")
     .is("archived_at", null);
   if (error) return /archived_at/.test(error.message) ? needsMigration(ARCHIVE_HINT) : dbErr(error);
+  // Reopened in another tab meanwhile, or archived already: nobody is signed out.
+  if (!count) {
+    changed();
+    return err("The session changed meanwhile, so it wasn't archived. Check where it stands now.");
+  }
   // Then their screens hear of it, and go back to the sign-in, which says judging is over.
   const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
   if (judgeRows?.length) {
@@ -1982,7 +2106,6 @@ export const saveDraft = traced("saveDraft", async function saveDraft(
 ): Promise<DraftResult> {
   const session = await requireAdmin();
   if (kind !== "event" && kind !== "pageant") return { ok: false, error: "That draft couldn't be read. Try again." };
-  if (kind === "pageant" && !pageantsAvailable()) return { ok: false, error: PAGEANTS_SOON };
   if (typeof data !== "string" || data.length > MAX_DRAFT_CHARS) return { ok: false, error: "That draft is too big to save. Remove some photos and try again." };
   let parsed: unknown;
   try {

@@ -1,6 +1,5 @@
 "use client";
 
-import { DRAFT_GONE } from "@/lib/draft-messages";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { blankScoring, checkPageant, MIN_PROPER_JUDGES, parsePageantDraft, type PageantDraft, type ProgramTarget } from "@/lib/pageant-setup";
@@ -378,7 +377,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     }
     if (!result.ok) {
       setServerError(result.error);
-      if (result.error === DRAFT_GONE) saved.forget();
+      if (result.code === "draft-gone") saved.forget();
       return;
     }
     // It's saved now, so nothing is lost by leaving: the photos still to come can be added on the Candidates tab.

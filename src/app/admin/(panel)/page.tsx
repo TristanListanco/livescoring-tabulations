@@ -8,6 +8,7 @@ import type { Activity } from "@/lib/types";
 import { ActivitiesRefresh } from "./activities-refresh";
 import { DraftsList } from "./drafts-list";
 import { SessionStatus } from "./session-status";
+import { scoresGoOutLive } from "@/lib/lifecycle";
 
 export const metadata: Metadata = { title: "Activities" };
 
@@ -167,7 +168,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
               <li key={a.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <p className="min-w-0 font-medium wrap-anywhere">{a.name}</p>
-                  <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse className="shrink-0 text-sm" />
+                  <SessionStatus state={a.sessionState} onAir={scoresGoOutLive(a)} pulse className="shrink-0 text-sm" />
                 </div>
                 <p className="hint tabular mt-0.5">
                   {a.organizer} · {scoresIn(a)} · {dateFormat.format(new Date(a.createdAt))}
@@ -200,7 +201,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                     <td className="font-medium">{a.name}</td>
                     <td>{a.organizer}</td>
                     <td className="whitespace-nowrap">
-                      <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse />
+                      <SessionStatus state={a.sessionState} onAir={scoresGoOutLive(a)} pulse />
                     </td>
                     <td className="text-right whitespace-nowrap">{scoresIn(a, false)}</td>
                     <td className="text-right whitespace-nowrap text-prussian/70">{dateFormat.format(new Date(a.createdAt))}</td>
@@ -245,7 +246,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                   <Link href={`/admin/${a.id}`} className="min-w-0 font-semibold text-regal wrap-anywhere after:absolute after:inset-0 group-hover:underline">
                     {a.name}
                   </Link>
-                  <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse className="shrink-0 text-sm" />
+                  <SessionStatus state={a.sessionState} onAir={scoresGoOutLive(a)} pulse className="shrink-0 text-sm" />
                 </div>
                 {attention.has(a.id) && (
                   <div className="mt-1.5">
@@ -291,7 +292,7 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
                       </p>
                     </td>
                     <td className="py-4 whitespace-nowrap">
-                      <SessionStatus state={a.sessionState} onAir={a.kind === "pageant" || a.liveScoring} pulse />
+                      <SessionStatus state={a.sessionState} onAir={scoresGoOutLive(a)} pulse />
                     </td>
                     <td className="py-4">
                       {attention.has(a.id) ? (

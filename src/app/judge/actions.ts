@@ -141,12 +141,14 @@ export const moveToEntry = traced("moveToEntry", async function moveToEntry(entr
   const show = showColumns(board, entryId, Date.now());
   if ("error" in show) return { ok: false, error: show.error };
 
-  const { error } = await db().from("activities").update(show.columns).eq("id", board.activity.id);
+  // Only while it's still live: a tap from a screen that hasn't caught up mustn't move a session that has moved on.
+  const { error, count } = await db().from("activities").update(show.columns, { count: "exact" }).eq("id", board.activity.id).eq("session_state", "live");
   if (error) {
     log("error", "entry_not_shown", { code: error.code, error: error.message });
     return { ok: false, error: "That didn't go through. Check your connection and try again." };
   }
   changed(context.activity.publicId);
+  if (!count) return { ok: false, error: "Judging isn't open right now." };
   return { ok: true };
 });
 
@@ -187,14 +189,30 @@ export const submitScore = traced("submitScore", async function submitScore(entr
 
   const { activity } = context;
 
+  // A score sent again after it was saved (its reply lost, the screen retrying) is saved, whatever happened since: the
+  // session ended with it in, the organizer moved on, the timer closed. Asked only when this score would be turned away.
+  const savedAlready = async (): Promise<boolean> => {
+    if (activity.kind !== "event") return false;
+    const parsed =
+      activity.scoringMode === "criteria"
+        ? typeof typed === "object" ? parseBreakdown(typed, activity.criteria, activity.decimals) : null
+        : typeof typed === "string" ? parseScore(typed, activity) : null;
+    if (!parsed?.ok) return false;
+    const { data } = await db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId).is("round_id", null).maybeSingle();
+    const row = data as { value: number | string; breakdown: Record<string, number> | null } | null;
+    if (!row) return false;
+    return "total" in parsed ? Number(row.value) === parsed.total && sameBreakdown(row.breakdown, parsed.breakdown) : Number(row.value) === parsed.value && !row.breakdown;
+  };
+  const refuse = async (error: string): Promise<ActionResult> => ((await savedAlready()) ? { ok: true } : { ok: false, error });
+
   // The organizer decides what is judged: only the entry on screen (or, for a few seconds, the one they just moved on
   // from, for a score confirmed before the move), and only while the session is live. The database checks the session too.
-  if (activity.sessionState !== "live") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
-  if (!scoreWindowOpen(activity, entryId, Date.now())) return { ok: false, error: "The organizer has moved to another entry. Score the one on your screen." };
+  if (activity.sessionState !== "live") return refuse("Judging isn't open right now. Wait for the organizer.");
+  if (!scoreWindowOpen(activity, entryId, Date.now())) return refuse("The organizer has moved to another entry. Score the one on your screen.");
 
   // An event with a timer scores only while it runs (and the few seconds a score can take to arrive).
   if (eventTimer(activity) && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
-    return { ok: false, error: "Time's up, so scoring has closed for this entry. Ask the organizer to reopen it." };
+    return refuse("Time's up, so scoring has closed for this entry. Ask the organizer to reopen it.");
   }
 
   // A pageant scores in the sub-activity being judged, with its rules, and only while its timer runs.
@@ -437,7 +455,10 @@ export const voteOnCorrection = traced("voteOnCorrection", async function voteOn
     log("error", "vote_not_saved", { code: error.code, error: error.message });
     return { ok: false, error: "Your vote didn't go through. Check your connection and try again." };
   }
-  if (!error) await settleCorrection(board, { ...correction, votes: [...correction.votes, { judgeId: context.judge.id, agree }] });
+  // Settled from the votes as they stand now, read after this one went in: two judges voting at the same moment each
+  // count the other's vote too, so the last vote always settles it (settling an already settled one changes nothing).
+  const fresh = (await getCorrections(context.activityId))?.find((c) => c.id === correction.id);
+  if (fresh?.status === "open") await settleCorrection(board, fresh);
   changed(context.activity.publicId);
   return { ok: true };
 });

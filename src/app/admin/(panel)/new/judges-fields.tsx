@@ -103,6 +103,7 @@ export function JudgesFields({
                   currentUrl={j.preview}
                   size={56}
                   onPick={(photo, preview) => onChange(j.key, { photo, preview })}
+                  onRemove={() => onChange(j.key, { photo: null, preview: null })}
                 />
               </div>
               <div className="min-w-0 sm:pt-1.5">

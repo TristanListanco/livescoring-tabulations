@@ -23,7 +23,8 @@ export default async function AdminLogin({ searchParams }: PageProps<"/admin/log
         <Link href="/" className="text-lg">
           <Wordmark />
         </Link>
-        <TallyGate className="hidden size-[min(24vw,20rem)] lg:block" strokes="text-powder/70" slash="text-mint" />
+        {/* Flush, so its left edge is the column's, under the name and over the links. */}
+        <TallyGate flush className="hidden h-auto w-[min(24vw,20rem)] lg:block" strokes="text-powder/70" slash="text-mint" />
         <div className="hidden lg:block">
           <LegalLinks className="text-powder" />
         </div>

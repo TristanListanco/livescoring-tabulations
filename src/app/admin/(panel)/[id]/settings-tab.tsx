@@ -5,10 +5,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
-import { judgesLocked } from "@/lib/judging";
+import { editable } from "@/lib/lifecycle";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, setScoringPlaces, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { toastOnRedirect, toastSaved } from "../toaster";
 import { Section } from "../section";
@@ -17,14 +17,20 @@ import { Switch } from "../switch";
 import { TestSiteTools } from "./developer-tab";
 import { ResetScoresButton } from "./reset-scores";
 import { ArchiveButton } from "../archive-controls";
+import { DECIMAL_OPTIONS, RESULT_DECIMAL_OPTIONS } from "../scoring-fields";
+import { RankingSwitch } from "./ranking-switch";
 
-/** How the activity is scored. Fixed when it was created, so it's shown here, not edited. */
+/**
+ * How the activity is scored, shown here. The method and range are fixed when it's created; the decimal places and an
+ * event's timer can change until judging first starts (ScoringPlaces, EventTimer), then they're shown here too.
+ */
 function ScoringSummary({ activity }: { activity: Activity }) {
-  const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
+  const fixed = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
+  const open = editable(activity, "rules");
+  // Rows for what can still change are left out: their own controls show them under the summary.
+  const places = (n: number): React.ReactNode => (open ? null : fixed(n));
   const criteria = activity.scoringMode === "criteria";
-  // An event's timer is changeable until judging starts (see EventTimer); then it's one of the rules, shown here.
-  const timeLimit: [string, React.ReactNode][] =
-    !judgesLocked(activity) ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
+  const timeLimit: [string, React.ReactNode][] = open ? [] : [["Time limit", activity.timerSeconds ? `${activity.timerSeconds} seconds per entry` : "None"]];
   const rows: [string, React.ReactNode][] = activity.kind === "pageant"
     ? [
         ["Method", "Pageant: each sub-activity has its own scoring, on the Segments tab"],
@@ -75,13 +81,72 @@ function ScoringSummary({ activity }: { activity: Activity }) {
       ];
   return (
     <dl className="grid max-w-2xl gap-x-8 gap-y-3 sm:grid-cols-[auto_1fr]">
-      {rows.map(([term, value]) => (
+      {rows.filter(([, value]) => value !== null).map(([term, value]) => (
         <div key={term} className="contents">
           <dt className="font-semibold">{term}</dt>
           <dd className="text-prussian/80">{value}</dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * Until judging first starts, the decimal places judges score with (an event's: a pageant's sub-activities have their
+ * own) and those its results show: the same choices as the create form. Saved together, with a toast.
+ */
+function ScoringPlaces({ activity }: { activity: Activity }) {
+  const event = activity.kind === "event";
+  const [decimals, setDecimals] = useState(activity.decimals);
+  const [results, setResults] = useState(activity.resultDecimals);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const dirty = (event && decimals !== activity.decimals) || results !== activity.resultDecimals;
+  const save = () =>
+    startTransition(async () => {
+      setResult(toastSaved(await reach(() => setScoringPlaces(activity.id, event ? decimals : null, results))));
+    });
+  const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
+  return (
+    <div className="mt-6 space-y-5 border-t border-line pt-5">
+      {event && (
+        <fieldset>
+          <legend className="label">{activity.scoringMode === "criteria" ? "Judges give points in" : "Judges score with"}</legend>
+          <div className="flex flex-wrap gap-2">
+            {DECIMAL_OPTIONS.map((o) => (
+              <label key={o.value} className="choice items-center">
+                <input type="radio" name="places-decimals" checked={decimals === o.value} onChange={() => setDecimals(o.value)} disabled={pending} />
+                <span className="font-semibold whitespace-nowrap">{o.label}</span>
+                <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <fieldset>
+        <legend className="label">Results show</legend>
+        <div className="flex flex-wrap gap-2">
+          {RESULT_DECIMAL_OPTIONS.map((n) => (
+            <label key={n} className="choice items-center">
+              <input type="radio" name="places-results" checked={results === n} onChange={() => setResults(n)} disabled={pending} />
+              <span className="font-semibold whitespace-nowrap">{places(n)}</span>
+              <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {(87.4567).toFixed(n)}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <p className="hint">You can change these until the session starts.</p>
+      {(dirty || (result && !result.ok)) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {dirty && (
+            <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={pending}>
+              {pending ? "Saving…" : "Save decimal places"}
+            </button>
+          )}
+          <FormMessage state={result?.ok ? null : result} small />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -190,7 +255,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
   // Until judging starts, and not after a reset either: it's one of the rules judges scored by.
-  const editable = !judgesLocked(activity);
+  const changeable = editable(activity, "rules");
   const toggle = () => {
     const next = !on;
     setOn(next);
@@ -204,7 +269,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-4">
-        <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending || !editable} />
+        <Switch checked={on} onChange={toggle} labelledBy="live-scoring-label" disabled={pending || !changeable} />
         <p id="live-scoring-label" className="font-semibold">
           Show scores live
         </p>
@@ -212,7 +277,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
       {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
       <p className="hint pl-16">
         {on && "Only you move between entries, so there's no chair of judges. "}
-        {editable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}
+        {changeable ? "You can turn this on or off until the session starts." : "Set for good once the session started."}
       </p>
       <FormMessage state={result?.ok ? null : result} small className="pl-16" />
     </div>
@@ -333,6 +398,7 @@ export function SettingsTab({
   organizers,
   developer = false,
   scoreCount = 0,
+  archiveBlocked = null,
   signatories,
 }: {
   activity: Activity;
@@ -344,6 +410,8 @@ export function SettingsTab({
   developer?: boolean;
   /** Scores submitted so far, for resetting them on a test site. */
   scoreCount?: number;
+  /** Why its results can't be downloaded, which archiving makes permanent (see archiveBlocked in lifecycle.ts). */
+  archiveBlocked?: string | null;
 }) {
   const [state, action] = useActionState<FormResult, FormData>(
     async (previous, data) => toastSaved(await updateSettings(activity.id, previous, data), "Details saved"),
@@ -378,7 +446,8 @@ export function SettingsTab({
 
       <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
-        {activity.kind === "event" && !judgesLocked(activity) && <EventTimer activity={activity} />}
+        {editable(activity, "rules") && <ScoringPlaces activity={activity} />}
+        {activity.kind === "event" && editable(activity, "rules") && <EventTimer activity={activity} />}
       </Section>
 
       {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
@@ -388,6 +457,8 @@ export function SettingsTab({
         </h2>
         <div className="mt-5 space-y-5">
           {activity.kind === "event" && <LiveScoring activity={activity} />}
+          {/* How the live results page lists them: on unless turned off, and changeable through the show. */}
+          <RankingSwitch activity={activity} editable={!activity.archivedAt} />
           {/* With live scores, what the audience's screens show of the judges (set here rather than on the LED wall tab). */}
           {activity.liveScoring && (
             <>
@@ -413,7 +484,7 @@ export function SettingsTab({
                 activity={activity}
                 option="independentScoring"
                 label="Judges score at their own pace"
-                editable={!judgesLocked(activity)}
+                editable={editable(activity, "rules")}
               />
               <OptionSwitch
                 activity={activity}
@@ -453,7 +524,7 @@ export function SettingsTab({
         end={
           <>
             {/* Judging can start over any time until it's archived: with something to reset, once it has started. */}
-            {!activity.archivedAt && (judgesLocked(activity) || scoreCount > 0) && <ResetScoresButton activity={activity} scoreCount={scoreCount} />}
+            {!activity.archivedAt && (!editable(activity, "judges") || scoreCount > 0) && <ResetScoresButton activity={activity} scoreCount={scoreCount} />}
             {developer ? (
             <TestSiteTools activity={activity} />
           ) : activity.sessionState === "live" || activity.sessionState === "deliberation" ? (
@@ -477,7 +548,7 @@ export function SettingsTab({
           </>
         }
       >
-        {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} />}
+        {activity.sessionState === "ended" && <ArchiveButton activityId={activity.id} name={activity.name} blocked={archiveBlocked} />}
       </ManageActivity>
     </div>
   );

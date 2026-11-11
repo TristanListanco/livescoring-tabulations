@@ -17,7 +17,6 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     ledAnonymous: false,
     ledFont: "default",
     ledTheme: "navy",
-    ledShape: "square",
     ownerId: null,
     scoringMode: "simple",
     criteria: [],

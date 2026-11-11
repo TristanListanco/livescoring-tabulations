@@ -1,3 +1,4 @@
+import { editable } from "./lifecycle";
 import { roundPool, SCORE_UNDO_MS } from "./pageant";
 import type { Activity, Board, Entry } from "./types";
 
@@ -36,10 +37,10 @@ export const atOwnPace = (activity: Pick<Activity, "kind" | "liveScoring" | "ind
 
 /**
  * The panel of judges can't change once judging has started, and stays that way after the scores are reset (the
- * session is back to not started, but it started once): the judges who scored are the ones who score again.
+ * session is back to not started, but it started once): the judges who scored are the ones who score again. See the
+ * lock table in lifecycle.ts.
  */
-export const judgesLocked = (activity: Pick<Activity, "sessionState" | "sessionStartedAt">) =>
-  activity.sessionState !== "draft" || activity.sessionStartedAt !== null;
+export const judgesLocked = (activity: Pick<Activity, "sessionState" | "sessionStartedAt">) => !editable(activity, "judges");
 
 /** Only the organizer moves an event with live scoring between entries: its chair can't, from their screen. */
 export const chairMovesEntries = (activity: Pick<Activity, "kind" | "liveScoring">) => !(activity.kind === "event" && activity.liveScoring);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PhotoPicker } from "@/components/photo-picker";
@@ -148,7 +148,13 @@ export function JudgeEditor({
   return (
     <div className="flex items-start gap-4">
       <div className={photoPending ? "opacity-60" : undefined}>
-        <PhotoPicker name={judge.name} currentUrl={photoPending ? preview : judge.photoUrl} size={48} onPick={(photo, url) => changePhoto(photo, url)} />
+        <PhotoPicker
+          name={judge.name}
+          currentUrl={photoPending ? preview : judge.photoUrl}
+          size={48}
+          onPick={(photo, url) => changePhoto(photo, url)}
+          onRemove={() => changePhoto(null, null)}
+        />
       </div>
       <div className="min-w-0 flex-1 space-y-2">
         {/* The column says it's the judge: the names need no labels on show, only for screen readers. */}
@@ -161,16 +167,11 @@ export function JudgeEditor({
         <FormMessage state={state?.ok ? null : state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
         {pageant && <PanelSelect judge={judge} />}
-        {(judge.isChair || detail || canChair || (judge.photoUrl && !photoPending)) && (
+        {(judge.isChair || detail || canChair) && (
           <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
             {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
             {detail}
             {canChair && <TakeChair judge={judge} pageant={pageant} onResult={setChairResult} />}
-            {judge.photoUrl && !photoPending && (
-              <button type="button" className="text-action" onClick={() => changePhoto(null, null)}>
-                Remove photo
-              </button>
-            )}
           </div>
         )}
         <FormMessage state={chairResult && !chairResult.ok ? chairResult : null} small />
@@ -266,9 +267,18 @@ function NameFields({ idPrefix, value, onChange, quiet = false }: { idPrefix: st
  * under the fields); their photo goes on from their own row.
  */
 export function AddJudgeForm({ activityId, pageant, first }: { activityId: string; pageant: boolean; first: boolean }) {
+  // The new judge's photo, chosen before they're added and sent with them. Kept in a ref too, for the action to read.
+  const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  const chosen = useRef(photo);
+  const choose = (next: typeof photo) => {
+    chosen.current = next;
+    setPhoto(next);
+  };
   const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
+    if (chosen.current) data.set("photo", chosen.current.blob, "photo.jpg");
     const result = await addJudge(activityId, previous, data);
     if (result?.ok) {
+      choose(null);
       toast(result.message ? result.message.replace(/\.$/, "") : "Judge added");
       // Back to the first name, for the next judge, without reaching for the mouse.
       requestAnimationFrame(() => document.getElementById("new-judge-first")?.focus());
@@ -276,15 +286,20 @@ export function AddJudgeForm({ activityId, pageant, first }: { activityId: strin
     return result;
   }, null);
   return (
-    <form action={action} className={`flex items-start gap-4 bg-wash/60 px-5 py-5 ${first ? "" : "border-t border-line"}`}>
-      <span aria-hidden className="flex size-12 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-field text-regal">
-        <svg viewBox="0 0 16 16" className="size-4">
-          <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      </span>
-      <fieldset className="min-w-0 flex-1">
-        <legend className="mb-2 font-semibold">Add a judge</legend>
-        <div className="flex max-w-2xl flex-wrap items-end gap-2">
+    <form action={action} className={`bg-wash/60 px-5 py-5 ${first ? "" : "border-t border-line"}`}>
+      <fieldset className="min-w-0">
+        <legend className="mb-3 font-semibold">Add a judge</legend>
+        {/* Shaped like the rows above: a photo (optional, chosen here), then the names. */}
+        <div className="flex items-start gap-4 sm:items-end">
+          <PhotoPicker
+            name="New judge"
+            currentUrl={photo?.url ?? null}
+            size={48}
+            label="Photo for the new judge (optional)"
+            onPick={(blob, url) => choose({ blob, url })}
+            onRemove={() => choose(null)}
+          />
+          <div className="flex max-w-2xl min-w-0 flex-1 flex-wrap items-end gap-2">
           <NameFields idPrefix="new-judge" />
           {pageant && (
             <div className="min-w-40">
@@ -300,7 +315,8 @@ export function AddJudgeForm({ activityId, pageant, first }: { activityId: strin
               </select>
             </div>
           )}
-          <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
+            <SubmitButton pendingLabel="Adding…">Add judge</SubmitButton>
+          </div>
         </div>
         <FormMessage state={state?.ok ? null : state} small className="mt-2" />
       </fieldset>
