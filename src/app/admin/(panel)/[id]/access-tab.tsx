@@ -24,11 +24,14 @@ export async function JudgesTab({
   entryCount,
   expected,
   locked,
+  properOpen = false,
   ended,
   pageant,
   chairs,
   reset,
 }: {
+  /** A pageant whose preliminary runs: pageant proper's own judges can still be added, changed and removed. */
+  properOpen?: boolean;
   /** The scores were reset: the session is back to not started, but the panel stays locked. */
   reset: boolean;
   /** Whether this activity has a chair: not an event with live scoring. */
@@ -68,7 +71,9 @@ export async function JudgesTab({
         <p role="note" className="note mt-4">
           {reset
             ? "The scores were reset, but judging has started before: the panel of judges stays as it was, and the same judges score again."
-            : "The session has started, so the panel of judges is locked."}
+            : properOpen
+              ? "The preliminary has started, so its judges are locked. Judges of pageant proper only can still be added and changed until it starts."
+              : "The session has started, so the panel of judges is locked."}
         </p>
       )}
 
@@ -83,13 +88,21 @@ export async function JudgesTab({
             const scored = scoredBy.get(judge.id) ?? 0;
             // How far they've got, once there's something to count: not before the session starts.
             const detail = locked ? `${scored} of ${expected?.[judge.id] ?? entryCount} scored` : "";
+            // Their row can change: before the start, or a pageant proper judge until pageant proper starts.
+            const open = !locked || (properOpen && judge.panel === "proper");
             return (
               <li key={judge.id} className={`grid items-start gap-x-6 gap-y-4 px-5 py-5 ${ROW_COLUMNS}`}>
                 <div className="min-w-0 @xl:col-span-2 @3xl:col-span-1">
-                  {locked ? (
+                  {!open ? (
                     <JudgeIdentity judge={judge} pageant={pageant} detail={detail} />
                   ) : (
-                    <JudgeEditor judge={judge} pageant={pageant} detail={detail} canChair={chairs && !judge.isChair && (chaired.has(judge.panel) || !pageant)} />
+                    <JudgeEditor
+                      judge={judge}
+                      pageant={pageant}
+                      detail={detail}
+                      fixedPanel={locked}
+                      canChair={chairs && !judge.isChair && (chaired.has(judge.panel) || !pageant)}
+                    />
                   )}
                 </div>
                 {/*
@@ -124,14 +137,14 @@ export async function JudgesTab({
                   <DeviceApproval
                     judge={judge}
                     devices={devices.filter((d) => d.judgeId === judge.id)}
-                    end={locked ? undefined : <RemoveJudge judge={judge} scored={scored} />}
+                    end={open ? <RemoveJudge judge={judge} scored={scored} /> : undefined}
                   />
                 </div>
               </li>
             );
           })}
         </ul>
-        {!locked && <AddJudgeForm activityId={activityId} pageant={pageant} first={judges.length === 0} />}
+        {(!locked || properOpen) && <AddJudgeForm activityId={activityId} pageant={pageant} properOnly={locked} first={judges.length === 0} />}
       </div>
     </div>
   );

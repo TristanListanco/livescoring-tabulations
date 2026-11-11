@@ -39,6 +39,8 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     kind: "event",
     preliminaryWeight: 0,
     currentRoundId: null,
+    preliminaryEndedAt: null,
+    properStartedAt: null,
     scoringClosesAt: null,
     violations: null,
     createdAt: "",
@@ -63,6 +65,9 @@ export function roundFixture(overrides: Partial<Round> & Pick<Round, "id" | "seg
     cutBasis: [],
     cutEntryIds: null,
     parentId: null,
+    liveScoring: true,
+    deliberationStartedAt: null,
+    signedOffAt: null,
     ...overrides,
   };
 }

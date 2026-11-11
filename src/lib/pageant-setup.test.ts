@@ -283,6 +283,11 @@ describe("sub-activities with parts", () => {
       ["a", "Advocacy", "12", "30", "10"],
     ]);
     expect(back.rounds[1].parts).toBeNull();
+    // Each says whether its results come live or after a deliberation, and checks into the same.
+    expect(back.rounds.map((r) => r.deliberate)).toEqual([false, false]);
+    const deliberated = draftFromRounds(30, [{ ...interview, liveScoring: false }, advocacy, night, qna]);
+    expect(deliberated.rounds.map((r) => r.deliberate)).toEqual([true, false]);
+    expect(parsePageantDraft(JSON.stringify(deliberated))?.rounds.map((r) => r.deliberate)).toEqual([true, false]);
 
     // Saved as overall percentages: they come back as they are.
     const now = draftFromRounds(40, [
@@ -380,6 +385,16 @@ describe("boards of judges", () => {
     expect(chairGap([judge("preliminary", true), judge("proper")])).toBe("Choose the chair of the pageant proper board of judges.");
     // A chair of both segments already chairs the preliminary.
     expect(chairGap([judge("all", true), judge("preliminary", true)])).toBe("Choose one chair for the preliminary board of judges.");
+  });
+
+  it("checks only the segment that's starting", () => {
+    const judge = (panel: "all" | "preliminary" | "proper", isChair = false) => ({ panel, isChair });
+    // The preliminary starts with its own board ready; pageant proper's can still change until it starts.
+    expect(panelGap(["preliminary"], "preliminary")).toBeNull();
+    expect(panelGap(["preliminary"], "proper")).toMatch(/^Pageant proper needs at least three judges/);
+    expect(panelGap(["proper", "proper", "proper"], "proper")).toBeNull();
+    expect(chairGap([judge("preliminary", true), judge("proper")], "preliminary")).toBeNull();
+    expect(chairGap([judge("preliminary", true), judge("proper")], "proper")).toBe("Choose the chair of the pageant proper board of judges.");
   });
 });
 

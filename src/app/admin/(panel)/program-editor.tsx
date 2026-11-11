@@ -60,6 +60,9 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
       cutBasis: [],
       cutEntryIds: null,
       parentId: null,
+      liveScoring: true,
+      deliberationStartedAt: null,
+      signedOffAt: null,
     }),
   );
   const share = Number(draft.preliminaryWeight) || 0;
@@ -642,6 +645,28 @@ function RoundCard({
           onChange={(parts) => onChange({ parts, weight: shareText(roundShare({ weight: "", parts })) })}
         />
       )}
+
+      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow it. */}
+      <fieldset className="mt-4">
+        <legend className="font-semibold">
+          Results<span className="sr-only"> of {name}</span>
+        </legend>
+        <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
+          <label className="flex items-center gap-2.5">
+            <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false })} />
+            Live
+          </label>
+          <label className="flex items-center gap-2.5">
+            <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true })} />
+            After a deliberation
+          </label>
+        </div>
+        <p className="hint mt-1">
+          {round.deliberate
+            ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
+            : "Each score shows on the live results and the LED wall as it comes in."}
+        </p>
+      </fieldset>
 
       {round.segment === "proper" && (
         <div className={`mt-4 ${cut ? "rounded-xl bg-wash/60 p-4" : ""}`}>

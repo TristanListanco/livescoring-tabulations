@@ -648,6 +648,19 @@ html:has(.share-ledger) {
   .field {
     @apply block h-11 w-full rounded-xl border border-field bg-white px-3.5 text-[15px] text-prussian placeholder:text-placeholder focus:border-regal focus:ring-2 focus:ring-regal/20 focus:outline-none disabled:bg-wash disabled:text-prussian/60;
   }
+  /*
+   * A dropdown draws its own chevron: two small triangles in the text's colour (so it follows dark mode and dims when
+   * disabled), the same distance from the right edge as the text is from the left, with room kept for it.
+   */
+  select.field {
+    @apply appearance-none pr-10;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+      right 1.1875rem center,
+      right 0.875rem center;
+    background-size: 0.3125rem 0.3125rem;
+    background-repeat: no-repeat;
+  }
   /* A surface on the page: a hairline and generous corners. The session desk is the one dark card. */
   .card {
     @apply rounded-[1.25rem] border border-line bg-white;

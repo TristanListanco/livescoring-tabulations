@@ -15,12 +15,17 @@ import {
   programOrder,
   roundLabel,
   roundPool,
+  roundDeliberating,
+  roundDeliberationGap,
   roundProgress,
+  roundReleased,
+  awaitingSignoff,
+  deliberatingRound,
+  segmentClosed,
   showingBoard,
   standings,
   standingsBy,
   timerPhase,
-  waitsForPreliminary,
   warningSeconds,
 } from "./pageant";
 import { activityFixture, roundFixture } from "./test-fixtures";
@@ -271,25 +276,34 @@ describe("judge panels", () => {
 
 describe("preliminary first", () => {
   const prelimOnly = prelimAndSwim.filter((s) => s.roundId !== "swim");
+  const T = "2026-11-11T09:00:00Z";
+  const at = (extra: Partial<Board["activity"]>) => ({ ...pageant([interview, costume, swim, qa], prelimOnly).activity, sessionState: "live" as const, ...extra });
 
-  it("holds pageant proper until every preliminary score is in", () => {
-    const missingOne = pageant([interview, costume, swim, qa], prelimOnly.slice(1));
-    expect(preliminaryComplete(missingOne)).toBe(false);
-    expect(waitsForPreliminary(missingOne, swim)).toBe(true);
-    // The preliminary itself never waits.
-    expect(waitsForPreliminary(missingOne, costume)).toBe(false);
+  it("knows when every preliminary score is in", () => {
+    expect(preliminaryComplete(pageant([interview, costume, swim, qa], prelimOnly.slice(1)))).toBe(false);
+    expect(preliminaryComplete(pageant([interview, costume, swim, qa], prelimOnly))).toBe(true);
+  });
 
-    const done = pageant([interview, costume, swim, qa], prelimOnly);
-    expect(preliminaryComplete(done)).toBe(true);
-    expect(waitsForPreliminary(done, swim)).toBe(false);
+  it("judges only the segment running now: the preliminary, then pageant proper once it has started", () => {
+    const preliminary = at({});
+    expect(segmentClosed(preliminary, costume)).toBeNull();
+    expect(segmentClosed(preliminary, swim)).toBe("Pageant proper starts once the preliminary has ended.");
+    const between = at({ preliminaryEndedAt: T });
+    expect(segmentClosed(between, costume)).toBe("The preliminary has ended.");
+    expect(segmentClosed(between, swim)).toBe("Pageant proper hasn't started.");
+    const proper = at({ preliminaryEndedAt: T, properStartedAt: T });
+    expect(segmentClosed(proper, swim)).toBeNull();
+    expect(segmentClosed(proper, costume)).toBe("The preliminary has ended.");
+    expect(segmentClosed(at({ sessionState: "draft" }), costume)).toBe("The preliminary hasn't started.");
+    expect(segmentClosed(at({ sessionState: "ended", preliminaryEndedAt: T, properStartedAt: T }), swim)).toBe("Pageant proper has ended.");
   });
 });
 
 describe("deductions", () => {
   const deduction = (entryId: string, points: number, reason = "Late for call time"): Deduction => ({ id: `${entryId}-${points}`, entryId, points, reason, createdAt: "" });
-  const withDeductions = (deductions: Deduction[], scores = prelimAndSwim, sessionState: "draft" | "live" | "ended" = "live"): Board => {
+  const withDeductions = (deductions: Deduction[], scores = prelimAndSwim, sessionState: "draft" | "live" | "ended" = "live", preliminaryEndedAt: string | null = null): Board => {
     const board = pageant([interview, costume, swim, qa], scores);
-    return { ...board, activity: { ...board.activity, sessionState, violations: [] }, deductions };
+    return { ...board, activity: { ...board.activity, sessionState, preliminaryEndedAt, violations: [] }, deductions };
   };
 
   it("come off the preliminary score as given", () => {
@@ -319,13 +333,59 @@ describe("deductions", () => {
     expect(d.total).toBe(0);
   });
 
-  it("can change until pageant proper starts, and not after the session ends", () => {
+  it("can change until the preliminary ends, and not after the session ends", () => {
     const prelimOnly = prelimAndSwim.filter((s) => s.roundId !== "swim");
     expect(deductionsOpen(withDeductions([], prelimOnly, "draft"))).toBe(true);
     expect(deductionsOpen(withDeductions([], prelimOnly))).toBe(true);
-    expect(deductionsOpen(withDeductions([], prelimAndSwim))).toBe(false);
+    expect(deductionsOpen(withDeductions([], prelimOnly, "live", "2026-11-11T09:00:00Z"))).toBe(false);
     expect(deductionsOpen(withDeductions([], prelimOnly, "ended"))).toBe(false);
     // A pageant without deductions never takes them.
     expect(deductionsOpen(pageant([interview, costume, swim, qa], prelimOnly))).toBe(false);
+  });
+});
+
+describe("a sub-activity that deliberates", () => {
+  const T = "2026-11-11T09:00:00Z";
+  const deliberated = (extra: Partial<Round> = {}) => ({ ...costume, liveScoring: false, ...extra });
+
+  it("keeps its scores back until it's signed off, and is deliberated in between", () => {
+    expect(roundReleased(costume)).toBe(true);
+    expect(roundReleased(deliberated())).toBe(false);
+    expect(roundDeliberating(deliberated())).toBe(false);
+    expect(roundDeliberating(deliberated({ deliberationStartedAt: T }))).toBe(true);
+    expect(roundReleased(deliberated({ deliberationStartedAt: T, signedOffAt: T }))).toBe(true);
+    expect(roundDeliberating(deliberated({ deliberationStartedAt: T, signedOffAt: T }))).toBe(false);
+  });
+
+  it("starts its deliberation once every judge has scored every candidate, one at a time", () => {
+    const missing = pageant([interview, deliberated(), swim, qa], prelimAndSwim.slice(0, 10).concat(prelimAndSwim.slice(11)));
+    expect(roundDeliberationGap(missing, missing.rounds[1])).toMatch(/costume has 1 score to come/);
+    const ready = pageant([interview, deliberated(), swim, qa], prelimAndSwim);
+    expect(roundDeliberationGap(ready, ready.rounds[1])).toBeNull();
+    expect(roundDeliberationGap(ready, interview)).toMatch(/scores live/);
+    const busy = pageant([{ ...interview, liveScoring: false, deliberationStartedAt: T }, deliberated(), swim, qa], prelimAndSwim);
+    expect(deliberatingRound(busy)?.id).toBe("interview");
+    expect(roundDeliberationGap(busy, busy.rounds[1])).toMatch(/deliberating interview/);
+  });
+
+  it("holds back a cut that counts it until it's signed off", () => {
+    const waiting = pageant([interview, deliberated({ deliberationStartedAt: T }), swim, qa], prelimAndSwim);
+    expect(awaitingSignoff(waiting, [interview, waiting.rounds[1]]).map((r) => r.id)).toEqual(["costume"]);
+    const plan = cutPlan(waiting, swim);
+    expect([plan.ready, plan.awaiting.map((r) => r.id)]).toEqual([false, ["costume"]]);
+    expect(cutResult(plan, [])).toMatchObject({ ok: false, error: expect.stringMatching(/Sign off the deliberation of costume/) });
+
+    const signed = pageant([interview, deliberated({ deliberationStartedAt: T, signedOffAt: T }), swim, qa], prelimAndSwim);
+    expect(cutPlan(signed, swim)).toMatchObject({ ready: true, awaiting: [] });
+    // The Q&A's cut counts only the Q&A: the costume's sign-off doesn't hold it.
+    expect(cutPlan(waiting, qa).awaiting).toEqual([]);
+  });
+
+  it("shows the audience a tick for each score in it, not the score", () => {
+    const board = { ...pageant([interview, deliberated(), swim, qa], prelimAndSwim, "costume"), scored: [{ entryId: "A", judgeId: "j1", roundId: "costume" }, { entryId: "A", judgeId: "j1", roundId: "interview" }] };
+    const { board: shown } = showingBoard(board);
+    expect(shown.activity.liveScoring).toBe(false);
+    expect(shown.scored).toEqual([{ entryId: "A", judgeId: "j1", roundId: "costume" }]);
+    expect(showingBoard(pageant([interview, costume, swim, qa], prelimAndSwim, "costume")).board.activity.liveScoring).toBe(true);
   });
 });

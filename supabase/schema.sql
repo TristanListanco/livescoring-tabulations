@@ -310,8 +310,16 @@ create index if not exists rounds_activity_idx on public.rounds (activity_id, po
 -- A part of a sub-activity (e.g. the Q&A of a closed-door interview). The sub-activity is then only a container.
 alter table public.rounds add column if not exists parent_id uuid references public.rounds (id) on delete cascade;
 create index if not exists rounds_parent_idx on public.rounds (parent_id);
+-- A sub-activity scored live (its scores show as they come in), or that deliberates: its scores stay from the audience
+-- until its judges have reviewed and signed them, and the organizer has too (migration 040). Its parts follow it.
+alter table public.rounds add column if not exists live_scoring boolean not null default true;
+alter table public.rounds add column if not exists deliberation_started_at timestamptz;
 -- The sub-activity being judged now.
 alter table public.activities add column if not exists current_round_id uuid references public.rounds (id) on delete set null;
+-- A pageant's segments as sessions of their own (migration 040): the session runs from the preliminary's start
+-- (session_started_at) to pageant proper's end; between them the preliminary ends, then pageant proper starts.
+alter table public.activities add column if not exists preliminary_ended_at timestamptz;
+alter table public.activities add column if not exists proper_started_at timestamptz;
 -- The violations an organizer can deduct points for during the preliminary; null when a pageant has no deductions.
 alter table public.activities add column if not exists violations jsonb;
 
@@ -401,6 +409,14 @@ begin
     select * into r from public.rounds where id = new.round_id and activity_id = new.activity_id;
     if not found then
       raise exception 'Sub-activity does not belong to this activity';
+    end if;
+    -- A pageant's segments are sessions of their own: the preliminary scores until it ends, pageant proper once it
+    -- has started.
+    if tg_op = 'INSERT' and r.segment = 'preliminary' and a.preliminary_ended_at is not null then
+      raise exception 'The preliminary has ended' using errcode = '55000';
+    end if;
+    if tg_op = 'INSERT' and r.segment = 'proper' and a.proper_started_at is null then
+      raise exception 'Pageant proper has not started' using errcode = '55000';
     end if;
     lo := r.min_score;
     hi := r.max_score;
@@ -597,6 +613,44 @@ create table if not exists public.activity_signoffs (
   check ((method = 'drawn') = (drawing is not null))
 );
 
+-- A pageant's sub-activity that deliberates (rounds.live_scoring false, migration 040): each judge on its panel signs
+-- its scores once they've reviewed them, then the organizer signs, and its results go out. Its own tables, apart from
+-- the events', whose triggers act on the whole activity. A score of it that changes voids both.
+create table if not exists public.round_signatures (
+  round_id     uuid not null references public.rounds (id) on delete cascade,
+  judge_id     uuid not null references public.judges (id) on delete cascade,
+  activity_id  uuid not null references public.activities (id) on delete cascade,
+  method       text not null check (method in ('drawn', 'checked')),
+  drawing      text check (char_length(drawing) between 1 and 20000),
+  signed_at    timestamptz not null default now(),
+  primary key (round_id, judge_id),
+  check ((method = 'drawn') = (drawing is not null))
+);
+create index if not exists round_signatures_activity_idx on public.round_signatures (activity_id);
+create table if not exists public.round_signoffs (
+  round_id     uuid primary key references public.rounds (id) on delete cascade,
+  activity_id  uuid not null references public.activities (id) on delete cascade,
+  signed_by    text not null check (char_length(signed_by) between 1 and 120),
+  method       text not null check (method in ('drawn', 'checked')),
+  drawing      text check (char_length(drawing) between 1 and 20000),
+  signed_at    timestamptz not null default now(),
+  check ((method = 'drawn') = (drawing is not null))
+);
+create index if not exists round_signoffs_activity_idx on public.round_signoffs (activity_id);
+create or replace function public.void_round_signatures() returns trigger
+language plpgsql
+as $$
+begin
+  if new.round_id is not null and (new.value is distinct from old.value or new.breakdown is distinct from old.breakdown) then
+    delete from public.round_signatures where round_id = new.round_id;
+    delete from public.round_signoffs where round_id = new.round_id;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists void_round_signatures on public.scores;
+create trigger void_round_signatures after update on public.scores for each row execute function public.void_round_signatures();
+
 -- Session changes the database makes whole (migration 029), each in the same write as the change itself:
 -- - leaving an ended session (reopening it, deliberating again, resetting it) takes back the judges' signatures, the
 --   organizer's and when it was signed off, so it can't end again on the old ones;
@@ -663,7 +717,9 @@ begin
     return old;
   end if;
   select * into a from public.activities where id = coalesce(new.activity_id, old.activity_id);
-  if found and (a.session_state <> 'draft' or a.session_started_at is not null) then
+  if found and (a.session_state <> 'draft' or a.session_started_at is not null)
+     -- A pageant's own pageant proper judges can still change while the preliminary runs, until pageant proper starts.
+     and not (a.kind = 'pageant' and a.session_state = 'live' and a.proper_started_at is null and coalesce(new.panel, old.panel) = 'proper') then
     raise exception 'The session has started, so the panel of judges is locked.' using errcode = '55000';
   end if;
   return coalesce(new, old);
@@ -720,9 +776,14 @@ declare
   activity uuid;
   j public.judges%rowtype;
 begin
-  select activity_id into activity from public.judges where id = judge;
-  -- Holds the activity until the chair has changed: a session starting meanwhile waits, then starts with it.
-  perform 1 from public.activities a where a.id = activity and a.session_state = 'draft' for share;
+  select * into j from public.judges where id = judge;
+  activity := j.activity_id;
+  -- Holds the activity until the chair has changed: a session starting meanwhile waits, then starts with it. Pageant
+  -- proper's own board can still change while the preliminary runs, until pageant proper starts.
+  perform 1 from public.activities a
+   where a.id = activity
+     and (a.session_state = 'draft' or (j.panel = 'proper' and a.kind = 'pageant' and a.session_state = 'live' and a.proper_started_at is null))
+     for share;
   if not found then
     raise exception 'The session has started, so the panel of judges is locked.' using errcode = '55000';
   end if;
@@ -870,6 +931,8 @@ alter table public.correction_votes enable row level security;
 alter table public.judge_signatures enable row level security;
 alter table public.tie_breaks   enable row level security;
 alter table public.activity_signoffs enable row level security;
+alter table public.round_signatures enable row level security;
+alter table public.round_signoffs enable row level security;
 alter table public.entries      enable row level security;
 alter table public.scores       enable row level security;
 alter table public.rounds       enable row level security;
@@ -918,7 +981,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs', 'deductions', 'assistance_requests'] loop
+  foreach t in array array['activities', 'judges', 'entries', 'scores', 'rounds', 'score_corrections', 'correction_votes', 'judge_signatures', 'tie_breaks', 'activity_signoffs', 'round_signatures', 'round_signoffs', 'deductions', 'assistance_requests'] loop
     execute format('drop trigger if exists note_activity_change on public.%I', t);
     execute format('create trigger note_activity_change after insert or update or delete on public.%I for each row execute function public.note_activity_change()', t);
     -- Databases set up before migration 016 sent these tables over realtime.

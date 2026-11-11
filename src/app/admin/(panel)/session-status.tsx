@@ -1,4 +1,6 @@
-import type { SessionState } from "@/lib/types";
+import { runningSegment } from "@/lib/lifecycle";
+import { segmentLabel } from "@/lib/pageant-setup";
+import type { Activity, SessionState } from "@/lib/types";
 
 export const SESSION_LABEL: Record<SessionState, string> = { draft: "Not started", live: "Live", deliberation: "Deliberation", ended: "Ended" };
 
@@ -27,11 +29,32 @@ export function SessionDot({ state, pulse = false, onAir = true }: { state: Sess
   return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${look}`} />;
 }
 
-export function SessionStatus({ state, pulse, onAir = true, className = "" }: { state: SessionState; pulse?: boolean; onAir?: boolean; className?: string }) {
+/** A live pageant's segment, said after "Live": the one being judged, or that it's between the two. Null otherwise. */
+export function segmentStatus(activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt">): string | null {
+  if (activity.kind !== "pageant" || activity.sessionState !== "live") return null;
+  const segment = runningSegment(activity);
+  return segment ? segmentLabel(segment) : "Between segments";
+}
+
+export function SessionStatus({
+  state,
+  pulse,
+  onAir = true,
+  segment = null,
+  className = "",
+}: {
+  state: SessionState;
+  pulse?: boolean;
+  onAir?: boolean;
+  /** A live pageant's segment (see segmentStatus). */
+  segment?: string | null;
+  className?: string;
+}) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <SessionDot state={state} pulse={pulse} onAir={onAir} />
       {sessionLabel(state, onAir)}
+      {segment && ` · ${segment}`}
     </span>
   );
 }

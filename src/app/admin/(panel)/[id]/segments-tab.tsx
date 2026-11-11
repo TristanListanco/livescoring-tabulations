@@ -5,7 +5,8 @@ import { basisWeights, partsOf, programOrder } from "@/lib/pageant";
 import { checkPageant, draftFromRounds, segmentLabel, shareScope, type PageantDraft } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound, rulesSummary } from "@/lib/scoring";
-import type { ActionResult, Board, Round } from "@/lib/types";
+import { editable } from "@/lib/lifecycle";
+import type { ActionResult, Board, Round, Segment } from "@/lib/types";
 import { savePageant } from "../../actions";
 import { FormMessage } from "../form-message";
 import { toastSaved } from "../toaster";
@@ -20,9 +21,10 @@ function timerLine(round: Round): string | null {
 
 /**
  * The program once the session has started, and after it ends: what each sub-activity counts for, its scoring,
- * timer and cut, read-only. During the show the desk can still give judges more time.
+ * timer and cut, read-only. During the show the desk can still give judges more time. `segments`: only these (the
+ * preliminary, while pageant proper can still change), without the note.
  */
-function LockedProgram({ board }: { board: Board }) {
+function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board: Board; segments?: Segment[] }) {
   const { activity } = board;
   const order = programOrder(board.rounds);
   // Shares as the setup has them (programs saved under older rules fitted to today's), and what each is a share of.
@@ -34,11 +36,13 @@ function LockedProgram({ board }: { board: Board }) {
   };
   return (
     <>
-      <p role="note" className="note mt-3">
-        {activity.sessionState === "ended" ? "Judging has ended" : "The session has started"}, so the program is final and can&apos;t be changed.
-        {activity.sessionState === "live" && " To give judges more time while a candidate is up, use the session desk."}
-      </p>
-      {(["preliminary", "proper"] as const).map((segment) => (
+      {segments.length > 1 && (
+        <p role="note" className="note mt-3">
+          {activity.sessionState === "ended" ? "Judging has ended" : "Pageant proper has started"}, so the program is final and can&apos;t be changed.
+          {activity.sessionState === "live" && " To give judges more time while a candidate is up, use the session desk."}
+        </p>
+      )}
+      {segments.map((segment) => (
         <section key={segment} className="mt-6">
           <h3 className="font-bold">
             {segmentLabel(segment)}, {percent(segment === "preliminary" ? activity.preliminaryWeight : 100 - activity.preliminaryWeight)} of the overall score
@@ -51,6 +55,7 @@ function LockedProgram({ board }: { board: Board }) {
                   <p>
                     <span className="font-semibold">{r.name}</span> <span className="tabular hint">{share(r, r)}</span>
                   </p>
+                  {!r.liveScoring && <p className="hint">Results after a deliberation: its judges sign, then you sign it off.</p>}
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
                       <p className="hint">{rulesSummary(r)}</p>
@@ -97,7 +102,8 @@ function LockedProgram({ board }: { board: Board }) {
 
 /**
  * A pageant's program: the preliminary's share of the overall score, and each segment's sub-activities with their
- * scoring, timers and cuts. Editable until the session starts.
+ * scoring, timers and cuts. Each segment's is editable until it starts: once the preliminary has, it shows read-only
+ * above pageant proper's.
  */
 export function SegmentsTab({ board }: { board: Board }) {
   const { activity } = board;
@@ -105,7 +111,7 @@ export function SegmentsTab({ board }: { board: Board }) {
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, start] = useTransition();
 
-  if (activity.sessionState !== "draft") {
+  if (!editable(activity, "program", "proper")) {
     return (
       <div className="max-w-3xl">
         <h2 className="sr-only">Segments</h2>
@@ -113,6 +119,7 @@ export function SegmentsTab({ board }: { board: Board }) {
       </div>
     );
   }
+  const preliminaryOpen = editable(activity, "program");
 
   const save = () =>
     start(async () => {
@@ -127,12 +134,21 @@ export function SegmentsTab({ board }: { board: Board }) {
   return (
     <div className="max-w-4xl">
       <h2 className="sr-only">Segments</h2>
-      <section aria-labelledby="segment-preliminary" className="mt-6">
-        <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
-          Preliminary
-        </h3>
-        <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
-      </section>
+      {preliminaryOpen ? (
+        <section aria-labelledby="segment-preliminary" className="mt-6">
+          <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
+            Preliminary
+          </h3>
+          <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
+        </section>
+      ) : (
+        <>
+          <p role="note" className="note mt-3">
+            The preliminary has started, so its part of the program is final. Pageant proper&apos;s can still change until it starts.
+          </p>
+          <LockedProgram board={board} segments={["preliminary"]} />
+        </>
+      )}
       <section aria-labelledby="segment-proper" className="mt-10">
         <h3 id="segment-proper" className="title-sm mb-3 text-lg">
           Pageant proper

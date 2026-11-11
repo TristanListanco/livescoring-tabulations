@@ -46,6 +46,11 @@ export type RoundDraft = {
   cutBasis: string[] | null;
   /** Its parts, each scored on its own, or null when judges score the sub-activity itself (with `scoring` and `timer`). */
   parts: PartDraft[] | null;
+  /**
+   * Its results come after a deliberation (its judges review and sign, then the organizer), rather than live. Its parts
+   * follow it. Missing in drafts from before, which score live.
+   */
+  deliberate?: boolean;
 };
 /** A violation the organizer can deduct points for, as typed: e.g. "Late for call time", "1". `id`: a saved one's, or "". */
 export type ViolationDraft = { key: string; id: string; reason: string; points: string };
@@ -65,6 +70,8 @@ export type CheckedRound = {
   cutBasis: string[];
   /** Its parts, in order; empty when judges score the sub-activity itself. */
   parts: CheckedPart[];
+  /** Its scores (and its parts') go out as they come in; false when they wait for a deliberation. */
+  liveScoring: boolean;
 };
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
 
@@ -93,10 +100,13 @@ export const segmentLabel = (segment: Segment) => (segment === "preliminary" ? "
 /** Pageant proper is judged by at least this many judges; the preliminary by at least one. */
 export const MIN_PROPER_JUDGES = 3;
 
-/** Why a pageant's judges can't run it: no one judges the preliminary, or fewer than three judge pageant proper. */
-export function panelGap(panels: JudgePanel[]): string | null {
-  if (!panels.some((p) => p !== "proper")) return "The preliminary needs at least one judge. Set a judge to judge both segments or the preliminary.";
-  if (panels.filter((p) => p !== "preliminary").length < MIN_PROPER_JUDGES) {
+/**
+ * Why a pageant's judges can't run it: no one judges the preliminary, or fewer than three judge pageant proper.
+ * `only`: one segment's, as it starts.
+ */
+export function panelGap(panels: JudgePanel[], only?: Segment): string | null {
+  if (only !== "proper" && !panels.some((p) => p !== "proper")) return "The preliminary needs at least one judge. Set a judge to judge both segments or the preliminary.";
+  if (only !== "preliminary" && panels.filter((p) => p !== "preliminary").length < MIN_PROPER_JUDGES) {
     return "Pageant proper needs at least three judges. Set judges to judge both segments or pageant proper, or add judges.";
   }
   return null;
@@ -106,9 +116,9 @@ export function panelGap(panels: JudgePanel[]): string | null {
  * Why a pageant's chairs don't work: each segment needs exactly one chair among the judges who judge it. One
  * board has one chair for both; separate boards have one each.
  */
-export function chairGap(judges: { panel: JudgePanel; isChair: boolean }[]): string | null {
+export function chairGap(judges: { panel: JudgePanel; isChair: boolean }[], only?: Segment): string | null {
   const separate = judges.some((j) => j.panel !== "all");
-  for (const segment of ["preliminary", "proper"] as const) {
+  for (const segment of only ? [only] : (["preliminary", "proper"] as const)) {
     const chairs = judges.filter((j) => j.isChair && (j.panel === "all" || j.panel === segment)).length;
     const board = separate ? `the ${segment === "preliminary" ? "preliminary" : "pageant proper"} board of judges` : "the board of judges";
     if (chairs === 0) return `Choose the chair of ${board}.`;
@@ -456,7 +466,7 @@ export function checkPageant(
       totals[Math.max(0, stages.findIndex((stage) => stage.includes(round)))] += weight;
       // A sub-activity with parts keeps a placeholder scoring of its own: only its parts are scored.
       const self = "error" in own ? { scoring: PLACEHOLDER_SCORING, timerSeconds: null } : own;
-      checked.push({ key: round.key, segment, name, position: checked.length, weight, ...self, cutSize: null, cutBasis: [], parts });
+      checked.push({ key: round.key, segment, name, position: checked.length, weight, ...self, cutSize: null, cutBasis: [], parts, liveScoring: !round.deliberate });
     }
     for (const [stage, rounds] of stages.entries()) {
       const target = segment === "preliminary" ? preliminaryWeight : stage === 0 ? 100 - preliminaryWeight : 100;
@@ -575,6 +585,7 @@ export function parsePageantDraft(json: string): PageantDraft | null {
             return { key: text(p.key).slice(0, 64) || `part-${i}-${k}`, name: text(p.name), weight: text(p.weight), scoring: scoring(p.scoring), timer: text(p.timer) };
           })
         : null,
+      deliberate: r.deliberate === true,
     };
   });
   const violations = Array.isArray(obj.violations)
@@ -628,6 +639,7 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
               timer: p.timerSeconds === null ? "" : String(p.timerSeconds),
             }))
           : null,
+        deliberate: !r.liveScoring,
       };
     }),
   });

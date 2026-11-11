@@ -6,7 +6,19 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
 import { randomUUID } from "node:crypto";
-import { getActivity, getAdminBoard, getAdminCredentials, getBoard, getCorrections, getSignatures, listArchivedActivities, toActivity, toSessionState, type ActivityRow } from "@/lib/data";
+import {
+  getActivity,
+  getAdminBoard,
+  getAdminCredentials,
+  getBoard,
+  getCorrections,
+  getRoundSignatures,
+  getSignatures,
+  listArchivedActivities,
+  toActivity,
+  toSessionState,
+  type ActivityRow,
+} from "@/lib/data";
 import { cleanSignature, unsignedJudges } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { listNames } from "@/lib/names";
@@ -37,10 +49,25 @@ import { accountInUse } from "@/lib/in-use-server";
 import { testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
-import { canApprove, canMove, editable, phaseOf, type DeviceStatus } from "@/lib/lifecycle";
+import { canApprove, canMove, canMoveSegment, editable, phaseOf, segmentPhase, type DeviceStatus, type SegmentMove } from "@/lib/lifecycle";
 import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
-import { cutPlan, cutResult, deductionsOpen, judgingOrder, partsOf, programOrder, roundLabel, roundPool, roundProgress, waitsForPreliminary } from "@/lib/pageant";
-import { chairGap, checkPageant, deductionPoints, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import {
+  awaitingSignoff,
+  cutPlan,
+  cutResult,
+  deductionsOpen,
+  deliberatingRound,
+  judgesFor,
+  judgingOrder,
+  partsOf,
+  programOrder,
+  roundDeliberationGap,
+  roundLabel,
+  roundPool,
+  roundProgress,
+  segmentClosed,
+} from "@/lib/pageant";
+import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
 import { unbrokenTies } from "@/lib/ties";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
@@ -346,9 +373,23 @@ async function sessionOf(activityId: string): Promise<{ state: SessionState; cur
 }
 
 /** Whether the activity's panel of judges can't change: judging is on, or has been before its scores were reset. */
-async function panelLocked(activityId: string): Promise<boolean> {
+/**
+ * Whether the panel of judges is locked: once judging has started. `panel`: the judge's segments, for a pageant's own
+ * pageant proper judges, who can still change until pageant proper starts.
+ */
+async function panelLocked(activityId: string, panel: JudgePanel = "all"): Promise<boolean> {
+  if (panel === "proper") {
+    const activity = await getActivity(activityId);
+    if (activity && editable(activity, "judges", "proper")) return false;
+  }
   const { state, startedAt } = await sessionOf(activityId);
   return judgesLocked({ sessionState: state, sessionStartedAt: startedAt });
+}
+
+/** Whether this judge's row is locked (see panelLocked), by the segments they judge. */
+async function judgeLocked(activityId: string, judgeId: string): Promise<boolean> {
+  const { data } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
+  return panelLocked(activityId, readPanel((data as { panel?: string } | null)?.panel ?? null));
 }
 
 /** Insert judges' access codes, regenerating on the (rare) collision. */
@@ -454,6 +495,8 @@ const PAGEANT_HINT = "Pageant mode needs a database update. Run supabase/migrati
 const PARTS_HINT =
   "Sub-activities with parts need a database update. Run supabase/migrations/012_pageant_parts_and_drafts.sql in the Supabase SQL editor.";
 
+/** Segments run on their own, and sub-activities that deliberate (migration 040). */
+const SEGMENTS_HINT = "This needs a database update. Run supabase/migrations/040_pageant_segments_and_deliberation.sql in the Supabase SQL editor.";
 const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrations/015_deductions_and_themes.sql in the Supabase SQL editor.";
 
 /**
@@ -461,7 +504,7 @@ const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrati
  * ids, so cut bases (which name sub-activities by key) and parts (which name their sub-activity) can be written in
  * the same go. Upserts, so a saved program is updated in place.
  */
-async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>) {
+async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>, deliberatedBefore = false) {
   for (const r of rounds) {
     if (!ids.has(r.key)) ids.set(r.key, randomUUID());
     for (const p of r.parts) if (!ids.has(p.key)) ids.set(p.key, randomUUID());
@@ -476,8 +519,10 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
     criteria_display: r.scoring.display ?? "percent",
     timer_seconds: r.timerSeconds,
   });
-  // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012.
+  // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012;
+  // live_scoring only when a sub-activity deliberates (or did), so programs that score live save without migration 040.
   const withParts = rounds.some((r) => r.parts.length > 0);
+  const live = (r: CheckedRound) => (deliberatedBefore || rounds.some((x) => !x.liveScoring) ? { live_scoring: r.liveScoring } : {});
   const rows = rounds.flatMap((r) => [
     {
       id: ids.get(r.key)!,
@@ -490,6 +535,7 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
       cut_size: r.cutSize,
       cut_basis: r.cutBasis.map((k) => (k === PRELIMINARY ? k : ids.get(k))).filter(Boolean),
       ...(withParts ? { parent_id: null } : {}),
+      ...live(r),
     },
     ...r.parts.map((p) => ({
       id: ids.get(p.key)!,
@@ -502,6 +548,8 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
       cut_size: null,
       cut_basis: [],
       parent_id: ids.get(r.key)!,
+      // A part follows its sub-activity.
+      ...live(r),
     })),
   ]);
   check((await db().from("rounds").upsert(rows)).error);
@@ -520,15 +568,27 @@ const PAGEANT_NOT_FOUND = err("Pageant not found.");
 
 /**
  * Save a pageant's program from the Segments tab: segment shares, sub-activities, their scoring, timers and cuts.
- * Only before the session starts, so the rules can't change once anyone has scored.
+ * Each segment's only until it starts, so the rules can't change once anyone has scored by them: the whole program
+ * before the preliminary starts, then pageant proper's until it starts.
  */
 export const savePageant = traced("savePageant", async function savePageant(activityId: string, json: string): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
-  if (!editable(board.activity, "program")) return err("The session has started, so the program is final and can't be changed.");
-  const draft = parsePageantDraft(json);
-  if (!draft) return err("The program couldn't be read. Try again.");
+  if (!editable(board.activity, "program", "proper")) return err("Pageant proper has started, so the program is final and can't be changed.");
+  const sent = parsePageantDraft(json);
+  if (!sent) return err("The program couldn't be read. Try again.");
+  // Once the preliminary has started, its part (its sub-activities, its share and its deductions) stays as saved,
+  // whatever the form sends: only pageant proper's comes from it.
+  const started = editable(board.activity, "program") ? null : draftFromRounds(board.activity.preliminaryWeight, board.rounds, board.activity.violations);
+  const draft = started
+    ? {
+        ...sent,
+        preliminaryWeight: started.preliminaryWeight,
+        violations: started.violations,
+        rounds: [...started.rounds.filter((r) => r.segment === "preliminary"), ...sent.rounds.filter((r) => r.segment === "proper")],
+      }
+    : sent;
   const checked = checkPageant(draft, board.entries.length, newCriterionId);
   if (!checked.ok) return err(checked.error);
   const given = board.deductions?.length ?? 0;
@@ -541,10 +601,11 @@ export const savePageant = traced("savePageant", async function savePageant(acti
   const keys = draft.rounds.flatMap((r) => [r.key, ...(r.parts ?? []).map((p) => p.key)]);
   const ids = new Map(keys.filter((k) => saved.has(k)).map((k) => [k, k]));
   try {
-    await insertProgram(activityId, checked.rounds, ids);
+    await insertProgram(activityId, checked.rounds, ids, board.rounds.some((r) => !r.liveScoring));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
+    if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
     return dbErr({ message });
   }
   const kept = new Set(ids.values());
@@ -573,6 +634,9 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
   if (board.activity.sessionState !== "live") return err("Start the session first.");
+  // The judges are reviewing one: their screens stay on it until it's signed off.
+  const deliberating = deliberatingRound(board);
+  if (deliberating && deliberating.id !== roundId) return err(`The judges are deliberating ${roundLabel(board.rounds, deliberating)}. Sign it off first.`);
   if (roundId !== null) {
     const round = board.rounds.find((r) => r.id === roundId);
     if (!round) return err("Sub-activity not found.");
@@ -580,17 +644,32 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
     if (partsOf(board.rounds, round.id).length) return err(`Choose which part of ${round.name} to judge.`);
     const { blockedBy } = roundPool(board, round.id);
     if (blockedBy) return err(`Confirm the ${blockedBy.name} cut first. It decides who is judged in ${round.name}.`);
-    // Pageant proper starts once the preliminary is fully judged.
-    if (waitsForPreliminary(board, round)) {
-      const open = judgingOrder(board.rounds).find((r) => r.segment === "preliminary" && !roundProgress(board, r).complete);
-      return err(`Finish judging the preliminary first.${open ? ` ${roundLabel(board.rounds, open)} still has scores to come.` : ""}`);
-    }
+    // Only the segment running now: the preliminary until it ends, then pageant proper once it has started.
+    const closed = segmentClosed(board.activity, round);
+    if (closed) return err(closed);
   }
-  const { error } = await db()
-    .from("activities")
-    .update({ current_round_id: roundId, current_entry_id: null, led_entry_id: null, scoring_closes_at: null })
-    .eq("id", activityId);
+  // Only while the segment it was decided in still runs: not after another desk has ended the preliminary.
+  const { preliminaryEndedAt, properStartedAt } = board.activity;
+  const write = (segments: boolean) => {
+    let update = db()
+      .from("activities")
+      .update({ current_round_id: roundId, current_entry_id: null, led_entry_id: null, scoring_closes_at: null }, { count: "exact" })
+      .eq("id", activityId)
+      .eq("session_state", "live");
+    if (segments) {
+      update = preliminaryEndedAt ? update.eq("preliminary_ended_at", preliminaryEndedAt) : update.is("preliminary_ended_at", null);
+      update = properStartedAt ? update.eq("proper_started_at", properStartedAt) : update.is("proper_started_at", null);
+    }
+    return update;
+  };
+  let { error, count } = await write(true);
+  // Before migration 040 there are no segments to hold to: the preliminary runs as it did.
+  if (error && /preliminary_ended_at|proper_started_at/.test(error.message)) ({ error, count } = await write(false));
   if (error) return dbErr(error);
+  if (!count) {
+    changed();
+    return err("The pageant moved on meanwhile, so nothing was changed. Check where it stands now.");
+  }
   changed();
   return ok();
 });
@@ -669,7 +748,7 @@ const MAX_DEDUCTIONS = 500;
 function deductionsClosed(board: Board): string | null {
   if (board.activity.violations === null) return "This pageant has no deductions. Turn them on on the Segments tab before the session starts.";
   if (deductionsOpen(board)) return null;
-  return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "Pageant proper has started, so deductions are final.";
+  return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "The preliminary has ended, so deductions are final.";
 }
 
 /**
@@ -794,8 +873,8 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
   const resultDecimals = readResultDecimals(formData);
   if (typeof resultDecimals !== "number") return err(resultDecimals.error);
 
-  // An event's entry fields (a pageant's candidates have none), and each entry's details after its name.
-  const entryFields = pageant ? [] : newEntryFields(formData);
+  // The entries' (or candidates') one general field of details, when any were typed, and each one's after its name.
+  const entryFields = newEntryFields(formData);
   const entryRows = entryLines(formData.get("entries"), entryFields);
   const entries = entryRows.map((e) => e.name);
   if (entries.length > MAX_ENTRIES) return err(`An activity can have up to ${MAX_ENTRIES} entries.`);
@@ -989,6 +1068,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       // Before migration 013 an activity has one chair, so separate boards' two chairs break judges_one_chair_idx.
       if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
       if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
+      if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
       if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
       log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
       return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
@@ -1332,8 +1412,9 @@ export const setSessionState = traced("setSessionState", async function setSessi
     if (!judges.count) return err("Add at least one judge before starting the session.");
     if (!entries.count) return err("Add at least one entry before starting the session.");
     const board = await getBoard(activityId);
+    // A pageant starts with its preliminary: only that board needs to be ready (pageant proper's can change until it starts).
     if (board?.activity.kind === "pageant") {
-      const gap = panelGap(board.judges.map((j) => j.panel));
+      const gap = panelGap(board.judges.map((j) => j.panel), "preliminary") ?? chairGap(board.judges, "preliminary");
       if (gap) return err(gap);
     }
     // Without live scoring the chair moves between entries and starts the deliberation from their screen.
@@ -1356,6 +1437,16 @@ export const setSessionState = traced("setSessionState", async function setSessi
   let signedAt: string | null = null;
   if (state === "ended") {
     const board = await getBoard(activityId);
+    // A pageant ends with pageant proper: the preliminary ends on its own first (see moveSegment).
+    if (board?.activity.kind === "pageant" && current.state === "live" && segmentPhase(board.activity, "proper") !== "live") {
+      return err("Pageant proper hasn't started. End the preliminary and start pageant proper first.");
+    }
+    // Its deliberated sub-activities are signed off first: their judges sign while the session runs.
+    const unsigned = board?.activity.kind === "pageant" ? awaitingSignoff(board, programOrder(board.rounds).filter((r) => r.segment === "proper")) : [];
+    if (board && unsigned.length && current.state === "live") {
+      const gap = roundDeliberationGap(board, unsigned[0]);
+      return err(`Sign off the deliberation of ${roundLabel(board.rounds, unsigned[0])} first.${gap && !/deliberating/.test(gap) ? ` ${gap}` : ""}`);
+    }
     if (board && !board.activity.liveScoring && current.state === "live" && scoreProgress(board).complete) {
       return err("Every entry is scored, so the judges deliberate first. Start the deliberation.");
     }
@@ -1418,6 +1509,124 @@ export const setSessionState = traced("setSessionState", async function setSessi
   changed();
   if (state === "ended") return ok(signedOff ? "The session has ended, signed by every judge and by you. The results are out." : "The session has ended. Judges can no longer submit scores.");
   return ok(current.state === "ended" ? "The session is open again." : "The session has started. Show the first entry when you're ready.");
+});
+
+/**
+ * Move a live pageant between its segments (see SegmentMove in lifecycle.ts): end the preliminary, once every score in
+ * it is in (with the password: its judges' part is over); reopen it, until pageant proper starts; or start pageant
+ * proper, once its own board of judges is ready. Judges' screens wait for the next sub-activity either way.
+ */
+export const moveSegment = traced("moveSegment", async function moveSegment(activityId: string, move: SegmentMove, password: string = ""): Promise<ActionResult> {
+  if (move !== "endPreliminary" && move !== "reopenPreliminary" && move !== "startProper") return err("That isn't a change the pageant can make.");
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { session, board } = found;
+  const { activity } = board;
+  if (move === "endPreliminary") {
+    const refused = await confirmPassword(session, password);
+    if (refused) return refused;
+  }
+  const DONE: Record<SegmentMove, string> = {
+    endPreliminary: "The preliminary has ended, and its judges are done. Start pageant proper when you're ready.",
+    reopenPreliminary: "The preliminary is open again. Choose a sub-activity to judge.",
+    startProper: "Pageant proper has started. Choose its first sub-activity when you're ready.",
+  };
+  if (!canMoveSegment(activity, move)) {
+    // Done already (a second click, or a request sent again): it says so as the first did.
+    if (move === "endPreliminary" && segmentPhase(activity, "preliminary") === "ended") return ok(DONE.endPreliminary);
+    if (move === "startProper" && segmentPhase(activity, "proper") === "live") return ok(DONE.startProper);
+    if (move === "reopenPreliminary" && segmentPhase(activity, "preliminary") === "live") return ok(DONE.reopenPreliminary);
+    if (activity.sessionState !== "live") return err("The session isn't running.");
+    return err(move === "reopenPreliminary" ? "Pageant proper has started, so the preliminary can't be reopened." : "End the preliminary first.");
+  }
+  const now = new Date().toISOString();
+  // Whatever was on judges' screens goes: the next sub-activity is chosen from the program.
+  const cleared = { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null };
+  let update: Record<string, string | null>;
+  if (move === "endPreliminary") {
+    // Every preliminary score: pageant proper's first cut can count the preliminary, and its judges won't be back.
+    const open = judgingOrder(board.rounds).find((r) => r.segment === "preliminary" && !roundProgress(board, r).complete);
+    if (open) return err(`${roundLabel(board.rounds, open)} still has scores to come. The preliminary ends once every score in it is in.`);
+    // Its deliberated sub-activities are signed off: their judges won't be back to sign.
+    const unsigned = awaitingSignoff(board, programOrder(board.rounds).filter((r) => r.segment === "preliminary"));
+    if (unsigned.length) return err(`Sign off the deliberation of ${roundLabel(board.rounds, unsigned[0])} first.`);
+    update = { ...cleared, preliminary_ended_at: now };
+  } else if (move === "reopenPreliminary") {
+    update = { ...cleared, preliminary_ended_at: null };
+  } else {
+    const gap = panelGap(board.judges.map((j) => j.panel), "proper") ?? chairGap(board.judges, "proper");
+    if (gap) return err(gap);
+    update = { ...cleared, proper_started_at: now };
+  }
+  // Only from where the pageant stood when this was decided: not after another desk has moved it on.
+  const write = db().from("activities").update(update, { count: "exact" }).eq("id", activityId).eq("session_state", "live").is("proper_started_at", null);
+  const { error, count } = await (activity.preliminaryEndedAt ? write.eq("preliminary_ended_at", activity.preliminaryEndedAt) : write.is("preliminary_ended_at", null));
+  if (error) return /preliminary_ended_at|proper_started_at/.test(error.message) ? needsMigration(SEGMENTS_HINT) : dbErr(error);
+  changed(activity.publicId);
+  if (!count) return err("The pageant moved on meanwhile, so nothing was changed. Check where it stands now.");
+  return ok(DONE[move]);
+});
+
+/**
+ * Start the deliberation of a pageant sub-activity (or part) whose results come after one, once every judge on its
+ * panel has scored every candidate in it (see roundDeliberationGap). Judges' screens go to its review: it's on them
+ * until it's signed off, with no candidate shown.
+ */
+export const startRoundDeliberation = traced("startRoundDeliberation", async function startRoundDeliberation(activityId: string, roundId: string): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  const round = board.rounds.find((r) => r.id === roundId);
+  if (!round) return err("Sub-activity not found.");
+  if (board.activity.sessionState !== "live") return err("Judging isn't running.");
+  const closed = segmentClosed(board.activity, round);
+  if (closed) return err(closed);
+  // Started already (a second click): done all the same.
+  if (round.deliberationStartedAt && !round.signedOffAt) return ok(`The judges are deliberating ${roundLabel(board.rounds, round)}.`);
+  const gap = roundDeliberationGap(board, round);
+  if (gap) return err(gap);
+  const { error, count } = await db()
+    .from("rounds")
+    .update({ deliberation_started_at: new Date().toISOString() }, { count: "exact" })
+    .eq("id", round.id)
+    .is("deliberation_started_at", null);
+  if (error) return /deliberation_started_at/.test(error.message) ? needsMigration(SEGMENTS_HINT) : dbErr(error);
+  if (count) {
+    await db()
+      .from("activities")
+      .update({ current_round_id: round.id, current_entry_id: null, led_entry_id: null, scoring_closes_at: null })
+      .eq("id", activityId)
+      .eq("session_state", "live");
+  }
+  changed(board.activity.publicId);
+  return ok(`The judges are deliberating ${roundLabel(board.rounds, round)}. Each one reviews their scores, then signs.`);
+});
+
+/**
+ * The organizer signs off a sub-activity's (or part's) deliberation once every judge on its panel has signed: drawn,
+ * or null for "(Sgd.)". Its scores go out on the live results and the LED wall.
+ */
+export const signOffRound = traced("signOffRound", async function signOffRound(activityId: string, roundId: string, signature: string | null): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { session, board } = found;
+  const round = board.rounds.find((r) => r.id === roundId);
+  if (!round) return err("Sub-activity not found.");
+  const name = roundLabel(board.rounds, round);
+  if (round.signedOffAt) return ok(`${name} is signed off. Its scores are out.`);
+  if (!round.deliberationStartedAt) return err(`Start the deliberation of ${name} first.`);
+  const signed = await getRoundSignatures(round.id);
+  if (!signed) return needsMigration(SEGMENTS_HINT);
+  const waiting = unsignedJudges(judgesFor(board, round), signed.signatures);
+  if (waiting.length) return err(`${listNames(waiting)} ${waiting.length === 1 ? "hasn't" : "haven't"} signed yet.`);
+  const drawn = signature === null ? null : cleanSignature(signature);
+  if (signature !== null && !drawn) return err("Draw your signature in the box, then sign.");
+  const { error } = await db()
+    .from("round_signoffs")
+    .insert({ round_id: round.id, activity_id: activityId, signed_by: session.kind === "organizer" ? session.admin.name : "Super admin", method: drawn ? "drawn" : "checked", drawing: drawn });
+  if (error && error.code !== "23505") return dbErr(error);
+  changed(board.activity.publicId);
+  return ok(`${name} is signed off. Its scores are on the live results and the LED wall now.`);
 });
 
 /**
@@ -1566,14 +1775,14 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
 
 export const addJudge = traced("addJudge", async function addJudge(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
-  if (await panelLocked(activityId)) return JUDGES_LOCKED;
+  const panel = readPanel(formData.get("panel"));
+  if (await panelLocked(activityId, panel)) return JUDGES_LOCKED;
   const judgeName = readJudgeName(formData, "", "the judge");
   if ("error" in judgeName) return err(judgeName.error);
 
   const { count } = await db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId);
   if ((count ?? 0) >= MAX_JUDGES) return err(`An activity can have up to ${MAX_JUDGES} judges.`);
 
-  const panel = readPanel(formData.get("panel"));
   const { data, error } = await db()
     .from("judges")
     .insert({ activity_id: activityId, position: await nextPosition("judges", activityId), ...nameColumns(judgeName), ...(panel === "all" ? {} : { panel }) })
@@ -1615,7 +1824,7 @@ export const addJudge = traced("addJudge", async function addJudge(activityId: s
 export const renameJudge = traced("renameJudge", async function renameJudge(judgeId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if (await panelLocked(activityId)) return JUDGES_LOCKED;
+  if (await judgeLocked(activityId, judgeId)) return JUDGES_LOCKED;
   const judgeName = readJudgeName(formData, "", "the judge");
   if ("error" in judgeName) return err(judgeName.error);
   const { error } = await db().from("judges").update(nameColumns(judgeName)).eq("id", judgeId);
@@ -1646,7 +1855,7 @@ export const setJudgePanel = traced("setJudgePanel", async function setJudgePane
 export const setChair = traced("setChair", async function setChair(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if (await panelLocked(activityId)) return JUDGES_LOCKED;
+  if (await judgeLocked(activityId, judgeId)) return JUDGES_LOCKED;
   // "*" so this works on databases without migration 013's panel.
   const { data, error } = await db().from("judges").select("*").eq("activity_id", activityId);
   check(error);
@@ -1681,7 +1890,7 @@ export const setChair = traced("setChair", async function setChair(judgeId: stri
 export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhoto(judgeId: string, formData: FormData): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if (await panelLocked(activityId)) return JUDGES_LOCKED;
+  if (await judgeLocked(activityId, judgeId)) return JUDGES_LOCKED;
   const { data: judge } = await db().from("judges").select("photo_path").eq("id", judgeId).maybeSingle();
 
   const photo = await photoFile(formData.get("photo"));
@@ -1702,7 +1911,7 @@ export const setJudgePhoto = traced("setJudgePhoto", async function setJudgePhot
 export const removeJudge = traced("removeJudge", async function removeJudge(judgeId: string): Promise<ActionResult> {
   const activityId = await parentActivity("judges", judgeId);
   if (!activityId || !(await manage(activityId))) return err("Judge not found.");
-  if (await panelLocked(activityId)) return JUDGES_LOCKED;
+  if (await judgeLocked(activityId, judgeId)) return JUDGES_LOCKED;
   // "*" so this works on databases without migration 008's is_chair.
   const { data: judge } = await db().from("judges").select("*").eq("id", judgeId).maybeSingle();
   // Their board would be left without a chair.
@@ -1761,14 +1970,13 @@ export const renameEntry = traced("renameEntry", async function renameEntry(entr
 });
 
 /**
- * An event's entry fields, from the Entries tab: up to three names, in order (`field-name`, with `field-id` for one
+ * An activity's entry fields, from the Entries tab: up to three names, in order (`field-name`, with `field-id` for one
  * that's kept, so its values stay with it). A field left blank goes, and its values are no longer shown. Until judging
  * ends, as the entries themselves.
  */
 export const setEntryFields = traced("setEntryFields", async function setEntryFields(activityId: string, _prev: FormResult, formData: FormData): Promise<FormResult> {
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
-  if (managed.activity.kind !== "event") return err("Only an event's entries have details.");
   if (!editable(managed.activity, "entries")) return ENTRIES_ENDED;
   const kept = new Set((await entryFieldsOf(activityId)).map((f) => f.id));
   const ids = formData.getAll("field-id").map(String);
@@ -1961,12 +2169,12 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   if (!activity) return NOT_FOUND;
   if (!canMove(activity, "reset")) return err("This activity is archived, so its scores stay as they are.");
   // Everything the scores made: the scores, corrections to them (votes go with them), judges' notes (018) and signatures
-  // (021), the ties they made and the organizer's signature on their results (026). Each fails harmlessly on a database
-  // without its table.
+  // (021), the ties they made and the organizer's signature on their results (026), and a pageant's sub-activity
+  // signatures and sign-offs (040). Each fails harmlessly on a database without its table.
   const clearScores = async () => {
     const { error } = await db().from("scores").delete().eq("activity_id", activityId);
     if (error) return error;
-    for (const table of ["score_corrections", "judge_notes", "judge_signatures", "tie_breaks", "activity_signoffs"]) {
+    for (const table of ["score_corrections", "judge_notes", "judge_signatures", "tie_breaks", "activity_signoffs", "round_signatures", "round_signoffs"]) {
       await db().from(table).delete().eq("activity_id", activityId);
     }
     return null;
@@ -2002,6 +2210,9 @@ export const resetScores = traced("resetScores", async function resetScores(acti
     // Fails harmlessly on databases without migration 015, which have no deductions.
     await db().from("deductions").delete().eq("activity_id", activityId);
     await db().from("activities").update({ current_round_id: null }).eq("id", activityId);
+    // Both segments back to not started, and no sub-activity deliberating (each fails harmlessly before migration 040).
+    await db().from("activities").update({ preliminary_ended_at: null, proper_started_at: null }).eq("id", activityId);
+    await db().from("rounds").update({ deliberation_started_at: null }).eq("activity_id", activityId);
   }
   changed(activity.publicId);
   return ok("Every score and judge's note was deleted, and every judge was signed out. The session is back to not started.");

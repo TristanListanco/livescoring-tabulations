@@ -1,8 +1,8 @@
 import "server-only";
 import { correctionView, type Correction, type CorrectionView } from "./corrections";
-import { getActivityNotes, getActivitySignatories, getAdmin, getCorrections, getEntryDetails, getSignatures, withBreakdowns } from "./data";
+import { getActivityNotes, getActivitySignatories, getAdmin, getCorrections, getEntryDetails, getRoundSignatures, getSignatures, withBreakdowns } from "./data";
 import { reportId } from "./report";
-import { cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, standings, standingsBy, type StandingRow } from "./pageant";
+import { awaitingSignoff, cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, roundReleased, standings, standingsBy, type StandingRow } from "./pageant";
 // Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
 import { pdfDrawnOn, renderJudgeSheetsPdf, renderNotesPdf, renderResultsPdf, renderStandingsPdf } from "./pdf";
 import type { ReportOrganizer, StandingsSheet } from "./results-pdf";
@@ -98,6 +98,10 @@ function pageantSheet(board: Board, search: URLSearchParams, corrections: Correc
     const label = roundLabel(board.rounds, round);
     const progress = roundProgress(board, round);
     if (!progress.complete) return notYet(`${label} results can be exported once all scores are in (${progress.submitted} of ${progress.possible} so far).`);
+    // One that deliberates is official once it's signed off, with its judges' signatures on it.
+    const judged = partsOf(board.rounds, round.id).length ? partsOf(board.rounds, round.id) : [round];
+    if (judged.some((r) => !roundReleased(r))) return notYet(`${label} results are ready once its deliberation is signed off.`);
+    const signed = async () => (round.liveScoring ? null : ((await getRoundSignatures(round.id))?.signatures ?? null));
 
     if (wantsJudgeSheets(search)) {
       if (partsOf(board.rounds, round.id).length) return new Response(`Download the judges' score sheets for each part of ${round.name}.`, { status: 400 });
@@ -109,7 +113,14 @@ function pageantSheet(board: Board, search: URLSearchParams, corrections: Correc
         reportId: id,
         files: sheetsFiles(activity.name, label),
         pdf: async (timeZone) =>
-          renderJudgeSheetsPdf(await part(), { timeZone, reportId: id, ...(await people()), part: label, corrections: appliedTo(board, corrections, round.id) ?? [] }),
+          renderJudgeSheetsPdf(await part(), {
+            timeZone,
+            reportId: id,
+            ...(await people()),
+            part: label,
+            corrections: appliedTo(board, corrections, round.id) ?? [],
+            signatures: await signed(),
+          }),
         csv: async () => judgeScoresTable(await part(), "Candidate"),
       };
     }
@@ -138,8 +149,11 @@ function pageantSheet(board: Board, search: URLSearchParams, corrections: Correc
       label: `${label} results`,
       reportId: id,
       files: resultsFiles(activity.name, label),
-      pdf: async (timeZone) => renderResultsPdf(part, { timeZone, reportId: id, ...(await people()), part: label, corrections: appliedTo(board, corrections, round.id) }),
-      csv: async () => resultsTable(part, "Candidate"),
+      pdf: async (timeZone) => {
+        const [who, details, signatures] = await Promise.all([people(), getEntryDetails(activity.id), signed()]);
+        return renderResultsPdf(part, { timeZone, reportId: id, ...who, part: label, corrections: appliedTo(board, corrections, round.id), details, signatures });
+      },
+      csv: async () => resultsTable(part, "Candidate", await getEntryDetails(activity.id)),
     };
   }
 
@@ -183,6 +197,8 @@ function pageantSheet(board: Board, search: URLSearchParams, corrections: Correc
     const missing = prelim.find((r) => !roundProgress(board, r).complete);
     if (!prelim.length) return new Response("This pageant has no preliminary.", { status: 404 });
     if (missing) return notYet(`The preliminary results can be exported once every score is in, including ${missing.name}.`);
+    const unsigned = awaitingSignoff(board, prelim);
+    if (unsigned.length) return notYet(`The preliminary results are ready once the deliberation of ${roundLabel(board.rounds, unsigned[0])} is signed off.`);
     const entries = roundPool(board, prelim[0].id).entries;
     const { weights, rows } = standings(board, entries, [PRELIMINARY]);
     const prelimIds = new Set(prelim.flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));

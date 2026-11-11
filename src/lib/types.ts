@@ -64,6 +64,16 @@ export type Round = {
    * with parts is only their container: judges score each part, and its weight is shared among them by theirs.
    */
   parentId: string | null;
+  /**
+   * Whether its scores go out as they come in (the default), or wait for a deliberation: its judges review and sign
+   * them, then the organizer signs it off, and only then does the audience see them. A part follows its sub-activity.
+   * True before migration 040.
+   */
+  liveScoring: boolean;
+  /** When its deliberation started (ISO time), or null: the judges are reviewing it until it's signed off. */
+  deliberationStartedAt: string | null;
+  /** When the organizer signed off its deliberation (ISO time), or null: then its scores go out. Read with the board. */
+  signedOffAt: string | null;
 };
 
 /** A name and designation printed as a signature line on the results PDF. */
@@ -152,6 +162,13 @@ export type Activity = {
   preliminaryWeight: number;
   /** Pageant: the sub-activity being judged now. */
   currentRoundId: string | null;
+  /**
+   * Pageant: when the preliminary ended, and when pageant proper started (ISO times), or null. The preliminary runs
+   * from the session's start until it ends; pageant proper from its own start to the session's end (see segmentPhase).
+   * Null before migration 040.
+   */
+  preliminaryEndedAt: string | null;
+  properStartedAt: string | null;
   /** Pageant: when scoring closes for the candidate on screen, while a sub-activity's timer runs (ISO time). */
   scoringClosesAt: string | null;
   /**

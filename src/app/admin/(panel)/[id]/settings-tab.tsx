@@ -5,7 +5,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
 import type { ActionResult, Activity, Signatory } from "@/lib/types";
-import { editable } from "@/lib/lifecycle";
+import { editable, scoresGoOutLive } from "@/lib/lifecycle";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
 import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, setScoringPlaces, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
@@ -423,7 +423,7 @@ export function SettingsTab({
       <form action={action}>
         <Section quiet title="Details">
           <label htmlFor="name" className="label">
-            Activity name
+            {activity.kind === "pageant" ? "Pageant name" : "Event name"}
           </label>
           <input id="name" name="name" required maxLength={120} defaultValue={activity.name} className="field max-w-xl" />
           <label htmlFor="location" className="label mt-5">
@@ -460,7 +460,7 @@ export function SettingsTab({
           {/* How the live results page lists them: on unless turned off, and changeable through the show. */}
           <RankingSwitch activity={activity} editable={!activity.archivedAt} />
           {/* With live scores, what the audience's screens show of the judges (set here rather than on the LED wall tab). */}
-          {activity.liveScoring && (
+          {scoresGoOutLive(activity) && (
             <>
               <OptionSwitch
                 activity={activity}

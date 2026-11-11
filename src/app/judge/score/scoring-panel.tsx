@@ -10,6 +10,7 @@ import { LiveStatusBadge } from "@/components/live-status";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import { CORRECTION_REASONS, MAX_CORRECTION_REASON, TIE_REASON, type CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, eventTimer, judgeView, type JudgeView } from "@/lib/judging";
+import { runningSegment, segmentPhase } from "@/lib/lifecycle";
 import { listNames } from "@/lib/names";
 import { clock, SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
@@ -90,6 +91,8 @@ export type Deliberation = {
    * results will show them, ties broken as the chair broke them. Never another judge's score. Null otherwise.
    */
   ranking: DeliberationRank[] | null;
+  /** A pageant sub-activity's (or part's) deliberation: its name. Missing for an event's. */
+  part?: string;
 };
 
 /** An entry's place in the overall ranking, as the judges see it in the deliberation. */
@@ -1076,11 +1079,21 @@ function WaitingCard({
   };
   // A pageant between sub-activities: nothing to score until the organizer starts the next one.
   const betweenRounds = activity.kind === "pageant" && !round && view.kind === "waiting";
-  const { title, body } = offPanel
-    ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
-    : betweenRounds
-      ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
-      : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
+  // A pageant judge with nothing in the segment being judged: one of the preliminary only, once it has ended, is done;
+  // one of pageant proper (only, or of both between the segments) waits for it to start.
+  const pageantLive = activity.kind === "pageant" && activity.sessionState === "live" && (offPanel || view.kind === "waiting");
+  const partDone = pageantLive && judge.panel === "preliminary" && segmentPhase(activity, "preliminary") === "ended";
+  const properSoon =
+    pageantLive && segmentPhase(activity, "proper") === "setup" && (judge.panel === "proper" || (judge.panel === "all" && runningSegment(activity) === null));
+  const { title, body } = partDone
+    ? { title: "Your part of the pageant is done", body: `Thank you, ${firstName}. Your preliminary scores are in, and pageant proper has its own judges.` }
+    : properSoon
+      ? { title: "Pageant proper starts soon", body: "Your screen opens by itself when it does. Keep this page open." }
+      : offPanel
+        ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
+        : betweenRounds
+          ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
+          : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   const submitted = correction ?? (
     <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.{live && " It's on the live results now."}</p>
@@ -1121,7 +1134,7 @@ function WaitingCard({
           {submitted}
         </div>
       )}
-      {view.kind !== "ended" && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
+      {view.kind !== "ended" && !partDone && (!movesEntries || betweenRounds || offPanel) && <WaitingDots />}
       <h1 className="judge-title">{title}</h1>
       <p className="judge-lede mt-3">{body}</p>
       {/* So the timer doesn't take a judge by surprise: told before it starts, and how the screen will show it. */}
@@ -1202,6 +1215,7 @@ function DeliberationView({
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
   return (
     <div className="w-full max-w-md pb-8 lg:max-w-2xl">
+      {deliberation.part && <p className="text-powder">{deliberation.part}</p>}
       <h1 className="judge-title">Deliberation</h1>
       <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
       <TieBreaks ties={deliberation.ties} canCorrect={canCorrect && !deliberation.signature} onCorrect={onCorrect} />
@@ -1370,7 +1384,8 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
         <>
           <SignatureMark signature={signature} />
           <p role="status" className="mt-3 text-powder">
-            You&apos;ve signed. {count} The organizer ends the session once everyone has.
+            You&apos;ve signed. {count}{" "}
+            {deliberation.part ? "The organizer signs it off once everyone has, and its scores go out then." : "The organizer ends the session once everyone has."}
           </p>
         </>
       ) : !canSign ? (

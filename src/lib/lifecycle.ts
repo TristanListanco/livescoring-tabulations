@@ -1,4 +1,4 @@
-import type { Activity } from "./types";
+import type { Activity, Segment } from "./types";
 
 /**
  * An activity's lifecycle, in one place: the phase it's in, the moves between phases, and what can still be changed in
@@ -20,7 +20,7 @@ import type { Activity } from "./types";
  */
 export type Phase = "setup" | "setup-after-reset" | "live" | "deliberation" | "ended" | "signed-off" | "archived";
 
-type Lifecycle = Pick<Activity, "sessionState" | "sessionStartedAt" | "signedOffAt" | "archivedAt">;
+type Lifecycle = Pick<Activity, "sessionState" | "sessionStartedAt" | "signedOffAt" | "archivedAt" | "kind" | "preliminaryEndedAt" | "properStartedAt">;
 
 export function phaseOf(activity: Pick<Lifecycle, "sessionState"> & Partial<Lifecycle>): Phase {
   if (activity.archivedAt) return "archived";
@@ -65,6 +65,46 @@ export const canMove = (activity: Parameters<typeof phaseOf>[0], move: Move): bo
   (SESSION_MOVES[move].from as readonly Phase[]).includes(phaseOf(activity));
 
 /**
+ * Where a pageant's segment stands. The two run in order, each as a session of its own inside the activity's: the
+ * preliminary from the start (the activity's start move) until it ends, then pageant proper from its own start to the
+ * activity's end. In between, the preliminary's judges are done and pageant proper's haven't started.
+ * - setup: not started yet: its program and its own judges can still change.
+ * - live: its judges are scoring.
+ * - ended: its judges' part is over.
+ */
+export type SegmentPhase = "setup" | "live" | "ended";
+
+type Segments = Pick<Lifecycle, "sessionState"> & Partial<Pick<Lifecycle, "preliminaryEndedAt" | "properStartedAt">>;
+
+export function segmentPhase(activity: Segments, segment: Segment): SegmentPhase {
+  if (activity.sessionState === "draft") return "setup";
+  if (activity.sessionState !== "live") return "ended";
+  if (segment === "preliminary") return activity.preliminaryEndedAt ? "ended" : "live";
+  return activity.properStartedAt ? "live" : "setup";
+}
+
+/** The segment a pageant is judging now, or null: before the start, between the two, and once it has ended. */
+export function runningSegment(activity: Segments): Segment | null {
+  if (segmentPhase(activity, "proper") === "live") return "proper";
+  return segmentPhase(activity, "preliminary") === "live" ? "preliminary" : null;
+}
+
+/**
+ * A pageant's moves between its segments, while its session is live (the activity's own start and end begin the
+ * preliminary and end pageant proper):
+ * - endPreliminary: the preliminary's judges are done (it takes the password, as ending a session does).
+ * - reopenPreliminary: back to the preliminary, until pageant proper starts.
+ * - startProper: pageant proper's judges start, once the preliminary has ended.
+ */
+export type SegmentMove = "endPreliminary" | "reopenPreliminary" | "startProper";
+
+export function canMoveSegment(activity: Segments, move: SegmentMove): boolean {
+  const preliminary = segmentPhase(activity, "preliminary");
+  if (move === "endPreliminary") return preliminary === "live";
+  return preliminary === "ended" && segmentPhase(activity, "proper") === "setup";
+}
+
+/**
  * What can still change, by phase. One table instead of the checks each form and action used to make on its own.
  * - judges: who's on the panel (and the chair). Fixed once judging has started, even after a reset.
  * - rules: how judges score: live scoring, the time limit, own pace, decimal places. Fixed like the panel.
@@ -85,7 +125,16 @@ const EDITABLE: Record<Part, readonly Phase[]> = {
   judgeOptions: ["setup", "setup-after-reset", "live", "deliberation"],
 };
 
-export const editable = (activity: Parameters<typeof phaseOf>[0], part: Part): boolean => EDITABLE[part].includes(phaseOf(activity));
+/**
+ * Whether a part can change now. `segment`: for a pageant's judges and program, which segment's: pageant proper's own
+ * judges and sub-activities can change until pageant proper starts, while the preliminary runs.
+ */
+export function editable(activity: Parameters<typeof phaseOf>[0], part: Part, segment?: Segment): boolean {
+  if (segment === "proper" && (part === "judges" || part === "program") && activity.kind === "pageant" && phaseOf(activity) === "live") {
+    return segmentPhase(activity, "proper") === "setup";
+  }
+  return EDITABLE[part].includes(phaseOf(activity));
+}
 
 /**
  * Whether scores go out as they come in (a pageant, or an event with live scoring), rather than staying with the judges

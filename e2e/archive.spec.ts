@@ -136,7 +136,7 @@ test.describe.serial("archived activities", () => {
     await expect(page.getByRole("button", { name: "Reopen session" })).toHaveCount(0);
     await expect(page.getByRole("switch", { name: /rank/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: `Delete activity ${NAME}` })).toBeVisible();
-    await expect(page.getByLabel("Activity name")).toHaveCount(0);
+    await expect(page.getByLabel("Event name")).toHaveCount(0);
     await expectAccessible(page);
     // A tab it doesn't have (an old link to its Settings, say) shows its results instead.
     for (const tab of ["entries", "settings"]) {

@@ -118,6 +118,8 @@ const cell = "py-2.5 pr-3 align-top";
 /** A sub-activity's rows: itself, or its name with a row per part under it. `share`: what its share reads as. */
 function RoundRows({ round, share }: { round: RoundDraft; share: string }) {
   const name = round.name.trim() || "Untitled";
+  // Said under its scoring when its results wait for a deliberation; live is the usual.
+  const deliberated = round.deliberate && <p className="mt-0.5 text-sm text-prussian/75">Results after a deliberation</p>;
   if (!round.parts) {
     return (
       <tr>
@@ -127,6 +129,7 @@ function RoundRows({ round, share }: { round: RoundDraft; share: string }) {
         <td className={`${cell} tabular text-right font-semibold`}>{share}</td>
         <td className={`${cell} pr-0`}>
           <ScoringCell scoring={round.scoring} timer={round.timer} />
+          {deliberated}
         </td>
       </tr>
     );
@@ -138,7 +141,10 @@ function RoundRows({ round, share }: { round: RoundDraft; share: string }) {
           {name}
         </th>
         <td className={`${cell} tabular text-right font-semibold`}>{share}</td>
-        <td className={`${cell} pr-0 text-prussian/75`}>In {round.parts.length} parts, each scored on its own</td>
+        <td className={`${cell} pr-0 text-prussian/75`}>
+          In {round.parts.length} parts, each scored on its own
+          {deliberated}
+        </td>
       </tr>
       {round.parts.map((p: PartDraft) => (
         <tr key={p.key} className="text-[15px]">

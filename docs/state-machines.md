@@ -3,7 +3,7 @@
 Tabulous runs on a handful of state machines. Most aren't one declared table: a state lives in a column (or a few), and its moves are checked in a server action, held again by a database trigger, and shown by the panel. This page lists each one, where it lives, what moves it, and which layer guards each move, so a change to one can be made in every place it's checked.
 
 **Where the rules live in code:**
-- **`src/lib/lifecycle.ts`:** the activity's phases, the moves between them (`SESSION_MOVES`, `canMove`), what can still change in each phase (`editable`), and the mode helpers (`scoresGoOutLive`, `hasLedWall`). It's pure and tested (`lifecycle.test.ts`). Server actions check moves there before writing, and the panel asks there what to offer.
+- **`src/lib/lifecycle.ts`:** the activity's phases, the moves between them (`SESSION_MOVES`, `canMove`), a pageant's segments (`segmentPhase`, `runningSegment`, `canMoveSegment`), what can still change in each phase (`editable`), and the mode helpers (`scoresGoOutLive`, `hasLedWall`). It's pure and tested (`lifecycle.test.ts`). Server actions check moves there before writing, and the panel asks there what to offer.
 - **`supabase/schema.sql`:** the triggers, which hold the same rules for anything that slips past the server: a stale tab, two requests at once, a direct database call.
 
 Guard columns below: **S** server action, **D** database trigger or constraint, **U** what the panel offers. A move with **S** but no **D** relies on every caller going through the server.
@@ -28,9 +28,9 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 
 | Move | From | Triggered by | Guards |
 |------|------|--------------|--------|
-| start | setup, setup-after-reset | `setSessionState(…, "live")` | **S** needs judges, entries, a chair without live scoring, and complete pageant boards. **U** |
+| start | setup, setup-after-reset | `setSessionState(…, "live")` | **S** needs judges, entries, a chair without live scoring, and for a pageant the preliminary's board (judges and chair). A pageant's start is its preliminary's. **U** |
 | deliberate | live | `beginDeliberation` (desk, or the chair's `startDeliberation`) | **S** `deliberationGap`. **D** `check_deliberation` (every score in), `check_entry_added` |
-| end | live, deliberation | `setSessionState(…, "ended")`, and `endWhenEveryScoreIsIn` with live scoring | **S** needs the password; a deliberation also needs every signature, no unbroken tie and the organizer's signature. **D** `check_deliberation` (signatures and sign-off) |
+| end | live, deliberation | `setSessionState(…, "ended")`, and `endWhenEveryScoreIsIn` with live scoring | **S** needs the password; a deliberation also needs every signature, no unbroken tie and the organizer's signature; a pageant needs pageant proper running and its deliberated sub-activities signed off. **D** `check_deliberation` (signatures and sign-off) |
 | reopen | ended | `setSessionState(…, "live")` | **S** not when signed off, and not with live scoring once every score is in. **D** `clear_signatures_on_reopen` |
 | redeliberate | signed-off | `setSessionState(…, "deliberation")` → `redeliberate` | **S** needs the password; writes only if still ended |
 | reset | any but archived | `resetScores` | **S** needs the password; clears the scores, moves to draft and retries if a score lands in between. **D** `check_session_restart` (no scores when moving to draft) |
@@ -46,11 +46,13 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 
 | Part | Phases | Notes |
 |------|--------|-------|
-| judges | setup | **D** `judges_locked` (insert and delete; migration 039). Renames, photos and boards are **S** only. |
+| judges | setup; a pageant's pageant proper judges until pageant proper starts | **D** `judges_locked` (insert and delete; migrations 039 and 040) and `set_judge_chair`. Renames, photos and boards are **S** only; moving a judge between boards stays locked once the preliminary starts. |
 | rules (live scoring, timer, own pace, decimal places) | setup | **S**; writes are conditional on still being draft |
-| running order, program, guides | setup, setup-after-reset | **D** `set_entry_order` for the order |
+| running order, program, guides | setup, setup-after-reset; a pageant's pageant proper sub-activities until pageant proper starts | **D** `set_entry_order` for the order. `savePageant` keeps the preliminary's part as saved once it has started. |
 | entries | until ended | Each action has finer rules: no adding in deliberation, and nothing scored or on screen can be removed |
 | judges' options (reasons list, see ranking) | until ended | |
+
+Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant proper judges and program.
 
 ## 3. Activity mode
 
@@ -60,7 +62,7 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 - a live event: scores show as they come in;
 - a deliberated event: scores stay with the judges until everyone has signed;
 - an own-pace event: a deliberated event where judges pick entries themselves;
-- a pageant, whose scores go out live.
+- a pageant, whose scores go out live, except a sub-activity set to deliberate (see section 15).
 
 **Helpers:** `scoresGoOutLive` (also "has an LED wall" and the "Live" status), `resultsReleased` (in `data.ts`), `atOwnPace` and `chairMovesEntries` (in `judging.ts`).
 
@@ -129,8 +131,8 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 **Lives in:** `current_round_id`, `rounds.cut_entry_ids` (null means the cut isn't confirmed).
 
 **Moves:**
-- `setCurrentRound`;
-- `confirmCut`, which writes only while unconfirmed and not while a correction is open;
+- `setCurrentRound`: only a sub-activity of the segment running now (`segmentClosed`), any of them, a judged one again too; not while another is being deliberated; written only while the segments stand as read;
+- `confirmCut`, which writes only while unconfirmed, not while a correction is open, and not before every deliberated sub-activity it counts is signed off (`CutPlan.awaiting`);
 - `undoCut`.
 
 **Gap:** these have no database guards; the server's checks are the only ones.
@@ -195,3 +197,34 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 - the average is none, hidden, running or final.
 
 **Wall:** only where `hasLedWall`.
+
+## 14. Pageant segments
+
+**Lives in:** `session_started_at` (the preliminary's start), `activities.preliminary_ended_at`, `activities.proper_started_at` (migration 040), and `session_state` (pageant proper ends with the session). `segmentPhase()` names each segment's phase: setup, live, ended.
+
+| Move | From | Triggered by | Guards |
+|------|------|--------------|--------|
+| start preliminary | setup | the session's start | as start, above |
+| end preliminary | preliminary live | `moveSegment(…, "endPreliminary")` | **S** the password, every preliminary score in, its deliberated sub-activities signed off; writes only while the segments stand as read. **D** `check_score` refuses new preliminary scores after it |
+| reopen preliminary | between the two | `moveSegment(…, "reopenPreliminary")` | **S** only until pageant proper starts |
+| start pageant proper | between the two | `moveSegment(…, "startProper")` | **S** pageant proper's board (three judges, a chair). **D** `check_score` refuses pageant proper scores before it |
+| end pageant proper | pageant proper live | the session's end | as end, above |
+
+**Judges' screens:** a judge of the preliminary only reads "Your part of the pageant is done" once it has ended; one of pageant proper (only, or of both between the segments) reads "Pageant proper starts soon".
+
+**Deductions** close when the preliminary ends (`deductionsOpen`). **Reset** clears both segments.
+
+## 15. Deliberation per sub-activity
+
+**Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
+
+**Steps:** judged as usual (the audience sees a tick per score, `loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off (`signOffRound`), and its scores go out.
+
+| Guard | Where |
+|-------|-------|
+| One deliberation at a time; the desk can't switch sub-activity or show a candidate meanwhile | **S** `roundDeliberationGap`, `setCurrentRound`, `showColumns` |
+| Signatures and sign-off voided by any score change in it | **D** `void_round_signatures` |
+| Cuts, the preliminary's end and the pageant's end wait for its sign-off | **S** `awaitingSignoff` |
+| Its results PDF waits for its sign-off and prints its judges' signatures | **S** `exports.ts` |
+
+**Gap:** no tie-break step: a cut has the organizer break ties at the line.

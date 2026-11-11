@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { correctionView, correctionVoters, withoutValues } from "@/lib/corrections";
-import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getSignatures } from "@/lib/data";
+import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getRoundSignatures, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
-import { onPanel, showingBoard } from "@/lib/pageant";
+import { onPanel, roundDeliberating, showingBoard } from "@/lib/pageant";
 import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
@@ -52,6 +52,12 @@ export default async function ScorePage() {
   const { board: showing, round } = showingBoard(board);
   // The preliminary can have its own judges: a judge not on this sub-activity's panel waits for their part.
   const offPanel = round !== null && !onPanel(context.judge, round);
+  // A sub-activity (or part) whose judges are deliberating it: this judge reviews their scores in it and signs, as in an
+  // event's deliberation. Read only then: its signatures, and the points behind each of this judge's scores.
+  const underReview = round && !offPanel && gate.status === "approved" && roundDeliberating(round) ? round : null;
+  const [roundSigned, roundBreakdowns] = underReview
+    ? await Promise.all([getRoundSignatures(underReview.id), underReview.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id, underReview.id) : {}])
+    : [null, null];
 
   // Judges only ever receive their own scores, and nothing at all until their device is approved.
   const mine =
@@ -81,7 +87,11 @@ export default async function ScorePage() {
   // Who decides this judge's corrections: the judge themself in an event (live scoring off: theirs to make, with a
   // reason); in a pageant the rest of their panel, or the organizer when they're alone on it.
   const decides: CorrectionDecider =
-    activity.kind === "event" ? "self" : correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0 ? "judges" : "organizer";
+    activity.kind === "event" || (round && !round.liveScoring)
+      ? "self"
+      : correctionVoters(board, { judgeId: context.judge.id, roundId: round?.id ?? null }).length > 0
+        ? "judges"
+        : "organizer";
   const corrections =
     gate.status === "approved" && allCorrections && correctable
       ? {
@@ -163,6 +173,29 @@ export default async function ScorePage() {
         }
       : null;
 
+  // A pageant sub-activity's deliberation: the same review, on its board, without ties (a cut has the organizer break
+  // them) or a ranking to show.
+  const reviewing = underReview
+    ? {
+        breakdowns: roundBreakdowns ?? {},
+        mineByEntry: Object.fromEntries(
+          (allCorrections ?? [])
+            .filter((c) => c.judgeId === context.judge.id && c.roundId === underReview.id && c.status !== "withdrawn")
+            .map((c) => [c.entryId, correctionView(board, c)] as const),
+        ),
+        anyOpen: (allCorrections ?? []).some((c) => c.status === "open" && c.roundId === underReview.id),
+        signature: roundSigned?.signatures.find((s) => s.judgeId === context.judge.id) ?? null,
+        signed: roundSigned?.signatures.filter((s) => showing.judges.some((j) => j.id === s.judgeId)).length ?? 0,
+        judgeCount: showing.judges.length,
+        canSign: roundSigned !== null,
+        ties: [],
+        isChair: context.judge.isChair,
+        chairName: showing.judges.find((j) => j.isChair)?.name ?? null,
+        ranking: null,
+        part: underReview.name,
+      }
+    : null;
+
   // The chair can open the deliberation once every judge has scored every entry (an event without live scoring).
   const deliberationReady = gate.status === "approved" && context.judge.isChair && deliberationGap(board) === null;
 
@@ -183,14 +216,15 @@ export default async function ScorePage() {
       // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
       // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
       key={round?.id ?? "activity"}
-      activity={showing.activity}
+      // Under review, the sub-activity's screen is a deliberation's.
+      activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
       judge={context.judge}
       entries={showing.entries}
       myScores={mine}
       notes={notes}
       breakdown={breakdown}
       corrections={corrections}
-      deliberation={deliberation}
+      deliberation={reviewing ?? deliberation}
       deliberationReady={deliberationReady}
       gate={gate}
       panel={panel}

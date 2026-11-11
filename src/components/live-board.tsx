@@ -37,9 +37,9 @@ export function LiveBoard({ board: full }: { board: Board }) {
   const progress = scoreProgress(board);
   const waiting = activity.kind === "pageant" && !round;
   // Without live scoring the scores stay with the judges until they've deliberated and signed: the server sends only
-  // which judge has scored which entry.
+  // which judge has scored which entry. So does a pageant's sub-activity that deliberates, until it's signed off.
   const held = !activity.liveScoring && !activity.signedOffAt;
-  const scored = held ? (full.scored ?? []) : undefined;
+  const scored = held ? (board.scored ?? []) : undefined;
   const submitted = scored ? scored.length : progress.submitted;
   const { organizer } = full;
 

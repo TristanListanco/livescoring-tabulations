@@ -11,23 +11,23 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
-import { showingBoard, unitOf } from "@/lib/pageant";
+import { roundDeliberating, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
 import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
-import { setCurrentEntry, setSessionState } from "../../actions";
+import { moveSegment, setCurrentEntry, setSessionState } from "../../actions";
 import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
-import { archiveBlocked } from "@/lib/lifecycle";
+import { archiveBlocked, runningSegment, type SegmentMove } from "@/lib/lifecycle";
 import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
-import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel } from "./pageant-desk";
+import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
 
@@ -213,7 +213,10 @@ export function SessionTab({
   hasNotes = false,
   signatures = null,
   deliberation,
+  roundSignatures = null,
 }: {
+  /** A pageant sub-activity being deliberated: its judges' signatures so far (null before migration 040). */
+  roundSignatures?: JudgeSignature[] | null;
   /** Without score values while they're withheld (see withheldScores): then `scored` says who has scored what. */
   board: Board;
   /** When the server read this board, so a desk running on fallback updates can say how fresh it is. */
@@ -241,6 +244,8 @@ export function SessionTab({
   // lists every candidate, and the program says what to judge next.
   const { board: shown, round } = showingBoard(board);
   const between = pageant && !round;
+  // A pageant sub-activity (or part) whose judges are deliberating it: the desk shows who has signed, then its sign-off.
+  const underReview = round && roundDeliberating(round) ? round : null;
   const { activity, judges, entries, scores } = between ? { ...board, scores: [] } : shown;
   const noun = pageant ? "candidate" : "entry";
   const [cutOpen, setCutOpen] = useState<string | null>(null);
@@ -391,6 +396,13 @@ export function SessionTab({
     if (r.ok || state !== "ended") setResult(r);
     return r;
   };
+  // A pageant's segment being judged: the preliminary, then pageant proper; null between the two (and when not live).
+  const judging = pageant ? runningSegment(board.activity) : null;
+  const changeSegment = async (move: SegmentMove, password?: string) => {
+    const r = await reach(() => moveSegment(activity.id, move, password));
+    if (r.ok || move !== "endPreliminary") setResult(r);
+    return r;
+  };
 
   const offline = connection === "offline" && (
     <p role="alert" className="flex items-start gap-2.5 bg-danger-soft px-6 py-3 text-sm font-semibold text-prussian">
@@ -418,6 +430,8 @@ export function SessionTab({
   const scoreCount = (entryId: string) => marks.filter((s) => s.entryId === entryId).length;
   const devicesOf = (judgeId: string) => devices.filter((d) => d.judgeId === judgeId);
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
+  // Who the start opens screens for: a pageant's preliminary judges, or everyone.
+  const startUnpaired = pageant ? unpaired.filter((j) => j.panel !== "proper") : unpaired;
   const missing = progress.possible - progress.submitted;
   const missingLine = `${missing} ${missing === 1 ? "score is" : "scores are"} missing`;
   // An event with live scoring that ended with every score in: by itself, and for good (see setSessionState).
@@ -490,7 +504,10 @@ export function SessionTab({
     </section>
   );
   // The last entry fully scored: ending the session is the next thing to do, so the desk offers it right there.
-  const lastOneIn = allIn && !next;
+  // So is a pageant sub-activity back on screens with every candidate in it scored (signed off after its deliberation,
+  // say): what comes next is offered, and any candidate can still be shown again from the running order.
+  const lastOneIn =
+    (allIn && !next) || (pageant && round !== null && !entry && entries.length > 0 && judges.length > 0 && entries.every((e) => scoreCount(e.id) >= judges.length));
   // In a pageant, the last candidate of a sub-activity leads to its cut, or the next sub-activity, instead.
   const upNext = pageant ? nextUp(board, round) : null;
   // The sub-activity being judged, when a part of it is on judges' screens: its cut comes after its last part.
@@ -503,6 +520,8 @@ export function SessionTab({
       </button>
     ) : upNext?.kind === "round" ? (
       <JudgeRoundButton board={board} round={upNext.round} className={nextClass} label={`Next: ${upNext.round.name}`} onDone={setResult} />
+    ) : upNext?.kind === "deliberate" ? (
+      <StartRoundDeliberation board={board} round={upNext.round} className={nextClass} onDone={setResult} />
     ) : null;
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
   // Without live scoring, a fully scored session goes to the deliberation rather than straight to its end.
@@ -597,20 +616,71 @@ export function SessionTab({
     </ConfirmDialog>
   );
 
-  const endSession = (triggerClassName: string) => (
+  const endSession = (triggerClassName: string) =>
+    pageant ? (
+      <ConfirmDialog
+        triggerLabel="End pageant proper"
+        triggerClassName={triggerClassName}
+        title="End pageant proper?"
+        tone="danger"
+        confirmLabel="End pageant proper"
+        passwordLabel="Your password"
+        onConfirm={(password) => changeState("ended", password)}
+      >
+        The pageant ends: judges won&apos;t be able to submit any more scores, and candidates can&apos;t be changed. Enter your admin password to
+        confirm. You can reopen it if you need to.
+      </ConfirmDialog>
+    ) : (
+      <ConfirmDialog
+        triggerLabel="End session"
+        triggerClassName={triggerClassName}
+        title="End the session?"
+        tone="danger"
+        confirmLabel="End session"
+        passwordLabel="Your password"
+        onConfirm={(password) => changeState("ended", password)}
+      >
+        Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can reopen the
+        session if you need to.
+      </ConfirmDialog>
+    );
+
+  /** The preliminary's end: its own judges are done, and pageant proper can start. */
+  const endPreliminary = (triggerClassName: string) => (
     <ConfirmDialog
-      triggerLabel="End session"
+      triggerLabel="End preliminary"
       triggerClassName={triggerClassName}
-      title="End the session?"
+      title="End the preliminary?"
       tone="danger"
-      confirmLabel="End session"
+      confirmLabel="End preliminary"
       passwordLabel="Your password"
-      onConfirm={(password) => changeState("ended", password)}
+      onConfirm={(password) => changeSegment("endPreliminary", password)}
     >
-      Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can reopen the
-      session if you need to.
+      Its scores are final and deductions close. Judges who judge only the preliminary are done, and their screens thank them. You can reopen it
+      until pageant proper starts. Enter your admin password to confirm.
     </ConfirmDialog>
   );
+  // Pageant proper's judges without an approved device yet, for its start to name.
+  const unpairedProper = unpaired.filter((j) => j.panel !== "preliminary");
+  const startProper = (triggerClassName: string) => (
+    <ConfirmDialog triggerLabel="Start pageant proper" triggerClassName={triggerClassName} title="Start pageant proper?" confirmLabel="Start pageant proper" onConfirm={() => changeSegment("startProper")}>
+      Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock. Choose its first sub-activity when you&apos;re ready.
+      {unpairedProper.length > 0 && (
+        <span className="mt-3 block font-semibold text-prussian">
+          {listNames(unpairedProper)} {unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
+        </span>
+      )}
+    </ConfirmDialog>
+  );
+  const reopenPreliminary = (triggerClassName: string) => (
+    <ConfirmDialog triggerLabel="Reopen preliminary" triggerClassName={triggerClassName} title="Reopen the preliminary?" confirmLabel="Reopen preliminary" onConfirm={() => changeSegment("reopenPreliminary")}>
+      Its judges&apos; screens open again, and any of its sub-activities can be judged again. Deductions open again too. Pageant proper waits until
+      you end the preliminary again.
+    </ConfirmDialog>
+  );
+  /** What ends what's being judged: the preliminary, pageant proper (the session), or an event's session. Nothing between segments. */
+  const endControl = (triggerClassName: string) =>
+    judging === "preliminary" ? endPreliminary(triggerClassName) : pageant && judging === null ? null : endSession(triggerClassName);
 
   // The rundown keeps the entry on air in view when it scrolls inside the desk. Instant, never animated.
   const orderRef = useRef<HTMLOListElement>(null);
@@ -760,23 +830,31 @@ export function SessionTab({
               <div className="min-w-0 flex-1">
                 <h2 id="desk-heading" className="text-sm text-powder">
                   {round && <span className="font-semibold text-mint">{round.name} · </span>}
-                  {ownPace
+                  {underReview
+                    ? "Deliberation"
+                    : ownPace
                     ? "Judges score at their own pace"
                     : entry
                     ? entry.number
                       ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
                       : `Now judging: No. ${index + 1} of ${entries.length}`
                     : between
-                      ? "Between sub-activities"
+                      ? pageant && judging === null
+                        ? "Between segments"
+                        : "Between sub-activities"
                       : "On judges' screens"}
                 </h2>
                 <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
-                  {ownPace
+                  {underReview
+                    ? "The judges are reviewing their scores"
+                    : ownPace
                     ? `${progress.submitted} of ${progress.possible} scores in`
                     : entry
                       ? entry.name
                       : between
-                        ? "Choose what to judge next"
+                        ? pageant && judging === null
+                          ? "The preliminary has ended"
+                          : "Choose what to judge next"
                         : `Judges are waiting for ${pageant ? "a candidate" : "an entry"}`}
                 </p>
               </div>
@@ -784,7 +862,7 @@ export function SessionTab({
                 <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
                 {deliberateNext
                   ? !lastOneIn && !ownPace && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
-                  : (!lastOneIn || pageantNext) && endSession("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+                  : (!lastOneIn || pageantNext) && endControl("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
               </div>
             </div>
             {/* A pageant's timer is its sub-activity's; an event's, its own (an entry at a time). */}
@@ -793,11 +871,27 @@ export function SessionTab({
             <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
             <CorrectionsPanel activityId={activity.id} corrections={corrections} onDark />
 
-            {between ? (
+            {between && pageant && judging === null ? (
+              // Between the segments: the preliminary's own judges are done, and pageant proper's start when the desk does.
+              <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
+                <p className="max-w-xl text-[15px] leading-relaxed text-powder">
+                  Judges who judge only the preliminary are done. Pageant proper&apos;s judges are waiting for it to start.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {startProper("btn bg-mint text-prussian hover:bg-white")}
+                  {reopenPreliminary("btn border border-oxford text-mint hover:bg-oxford")}
+                </div>
+              </div>
+            ) : underReview ? (
+              <RoundDeliberationDesk board={board} round={underReview} signatures={roundSignatures} />
+            ) : between ? (
               <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
                 <p className="max-w-xl text-[15px] leading-relaxed text-powder">
                   Judges are waiting. Pick a sub-activity from the program to put its candidates on their screens.
                 </p>
+                {upNext?.kind === "deliberate" && (
+                  <StartRoundDeliberation board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" onDone={setResult} />
+                )}
                 {upNext?.kind === "round" && (
                   <JudgeRoundButton board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" label={`Judge ${upNext.round.name}`} onDone={setResult} />
                 )}
@@ -806,7 +900,16 @@ export function SessionTab({
                     Review the {upNext.round.cutSize === null ? "" : `Top ${upNext.round.cutSize} `}cut after {upNext.round.name}
                   </button>
                 )}
-                {!upNext && <p className="font-semibold">Every sub-activity is judged and every cut confirmed. End the session when you&apos;re ready.</p>}
+                {!upNext && (
+                  <>
+                    <p className="font-semibold">
+                      {judging === "preliminary"
+                        ? "Every preliminary sub-activity is judged. End the preliminary when you're ready."
+                        : "Every sub-activity is judged and every cut confirmed. End pageant proper when you're ready."}
+                    </p>
+                    {endControl("btn bg-mint text-prussian hover:bg-white")}
+                  </>
+                )}
               </div>
             ) : (
               <>
@@ -867,7 +970,7 @@ export function SessionTab({
                     (pageantNext ??
                     (deliberateNext
                       ? startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")
-                      : endSession("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")))
+                      : endControl("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")))
                   ) : next ? (
                     moveControl({
                       target: next,
@@ -976,19 +1079,20 @@ export function SessionTab({
                   {!pageant && !activity.liveScoring && " Live scoring is off, so the judges deliberate and sign before the results show."}
                 </p>
                 <ConfirmDialog
-                  triggerLabel="Start session"
+                  triggerLabel={pageant ? "Start preliminary" : "Start session"}
                   openOnMount={askedToStart}
                   triggerClassName="btn shrink-0 bg-mint text-prussian hover:bg-white"
-                  title="Start judging?"
-                  confirmLabel="Start session"
+                  title={pageant ? "Start the preliminary?" : "Start judging?"}
+                  confirmLabel={pageant ? "Start preliminary" : "Start session"}
                   onConfirm={() => changeState("live")}
                 >
                   {pageant
-                    ? "Judges' screens open, and the judges, running order and program lock. Choose the first sub-activity to judge when you're ready."
+                    ? "The preliminary's judges' screens open, and its judges, its sub-activities and the running order lock. Pageant proper's judges and sub-activities can still change until it starts. Choose the first sub-activity to judge when you're ready."
                     : "Judges' screens open, and the judges and running order lock. You can still add and rename entries. Show the first entry when you're ready."}
-                  {judges.length > 0 && unpaired.length > 0 && (
+                  {judges.length > 0 && startUnpaired.length > 0 && (
                     <span className="mt-3 block font-semibold text-prussian">
-                      {listNames(unpaired)} {unpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
+                      {listNames(startUnpaired)} {startUnpaired.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you
+                      start.
                     </span>
                   )}
                 </ConfirmDialog>

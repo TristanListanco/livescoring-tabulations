@@ -223,7 +223,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     name,
     snapshot: JSON.stringify([
       name,
-      candidates.map((c) => [c.name, c.preview]),
+      candidates.map((c) => [c.name, c.details, c.preview]),
       boards,
       ordered.map((j) => [j.first, j.last, j.preview, j.panel]),
       chairPositions,
@@ -348,7 +348,11 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     const data = new FormData(e.currentTarget);
     data.set("kind", "pageant");
     data.set("consent", consent ? "on" : "");
-    data.set("entries", candidates.map((c) => cleanName(c.name)).join("\n"));
+    // Each candidate on a line; with details anywhere, theirs after a "|" (so a "|" typed in either becomes "/").
+    const withDetails = candidates.some((c) => c.details.trim());
+    const line = (c: DraftCandidate) => (withDetails ? `${cleanName(c.name).replaceAll("|", "/")} | ${c.details.replaceAll("|", "/").trim()}` : cleanName(c.name));
+    data.set("entries", candidates.map(line).join("\n"));
+    if (withDetails) data.set("entry_field", "Details");
     data.set("pageant", JSON.stringify(draft));
     data.set("signatories", JSON.stringify(filledSignatories(signatories)));
     data.set("judgeCount", String(ordered.length));

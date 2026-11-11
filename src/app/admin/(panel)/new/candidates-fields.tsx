@@ -3,15 +3,17 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { PhotoPicker } from "@/components/photo-picker";
+import { MAX_DETAIL } from "@/lib/entry-details";
 import { namesFromPaste } from "@/lib/names";
 import { describedBy, FieldProblem, problemId, useFieldProblems } from "../field-errors";
 import { enterToNext, NEXT_LINE, roveToolbar } from "../list-keys";
 import { moveButton, moveKeepingFocus } from "../move-focus";
 
-export type DraftCandidate = { key: number; name: string; photo: Blob | null; preview: string | null };
+/** A candidate being set up: their name, a line of details about them (a town, a school), and an optional photo. */
+export type DraftCandidate = { key: number; name: string; details: string; photo: Blob | null; preview: string | null };
 
 export const MAX_CANDIDATES = 300;
-export const blankCandidate = (key: number): DraftCandidate => ({ key, name: "", photo: null, preview: null });
+export const blankCandidate = (key: number): DraftCandidate => ({ key, name: "", details: "", photo: null, preview: null });
 export const MAX_CANDIDATE_NAME = 120;
 
 /** What a pasted list did: how many names went in, how many didn't fit, and the row the last one landed in. */
@@ -124,6 +126,20 @@ export function CandidatesFields({
                     aria-invalid={problems.has(`candidate-${c.key}`) || undefined}
                     aria-describedby={describedBy(problems.has(`candidate-${c.key}`) && problemId(`candidate-${c.key}`))}
                     className={`field ${problems.has(`candidate-${c.key}`) ? "border-danger" : ""}`}
+                  />
+                  {/* Under the name, as on an event's entries: shown under it on the LED wall and in the results. */}
+                  <label htmlFor={`candidate-${c.key}-details`} className="sr-only">
+                    Details for {label}
+                  </label>
+                  <input
+                    id={`candidate-${c.key}-details`}
+                    {...NEXT_LINE}
+                    value={c.details}
+                    maxLength={MAX_DETAIL}
+                    onChange={(e) => onChange(c.key, { details: e.target.value })}
+                    onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
+                    placeholder="Details (optional), e.g. their town or school"
+                    className="field mt-2 h-10 text-sm"
                   />
                   <FieldProblem fieldId={`candidate-${c.key}`} />
                 </div>
