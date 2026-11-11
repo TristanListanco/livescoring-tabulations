@@ -335,6 +335,8 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Choose what to judge next")).toBeVisible();
     await expect(page.getByText("Live · Preliminary")).toBeVisible();
     await expect(page.getByRole("button", { name: "Judge Interview · Questions", exact: true })).toBeVisible();
+    // Nothing is scored yet, so ending the preliminary isn't offered: it would only be refused.
+    await expect(page.getByRole("button", { name: "End preliminary" })).toHaveCount(0);
     await expect(dina.getByRole("heading", { level: 1 })).toHaveText("Waiting for the first part of the preliminary", REALTIME);
     // Pageant proper's board waits for its own start.
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
@@ -408,8 +410,12 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Preliminary done · Waiting for pageant proper")).toBeVisible();
     await snap(page, "desk between the segments");
     await snap(dina, "judge whose part is done");
-    // The break is when deductions are tallied: the desk shows them, open until pageant proper starts.
-    await expect(page.getByRole("region", { name: "Deductions" }).getByRole("button", { name: "Deduct" })).toBeVisible();
+    // The break, in the order the work goes: deductions (open until pageant proper starts), pageant proper's judges
+    // (their devices approved right here), then its start.
+    const steps = page.getByRole("listitem").filter({ has: page.getByRole("heading", { level: 3 }) });
+    await expect(steps.getByRole("heading", { level: 3 })).toHaveText(["Record deductions", "Pair pageant proper's judges", "Start pageant proper"]);
+    await expect(page.getByRole("listitem", { name: "Record deductions" }).getByRole("button", { name: "Deduct" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Pageant proper's judges" }).getByRole("listitem")).toHaveCount(3);
 
     await page.getByRole("button", { name: "Start pageant proper" }).click();
     await page.getByRole("dialog", { name: "Start pageant proper?" }).getByRole("button", { name: "Start pageant proper" }).click();
@@ -536,8 +542,10 @@ test.describe.serial("a pageant", () => {
     await expect(rows.nth(1)).toContainText("Ayla");
     await snap(page, "final results");
     await dialog.getByRole("button", { name: "Close" }).click();
-    // The desk lists them too, for the announcement.
+    // The desk turns to the placements, for the announcement, with the pageant's end as its next step.
+    await expect(page.getByText("Cora wins", { exact: true })).toBeVisible();
     await expect(page.getByRole("list", { name: "Final placements" }).getByRole("listitem")).toHaveText([/^Winner\s*No\. 3 Cora/, /^1st Runner-up\s*No\. 1 Ayla/]);
+    await snap(page, "desk with the final placements");
 
     // Nothing is left to judge, so the desk offers to end pageant proper, and with it the pageant.
     await page.getByRole("button", { name: "End pageant proper" }).click();

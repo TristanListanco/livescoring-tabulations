@@ -387,6 +387,9 @@ export type OrganizerActivityStatus = {
   sessionState: SessionState;
   /** Whether its scores show as they come in (see sessionLabel): "Live" rather than "Judging" while it runs. */
   liveScoring: boolean;
+  /** A pageant's segments (see segmentStatus): the break between them isn't "Live". */
+  preliminaryEndedAt: string | null;
+  properStartedAt: string | null;
   judgeCount: number;
   entryCount: number;
   scoreCount: number;
@@ -413,8 +416,18 @@ export async function listOrganizerActivities(
   await connection();
   const after = before && isTimestamp(before) ? before : undefined;
   const counts =
-    "session_state, live_scoring, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
-  type Row = { id: string; name: string; kind?: string; session_state?: string; live_scoring?: boolean; created_at: string; owner: { name: string } | null } & Record<
+    "session_state, live_scoring, preliminary_ended_at, proper_started_at, created_at, owner:admins!activities_owner_id_fkey(name), judges!judges_activity_id_fkey(count), entries!entries_activity_id_fkey(count), scores!scores_activity_id_fkey(count)";
+  type Row = {
+    id: string;
+    name: string;
+    kind?: string;
+    session_state?: string;
+    live_scoring?: boolean;
+    preliminary_ended_at?: string | null;
+    proper_started_at?: string | null;
+    created_at: string;
+    owner: { name: string } | null;
+  } & Record<
     "judges" | "entries" | "scores",
     { count: number }[]
   >;
@@ -435,6 +448,8 @@ export async function listOrganizerActivities(
       organizer: row.owner?.name ?? "",
       sessionState: toSessionState(row.session_state),
       liveScoring: row.live_scoring ?? true,
+      preliminaryEndedAt: row.preliminary_ended_at ?? null,
+      properStartedAt: row.proper_started_at ?? null,
       judgeCount: row.judges[0]?.count ?? 0,
       entryCount: row.entries[0]?.count ?? 0,
       scoreCount: row.scores[0]?.count ?? 0,
