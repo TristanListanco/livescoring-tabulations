@@ -58,11 +58,15 @@ async function everyoneSigns() {
   }
 }
 
-/** The organizer signs off the sub-activity on the desk once every judge has signed. */
+/** The organizer signs off the sub-activity on the desk once every judge has signed, with their password. */
 async function signOff(page: Page, name: string) {
   await expect(page.getByRole("status").filter({ hasText: "Every judge has signed." })).toBeVisible(REALTIME);
   await page.getByRole("checkbox", { name: new RegExp(`I've checked the scores in ${name} and sign them off`) }).check();
   await page.getByRole("button", { name: `Sign off ${name}` }).click();
+  const dialog = page.getByRole("dialog", { name: `Sign off ${name}?` });
+  await dialog.getByLabel("Your password").fill(ADMIN_PASSWORD);
+  await dialog.getByRole("button", { name: `Sign off ${name}` }).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function openPage(browser: Browser, width = 1280) {
@@ -249,7 +253,7 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     // Live again, between the segments: the judges still signed in, the preliminary as it was.
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByText("The preliminary has ended", { exact: true })).toBeVisible(REALTIME);
-    await expect(page.getByText("Live · Between segments")).toBeVisible();
+    await expect(page.getByText("Preliminary done · Waiting for pageant proper")).toBeVisible();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
     const program = page.getByRole("region", { name: "Program" });
     await expect(program.getByRole("listitem").filter({ hasText: "Talent" })).toContainText("Done");

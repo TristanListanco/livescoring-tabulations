@@ -2,7 +2,7 @@ import "server-only";
 import { Document, Font, Image, Page, Path, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { CorrectionView } from "./corrections";
 import type { EntryDetails, EntryField } from "./entry-details";
-import type { StandingRow } from "./pageant";
+import { placeTitle, type StandingRow } from "./pageant";
 import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
@@ -62,6 +62,8 @@ const s = StyleSheet.create({
   podiumRow: { backgroundColor: C.podium, fontWeight: 600 },
   cell: { paddingVertical: 7, paddingHorizontal: 6 },
   rank: { width: 42 },
+  /** A final placement's title ("2nd Runner-up"). */
+  placeTitle: { width: 84 },
   number: { width: 34, color: C.muted },
   entry: { flexGrow: 3, flexBasis: 0 },
   detail: { flexGrow: 2, flexBasis: 0, color: C.muted },
@@ -512,7 +514,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   const tieBroken = new Set(sheet.placed ? sheet.tieBroken : []);
   const status = (id: string) => {
     if (sheet.kind === "preliminary" || sheet.kind === "subactivity") return null;
-    if (sheet.kind === "final") return placeOf.has(id) ? String(placeOf.get(id)) : "—";
+    if (sheet.kind === "final") return placeOf.has(id) ? placeTitle(placeOf.get(id)!) : "—";
     return placeOf.has(id) ? "Through" : "—";
   };
   const statusHead = sheet.kind === "final" ? "Place" : sheet.kind === "cut" ? "Result" : null;
@@ -535,7 +537,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
 
         <View style={s.table}>
           <View style={s.headRow} fixed>
-            {statusHead && <Text style={[s.cell, s.rank]}>{statusHead}</Text>}
+            {statusHead && <Text style={[s.cell, sheet.kind === "final" ? s.placeTitle : s.rank]}>{statusHead}</Text>}
             <Text style={[s.cell, s.rank]}>Rank</Text>
             <Text style={[s.cell, s.number]}>No.</Text>
             <Text style={[s.cell, s.entry]}>Candidate</Text>
@@ -551,7 +553,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
             const through = placeOf.has(row.entry.id);
             return (
               <View key={row.entry.id} style={through ? [s.row, s.podiumRow] : s.row} wrap={false}>
-                {statusHead && <Text style={[s.cell, s.rank]}>{status(row.entry.id)}</Text>}
+                {statusHead && <Text style={[s.cell, sheet.kind === "final" ? s.placeTitle : s.rank]}>{status(row.entry.id)}</Text>}
                 <Text style={[s.cell, s.rank]}>{row.rank === null ? "—" : `${row.rank}${tieBroken.has(row.entry.id) ? "*" : ""}`}</Text>
                 <Text style={[s.cell, s.number]}>{row.number}</Text>
                 <Text style={[s.cell, s.entry]}>{row.entry.name}</Text>

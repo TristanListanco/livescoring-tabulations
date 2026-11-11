@@ -29,11 +29,16 @@ export function SessionDot({ state, pulse = false, onAir = true }: { state: Sess
   return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${look}`} />;
 }
 
-/** A live pageant's segment, said after "Live": the one being judged, or that it's between the two. Null otherwise. */
-export function segmentStatus(activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt">): string | null {
+export type SegmentStatus = { label: string; between: boolean };
+
+/**
+ * A live pageant's segment: the one being judged, said after "Live", or the break between the two, which isn't live to
+ * anyone and says what it waits for instead. Null otherwise.
+ */
+export function segmentStatus(activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt">): SegmentStatus | null {
   if (activity.kind !== "pageant" || activity.sessionState !== "live") return null;
   const segment = runningSegment(activity);
-  return segment ? segmentLabel(segment) : "Between segments";
+  return segment ? { label: segmentLabel(segment), between: false } : { label: "Preliminary done · Waiting for pageant proper", between: true };
 }
 
 export function SessionStatus({
@@ -47,14 +52,23 @@ export function SessionStatus({
   pulse?: boolean;
   onAir?: boolean;
   /** A live pageant's segment (see segmentStatus). */
-  segment?: string | null;
+  segment?: SegmentStatus | null;
   className?: string;
 }) {
+  // Between a pageant's segments nothing is on air: a steady dot (on, but off air) and what it's waiting for.
+  if (segment?.between) {
+    return (
+      <span className={`inline-flex items-center gap-2 ${className}`}>
+        <SessionDot state={state} onAir={false} />
+        {segment.label}
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <SessionDot state={state} pulse={pulse} onAir={onAir} />
       {sessionLabel(state, onAir)}
-      {segment && ` · ${segment}`}
+      {segment && ` · ${segment.label}`}
     </span>
   );
 }

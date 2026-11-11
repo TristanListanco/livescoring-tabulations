@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { BOM, csvBlock, csvRow, FINGERPRINT, LINE } from "./csv";
 import type { EntryDetailsSheet, StandingsSheet } from "./results-pdf";
 import { averageText, formatScore, judgeSheet, rankEntries, scoreText } from "./scoring";
+import { placeTitle } from "./pageant";
 import { applyTieBreaks } from "./ties";
 import type { Board } from "./types";
 
@@ -98,7 +99,7 @@ export function standingsTable(board: Board, sheet: StandingsSheet): CsvTable {
       ...(tieBroken.size ? ["Tie broken"] : []),
     ],
     rows: rows.map((row) => [
-      ...(status ? [sheet.kind === "final" ? (placeOf.get(row.entry.id) ?? null) : placeOf.has(row.entry.id) ? "Through" : null] : []),
+      ...(status ? [sheet.kind === "final" ? (placeOf.has(row.entry.id) ? placeTitle(placeOf.get(row.entry.id)!) : null) : placeOf.has(row.entry.id) ? "Through" : null] : []),
       row.rank,
       row.number,
       row.entry.name,

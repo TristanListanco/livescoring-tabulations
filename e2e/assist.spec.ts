@@ -131,6 +131,8 @@ test.describe.serial("judges' calls for help", () => {
     await benPhone.getByRole("button", { name: "Cancel your call for help" }).click();
     await expect(benPhone.getByRole("status").filter({ hasText: "You've asked the organizer for help." })).toHaveCount(0, ALERT);
     await expect(page.getByRole("alertdialog")).toHaveCount(0, ALERT);
+    // "On the way" goes from Ana's screen by itself after five seconds.
+    await expect(anaPhone.getByRole("status").filter({ hasText: "The organizer is on the way." })).toHaveCount(0, { timeout: 10_000 });
     // And Ben can ask again.
     await expect(benPhone.getByRole("button", { name: "Assist me" })).toBeVisible();
 

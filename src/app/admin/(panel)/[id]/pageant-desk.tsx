@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useId, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import {
@@ -8,11 +8,13 @@ import {
   cutPlan,
   deductionsOpen,
   deliberatingRound,
+  finalCutRound,
   judgesFor,
   roundDeliberating,
   roundReleased,
   judgingOrder,
   partsOf,
+  placeTitle,
   preliminaryComplete,
   programOrder,
   roundLabel,
@@ -355,14 +357,46 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
 
 const pointsText = (n: number) => `${formatBound(n)} ${n === 1 ? "point" : "points"}`;
 
-/**
- * Deductions: points off a candidate's preliminary score for a violation, one from the pageant's list or another
- * with its reason typed here. They can be added and taken back until the preliminary ends; after that they're
- * listed, final. Only the organizer sees them; the results PDFs list them with their reasons.
- */
+/** Deductions in a dialog, from the program's Deductions button. */
 function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  // Rendered only while open, so it opens once, on mount.
+  useEffect(() => {
+    if (ref.current && !ref.current.open) ref.current.showModal();
+  }, []);
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      aria-labelledby={titleId}
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(40rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
+    >
+      <div className="p-6">
+        <Deductions board={board} titleId={titleId} />
+      </div>
+      <div className="flex justify-end border-t border-line bg-wash/60 px-6 py-4">
+        <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()}>
+          Close
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+/**
+ * Deductions: points off a candidate's preliminary score for a violation, one from the pageant's list or another
+ * with its reason typed here. They can be added and taken back until pageant proper starts; after that they're
+ * listed, final. Only the organizer sees them; the results PDFs list them with their reasons. In a dialog from the
+ * program, or `inline` on the desk in the break after the preliminary, when they're tallied.
+ */
+export function Deductions({ board, titleId, inline = false }: { board: Board; titleId: string; inline?: boolean }) {
   const { activity } = board;
+  const id = useId();
+  const Title = inline ? "h3" : "h2";
+  const Given = inline ? "h4" : "h3";
   const violations = activity.violations ?? [];
   const open = deductionsOpen(board);
   // Every candidate, with the number they keep through the pageant.
@@ -378,11 +412,6 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
   // This deduction's id: sent again after a lost reply, it isn't given twice. A new one once it's in.
   const [deductionId, setDeductionId] = useState(newRequestId);
 
-  // Rendered only while open, so it opens once, on mount.
-  useEffect(() => {
-    if (ref.current && !ref.current.open) ref.current.showModal();
-  }, []);
-
   const add = () =>
     start(async () => {
       const r = await reach(() => addDeduction(activity.id, entryId, choice === "other" ? null : choice, reason, points, deductionId));
@@ -395,138 +424,159 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
         setPoints("");
       }
     });
-  const remove = (id: string) => start(async () => setResult(await reach(() => removeDeduction(activity.id, id))));
+  const remove = (which: string) => start(async () => setResult(await reach(() => removeDeduction(activity.id, which))));
 
   return (
-    <dialog
-      ref={ref}
-      onClose={onClose}
-      aria-labelledby="deductions-title"
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(40rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
-    >
-      <div className="space-y-5 p-6">
-        <div>
-          <h2 id="deductions-title" className="title-sm text-2xl">
-            Deductions
-          </h2>
-          {!open && (
-            <p className="hint mt-1 max-w-[65ch]">
-              {activity.sessionState === "ended" ? "The session has ended, so they're final." : "The preliminary has ended, so they're final."}
-            </p>
-          )}
-        </div>
+    <div className="space-y-5">
+      <div>
+        <Title id={titleId} className={inline ? "title-sm" : "title-sm text-2xl"}>
+          Deductions
+        </Title>
+        <p className="hint mt-1 max-w-[65ch]">
+          {open
+            ? "Points off a candidate's preliminary score. They close when pageant proper starts."
+            : activity.sessionState === "ended"
+              ? "The session has ended, so they're final."
+              : "Pageant proper has started, so they're final."}
+        </p>
+      </div>
 
-        {open && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              add();
-            }}
-            className="grid gap-x-3 gap-y-4 sm:grid-cols-2"
-          >
+      {open && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+          className="grid gap-x-3 gap-y-4 sm:grid-cols-2"
+        >
+          <div>
+            <label htmlFor={`${id}-candidate`} className="label">
+              Candidate
+            </label>
+            <select id={`${id}-candidate`} className="field" value={entryId} onChange={(e) => setEntryId(e.target.value)}>
+              <option value="">Choose a candidate</option>
+              {candidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  No. {c.number} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {violations.length > 0 && (
             <div>
-              <label htmlFor="deduct-candidate" className="label">
-                Candidate
+              <label htmlFor={`${id}-violation`} className="label">
+                Violation
               </label>
-              <select id="deduct-candidate" className="field" value={entryId} onChange={(e) => setEntryId(e.target.value)}>
-                <option value="">Choose a candidate</option>
-                {candidates.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    No. {c.number} {c.name}
+              <select id={`${id}-violation`} className="field" value={choice} onChange={(e) => setChoice(e.target.value)}>
+                {violations.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.reason}, {pointsText(v.points)}
                   </option>
                 ))}
+                <option value="other">Another violation</option>
               </select>
             </div>
-            {violations.length > 0 && (
-              <div>
-                <label htmlFor="deduct-violation" className="label">
-                  Violation
-                </label>
-                <select id="deduct-violation" className="field" value={choice} onChange={(e) => setChoice(e.target.value)}>
-                  {violations.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.reason}, {pointsText(v.points)}
-                    </option>
-                  ))}
-                  <option value="other">Another violation</option>
-                </select>
-              </div>
-            )}
-            {choice === "other" && (
-              <>
-                <div className={violations.length > 0 ? "" : "sm:row-start-2"}>
-                  <label htmlFor="deduct-reason" className="label">
-                    Reason
-                  </label>
-                  <input id="deduct-reason" className="field" maxLength={MAX_REASON} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Late for call time" />
-                </div>
-                <div>
-                  <label htmlFor="deduct-points" className="label">
-                    Points off
-                  </label>
-                  <input
-                    id="deduct-points"
-                    className="field tabular w-28"
-                    inputMode="decimal"
-                    value={points}
-                    onChange={(e) => setPoints(e.target.value.replace(/[^0-9.]/g, "").slice(0, 6))}
-                  />
-                </div>
-              </>
-            )}
-            <div className="sm:col-span-2">
-              <button type="submit" className="btn btn-primary" disabled={pending || !entryId}>
-                {pending ? "Saving…" : "Deduct"}
-              </button>
-            </div>
-          </form>
-        )}
-        <FormMessage state={result} />
-
-        <section aria-labelledby="deductions-given">
-          <h3 id="deductions-given" className="font-bold">
-            Given
-          </h3>
-          {given.length === 0 ? (
-            <p className="hint mt-1">None yet.</p>
-          ) : (
-            <ul className="mt-2 divide-y divide-line border-y border-line">
-              {given.map((d) => {
-                const who = byId.get(d.entryId);
-                return (
-                  <li key={d.id} className="flex items-center gap-3 py-2">
-                    <span className="tabular w-12 shrink-0 text-sm text-prussian/75">No. {who?.number ?? "—"}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-semibold">{who?.name ?? "Removed candidate"}</span>
-                      <span className="block text-sm text-prussian/80">{d.reason}</span>
-                    </span>
-                    <span className="tabular shrink-0 font-semibold">&minus;{formatBound(d.points)}</span>
-                    {open && (
-                      <button
-                        type="button"
-                        className="btn btn-sm shrink-0 px-2 text-prussian/75 hover:bg-danger/10 hover:text-danger pointer-coarse:min-w-11"
-                        onClick={() => remove(d.id)}
-                        disabled={pending}
-                        aria-label={who ? `Take back ${who.name}'s deduction for ${d.reason}` : `Take back the deduction for ${d.reason}`}
-                      >
-                        <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
-                          <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
           )}
-        </section>
-      </div>
-      <div className="flex justify-end border-t border-line bg-wash/60 px-6 py-4">
-        <button type="button" className="btn btn-quiet" onClick={() => ref.current?.close()}>
-          Close
-        </button>
-      </div>
-    </dialog>
+          {choice === "other" && (
+            <>
+              <div className={violations.length > 0 ? "" : "sm:row-start-2"}>
+                <label htmlFor={`${id}-reason`} className="label">
+                  Reason
+                </label>
+                <input id={`${id}-reason`} className="field" maxLength={MAX_REASON} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Late for call time" />
+              </div>
+              <div>
+                <label htmlFor={`${id}-points`} className="label">
+                  Points off
+                </label>
+                <input
+                  id={`${id}-points`}
+                  className="field tabular w-28"
+                  inputMode="decimal"
+                  value={points}
+                  onChange={(e) => setPoints(e.target.value.replace(/[^0-9.]/g, "").slice(0, 6))}
+                />
+              </div>
+            </>
+          )}
+          <div className="sm:col-span-2">
+            <button type="submit" className="btn btn-primary" disabled={pending || !entryId}>
+              {pending ? "Saving…" : "Deduct"}
+            </button>
+          </div>
+        </form>
+      )}
+      <FormMessage state={result} />
+
+      <section aria-labelledby={`${id}-given`}>
+        <Given id={`${id}-given`} className="font-bold">
+          Given
+        </Given>
+        {given.length === 0 ? (
+          <p className="hint mt-1">None yet.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-line border-y border-line">
+            {given.map((d) => {
+              const who = byId.get(d.entryId);
+              return (
+                <li key={d.id} className="flex items-center gap-3 py-2">
+                  <span className="tabular w-12 shrink-0 text-sm text-prussian/75">No. {who?.number ?? "—"}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold">{who?.name ?? "Removed candidate"}</span>
+                    <span className="block text-sm text-prussian/80">{d.reason}</span>
+                  </span>
+                  <span className="tabular shrink-0 font-semibold">&minus;{formatBound(d.points)}</span>
+                  {open && (
+                    <button
+                      type="button"
+                      className="btn btn-sm shrink-0 px-2 text-prussian/75 hover:bg-danger/10 hover:text-danger pointer-coarse:min-w-11"
+                      onClick={() => remove(d.id)}
+                      disabled={pending}
+                      aria-label={who ? `Take back ${who.name}'s deduction for ${d.reason}` : `Take back the deduction for ${d.reason}`}
+                    >
+                      <svg viewBox="0 0 16 16" className="size-4" aria-hidden>
+                        <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * The final cut's placements once it's confirmed, on the desk for the organizer to announce: the winner, then the
+ * runners-up. Nothing before then.
+ */
+export function FinalPlacements({ board, className = "" }: { board: Board; className?: string }) {
+  const titleId = useId();
+  const placed = finalCutRound(board.rounds)?.cutEntryIds;
+  if (!placed?.length) return null;
+  // Candidates keep their number from the full running order.
+  const numberOf = new Map([...board.entries].sort((a, b) => a.position - b.position).map((e, i) => [e.id, i + 1]));
+  const byId = new Map(board.entries.map((e) => [e.id, e]));
+  return (
+    <section aria-labelledby={titleId} className={`w-full ${className}`}>
+      <h3 id={titleId} className="text-sm text-powder">
+        Final placements
+      </h3>
+      <ol aria-label="Final placements" className="mt-1 max-w-xl divide-y divide-oxford">
+        {placed.map((id, i) => (
+          <li key={id} className="flex items-baseline gap-4 py-2.5">
+            <span className={`w-32 shrink-0 text-sm font-semibold ${i === 0 ? "text-mint" : "text-powder"}`}>{placeTitle(i + 1)}</span>
+            <span className="min-w-0 flex-1 truncate">
+              <span className="tabular text-powder">No. {numberOf.get(id) ?? "—"}</span>{" "}
+              <span className={`font-semibold ${i === 0 ? "text-xl" : ""}`}>{byId.get(id)?.name ?? "Removed candidate"}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -605,8 +655,8 @@ export function StartRoundDeliberation({
 
 /**
  * The desk while a sub-activity (or part) is deliberated: who has signed, and once every judge on its panel has, the
- * organizer's sign-off (drawn on a touchscreen, or "(Sgd.)"), which sends its scores out. `signatures`: null before
- * migration 040.
+ * organizer's sign-off (drawn on a touchscreen, or "(Sgd.)") with their password, which sends its scores out.
+ * `signatures`: null before migration 040.
  */
 export function RoundDeliberationDesk({ board, round, signatures }: { board: Board; round: Round; signatures: JudgeSignature[] | null }) {
   const judges = judgesFor(board, round);
@@ -615,15 +665,7 @@ export function RoundDeliberationDesk({ board, round, signatures }: { board: Boa
   const touch = useMediaQuery("(any-pointer: coarse)");
   const [drawing, setDrawing] = useState("");
   const [agreed, setAgreed] = useState(false);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [pending, start] = useTransition();
   const ready = touch ? cleanSignature(drawing) !== null : agreed;
-  const signOff = () =>
-    start(async () => {
-      const r = await reach(() => signOffRound(board.activity.id, round.id, touch ? drawing : null));
-      setResult(r);
-      if (r.ok) toast(`${round.name} signed off`);
-    });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
@@ -647,13 +689,7 @@ export function RoundDeliberationDesk({ board, round, signatures }: { board: Boa
           Waiting for {listNames(waiting)} to sign.
         </p>
       ) : (
-        <form
-          className="w-full max-w-xl"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (ready && !pending) signOff();
-          }}
-        >
+        <div className="w-full max-w-xl">
           <p role="status" className="font-semibold">
             Every judge has signed. Sign it off to send its scores out.
           </p>
@@ -661,18 +697,29 @@ export function RoundDeliberationDesk({ board, round, signatures }: { board: Boa
             <SignaturePad value={drawing} onChange={setDrawing} />
           ) : (
             <label className="mt-3 flex items-start gap-3 text-[15px]">
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-mint" />
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-5 shrink-0" />
               <span>
                 I&apos;ve checked the scores in {round.name} and sign them off. Its results PDF shows <span className="font-semibold">(Sgd.)</span> beside
                 my name.
               </span>
             </label>
           )}
-          <button type="submit" disabled={!ready || pending} className="btn mt-4 bg-mint text-prussian hover:bg-white">
-            {pending ? "Signing off…" : `Sign off ${round.name}`}
-          </button>
-          <FormMessage state={result?.ok ? null : result} small onDark className="mt-2" />
-        </form>
+          <ConfirmDialog
+            triggerLabel={`Sign off ${round.name}`}
+            triggerClassName="btn mt-4 bg-mint text-prussian hover:bg-white"
+            triggerDisabled={!ready}
+            title={`Sign off ${round.name}?`}
+            confirmLabel={`Sign off ${round.name}`}
+            passwordLabel="Your password"
+            onConfirm={async (password) => {
+              const r = await reach(() => signOffRound(board.activity.id, round.id, touch ? drawing : null, password));
+              if (r.ok) toast(`${round.name} signed off`);
+              return r;
+            }}
+          >
+            Its scores go out on the live results and the LED wall at once, and its results PDF carries your signature.
+          </ConfirmDialog>
+        </div>
       )}
     </div>
   );
@@ -797,7 +844,7 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
                         className={`${inside ? "bg-wash/70 font-semibold" : ""} ${lineAfter ? "border-b-2 border-dashed border-regal" : "border-b border-line"}`}
                       >
                         <td className="tabular px-3 py-1.5">
-                          {confirmed ? (placeOf.has(row.entry.id) ? (plan.final ? placeOf.get(row.entry.id) : "Yes") : "—") : (row.rank ?? "—")}
+                          {confirmed ? (placeOf.has(row.entry.id) ? (plan.final ? placeTitle(placeOf.get(row.entry.id)!) : "Yes") : "—") : (row.rank ?? "—")}
                           {!confirmed && tied.has(row.entry.id) && <span className="ml-1.5 text-xs font-bold text-danger">Tie</span>}
                         </td>
                         <td className="tabular px-2 py-1.5">{row.number}</td>

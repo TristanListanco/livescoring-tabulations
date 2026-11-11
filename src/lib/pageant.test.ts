@@ -11,6 +11,7 @@ import {
   judgingOrder,
   onPanel,
   partWeights,
+  placeTitle,
   preliminaryComplete,
   programOrder,
   roundLabel,
@@ -162,6 +163,12 @@ describe("cuts", () => {
     expect(plan.ties[0]).toMatchObject({ places: 2, onTheLine: false });
     expect(cutResult(plan, [["B", "A"]])).toEqual({ ok: true, entryIds: ["B", "A", "C"] });
     expect(cutResult(plan, [["B"]])).toEqual({ ok: false, error: "Put the 2 tied candidates in order." });
+  });
+});
+
+describe("final placements", () => {
+  it("name the winner, then the runners-up in order", () => {
+    expect([1, 2, 3, 4, 12, 13].map(placeTitle)).toEqual(["Winner", "1st Runner-up", "2nd Runner-up", "3rd Runner-up", "11th Runner-up", "12th Runner-up"]);
   });
 });
 
@@ -333,11 +340,13 @@ describe("deductions", () => {
     expect(d.total).toBe(0);
   });
 
-  it("can change until the preliminary ends, and not after the session ends", () => {
+  it("can change until pageant proper starts, the break after the preliminary included, and not after the session ends", () => {
     const prelimOnly = prelimAndSwim.filter((s) => s.roundId !== "swim");
     expect(deductionsOpen(withDeductions([], prelimOnly, "draft"))).toBe(true);
     expect(deductionsOpen(withDeductions([], prelimOnly))).toBe(true);
-    expect(deductionsOpen(withDeductions([], prelimOnly, "live", "2026-11-11T09:00:00Z"))).toBe(false);
+    const between = withDeductions([], prelimOnly, "live", "2026-11-11T09:00:00Z");
+    expect(deductionsOpen(between)).toBe(true);
+    expect(deductionsOpen({ ...between, activity: { ...between.activity, properStartedAt: "2026-11-11T09:30:00Z" } })).toBe(false);
     expect(deductionsOpen(withDeductions([], prelimOnly, "ended"))).toBe(false);
     // A pageant without deductions never takes them.
     expect(deductionsOpen(pageant([interview, costume, swim, qa], prelimOnly))).toBe(false);

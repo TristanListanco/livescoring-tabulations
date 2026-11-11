@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { JudgeAssistance } from "@/lib/assistance";
 import { cancelAssistance, requestAssistance } from "../actions";
@@ -67,15 +67,24 @@ export function AssistButton({ current }: { current: JudgeAssistance | null }) {
   );
 }
 
+/** How long "The organizer is on the way" stays under the header once the call is answered. */
+const ANSWERED_MS = 5_000;
+
 /**
  * Under the header: the judge's call is waiting (with Cancel), or the organizer has answered it and is on the way, which
- * the judge can put away once they've seen it (it goes by itself after a while too).
+ * goes by itself after five seconds (or sooner, put away by the judge).
  */
 export function AssistStatus({ current }: { current: JudgeAssistance | null }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // The answer put away, by when it was given: a later answer shows again.
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const answeredAt = current?.status === "answered" ? current.at : null;
+  useEffect(() => {
+    if (!answeredAt) return;
+    const timer = setTimeout(() => setDismissed(answeredAt), ANSWERED_MS);
+    return () => clearTimeout(timer);
+  }, [answeredAt]);
   if (!current || (current.status === "answered" && dismissed === current.at)) return null;
   return (
     <div role="status" className="mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl border-2 border-mint/70 px-4 py-3 sm:mx-6">

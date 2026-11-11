@@ -1,4 +1,5 @@
 import { segmentPhase } from "./lifecycle";
+import { ordinal } from "./ties";
 import { PRELIMINARY, type Activity, type Board, type Deduction, type Entry, type Judge, type Round, type Score } from "./types";
 
 /**
@@ -319,11 +320,11 @@ export function deductionTotals(deductions: Deduction[] | undefined): Map<string
 }
 
 /**
- * Whether deductions can still be added or taken back: the pageant has them, and the preliminary, whose score they
- * come off, hasn't ended (pageant proper's first cut can count it).
+ * Whether deductions can still be added or taken back: the pageant has them, and pageant proper, whose cuts can count
+ * the preliminary score they come off, hasn't started. That leaves the break after the preliminary, when they're tallied.
  */
 export function deductionsOpen(board: Board): boolean {
-  return board.activity.violations !== null && segmentPhase(board.activity, "preliminary") !== "ended";
+  return board.activity.violations !== null && segmentPhase(board.activity, "proper") === "setup";
 }
 
 /** A sub-activity's parts as weights adding up to 100, for its own standings sheet. */
@@ -375,6 +376,11 @@ export function standingsBy(
     row.rank = prev && prev.total === row.total ? prev.rank : i + 1;
   });
   return { weights, rows, complete: rows.length > 0 && rows.every((r) => r.complete) };
+}
+
+/** A final placement's title: the winner, then the runners-up in order ("1st Runner-up", "2nd Runner-up", …). */
+export function placeTitle(place: number): string {
+  return place === 1 ? "Winner" : `${ordinal(place - 1)} Runner-up`;
 }
 
 /** The last cut of the pageant: its order is the final placement (winner first). */
