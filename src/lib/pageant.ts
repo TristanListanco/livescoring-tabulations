@@ -211,6 +211,18 @@ export function preliminaryComplete(board: Board): boolean {
 }
 
 /**
+ * Why the preliminary can't end yet, or null when it can: every score in it is in (pageant proper's first cut can count
+ * it, and its judges won't be back), and its deliberated sub-activities are signed off (their judges won't be back to sign).
+ */
+export function preliminaryEndGap(board: Board): string | null {
+  const open = judgingOrder(board.rounds).find((r) => r.segment === "preliminary" && !roundProgress(board, r).complete);
+  if (open) return `${roundLabel(board.rounds, open)} still has scores to come. The preliminary ends once every score in it is in.`;
+  const unsigned = awaitingSignoff(board, programOrder(board.rounds).filter((r) => r.segment === "preliminary"));
+  if (unsigned.length) return `Sign off the deliberation of ${roundLabel(board.rounds, unsigned[0])} first.`;
+  return null;
+}
+
+/**
  * Why a sub-activity (or part) can't go on judges' screens because of its segment, or null when it can: only the
  * segment running now is judged (see segmentPhase), the preliminary first, then pageant proper.
  */

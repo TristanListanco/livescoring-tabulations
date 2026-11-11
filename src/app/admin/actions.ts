@@ -58,13 +58,12 @@ import {
   deductionsOpen,
   deliberatingRound,
   judgesFor,
-  judgingOrder,
   partsOf,
+  preliminaryEndGap,
   programOrder,
   roundDeliberationGap,
   roundLabel,
   roundPool,
-  roundProgress,
   segmentClosed,
 } from "@/lib/pageant";
 import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
@@ -1542,12 +1541,8 @@ export const moveSegment = traced("moveSegment", async function moveSegment(acti
   const cleared = { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null };
   let update: Record<string, string | null>;
   if (move === "endPreliminary") {
-    // Every preliminary score: pageant proper's first cut can count the preliminary, and its judges won't be back.
-    const open = judgingOrder(board.rounds).find((r) => r.segment === "preliminary" && !roundProgress(board, r).complete);
-    if (open) return err(`${roundLabel(board.rounds, open)} still has scores to come. The preliminary ends once every score in it is in.`);
-    // Its deliberated sub-activities are signed off: their judges won't be back to sign.
-    const unsigned = awaitingSignoff(board, programOrder(board.rounds).filter((r) => r.segment === "preliminary"));
-    if (unsigned.length) return err(`Sign off the deliberation of ${roundLabel(board.rounds, unsigned[0])} first.`);
+    const gap = preliminaryEndGap(board);
+    if (gap) return err(gap);
     update = { ...cleared, preliminary_ended_at: now };
   } else if (move === "reopenPreliminary") {
     update = { ...cleared, preliminary_ended_at: null };

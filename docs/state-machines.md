@@ -212,7 +212,9 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Judges' screens:** a judge of the preliminary only reads "Your part of the pageant is done" once it has ended; one of pageant proper (only, or of both between the segments) reads "Pageant proper starts soon".
 
-**Deductions** stay open through the break after the preliminary, when they're usually tallied (the desk shows them there), and close when pageant proper starts (`deductionsOpen`).
+**Deductions** stay open through the break after the preliminary, when they're usually tallied, and close when pageant proper starts (`deductionsOpen`).
+
+**The break on the desk:** three steps in order: record deductions, pair pageant proper's judges (approved on the desk), start pageant proper. The desk offers **End preliminary** only once `preliminaryEndGap` is null, the same check `moveSegment` makes. Once the final cut is confirmed and nothing is left to judge, the desk shows the final placements, with ending pageant proper as its next step. Where the desk can't approve devices itself (between sub-activities, a sub-activity's deliberation, the final placements), the panel's approval dialog does (`data-device-approvals` only where it can).
 
 **Reset** (`resetScores`, `canReset`): both segments (back to not started, as any activity), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
 

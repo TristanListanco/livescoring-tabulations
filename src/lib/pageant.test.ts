@@ -13,6 +13,7 @@ import {
   partWeights,
   placeTitle,
   preliminaryComplete,
+  preliminaryEndGap,
   programOrder,
   roundLabel,
   roundPool,
@@ -289,6 +290,14 @@ describe("preliminary first", () => {
   it("knows when every preliminary score is in", () => {
     expect(preliminaryComplete(pageant([interview, costume, swim, qa], prelimOnly.slice(1)))).toBe(false);
     expect(preliminaryComplete(pageant([interview, costume, swim, qa], prelimOnly))).toBe(true);
+  });
+
+  it("ends once every preliminary score is in and its deliberated sub-activities are signed off", () => {
+    expect(preliminaryEndGap(pageant([interview, costume, swim, qa], prelimOnly.slice(1)))).toMatch(/still has scores to come/);
+    expect(preliminaryEndGap(pageant([interview, costume, swim, qa], prelimOnly))).toBeNull();
+    const deliberated = { ...costume, liveScoring: false, deliberationStartedAt: T, signedOffAt: null };
+    expect(preliminaryEndGap(pageant([interview, deliberated, swim, qa], prelimOnly))).toMatch(/^Sign off the deliberation of /);
+    expect(preliminaryEndGap(pageant([interview, { ...deliberated, signedOffAt: T }, swim, qa], prelimOnly))).toBeNull();
   });
 
   it("judges only the segment running now: the preliminary, then pageant proper once it has started", () => {

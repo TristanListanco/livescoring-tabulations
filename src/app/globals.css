@@ -43,12 +43,14 @@
 
 /*
  * Admin dark mode (the panel's data-theme="dark"). A dialog opened from a surface that keeps its light colours
- * (the session desk) is still part of the page, so it takes the dark theme back. The palette swaps light and dark: page and cards go dark,
+ * (the session desk) is still part of the page, so it takes the dark theme back, as does a light card set into the
+ * desk (.follow-theme: the break's deductions). The palette swaps light and dark: page and cards go dark,
  * text goes light, and the accent becomes a light blue that keeps its contrast with dark text on buttons.
  * Everything built from the palette follows without its own dark styles.
  */
 [data-theme="dark"],
-[data-theme="dark"] .keep-light dialog {
+[data-theme="dark"] .keep-light dialog,
+[data-theme="dark"] .keep-light .follow-theme {
   color-scheme: dark;
   --color-prussian: #e3ebf3;
   --color-oxford: #c3d2e3;

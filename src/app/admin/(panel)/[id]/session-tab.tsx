@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useContext, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useId, useOptimistic, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { CopyButton } from "@/components/copy-button";
 import { LiveStatusBadge } from "@/components/live-status";
@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
-import { roundDeliberating, showingBoard, unitOf } from "@/lib/pageant";
+import { finalCutRound, preliminaryEndGap, roundDeliberating, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
@@ -27,7 +27,7 @@ import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
-import { CutDialog, Deductions, DeskTimer, FinalPlacements, JudgeRoundButton, nextUp, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
+import { CutDialog, Deductions, DeskTimer, FinalPlacements, JudgeRoundButton, nextUp, PdfLink, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
 
@@ -197,6 +197,25 @@ function JudgeTile({
       <span className="min-w-0 flex-1 truncate font-semibold">{judge.name}</span>
       {judge.isChair && <span className="text-xs font-semibold text-powder">Chair</span>}
       {state}
+    </li>
+  );
+}
+
+/** One step of the break between a pageant's segments: numbered, because they're done in this order. */
+function BreakStep({ n, title, status, children }: { n: number; title: string; status?: string; children: React.ReactNode }) {
+  const id = useId();
+  return (
+    <li aria-labelledby={id}>
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="tabular flex size-6 shrink-0 items-center justify-center rounded-full border border-powder/60 text-xs font-semibold text-powder">
+          {n}
+        </span>
+        <h3 id={id} className="font-semibold">
+          {title}
+        </h3>
+        {status && <span className="tabular text-sm text-powder">{status}</span>}
+      </div>
+      <div className="mt-1 pl-9">{children}</div>
     </li>
   );
 }
@@ -523,6 +542,14 @@ export function SessionTab({
     ) : upNext?.kind === "deliberate" ? (
       <StartRoundDeliberation board={board} round={upNext.round} className={nextClass} onDone={setResult} />
     ) : null;
+  // The break between a pageant's segments: the preliminary has ended, pageant proper hasn't started.
+  const theBreak = between && judging === null;
+  // The final cut confirmed with nothing left to judge: the desk turns to the placements and the pageant's end.
+  const finalCut = pageant ? finalCutRound(board.rounds) : null;
+  const finale = live && judging === "proper" && !!finalCut?.cutEntryIds && !upNext && (between || lastOneIn);
+  // Devices are approved on the desk where its judges are (their tiles, or the break's judges); elsewhere the panel's
+  // dialog asks, as on any other page.
+  const approvesHere = theBreak || (!between && !underReview && !finale);
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
   // Without live scoring, a fully scored session goes to the deliberation rather than straight to its end.
   const deliberateNext = !pageant && !activity.liveScoring && progress.complete;
@@ -616,13 +643,14 @@ export function SessionTab({
     </ConfirmDialog>
   );
 
-  const endSession = (triggerClassName: string) =>
+  /** `done`: everything is judged and placed, so ending is the next step, not a warning. */
+  const endSession = (triggerClassName: string, done = false) =>
     pageant ? (
       <ConfirmDialog
         triggerLabel="End pageant proper"
         triggerClassName={triggerClassName}
         title="End pageant proper?"
-        tone="danger"
+        tone={done ? "primary" : "danger"}
         confirmLabel="End pageant proper"
         passwordLabel="Your password"
         onConfirm={(password) => changeState("ended", password)}
@@ -662,6 +690,11 @@ export function SessionTab({
   );
   // Pageant proper's judges without an approved device yet, for its start to name.
   const unpairedProper = unpaired.filter((j) => j.panel !== "preliminary");
+  // The break's judges: pageant proper's, and anyone else whose device is asking to be approved.
+  const properJudges = judges.filter((j) => j.panel !== "preliminary");
+  const pairedProper = properJudges.length - unpairedProper.length;
+  const breakJudges = judges.filter((j) => j.panel !== "preliminary" || devicesOf(j.id).some((d) => d.status === "pending"));
+  const deductionCount = board.deductions?.length ?? 0;
   const startProper = (triggerClassName: string) => (
     <ConfirmDialog triggerLabel="Start pageant proper" triggerClassName={triggerClassName} title="Start pageant proper?" confirmLabel="Start pageant proper" onConfirm={() => changeSegment("startProper")}>
       Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock.
@@ -681,8 +714,15 @@ export function SessionTab({
     </ConfirmDialog>
   );
   /** What ends what's being judged: the preliminary, pageant proper (the session), or an event's session. Nothing between segments. */
+  // The preliminary's end is offered once it can work (every score in, its deliberations signed off), not refused after the password.
   const endControl = (triggerClassName: string) =>
-    judging === "preliminary" ? endPreliminary(triggerClassName) : pageant && judging === null ? null : endSession(triggerClassName);
+    judging === "preliminary"
+      ? preliminaryEndGap(board)
+        ? null
+        : endPreliminary(triggerClassName)
+      : pageant && judging === null
+        ? null
+        : endSession(triggerClassName);
 
   // The rundown keeps the entry on air in view when it scrolls inside the desk. Instant, never animated.
   const orderRef = useRef<HTMLOListElement>(null);
@@ -765,6 +805,8 @@ export function SessionTab({
                 <span className="min-w-0 flex-1 truncate font-semibold" title={e.name}>
                   {e.name}
                 </span>
+                {/* Between a pageant's sub-activities nothing is being scored: no counts, which would read 0 of every judge. */}
+                {!between && (
                 <span className="tabular hint">
                   {compact ? (
                     <>
@@ -778,6 +820,7 @@ export function SessionTab({
                     </>
                   )}
                 </span>
+                )}
                 {state === "draft" || between || (ownPace && state === "live") ? null : state === "ended" || state === "deliberation" ? (
                   // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                   <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
@@ -822,23 +865,26 @@ export function SessionTab({
   if (live) {
     return (
       <PdfHold value={held}>
-        {/* Its judge tiles approve devices (data-device-approvals: so the panel's dialog doesn't, see AssistanceAlerts). */}
+        {/* Where the desk approves devices itself (see approvesHere), the panel's dialog doesn't (see AssistanceAlerts). */}
         <div
-          data-device-approvals={activity.id}
-          className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-11rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
+          data-device-approvals={approvesHere ? activity.id : undefined}
+          className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-13rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
           <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
             {offline}
             <div className="flex items-start justify-between gap-4 px-6 pt-4">
               <div className="min-w-0 flex-1">
                 <h2 id="desk-heading" className="text-sm text-powder">
-                  {round && <span className="font-semibold text-mint">{round.name} · </span>}
-                  {underReview
+                  {round && !finale && <span className="font-semibold text-mint">{round.name} · </span>}
+                  {finale
+                    ? "Final cut confirmed"
+                    : underReview
                     ? "Deliberation"
                     : ownPace
                     ? "Judges score at their own pace"
                     : entry
                     ? entry.number
-                      ? `Now judging: No. ${entry.number} (${index + 1} of ${entries.length})`
+                      ? // "(2 of 3)" stays on one line when the heading wraps.
+                        `Now judging: No. ${entry.number} (${index + 1}\u00a0of\u00a0${entries.length})`
                       : `Now judging: No. ${index + 1} of ${entries.length}`
                     : between
                       ? pageant && judging === null
@@ -847,7 +893,9 @@ export function SessionTab({
                       : "On judges' screens"}
                 </h2>
                 <p title={entry?.name} className="line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
-                  {underReview
+                  {finale
+                    ? `${board.entries.find((e) => e.id === finalCut?.cutEntryIds?.[0])?.name ?? "The winner"} wins`
+                    : underReview
                     ? "The judges are reviewing their scores"
                     : ownPace
                     ? `${progress.submitted} of ${progress.possible} scores in`
@@ -864,32 +912,61 @@ export function SessionTab({
                 <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
                 {deliberateNext
                   ? !lastOneIn && !ownPace && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
-                  : (!lastOneIn || pageantNext) && endControl("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+                  : (finale || !lastOneIn || pageantNext) &&
+                    // In the final placements the desk's own button ends the pageant. This one stays, hidden, so a dialog
+                    // opened from it just before the desk turned over (the cut confirmed a moment ago) isn't lost with it.
+                    endControl(finale ? "hidden" : "btn btn-sm border border-oxford text-mint hover:bg-oxford")}
               </div>
             </div>
             {/* A pageant's timer is its sub-activity's; an event's, its own (an entry at a time). */}
-            <DeskTimer activity={activity} timerSeconds={round ? round.timerSeconds : eventTimer(activity)} renderedAt={renderedAt} />
+            <DeskTimer activity={activity} timerSeconds={finale ? null : round ? round.timerSeconds : eventTimer(activity)} renderedAt={renderedAt} />
             {/* A success ("The session has ended…") is what the desk now shows anyway, so it's announced, not repeated on screen. */}
             <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
             <CorrectionsPanel activityId={activity.id} corrections={corrections} onDark />
 
-            {between && pageant && judging === null ? (
-              // Between the segments: the preliminary's own judges are done, and pageant proper's start when the desk does.
-              // The break is when deductions are tallied, so they're right here until pageant proper starts.
-              <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
-                <p className="max-w-xl text-[15px] leading-relaxed text-powder">
-                  Judges who judge only the preliminary are done. Pageant proper&apos;s judges are waiting for it to start.
-                  {activity.violations !== null && " Record any deductions below before you start it."}
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {startProper("btn bg-mint text-prussian hover:bg-white")}
-                  {reopenPreliminary("btn border border-oxford text-mint hover:bg-oxford")}
+            {theBreak ? (
+              // The break between the segments, in the order the work goes: deductions are tallied (they close when
+              // pageant proper starts), pageant proper's judges pair (approved right here), then it starts.
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-oxford px-6 py-5">
+                <p className="max-w-xl text-[15px] leading-relaxed text-powder">Judges who judge only the preliminary are done. Before pageant proper starts:</p>
+                <ol className="max-w-2xl space-y-6">
+                  {activity.violations !== null && (
+                    <BreakStep n={1} title="Record deductions" status={deductionCount ? `${deductionCount} given` : "None given"}>
+                      <p className="text-[15px] text-powder">Points off a candidate&apos;s preliminary score.</p>
+                      <div className="follow-theme @container mt-3 rounded-2xl bg-mint p-5 text-prussian ring-1 ring-line">
+                        <Deductions board={board} inline />
+                      </div>
+                    </BreakStep>
+                  )}
+                  <BreakStep n={activity.violations !== null ? 2 : 1} title="Pair pageant proper's judges" status={`${pairedProper} of ${properJudges.length} paired`}>
+                    <ul aria-label="Pageant proper's judges" className="mt-2 grid gap-2">
+                      {breakJudges.map((j) => (
+                        <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
+                      ))}
+                    </ul>
+                  </BreakStep>
+                  <BreakStep n={activity.violations !== null ? 3 : 2} title="Start pageant proper">
+                    <p className="text-[15px] text-powder">Its judges&apos; screens open{activity.violations !== null && ", and deductions close"}.</p>
+                    <div className="mt-3">{startProper("btn bg-mint text-prussian hover:bg-white")}</div>
+                  </BreakStep>
+                </ol>
+                <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-oxford pt-4 text-sm text-powder">
+                  <span>Something in the preliminary to judge again?</span>
+                  {reopenPreliminary("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
                 </div>
-                {activity.violations !== null && (
-                  <section aria-labelledby="desk-deductions" className="mt-2 w-full max-w-2xl rounded-2xl bg-mint p-5 text-prussian">
-                    <Deductions board={board} titleId="desk-deductions" inline />
-                  </section>
-                )}
+              </div>
+            ) : finale ? (
+              // The final cut confirmed, nothing left to judge: the placements for the announcement, then the pageant's end.
+              <div className="flex min-h-0 flex-1 flex-col items-start gap-5 overflow-y-auto border-t border-oxford px-6 py-5">
+                <FinalPlacements board={board} />
+                <div className="flex flex-wrap gap-3">
+                  {endSession("btn bg-mint text-prussian hover:bg-white", true)}
+                  {finalCut && (
+                    <PdfLink activityId={activity.id} query={`cut=${finalCut.id}`} className="btn border border-oxford text-mint hover:bg-oxford">
+                      Download final results PDF
+                    </PdfLink>
+                  )}
+                </div>
               </div>
             ) : underReview ? (
               <RoundDeliberationDesk board={board} round={underReview} signatures={roundSignatures} />
@@ -911,7 +988,6 @@ export function SessionTab({
                 )}
                 {!upNext && (
                   <>
-                    {judging === "proper" && <FinalPlacements board={board} />}
                     <p className="font-semibold">
                       {judging === "preliminary"
                         ? "Every preliminary sub-activity is judged. End the preliminary when you're ready."
@@ -931,8 +1007,6 @@ export function SessionTab({
                   </ul>
                 </div>
 
-                {/* The final cut confirmed with its sub-activity still on screens: the placements, for the announcement. */}
-                {pageant && lastOneIn && !upNext && <FinalPlacements board={board} className="shrink-0 border-t border-oxford px-6 py-3" />}
                 {!ownPace && onAir}
 
                 {ownPace ? (
@@ -957,52 +1031,58 @@ export function SessionTab({
                           : `Every judge has scored ${entry.name}. That was the last entry.`
                         : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${listNames(stillScoring)}.`)}
                   </p>
-                  {/* On phones the buttons go full width, the next entry first: it's the one the operator reaches for. */}
-                  {previous ? (
-                    moveControl({
-                      target: previous,
-                      kind: "previous",
-                      label: (
-                        <>
-                          {kbd("←")}
-                          {pageant ? "Previous candidate" : "Previous entry"}
-                        </>
-                      ),
-                      className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
-                      title: `Go back to ${previous.name}?`,
-                      confirmLabel: "Go back anyway",
-                      keyShortcuts: "ArrowLeft",
-                    })
-                  ) : (
-                    <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
-                      {pageant ? "Previous candidate" : "Previous entry"}
-                    </button>
-                  )}
-                  {lastOneIn ? (
-                    (pageantNext ??
-                    (deliberateNext
-                      ? startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")
-                      : endControl("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")))
-                  ) : next ? (
-                    moveControl({
-                      target: next,
-                      kind: "next",
-                      label: (
-                        <>
-                          <span className="truncate">{entry ? `Show next ${noun}: ${next.name}` : `Show first ${noun}`}</span>
-                          {kbd("→")}
-                        </>
-                      ),
-                      className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
-                      title: `Move on to ${next.name}?`,
-                      confirmLabel: "Move on anyway",
-                      keyShortcuts: "ArrowRight Space",
-                    })
-                  ) : (
-                    <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
-                      {entry ? (pageant ? "No more candidates" : "No more entries") : pageant ? "No candidates" : "No entries yet"}
-                    </button>
-                  )}
+                  {/*
+                    Previous and Next stay together on the right: when the status needs the room they move under it as a
+                    pair, so Next is never pushed to the left. On phones they go full width, the next entry first: it's the
+                    one the operator reaches for.
+                  */}
+                  <div className="ml-auto flex min-w-0 max-w-full items-center gap-3 max-sm:w-full max-sm:flex-col">
+                    {previous ? (
+                      moveControl({
+                        target: previous,
+                        kind: "previous",
+                        label: (
+                          <>
+                            {kbd("←")}
+                            {pageant ? "Previous candidate" : "Previous entry"}
+                          </>
+                        ),
+                        className: "btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full",
+                        title: `Go back to ${previous.name}?`,
+                        confirmLabel: "Go back anyway",
+                        keyShortcuts: "ArrowLeft",
+                      })
+                    ) : (
+                      <button type="button" className="btn border border-oxford text-mint max-sm:order-2 max-sm:w-full" disabled>
+                        {pageant ? "Previous candidate" : "Previous entry"}
+                      </button>
+                    )}
+                    {lastOneIn ? (
+                      (pageantNext ??
+                      (deliberateNext
+                        ? startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")
+                        : endControl("btn bg-mint text-prussian hover:bg-white max-sm:order-1 max-sm:w-full")))
+                    ) : next ? (
+                      moveControl({
+                        target: next,
+                        kind: "next",
+                        label: (
+                          <>
+                            <span className="truncate">{entry ? `Show next ${noun}: ${next.name}` : `Show first ${noun}`}</span>
+                            {kbd("→")}
+                          </>
+                        ),
+                        className: `btn min-w-0 max-sm:order-1 max-sm:w-full ${allIn || !entry ? "bg-mint text-prussian hover:bg-white" : "border border-powder/60 text-mint hover:bg-oxford"}`,
+                        title: `Move on to ${next.name}?`,
+                        confirmLabel: "Move on anyway",
+                        keyShortcuts: "ArrowRight Space",
+                      })
+                    ) : (
+                      <button type="button" className="btn min-w-0 border border-oxford text-mint max-sm:order-1 max-sm:w-full" disabled>
+                        {entry ? (pageant ? "No more candidates" : "No more entries") : pageant ? "No candidates" : "No entries yet"}
+                      </button>
+                    )}
+                  </div>
                   {moveError && (
                     <p role="alert" className="basis-full text-sm font-semibold text-danger-soft max-sm:order-3">
                       {moveError}

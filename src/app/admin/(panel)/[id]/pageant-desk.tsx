@@ -374,7 +374,7 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
       aria-labelledby={titleId}
       className="m-auto max-h-[calc(100dvh-2rem)] w-[min(40rem,calc(100vw-2rem))] rounded-2xl bg-mint p-0 text-prussian shadow-2xl"
     >
-      <div className="p-6">
+      <div className="@container p-6">
         <Deductions board={board} titleId={titleId} />
       </div>
       <div className="flex justify-end border-t border-line bg-wash/60 px-6 py-4">
@@ -392,10 +392,10 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
  * listed, final. Only the organizer sees them; the results PDFs list them with their reasons. In a dialog from the
  * program, or `inline` on the desk in the break after the preliminary, when they're tallied.
  */
-export function Deductions({ board, titleId, inline = false }: { board: Board; titleId: string; inline?: boolean }) {
+export function Deductions({ board, titleId, inline = false }: { board: Board; titleId?: string; inline?: boolean }) {
   const { activity } = board;
   const id = useId();
-  const Title = inline ? "h3" : "h2";
+  // Inline, the break's step heads it ("Record deductions"), so it has no title of its own.
   const Given = inline ? "h4" : "h3";
   const violations = activity.violations ?? [];
   const open = deductionsOpen(board);
@@ -428,18 +428,20 @@ export function Deductions({ board, titleId, inline = false }: { board: Board; t
 
   return (
     <div className="space-y-5">
-      <div>
-        <Title id={titleId} className={inline ? "title-sm" : "title-sm text-2xl"}>
-          Deductions
-        </Title>
-        <p className="hint mt-1 max-w-[65ch]">
-          {open
-            ? "Points off a candidate's preliminary score. They close when pageant proper starts."
-            : activity.sessionState === "ended"
-              ? "The session has ended, so they're final."
-              : "Pageant proper has started, so they're final."}
-        </p>
-      </div>
+      {!inline && (
+        <div>
+          <h2 id={titleId} className="title-sm text-2xl">
+            Deductions
+          </h2>
+          <p className="hint mt-1 max-w-[65ch]">
+            {open
+              ? "Points off a candidate's preliminary score. They close when pageant proper starts."
+              : activity.sessionState === "ended"
+                ? "The session has ended, so they're final."
+                : "Pageant proper has started, so they're final."}
+          </p>
+        </div>
+      )}
 
       {open && (
         <form
@@ -447,7 +449,8 @@ export function Deductions({ board, titleId, inline = false }: { board: Board; t
             e.preventDefault();
             add();
           }}
-          className="grid gap-x-3 gap-y-4 sm:grid-cols-2"
+          // Two columns only where there's room (the dialog); one in the desk's narrow column.
+          className="grid gap-x-3 gap-y-4 @lg:grid-cols-2"
         >
           <div>
             <label htmlFor={`${id}-candidate`} className="label">
@@ -479,7 +482,7 @@ export function Deductions({ board, titleId, inline = false }: { board: Board; t
           )}
           {choice === "other" && (
             <>
-              <div className={violations.length > 0 ? "" : "sm:row-start-2"}>
+              <div className={violations.length > 0 ? "" : "@lg:row-start-2"}>
                 <label htmlFor={`${id}-reason`} className="label">
                   Reason
                 </label>
@@ -499,7 +502,7 @@ export function Deductions({ board, titleId, inline = false }: { board: Board; t
               </div>
             </>
           )}
-          <div className="sm:col-span-2">
+          <div className="@lg:col-span-2">
             <button type="submit" className="btn btn-primary" disabled={pending || !entryId}>
               {pending ? "Saving…" : "Deduct"}
             </button>
@@ -561,22 +564,23 @@ export function FinalPlacements({ board, className = "" }: { board: Board; class
   const numberOf = new Map([...board.entries].sort((a, b) => a.position - b.position).map((e, i) => [e.id, i + 1]));
   const byId = new Map(board.entries.map((e) => [e.id, e]));
   return (
-    <section aria-labelledby={titleId} className={`w-full ${className}`}>
+    <div className={`w-full ${className}`}>
       <h3 id={titleId} className="text-sm text-powder">
         Final placements
       </h3>
-      <ol aria-label="Final placements" className="mt-1 max-w-xl divide-y divide-oxford">
+      <ol aria-labelledby={titleId} className="mt-1 max-w-xl divide-y divide-oxford">
         {placed.map((id, i) => (
-          <li key={id} className="flex items-baseline gap-4 py-2.5">
-            <span className={`w-32 shrink-0 text-sm font-semibold ${i === 0 ? "text-mint" : "text-powder"}`}>{placeTitle(i + 1)}</span>
+          <li key={id} className="flex items-baseline gap-4 py-3">
+            <span className={`w-36 shrink-0 text-sm font-semibold ${i === 0 ? "text-mint" : "text-powder"}`}>{placeTitle(i + 1)}</span>
             <span className="min-w-0 flex-1 truncate">
               <span className="tabular text-powder">No. {numberOf.get(id) ?? "—"}</span>{" "}
-              <span className={`font-semibold ${i === 0 ? "text-xl" : ""}`}>{byId.get(id)?.name ?? "Removed candidate"}</span>
+              {/* Large enough to read out from the desk at the announcement. */}
+              <span className={`font-semibold ${i === 0 ? "text-2xl" : "text-lg"}`}>{byId.get(id)?.name ?? "Removed candidate"}</span>
             </span>
           </li>
         ))}
       </ol>
-    </section>
+    </div>
   );
 }
 
