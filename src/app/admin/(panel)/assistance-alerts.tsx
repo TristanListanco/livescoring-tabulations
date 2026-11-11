@@ -76,11 +76,19 @@ function ago(at: string, now: number): string {
 
 const notificationsOffered = () => typeof window !== "undefined" && "Notification" in window && Notification.permission === "default";
 
-/** The activity whose Judges tab is open, if one is: its devices are approved right there, so they don't pop up over it. */
-const judgesTabOpen = () => document.querySelector("[data-device-approvals]")?.getAttribute("data-device-approvals") ?? null;
+/**
+ * The activity whose Judges tab (or desk) is open, if one is: its devices are approved in the list right there, so they
+ * don't pop up over it. Unless another dialog is open over that list: then they come up on top, where the organizer is
+ * looking.
+ */
+const judgesTabOpen = () => {
+  const id = document.querySelector("[data-device-approvals]")?.getAttribute("data-device-approvals") ?? null;
+  return id && !document.querySelector("dialog[open]:not([data-alerts])") ? id : null;
+};
 const watchPage = (onChange: () => void) => {
   const watcher = new MutationObserver(onChange);
-  watcher.observe(document.body, { childList: true, subtree: true });
+  // A dialog opening or closing changes its open attribute; it isn't a new element.
+  watcher.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-device-approvals"] });
   return () => watcher.disconnect();
 };
 
@@ -92,9 +100,10 @@ const watchPage = (onChange: () => void) => {
  * from another tab. "On my way" answers a call: the judge's screen says so. The dialog stays until every call is answered
  * or taken back.
  *
- * A judge signs in on a device: a dialog asks the organizer to approve it, with a gentler chime, wherever they are (on
- * that activity's Judges tab the list there does it). It shows the pairing code the judge reads out, so the right device
- * is approved; Later puts it away until another device asks. A call for help comes first.
+ * A judge signs in on a device: a gentler chime, and a dialog asks the organizer to approve it wherever they are (on
+ * that activity's Judges tab the list there does it, with the chime, unless a dialog is open over the list). It shows the
+ * pairing code the judge reads out, so the right device is approved; Later puts it away until another device asks. It
+ * stacks over any dialog already open, a call for help's too, as a call for help stacks over it.
  *
  * It hears of both the way live screens hear of changes: over realtime, from the organizer's activities (kept while the
  * tab is out of view, unlike a desk, so a call still reaches a background tab), and by checking every 15 seconds anyway.
@@ -133,15 +142,16 @@ export function AssistanceAlerts() {
   }, []);
 
   const signedIn = useCallback((list: WaitingDevice[]) => {
-    const fresh = list.filter((d) => !knocked.current?.has(d.id) && d.activityId !== judgesTabOpen());
+    const fresh = list.filter((d) => !knocked.current?.has(d.id));
     knocked.current = new Set(list.map((d) => d.id));
     setDevices(list);
     if (!fresh.length) return;
     // A new device brings the dialog back, with the ones put off before.
     setLater(new Set());
+    // On its Judges tab too, where the list shows it: the organizer may be looking away from the screen.
     chime(audio.current, KNOCK);
     if ("Notification" in window && Notification.permission === "granted") {
-      for (const d of fresh) {
+      for (const d of fresh.filter((f) => f.activityId !== judgesTabOpen())) {
         const notice = new Notification(`${d.judgeName}'s device is waiting`, { body: `${d.activityName}: approve it when they read out its pairing code.`, tag: d.id });
         notice.onclick = () => window.focus();
       }
@@ -237,9 +247,9 @@ export function AssistanceAlerts() {
     return () => clearInterval(tick);
   }, [requests.length]);
 
-  // Devices to approve here: not those of the Judges tab that's open, nor those put off with Later. Not over a call for help.
+  // Devices to approve here: not those of the Judges tab that's open, nor those put off with Later.
   const shownDevices = devices.filter((d) => d.activityId !== here);
-  const devicesOpen = requests.length === 0 && shownDevices.some((d) => !later.has(d.id));
+  const devicesOpen = shownDevices.some((d) => !later.has(d.id));
   useEffect(() => {
     const shown = deviceDialog.current;
     if (!shown) return;
@@ -283,6 +293,7 @@ export function AssistanceAlerts() {
     <>
       <dialog
         ref={dialog}
+        data-alerts
         role="alertdialog"
         aria-labelledby="assist-title"
         // Escape doesn't dismiss it: each call is answered.
@@ -325,6 +336,7 @@ export function AssistanceAlerts() {
       {/* Devices waiting for approval: the light dialog of the panel, quieter than a call for help. */}
       <dialog
         ref={deviceDialog}
+        data-alerts
         tabIndex={-1}
         aria-labelledby="devices-title"
         onCancel={(e) => {

@@ -148,7 +148,7 @@ Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant 
 - the timer phase;
 - the privacy screen.
 
-The undo window exists only on the screen. The server allows for it with `LATE_SCORE_MS`.
+The undo window exists only on the screen, and only where scores don't go out as they come in (not an event with live scoring, nor a pageant sub-activity whose results are live). The server allows for it with `SUBMIT_GRACE_MS`.
 
 ## 10. Judges' calls for help
 
@@ -212,7 +212,7 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Judges' screens:** a judge of the preliminary only reads "Your part of the pageant is done" once it has ended; one of pageant proper (only, or of both between the segments) reads "Pageant proper starts soon".
 
-**Deductions** close when the preliminary ends (`deductionsOpen`).
+**Deductions** stay open through the break after the preliminary, when they're usually tallied (the desk shows them there), and close when pageant proper starts (`deductionsOpen`).
 
 **Reset** (`resetScores`, `canReset`): both segments (back to not started, as any activity), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
 
@@ -220,7 +220,7 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
 
-**Steps:** judged as usual (the audience sees a tick per score, `loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off (`signOffRound`), and its scores go out.
+**Steps:** judged as usual (the audience sees a tick per score, `loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
 
 | Guard | Where |
 |-------|-------|

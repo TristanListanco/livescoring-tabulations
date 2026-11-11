@@ -547,10 +547,20 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
   transform: scale(1);
 }
 /*
- * Admin checkboxes, drawn to match: the text colour fills a ticked one, with a tick in the page colour, so they read
- * the same in both themes. Size them with a utility (size-5).
+ * Admin checkboxes (and the judges' one), drawn to match: the text colour fills a ticked one, with a tick in the page
+ * colour, so they read the same in both themes. On a navy surface with light text (the session desk, a judge's
+ * screen) the fill is light, so the tick takes the navy (--check-tick). Size them with a utility (size-5).
  */
-[data-admin-theme] input[type="checkbox"] {
+.admin-desk,
+.judge-screen {
+  --check-tick: var(--color-prussian);
+}
+.admin-desk dialog,
+.judge-screen dialog {
+  --check-tick: var(--color-mint);
+}
+[data-admin-theme] input[type="checkbox"],
+.judge-screen input[type="checkbox"] {
   appearance: none;
   display: inline-grid;
   place-content: center;
@@ -559,21 +569,24 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
   border-radius: 0.3rem;
   background: var(--color-white);
 }
-[data-admin-theme] input[type="checkbox"]::before {
+[data-admin-theme] input[type="checkbox"]::before,
+.judge-screen input[type="checkbox"]::before {
   content: "";
   width: 0.375rem;
   height: 0.6875rem;
   margin-top: -0.125rem;
-  border: solid var(--color-mint);
+  border: solid var(--check-tick, var(--color-mint));
   border-width: 0 2.5px 2.5px 0;
   transform: rotate(45deg) scale(0);
   transition: transform 0.12s ease-out;
 }
-[data-admin-theme] input[type="checkbox"]:checked {
+[data-admin-theme] input[type="checkbox"]:checked,
+.judge-screen input[type="checkbox"]:checked {
   border-color: currentColor;
   background: currentColor;
 }
-[data-admin-theme] input[type="checkbox"]:checked::before {
+[data-admin-theme] input[type="checkbox"]:checked::before,
+.judge-screen input[type="checkbox"]:checked::before {
   transform: rotate(45deg) scale(1);
 }
 

@@ -61,6 +61,8 @@ type Props = {
   serverNow: number;
   /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
   offPanel?: boolean;
+  /** A pageant segment that has just started, nothing judged in it yet: the first of its sub-activities is next. */
+  segmentFresh?: "preliminary" | "proper" | null;
   /** The judge's call for help (see AssistButton): what to show of their last one. Null before migration 032: no Assist me. */
   assistance: { current: JudgeAssistance | null } | null;
   /** At their own pace (see atOwnPace), with criteria: the points behind each of their scores. Null otherwise. */
@@ -152,10 +154,11 @@ function WarningIcon() {
 
 /** A judge's own score as they think of it: the score, or criteria points out of 100. */
 /**
- * Whether a confirmed score waits SCORE_UNDO_MS, to be undone, before it's sent. Not in an event with live scoring: the
- * audience sees each score as it comes in, so it goes in at once.
+ * Whether a confirmed score waits SCORE_UNDO_MS, to be undone, before it's sent. Not when the audience sees each score as
+ * it comes in (an event with live scoring, a pageant sub-activity whose results are live: see showingBoard), so it goes
+ * in at once.
  */
-const undoable = (activity: Activity) => !(activity.kind === "event" && activity.liveScoring);
+const undoable = (activity: Activity) => !activity.liveScoring;
 /** With live scoring, what submitting means, said before it's done: final, and in front of the audience at once. */
 const LIVE_SCORE_NOTE = "Once you submit it, it's final, and it shows on the live results at once.";
 
@@ -221,6 +224,7 @@ export function ScoringPanel({
   round,
   serverNow,
   offPanel = false,
+  segmentFresh = null,
   assistance,
   ownBreakdowns,
 }: Props) {
@@ -574,6 +578,7 @@ export function ScoringPanel({
                 timerSeconds={timerSeconds}
                 ownPace={ownPace}
                 offPanel={offPanel}
+                segmentFresh={segmentFresh}
                 correction={
                   corrections && view.kind === "scored" ? (
                     <CorrectionStatus
@@ -1028,6 +1033,7 @@ function WaitingCard({
   timerSeconds,
   ownPace = false,
   offPanel,
+  segmentFresh,
   correction,
   points,
 }: {
@@ -1045,6 +1051,8 @@ function WaitingCard({
   round: Props["round"];
   /** The sub-activity on screen has its own judges. */
   offPanel: boolean;
+  /** See Props. */
+  segmentFresh: "preliminary" | "proper" | null;
   scoredCount: number;
   entryCount: number;
   /** The chair shows the next entry themselves, so they aren't told to wait. */
@@ -1092,7 +1100,12 @@ function WaitingCard({
       : offPanel
         ? { title: "Waiting for your part of the pageant", body: `${round?.name ?? "This part"} has its own judges. Your screen opens by itself when it's your turn.` }
         : betweenRounds
-          ? { title: "Waiting for the next part of the pageant", body: "It appears here when the organizer starts it." }
+          ? {
+              title: segmentFresh
+                ? `Waiting for the first part of ${segmentFresh === "proper" ? "pageant proper" : "the preliminary"}`
+                : "Waiting for the next part of the pageant",
+              body: "It appears here when the organizer starts it.",
+            }
           : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   const submitted = correction ?? (

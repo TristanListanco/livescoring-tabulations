@@ -27,7 +27,7 @@ import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
-import { CutDialog, DeskTimer, JudgeRoundButton, nextUp, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
+import { CutDialog, Deductions, DeskTimer, FinalPlacements, JudgeRoundButton, nextUp, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
 
@@ -656,15 +656,17 @@ export function SessionTab({
       passwordLabel="Your password"
       onConfirm={(password) => changeSegment("endPreliminary", password)}
     >
-      Its scores are final and deductions close. Judges who judge only the preliminary are done, and their screens thank them. You can reopen it
-      until pageant proper starts. Enter your admin password to confirm.
+      Its scores are final. Judges who judge only the preliminary are done, and their screens thank them. Deductions stay open until pageant proper
+      starts, and you can reopen the preliminary until then. Enter your admin password to confirm.
     </ConfirmDialog>
   );
   // Pageant proper's judges without an approved device yet, for its start to name.
   const unpairedProper = unpaired.filter((j) => j.panel !== "preliminary");
   const startProper = (triggerClassName: string) => (
     <ConfirmDialog triggerLabel="Start pageant proper" triggerClassName={triggerClassName} title="Start pageant proper?" confirmLabel="Start pageant proper" onConfirm={() => changeSegment("startProper")}>
-      Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock. Choose its first sub-activity when you&apos;re ready.
+      Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock.
+      {activity.violations !== null && ` Deductions close: ${board.deductions?.length ?? 0} given, none after this.`} Choose its first sub-activity when
+      you&apos;re ready.
       {unpairedProper.length > 0 && (
         <span className="mt-3 block font-semibold text-prussian">
           {listNames(unpairedProper)} {unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
@@ -674,8 +676,8 @@ export function SessionTab({
   );
   const reopenPreliminary = (triggerClassName: string) => (
     <ConfirmDialog triggerLabel="Reopen preliminary" triggerClassName={triggerClassName} title="Reopen the preliminary?" confirmLabel="Reopen preliminary" onConfirm={() => changeSegment("reopenPreliminary")}>
-      Its judges&apos; screens open again, and any of its sub-activities can be judged again. Deductions open again too. Pageant proper waits until
-      you end the preliminary again.
+      Its judges&apos; screens open again, and any of its sub-activities can be judged again. Pageant proper waits until you end the preliminary
+      again.
     </ConfirmDialog>
   );
   /** What ends what's being judged: the preliminary, pageant proper (the session), or an event's session. Nothing between segments. */
@@ -840,7 +842,7 @@ export function SessionTab({
                       : `Now judging: No. ${index + 1} of ${entries.length}`
                     : between
                       ? pageant && judging === null
-                        ? "Between segments"
+                        ? "Waiting for pageant proper"
                         : "Between sub-activities"
                       : "On judges' screens"}
                 </h2>
@@ -873,14 +875,21 @@ export function SessionTab({
 
             {between && pageant && judging === null ? (
               // Between the segments: the preliminary's own judges are done, and pageant proper's start when the desk does.
+              // The break is when deductions are tallied, so they're right here until pageant proper starts.
               <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
                 <p className="max-w-xl text-[15px] leading-relaxed text-powder">
                   Judges who judge only the preliminary are done. Pageant proper&apos;s judges are waiting for it to start.
+                  {activity.violations !== null && " Record any deductions below before you start it."}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   {startProper("btn bg-mint text-prussian hover:bg-white")}
                   {reopenPreliminary("btn border border-oxford text-mint hover:bg-oxford")}
                 </div>
+                {activity.violations !== null && (
+                  <section aria-labelledby="desk-deductions" className="mt-2 w-full max-w-2xl rounded-2xl bg-mint p-5 text-prussian">
+                    <Deductions board={board} titleId="desk-deductions" inline />
+                  </section>
+                )}
               </div>
             ) : underReview ? (
               <RoundDeliberationDesk board={board} round={underReview} signatures={roundSignatures} />
@@ -902,6 +911,7 @@ export function SessionTab({
                 )}
                 {!upNext && (
                   <>
+                    {judging === "proper" && <FinalPlacements board={board} />}
                     <p className="font-semibold">
                       {judging === "preliminary"
                         ? "Every preliminary sub-activity is judged. End the preliminary when you're ready."
@@ -921,6 +931,8 @@ export function SessionTab({
                   </ul>
                 </div>
 
+                {/* The final cut confirmed with its sub-activity still on screens: the placements, for the announcement. */}
+                {pageant && lastOneIn && !upNext && <FinalPlacements board={board} className="shrink-0 border-t border-oxford px-6 py-3" />}
                 {!ownPace && onAir}
 
                 {ownPace ? (

@@ -4,6 +4,7 @@ import { correctionView, correctionVoters, withoutValues } from "@/lib/correctio
 import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getRoundSignatures, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
 import { onPanel, roundDeliberating, showingBoard } from "@/lib/pageant";
+import { runningSegment } from "@/lib/lifecycle";
 import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
@@ -52,6 +53,9 @@ export default async function ScorePage() {
   const { board: showing, round } = showingBoard(board);
   // The preliminary can have its own judges: a judge not on this sub-activity's panel waits for their part.
   const offPanel = round !== null && !onPanel(context.judge, round);
+  // A segment just started, nothing judged in it yet: its judges wait for its first sub-activity rather than "the next".
+  const segment = board.activity.kind === "pageant" && !round ? runningSegment(board.activity) : null;
+  const segmentFresh = segment && !board.scores.some((s) => board.rounds.find((r) => r.id === s.roundId)?.segment === segment) ? segment : null;
   // A sub-activity (or part) whose judges are deliberating it: this judge reviews their scores in it and signs, as in an
   // event's deliberation. Read only then: its signatures, and the points behind each of this judge's scores.
   const underReview = round && !offPanel && gate.status === "approved" && roundDeliberating(round) ? round : null;
@@ -230,6 +234,7 @@ export default async function ScorePage() {
       panel={panel}
       round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}
       offPanel={offPanel}
+      segmentFresh={segmentFresh}
       assistance={assistance}
       ownBreakdowns={ownPace ? (breakdowns ?? {}) : null}
       // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.

@@ -748,7 +748,7 @@ const MAX_DEDUCTIONS = 500;
 function deductionsClosed(board: Board): string | null {
   if (board.activity.violations === null) return "This pageant has no deductions. Turn them on on the Segments tab before the session starts.";
   if (deductionsOpen(board)) return null;
-  return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "The preliminary has ended, so deductions are final.";
+  return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "Pageant proper has started, so deductions are final.";
 }
 
 /**
@@ -1602,12 +1602,20 @@ export const startRoundDeliberation = traced("startRoundDeliberation", async fun
 
 /**
  * The organizer signs off a sub-activity's (or part's) deliberation once every judge on its panel has signed: drawn,
- * or null for "(Sgd.)". Its scores go out on the live results and the LED wall.
+ * or null for "(Sgd.)", with their password. Its scores go out on the live results and the LED wall.
  */
-export const signOffRound = traced("signOffRound", async function signOffRound(activityId: string, roundId: string, signature: string | null): Promise<ActionResult> {
+export const signOffRound = traced("signOffRound", async function signOffRound(
+  activityId: string,
+  roundId: string,
+  signature: string | null,
+  password: string,
+): Promise<ActionResult> {
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { session, board } = found;
+  // It sends scores out to the audience, with the organizer's signature: their password, as ending a session asks.
+  const refused = await confirmPassword(session, password);
+  if (refused) return refused;
   const round = board.rounds.find((r) => r.id === roundId);
   if (!round) return err("Sub-activity not found.");
   const name = roundLabel(board.rounds, round);
