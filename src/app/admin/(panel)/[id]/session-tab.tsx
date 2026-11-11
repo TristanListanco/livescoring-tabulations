@@ -656,15 +656,17 @@ export function SessionTab({
       passwordLabel="Your password"
       onConfirm={(password) => changeSegment("endPreliminary", password)}
     >
-      Its scores are final and deductions close. Judges who judge only the preliminary are done, and their screens thank them. You can reopen it
-      until pageant proper starts. Enter your admin password to confirm.
+      Its scores are final. Judges who judge only the preliminary are done, and their screens thank them. Deductions stay open until pageant proper
+      starts, and you can reopen the preliminary until then. Enter your admin password to confirm.
     </ConfirmDialog>
   );
   // Pageant proper's judges without an approved device yet, for its start to name.
   const unpairedProper = unpaired.filter((j) => j.panel !== "preliminary");
   const startProper = (triggerClassName: string) => (
     <ConfirmDialog triggerLabel="Start pageant proper" triggerClassName={triggerClassName} title="Start pageant proper?" confirmLabel="Start pageant proper" onConfirm={() => changeSegment("startProper")}>
-      Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock. Choose its first sub-activity when you&apos;re ready.
+      Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock.
+      {activity.violations !== null && ` Deductions close: ${board.deductions?.length ?? 0} given, none after this.`} Choose its first sub-activity when
+      you&apos;re ready.
       {unpairedProper.length > 0 && (
         <span className="mt-3 block font-semibold text-prussian">
           {listNames(unpairedProper)} {unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
