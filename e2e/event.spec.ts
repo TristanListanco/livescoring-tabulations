@@ -304,7 +304,7 @@ test.describe.serial("a full event", () => {
     await expect(page.getByText("1 of 2 judges have scored. Waiting on Ana Cruz.")).toBeVisible(REALTIME);
 
     // Moving on before Ana has scored asks first, and Cancel leaves Agila on every screen.
-    await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
+    await page.getByRole("button", { name: "Next: Bagwis" }).click();
     const moveOn = page.getByRole("dialog");
     await expect(moveOn.getByRole("heading")).toHaveText("Move on to Bagwis?");
     await expect(moveOn).toContainText("Ana Cruz hasn't scored Agila yet.");
@@ -376,7 +376,7 @@ test.describe.serial("a full event", () => {
     await expect(led.getByText("Scored", { exact: true })).toHaveCount(0);
 
     // The LED wall moves with the judges.
-    await page.getByRole("button", { name: "Show next entry: Bagwis" }).click();
+    await page.getByRole("button", { name: "Next: Bagwis" }).click();
     await expect(heading(judge1)).toHaveText("Bagwis", REALTIME);
     // Agila is fully scored, so the running order offers to show it again rather than to judge it.
     await expect(page.getByRole("region", { name: "Running order" }).getByRole("button", { name: "Show again Agila" })).toBeVisible();
@@ -394,7 +394,7 @@ test.describe.serial("a full event", () => {
 
     await expect(heading(judge2)).toHaveText("Waiting for the next entry");
     await snap(judge2, "chair after scoring");
-    await page.getByRole("button", { name: "Show next entry: Kidlat" }).click();
+    await page.getByRole("button", { name: "Next: Kidlat" }).click();
     await expect(heading(judge1)).toHaveText("Kidlat", REALTIME);
     await expect(led.getByText("Kidlat", { exact: true })).toBeVisible(REALTIME);
     await expect(page.getByText("Now judging: No. 3")).toBeVisible(REALTIME);

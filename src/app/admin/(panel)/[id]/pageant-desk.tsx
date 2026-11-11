@@ -188,9 +188,13 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
     : "btn btn-quiet btn-sm";
   const prelimDone = preliminaryComplete(board);
   const running = runningSegment(activity);
-  const [deductionsShown, setDeductionsShown] = useState(false);
   const deductionCount = board.deductions?.length ?? 0;
-  const isCurrent = (r: Round) => r.id === activity.currentRoundId && activity.sessionState === "live";
+  // The break between the segments has its own deductions step on the desk.
+  const inBreak = activity.sessionState === "live" && running === null && activity.preliminaryEndedAt !== null;
+  // Once the final cut is confirmed the placements are decided: nothing is "judging now", and nothing goes back on
+  // judges' screens (undo the cut first).
+  const placed = !!finalCutRound(board.rounds)?.cutEntryIds;
+  const isCurrent = (r: Round) => !placed && r.id === activity.currentRoundId && activity.sessionState === "live";
   // One being deliberated keeps the judges' screens until it's signed off.
   const deliberating = deliberatingRound(board);
   const status = (r: Round, judged: boolean) => {
@@ -229,7 +233,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
         </span>
         {status(r, true)}
-        {live && !current && !progress.blockedBy && !segmentClosed(activity, r) && !deliberating && (
+        {live && !placed && !current && !progress.blockedBy && !segmentClosed(activity, r) && !deliberating && (
           <JudgeRoundButton
             board={board}
             round={{ ...r, name: label }}
@@ -268,11 +272,11 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
               </h3>
               {segment === "preliminary" && (
                 <div className="ml-auto flex items-center gap-1">
-                  {activity.violations !== null && (
-                    <button type="button" className={action} onClick={() => setDeductionsShown(true)}>
+                  {activity.violations !== null && !inBreak && (
+                    <DeductionsButton board={board} className={action}>
                       Deductions
                       {deductionCount > 0 && <span className="tabular ml-1 font-normal text-prussian/75">{deductionCount}</span>}
-                    </button>
+                    </DeductionsButton>
                   )}
                   {prelimDone && awaitingSignoff(board, rounds).length === 0 && (
                     <ExportMenu activityId={activity.id} options={sheetOptions("segment=preliminary", { noun: "Standings" })} className={action} context="the preliminary" align="right" />
@@ -350,14 +354,26 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           </div>
         );
       })}
-      {deductionsShown && <DeductionsDialog board={board} onClose={() => setDeductionsShown(false)} />}
     </section>
   );
 }
 
 const pointsText = (n: number) => `${formatBound(n)} ${n === 1 ? "point" : "points"}`;
 
-/** Deductions in a dialog, from the program's Deductions button. */
+/** A button that opens the deductions in a dialog: the program's, or the first step of the break on the desk. */
+export function DeductionsButton({ board, className, children }: { board: Board; className: string; children: React.ReactNode }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setShown(true)}>
+        {children}
+      </button>
+      {shown && <DeductionsDialog board={board} onClose={() => setShown(false)} />}
+    </>
+  );
+}
+
+/** Deductions in a dialog (see DeductionsButton). */
 function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -574,8 +590,8 @@ export function FinalPlacements({ board, className = "" }: { board: Board; class
             <span className={`w-36 shrink-0 text-sm font-semibold ${i === 0 ? "text-mint" : "text-powder"}`}>{placeTitle(i + 1)}</span>
             <span className="min-w-0 flex-1 truncate">
               <span className="tabular text-powder">No. {numberOf.get(id) ?? "—"}</span>{" "}
-              {/* Large enough to read out from the desk at the announcement. */}
-              <span className={`font-semibold ${i === 0 ? "text-2xl" : "text-lg"}`}>{byId.get(id)?.name ?? "Removed candidate"}</span>
+              {/* Large enough to read out from the desk at the announcement; the winner's own headline is above. */}
+              <span className="text-lg font-semibold">{byId.get(id)?.name ?? "Removed candidate"}</span>
             </span>
           </li>
         ))}
@@ -677,12 +693,23 @@ export function RoundDeliberationDesk({ board, round, signatures }: { board: Boa
         Each judge reviews their scores in {round.name}, corrects any that&apos;s wrong (saying why), then signs. Its scores stay off the live results and
         the LED wall until you sign it off.
       </p>
-      <ul aria-label="Judges' signatures" className="grid w-full gap-2 sm:grid-cols-2">
+      {/* As the desk's judge tiles: those done step back, those still reviewing stand out. */}
+      <ul aria-label="Judges' signatures" className="grid w-full max-w-xl gap-2">
         {judges.map((j) => (
-          <li key={j.id} className="flex items-center gap-3 rounded-xl border border-oxford px-3 py-2">
+          <li
+            key={j.id}
+            className={`flex items-center gap-3 rounded-xl px-3 py-2 ${signed.has(j.id) ? "bg-oxford/45 text-mint/75" : "bg-oxford ring-1 ring-powder/50"}`}
+          >
             <Avatar name={j.name} src={j.photoUrl} size={32} />
             <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
-            <span className={`text-sm ${signed.has(j.id) ? "font-semibold text-mint" : "text-powder"}`}>{signed.has(j.id) ? "Signed" : "Reviewing"}</span>
+            {signed.has(j.id) ? (
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-powder">
+                {check}
+                Signed
+              </span>
+            ) : (
+              <span className="text-sm font-bold text-mint">Reviewing</span>
+            )}
           </li>
         ))}
       </ul>
@@ -694,8 +721,9 @@ export function RoundDeliberationDesk({ board, round, signatures }: { board: Boa
         </p>
       ) : (
         <div className="w-full max-w-xl">
+          {/* The desk's headline says every judge has signed; this says what's left. */}
           <p role="status" className="font-semibold">
-            Every judge has signed. Sign it off to send its scores out.
+            Sign it off to send its scores out.
           </p>
           {touch ? (
             <SignaturePad value={drawing} onChange={setDrawing} />
@@ -950,7 +978,7 @@ export function DeskTimer({ activity, timerSeconds, renderedAt }: { activity: Ac
   const button = "btn btn-sm border border-oxford text-mint hover:bg-oxford";
   return (
     <div className="flex flex-wrap items-center gap-2 px-6 pt-3">
-      <div className="min-w-48 flex-1">{timer && <TimerBar state={timer} timerSeconds={timerSeconds} compact />}</div>
+      <div className="min-w-48 flex-1">{timer && <TimerBar state={timer} timerSeconds={timerSeconds} compact quiet />}</div>
       <button type="button" className={button} onClick={() => run("more")} disabled={pending}>
         {timer?.phase === "closed" ? "Reopen for 15 s" : "+15 s"}
       </button>

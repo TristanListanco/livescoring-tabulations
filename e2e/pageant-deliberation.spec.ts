@@ -60,7 +60,7 @@ async function everyoneSigns() {
 
 /** The organizer signs off the sub-activity on the desk once every judge has signed, with their password. */
 async function signOff(page: Page, name: string) {
-  await expect(page.getByRole("status").filter({ hasText: "Every judge has signed." })).toBeVisible(REALTIME);
+  await expect(page.getByRole("status").filter({ hasText: "Sign it off to send its scores out." })).toBeVisible(REALTIME);
   await page.getByRole("checkbox", { name: new RegExp(`I've checked the scores in ${name} and sign them off`) }).check();
   await page.getByRole("button", { name: `Sign off ${name}` }).click();
   const dialog = page.getByRole("dialog", { name: `Sign off ${name}?` });
@@ -148,7 +148,7 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=session`);
     await judgeCandidate(page, "Show first candidate", "Ayla", "9");
-    await judgeCandidate(page, "Show next candidate: Bea", "Bea", "8");
+    await judgeCandidate(page, "Next: Bea", "Bea", "8");
 
     // The audience sees a tick for each score that's in, not the score.
     const live = await openPage(browser);
@@ -204,7 +204,7 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await page.getByRole("dialog", { name: "Start pageant proper?" }).getByRole("button", { name: "Start pageant proper" }).click();
     await page.getByRole("button", { name: "Judge Gown", exact: true }).click();
     await judgeCandidate(page, "Show first candidate", "Ayla", "9");
-    await judgeCandidate(page, "Show next candidate: Bea", "Bea", "8");
+    await judgeCandidate(page, "Next: Bea", "Bea", "8");
 
     // The cut has every score, but Gown isn't signed off yet.
     const program = page.getByRole("region", { name: "Program" });
