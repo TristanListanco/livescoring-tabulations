@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canApprove,
   canMove,
+  canReset,
   canMoveSegment,
   editable,
   hasLedWall,
@@ -141,6 +142,19 @@ describe("a pageant's segments", () => {
     }
     // An event has no segments to open.
     expect(editable({ ...SHOW.preliminary, kind: "event" }, "judges", "proper")).toBe(false);
+  });
+
+  it("resets one segment's scores: the preliminary until pageant proper starts, pageant proper once it has", () => {
+    const resets = Object.fromEntries(Object.entries(SHOW).map(([k, a]) => [k, (["all", "preliminary", "proper"] as const).filter((scope) => canReset(a, scope))]));
+    expect(resets).toEqual({
+      setup: ["all"],
+      preliminary: ["all", "preliminary"],
+      between: ["all", "preliminary"],
+      proper: ["all", "proper"],
+      ended: ["all", "proper"],
+    });
+    expect(canReset({ ...SHOW.ended, archivedAt: T }, "proper")).toBe(false);
+    expect(canReset({ ...SHOW.preliminary, kind: "event" }, "preliminary")).toBe(false);
   });
 });
 

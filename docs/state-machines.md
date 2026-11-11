@@ -212,7 +212,9 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Judges' screens:** a judge of the preliminary only reads "Your part of the pageant is done" once it has ended; one of pageant proper (only, or of both between the segments) reads "Pageant proper starts soon".
 
-**Deductions** close when the preliminary ends (`deductionsOpen`). **Reset** clears both segments.
+**Deductions** close when the preliminary ends (`deductionsOpen`).
+
+**Reset** (`resetScores`, `canReset`): both segments (back to not started, as any activity), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
 
 ## 15. Deliberation per sub-activity
 

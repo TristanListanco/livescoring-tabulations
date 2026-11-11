@@ -296,7 +296,14 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                           </span>
                           {status(round, false)}
                           {roundProgress(board, round).complete && parts.every(roundReleased) && (
-                            <ExportMenu activityId={activity.id} options={sheetOptions(`round=${round.id}`, { noun: "Standings" })} className={action} context={round.name} align="right" />
+                            <ExportMenu
+                              activityId={activity.id}
+                              // Its standings, and each judge's sheets for every part in one PDF.
+                              options={[...sheetOptions(`round=${round.id}`, { noun: "Standings" }), { label: "Judges' score sheets (PDF)", query: `round=${round.id}&sheet=judges` }]}
+                              className={action}
+                              context={round.name}
+                              align="right"
+                            />
                           )}
                         </div>
                         <ol aria-label={`Parts of ${round.name}`} className="border-l-2 border-line ml-1 pl-2">

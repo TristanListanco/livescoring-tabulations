@@ -200,6 +200,8 @@ test.describe.serial("a pageant", () => {
     // The other parts take its share, so the interview still counts for 40.
     await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     await page.getByLabel("Share of the overall score for Interview · Questions").fill("24");
+    // Its parts now add up to more than the preliminary's 40%: the interview's sum says so, in the danger colour.
+    await expect(page.getByText(/^sum of parts, [\d.]+% over$/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Undo removing Part 3" })).toHaveCount(0);
     await page.getByLabel("Share of the overall score for Interview · Advocacy").fill("16");
     await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
@@ -314,9 +316,21 @@ test.describe.serial("a pageant", () => {
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
 
+    // Settings shows each sub-activity's scoring, chosen from the program.
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByLabel("Scoring of").selectOption({ label: "Q&A" });
+    await expect(page.getByText("5 seconds per candidate")).toBeVisible();
+    // The live results say the pageant hasn't started, then that judging starts soon.
+    await page.goto(livePath);
+    await expect(page.getByText("The pageant hasn't started yet.", { exact: false })).toBeVisible();
+
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start preliminary" }).click();
     await page.getByRole("dialog", { name: "Start the preliminary?" }).getByRole("button", { name: "Start preliminary" }).click();
+    await expect(page.getByText("Live · Preliminary")).toBeVisible();
+    await page.goto(livePath);
+    await expect(page.getByText("Judging starts soon.", { exact: false })).toBeVisible(REALTIME);
+    await page.goto(`${adminPath}?tab=session`);
     // No sub-activity is on yet: the desk offers the first one, and the preliminary's judges wait for it.
     await expect(page.getByText("Choose what to judge next")).toBeVisible();
     await expect(page.getByText("Live · Preliminary")).toBeVisible();
@@ -347,8 +361,8 @@ test.describe.serial("a pageant", () => {
     await page.getByRole("button", { name: "Judge Interview · Questions", exact: true }).click();
     await expect(page.getByRole("heading", { name: /^Interview · Questions · / })).toBeVisible();
     await expect(dina.getByText(`${NAME} · Interview · Questions`)).toBeVisible(REALTIME);
-    // The preliminary has its own board, so pageant proper's judges wait for theirs.
-    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Waiting for your part of the pageant", REALTIME);
+    // The preliminary has its own board, so pageant proper's judges wait for theirs to start.
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
 
     await judgeCandidate(page, preliminaryBoard(), "Show first candidate", "Ayla", "9", "9.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
@@ -390,7 +404,7 @@ test.describe.serial("a pageant", () => {
     await end.getByRole("button", { name: "End preliminary" }).click();
     // Dina judges only the preliminary: she's done. Pageant proper's board still waits.
     await expect(dina.getByRole("heading", { level: 1 })).toHaveText("Your part of the pageant is done", REALTIME);
-    await expect(page.getByText("The preliminary has ended")).toBeVisible(REALTIME);
+    await expect(page.getByText("The preliminary has ended", { exact: true })).toBeVisible(REALTIME);
     await expect(page.getByText("Live · Between segments")).toBeVisible();
     await snap(page, "desk between the segments");
     await snap(dina, "judge whose part is done");
@@ -535,6 +549,8 @@ test.describe.serial("a pageant", () => {
       ["Interview · Questions", "Results (PDF)", `${slug}-interview-questions-results.pdf`],
       ["Interview · Questions", "Judges' score sheets (PDF)", `${slug}-interview-questions-judges-score-sheets.pdf`],
       ["Interview", "Standings (PDF)", `${slug}-interview-results.pdf`],
+      // A sub-activity in parts: each judge's sheets for every part, in one PDF.
+      ["Interview", "Judges' score sheets (PDF)", `${slug}-interview-judges-score-sheets.pdf`],
       ["Q&A", "Results (PDF)", `${slug}-qa-results.pdf`],
       ["Q&A", "Judges' score sheets (PDF)", `${slug}-qa-judges-score-sheets.pdf`],
       ["the preliminary", "Standings (PDF)", `${slug}-preliminary-results.pdf`],

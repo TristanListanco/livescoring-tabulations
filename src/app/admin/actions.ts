@@ -49,7 +49,7 @@ import { accountInUse } from "@/lib/in-use-server";
 import { testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
-import { canApprove, canMove, canMoveSegment, editable, phaseOf, segmentPhase, type DeviceStatus, type SegmentMove } from "@/lib/lifecycle";
+import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
 import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
 import {
   awaitingSignoff,
@@ -910,11 +910,9 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       if (formData.get("correction_reasons") === "on") columns.correction_reasons = true;
       if (formData.get("independent_scoring") === "on") columns.independent_scoring = true;
     }
-    // Written only with fields, so events without them create before migration 033.
-    if (entryFields.length) {
-      columns.entry_fields = entryFields;
-    }
   }
+  // Written only with fields, so activities without them create before migration 033.
+  if (entryFields.length) columns.entry_fields = entryFields;
   // Who signs the results on paper, added on the create form (and changed later in Settings). Written only when there
   // are some, as an activity without them has always been created.
   let sent: unknown;
@@ -2160,7 +2158,8 @@ export const shuffleEntries = traced("shuffleEntries", async function shuffleEnt
  * can still change, but the panel of judges stays as it was: judging started once, and the same judges score again
  * (judgesLocked). Any time until the activity is archived, even mid-show, with the signed-in admin's password.
  */
-export const resetScores = traced("resetScores", async function resetScores(activityId: string, password: string): Promise<ActionResult> {
+export const resetScores = traced("resetScores", async function resetScores(activityId: string, password: string, scope: ResetScope = "all"): Promise<ActionResult> {
+  if (scope !== "all" && scope !== "preliminary" && scope !== "proper") return err("That isn't something that can be reset.");
   const session = await manage(activityId);
   if (!session) return NOT_FOUND;
   const refused = await confirmPassword(session, password);
@@ -2168,6 +2167,7 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   const activity = await getActivity(activityId);
   if (!activity) return NOT_FOUND;
   if (!canMove(activity, "reset")) return err("This activity is archived, so its scores stay as they are.");
+  if (scope !== "all") return resetSegment(activity, scope);
   // Everything the scores made: the scores, corrections to them (votes go with them), judges' notes (018) and signatures
   // (021), the ties they made and the organizer's signature on their results (026), and a pageant's sub-activity
   // signatures and sign-offs (040). Each fails harmlessly on a database without its table.
@@ -2217,6 +2217,58 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   changed(activity.publicId);
   return ok("Every score and judge's note was deleted, and every judge was signed out. The session is back to not started.");
 });
+
+/**
+ * A pageant's segment starts over, the rest staying as it is (see canReset): its scores go, with their corrections, its
+ * sub-activities' deliberations and the cuts that counted them, and the preliminary's deductions. Judges stay signed in.
+ * The preliminary is open again from the start; pageant proper is back to not started (a pageant that had ended is
+ * live again, between the segments). Judges' screens leave the segment first, so nothing lands while its scores go.
+ */
+async function resetSegment(activity: Activity, segment: "preliminary" | "proper"): Promise<ActionResult> {
+  if (!canReset(activity, segment)) {
+    return err(
+      segment === "preliminary"
+        ? "Pageant proper has started, so the preliminary can only be reset with it. Reset both segments, or pageant proper alone."
+        : "Pageant proper hasn't started, so it has no scores to reset.",
+    );
+  }
+  const board = await getAdminBoard(activity.id);
+  if (!board) return NOT_FOUND;
+  // A part is in its sub-activity's segment.
+  const ids = board.rounds.filter((r) => r.segment === segment).map((r) => r.id);
+  const update =
+    segment === "preliminary"
+      ? { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null, preliminary_ended_at: null }
+      : { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null, proper_started_at: null, session_state: "live", session_ended_at: null };
+  const { error, count } = await db().from("activities").update(update, { count: "exact" }).eq("id", activity.id).eq("session_state", activity.sessionState);
+  if (error) return /preliminary_ended_at|proper_started_at/.test(error.message) ? needsMigration(SEGMENTS_HINT) : dbErr(error);
+  if (!count) {
+    changed(activity.publicId);
+    return err("The session changed meanwhile, so nothing was reset. Check where it stands now.");
+  }
+  if (ids.length) {
+    const scores = await db().from("scores").delete().eq("activity_id", activity.id).in("round_id", ids);
+    if (scores.error) return dbErr(scores.error);
+    // Each fails harmlessly on a database without its table.
+    await db().from("score_corrections").delete().eq("activity_id", activity.id).in("round_id", ids);
+    await db().from("round_signatures").delete().in("round_id", ids);
+    await db().from("round_signoffs").delete().in("round_id", ids);
+    await db().from("rounds").update({ deliberation_started_at: null }).in("id", ids);
+  }
+  if (segment === "preliminary") {
+    // Every cut so far (one can count the preliminary alone), and the deductions, which come off its score.
+    await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activity.id);
+    await db().from("deductions").delete().eq("activity_id", activity.id);
+  } else if (ids.length) {
+    await db().from("rounds").update({ cut_entry_ids: null }).in("id", ids);
+  }
+  changed(activity.publicId);
+  return ok(
+    segment === "preliminary"
+      ? "The preliminary's scores were deleted, and it starts over: choose its first sub-activity on the Session tab."
+      : "Pageant proper's scores were deleted and its cuts opened again. Start it again from the Session tab.",
+  );
+}
 
 export const deleteActivity = traced("deleteActivity", async function deleteActivity(activityId: string): Promise<ActionResult> {
   // An archived activity can still be deleted: it's the one change it allows.

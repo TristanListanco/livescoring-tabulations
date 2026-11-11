@@ -229,4 +229,30 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await finish.getByRole("button", { name: "End pageant proper" }).click();
     await expect(page.getByRole("heading", { name: "Judging has ended" })).toBeVisible(REALTIME);
   });
+
+  test("pageant proper can start over on its own, the preliminary's scores staying", async ({ page }) => {
+    await signInAsSuperAdmin(page);
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByRole("button", { name: "Reset scores" }).click();
+    const reset = page.getByRole("dialog", { name: "Reset every score?" });
+    // The preliminary can't start over alone once pageant proper has started, and says why.
+    await expect(reset.getByRole("radio", { name: /^The preliminary only/ })).toBeDisabled();
+    await expect(reset).toContainText("Pageant proper has started, so the preliminary resets only with it.");
+    await reset.getByRole("radio", { name: "Pageant proper only" }).check();
+    const proper = page.getByRole("dialog", { name: "Reset pageant proper?" });
+    await expect(proper).toContainText("This deletes pageant proper's 6 submitted scores and opens its cuts again.");
+    await expectAccessible(page);
+    await proper.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await proper.getByRole("button", { name: "Reset pageant proper" }).click();
+    await expect(proper).toBeHidden();
+
+    // Live again, between the segments: the judges still signed in, the preliminary as it was.
+    await page.goto(`${adminPath}?tab=session`);
+    await expect(page.getByText("The preliminary has ended", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByText("Live · Between segments")).toBeVisible();
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
+    const program = page.getByRole("region", { name: "Program" });
+    await expect(program.getByRole("listitem").filter({ hasText: "Talent" })).toContainText("Done");
+    await expect(program.getByRole("listitem").filter({ hasText: "Gown" })).not.toContainText("Done");
+  });
 });

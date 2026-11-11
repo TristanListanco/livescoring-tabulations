@@ -103,8 +103,34 @@ function pageantSheet(board: Board, search: URLSearchParams, corrections: Correc
     if (judged.some((r) => !roundReleased(r))) return notYet(`${label} results are ready once its deliberation is signed off.`);
     const signed = async () => (round.liveScoring ? null : ((await getRoundSignatures(round.id))?.signatures ?? null));
 
+    // A sub-activity in parts: each judge's sheets for every part, in one PDF (its standings' report ID).
+    if (wantsJudgeSheets(search) && partsOf(board.rounds, round.id).length) {
+      const pieces = partsOf(board.rounds, round.id);
+      const weights = partWeights(board.rounds, round);
+      const { rows } = standingsBy(board, roundPool(board, round.id).entries, weights);
+      const ids = new Set(pieces.map((r) => r.id));
+      const id = reportId({ ...board, entries: rows.map((r) => r.entry), scores: board.scores.filter((s) => s.roundId && ids.has(s.roundId)), deductions: undefined }, `subactivity:${round.id}`);
+      return {
+        label: `${label} judges' scores`,
+        reportId: id,
+        files: { pdf: sheetsFiles(activity.name, label).pdf, csv: null },
+        pdf: async (timeZone) => {
+          const full = await withBreakdowns(board);
+          const parts = await Promise.all(
+            pieces.map(async (p) => ({
+              board: roundBoard(full, p),
+              part: roundLabel(board.rounds, p),
+              corrections: appliedTo(board, corrections, p.id) ?? [],
+              signatures: p.liveScoring ? null : ((await getRoundSignatures(p.id))?.signatures ?? null),
+            })),
+          );
+          return renderJudgeSheetsPdf(full, { timeZone, reportId: id, ...(await people()), part: label, parts });
+        },
+        csv: null,
+      };
+    }
+
     if (wantsJudgeSheets(search)) {
-      if (partsOf(board.rounds, round.id).length) return new Response(`Download the judges' score sheets for each part of ${round.name}.`, { status: 400 });
       // The results sheet's report ID: the two go together.
       const id = reportId({ ...roundBoard(board, round), deductions: undefined }, `round:${round.id}`);
       const part = async () => roundBoard(await withBreakdowns(board), round);

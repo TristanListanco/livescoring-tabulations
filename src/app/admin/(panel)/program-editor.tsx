@@ -480,6 +480,8 @@ function RoundCard({
   const group = shareGroups(draft).find((g) => g.rounds.some((r) => r.key === round.key));
   const used = (group?.rounds ?? []).reduce((n, r) => n + roundShare(r), 0);
   const room = group?.target == null ? 0 : Math.round((group.target - used) * 100) / 100;
+  // Its group's shares are over or under what they should add up to (its parts' shares are its share).
+  const off = group?.target != null && room !== 0;
   const scope = shareScope(draft.rounds, round);
   // Alone after a cut it counts for all of its stage, so there's no share to give.
   const alone = aloneAfterCut(draft.rounds, round);
@@ -578,9 +580,12 @@ function RoundCard({
                 {scope} for {name}
               </span>
             </p>
-            <p className="flex h-11 items-center gap-2 whitespace-nowrap">
+            {/* In the danger colour, saying by how much, while its group's shares don't add up to what they should. */}
+            <p className={`flex h-11 items-center gap-2 whitespace-nowrap ${off ? "text-danger" : ""}`}>
               <span className="tabular font-semibold">{shareText(roundShare(round))}%</span>
-              <span className="hint">sum of parts</span>
+              <span className={off ? "text-sm font-semibold" : "hint"}>
+                sum of parts{off && <span className="tabular">{room < 0 ? `, ${shareText(-room)}% over` : `, ${shareText(room)}% under`}</span>}
+              </span>
             </p>
           </div>
         ) : (

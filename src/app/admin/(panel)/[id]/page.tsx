@@ -242,8 +242,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}
+              rounds={board.rounds}
               developer={testToolsAllowed()}
               scoreCount={scores.length}
+              // A pageant's scores in each segment, for resetting one of them.
+              segmentScores={{
+                preliminary: scores.filter((s) => board.rounds.some((r) => r.id === s.roundId && r.segment === "preliminary")).length,
+                proper: scores.filter((s) => board.rounds.some((r) => r.id === s.roundId && r.segment === "proper")).length,
+              }}
               archiveBlocked={archiveBlocked(activity, progress)}
               signatories={settingsSignatories ?? []}
               organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}

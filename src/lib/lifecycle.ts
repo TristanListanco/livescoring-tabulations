@@ -105,6 +105,21 @@ export function canMoveSegment(activity: Segments, move: SegmentMove): boolean {
 }
 
 /**
+ * What a reset of the scores covers: everything (the session back to not started, see SESSION_MOVES), or one of a
+ * pageant's segments, whose scores go while the rest stays. The preliminary alone only until pageant proper starts
+ * (its first cut can count the preliminary); pageant proper alone once it has started.
+ */
+export type ResetScope = "all" | Segment;
+
+export function canReset(activity: Parameters<typeof phaseOf>[0], scope: ResetScope): boolean {
+  if (!canMove(activity, "reset")) return false;
+  if (scope === "all") return true;
+  if (activity.kind !== "pageant" || activity.sessionState === "draft") return false;
+  if (scope === "preliminary") return segmentPhase(activity, "proper") === "setup";
+  return segmentPhase(activity, "proper") !== "setup";
+}
+
+/**
  * What can still change, by phase. One table instead of the checks each form and action used to make on its own.
  * - judges: who's on the panel (and the chair). Fixed once judging has started, even after a reset.
  * - rules: how judges score: live scoring, the time limit, own pace, decimal places. Fixed like the panel.

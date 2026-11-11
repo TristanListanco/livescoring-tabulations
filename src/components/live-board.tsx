@@ -1,14 +1,27 @@
 "use client";
 
+import { runningSegment } from "@/lib/lifecycle";
 import { showingBoard } from "@/lib/pageant";
 import { scoreProgress } from "@/lib/scoring";
 import { SURVEY_URL } from "@/lib/survey";
-import type { Board } from "@/lib/types";
+import type { Activity, Board } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { useStage } from "@/lib/use-stage";
 import { Scoreboard } from "./scoreboard";
 import { ShowStatus } from "./show-status";
 import { SurveyLink } from "./survey-link";
+
+/**
+ * What a pageant's live results say with no sub-activity on: that it hasn't started, that judging starts soon, that
+ * pageant proper does, that the next part does, or that it has ended. `scored`: whether any score has come in yet.
+ */
+function pageantWaiting(activity: Activity, scored: boolean): string {
+  if (activity.sessionState === "draft") return "The pageant hasn't started yet. Scores appear here as the judges submit them.";
+  if (activity.sessionState === "ended") return "Judging has ended.";
+  if (!scored) return "Judging starts soon. Scores appear here as the judges submit them.";
+  if (runningSegment(activity) === null) return "Pageant proper starts soon. Scores appear here as the judges submit them.";
+  return "The next part of the pageant starts soon. Scores appear here as the judges submit them.";
+}
 
 /**
  * The public live results: scoreboard plus its heading (with the organizer's logo, when they've added one), kept
@@ -89,7 +102,9 @@ export function LiveBoard({ board: full }: { board: Board }) {
         </div>
       </header>
       {waiting ? (
-        <p className="px-6 py-16 text-center text-[clamp(1.1rem,1.6vw,1.75rem)] text-powder">The next part of the pageant starts soon. Scores appear here as judges submit them.</p>
+        <p className="px-6 py-16 text-center text-[clamp(1.1rem,1.6vw,1.75rem)] text-powder">
+          {pageantWaiting(full.activity, full.scores.length > 0 || (full.scored?.length ?? 0) > 0)}
+        </p>
       ) : (
         <Scoreboard board={board} ranked={ranked && !held} scored={scored} stage={stage} footnote={summary} />
       )}
