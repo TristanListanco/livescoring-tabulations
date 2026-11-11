@@ -78,3 +78,26 @@ describe("ledScene", () => {
     expect(scene.average.state).toBe("none");
   });
 });
+
+describe("a pageant sub-activity that deliberates", () => {
+  // Its board as the wall gets it (see showingBoard): not live until it's signed off.
+  const held = (b: Board, marks?: Board["scored"]): Board => ({ ...b, activity: { ...b.activity, liveScoring: false }, ...(marks ? { scored: marks } : {}) });
+
+  it("shows only that each judge has scored, from the marks the public board carries", () => {
+    const scene = ledScene(held(board({ hold: false, onAir: "e1", scores: [] }), [{ entryId: "e1", judgeId: "j1", roundId: "r" }]));
+    if (scene.kind !== "entry") throw new Error("expected an entry");
+    expect(scene.tiles.map((t) => [t.state, t.value])).toEqual([
+      ["submitted", null],
+      ["waiting", null],
+    ]);
+    expect(scene.average).toEqual({ state: "hidden", value: null, count: 1, total: 2 });
+  });
+
+  it("holds the scores back in the organizer's preview too, which has them", () => {
+    const scene = ledScene(held(board({ hold: false, onAir: "e1", scores: [["e1", "j1", 9], ["e1", "j2", 8]] })));
+    if (scene.kind !== "entry") throw new Error("expected an entry");
+    expect(scene.tiles.map((t) => t.state)).toEqual(["submitted", "submitted"]);
+    expect(scene.average.state).toBe("hidden");
+    expect(scene.average.value).toBeNull();
+  });
+});

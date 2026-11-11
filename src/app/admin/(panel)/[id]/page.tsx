@@ -2,20 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
-import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getSignatures, listActivityDevices, listAdmins, resultsReleased, withEntryDetails } from "@/lib/data";
+import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getRoundSignatures, getSignatures, listActivityDevices, listAdmins, resultsReleased, withEntryDetails } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
 import { chairMovesEntries, judgesLocked } from "@/lib/judging";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
-import { expectedScores, programProgress } from "@/lib/pageant";
+import { deliberatingRound, expectedScores, programProgress } from "@/lib/pageant";
 import { scoreProgress, withheldScores } from "@/lib/scoring";
 import { canManageActivity, currentAdmin, requireAdmin, type AdminSession } from "@/lib/session";
 import type { Board } from "@/lib/types";
 import { LiveSince } from "@/lib/use-live-refresh";
 import { BackLink } from "../back-link";
 
-import { SessionStatus } from "../session-status";
+import { segmentStatus, SessionStatus } from "../session-status";
 import { JudgesTab } from "./access-tab";
 import { CatchUp } from "./judge-devices";
 import { EntriesTab } from "./entries-tab";
@@ -27,7 +27,7 @@ import { SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 import { activityTabs, askedTab } from "./tabs";
 import { PanelSkeleton } from "../skeletons";
-import { archiveBlocked, scoresGoOutLive } from "@/lib/lifecycle";
+import { archiveBlocked, editable, scoresGoOutLive } from "@/lib/lifecycle";
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -95,10 +95,13 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     tab === "session" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
     tab === "settings" ? getActivitySignatories(id) : null,
-    // An event's entry details: the organizer's alone, so read only for this tab.
-    tab === "entries" && activity.kind === "event" ? getEntryDetails(id) : null,
+    // The entries' (or candidates') details: the organizer's alone, so read only for this tab.
+    tab === "entries" ? getEntryDetails(id) : null,
   ]);
   const [corrections, notes, signatures] = desk ?? [null, null, null];
+  // A pageant sub-activity being deliberated: who has signed it so far, for the desk (read only then).
+  const reviewing = pageant && tab === "session" ? deliberatingRound(board) : null;
+  const roundSignatures = reviewing ? ((await getRoundSignatures(reviewing.id))?.signatures ?? null) : null;
   // An event without live scoring keeps its scores from every screen until the judges have deliberated and the
   // organizer has signed, the desk included: the private tally, behind the organizer's password, is the one place they
   // show. The desk gets which judge has scored which entry, corrections without the scores, and what the deliberation
@@ -137,7 +140,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               scroll={false}
               className="tap-target rounded-full border border-line bg-white px-3 py-1 text-sm font-semibold hover:border-field"
             >
-              <SessionStatus state={activity.sessionState} onAir={scoresGoOutLive(activity)} pulse />
+              <SessionStatus state={activity.sessionState} onAir={scoresGoOutLive(activity)} segment={segmentStatus(activity)} pulse />
             </Link>
           )}
           {!archived && waitingDevices > 0 && (
@@ -199,6 +202,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               // A pageant judge scores each candidate once per sub-activity (or part) on their panel.
               expected={pageant ? Object.fromEntries(judges.map((j) => [j.id, expectedScores(board, j)])) : undefined}
               locked={judgesLocked(activity)}
+              // While the preliminary runs, pageant proper's own judges can still change, until it starts.
+              properOpen={pageant && judgesLocked(activity) && editable(activity, "judges", "proper")}
               reset={!started && judgesLocked(activity)}
               ended={activity.sessionState === "ended"}
               pageant={pageant}
@@ -217,6 +222,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               archived={archived}
               hasNotes={(notes?.length ?? 0) > 0}
               signatures={signatures}
+              roundSignatures={roundSignatures}
             />
           )}
           {tab === "entries" && (
@@ -236,8 +242,14 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
           {tab === "settings" && !archived && (
             <SettingsTab
               activity={activity}
+              rounds={board.rounds}
               developer={testToolsAllowed()}
               scoreCount={scores.length}
+              // A pageant's scores in each segment, for resetting one of them.
+              segmentScores={{
+                preliminary: scores.filter((s) => board.rounds.some((r) => r.id === s.roundId && r.segment === "preliminary")).length,
+                proper: scores.filter((s) => board.rounds.some((r) => r.id === s.roundId && r.segment === "proper")).length,
+              }}
               archiveBlocked={archiveBlocked(activity, progress)}
               signatories={settingsSignatories ?? []}
               organizers={organizers?.map((a) => ({ id: a.id, name: a.name, email: a.email })) ?? null}

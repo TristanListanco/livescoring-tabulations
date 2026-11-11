@@ -96,7 +96,7 @@ export function BoardsSummary({ judges }: { judges: Judge[] }) {
       </p>
       {proper.length < MIN_PROPER_JUDGES && (
         <p role="note" className="note">
-          Pageant proper needs at least three judges before the session starts.
+          Pageant proper needs at least three judges before it starts.
         </p>
       )}
     </div>
@@ -113,10 +113,13 @@ export function JudgeEditor({
   pageant,
   detail,
   canChair,
+  fixedPanel = false,
 }: {
   judge: Judge;
   pageant: boolean;
   detail: string;
+  /** Their segments can't change: a pageant proper judge while the preliminary runs (moving them would change its board). */
+  fixedPanel?: boolean;
   /** They can take over as chair: they're on the same segments as a chair. */
   canChair: boolean;
 }) {
@@ -166,7 +169,7 @@ export function JudgeEditor({
         </form>
         <FormMessage state={state?.ok ? null : state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
-        {pageant && <PanelSelect judge={judge} />}
+        {pageant && (fixedPanel ? <p className="text-sm">Judges in {panelLabel(judge.panel).toLowerCase()}</p> : <PanelSelect judge={judge} />)}
         {(judge.isChair || detail || canChair) && (
           <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
             {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
@@ -266,7 +269,18 @@ function NameFields({ idPrefix, value, onChange, quiet = false }: { idPrefix: st
  * names), on the card's quieter wash so it reads as the row still to fill in. A toast says they're added (problems stay
  * under the fields); their photo goes on from their own row.
  */
-export function AddJudgeForm({ activityId, pageant, first }: { activityId: string; pageant: boolean; first: boolean }) {
+export function AddJudgeForm({
+  activityId,
+  pageant,
+  first,
+  properOnly = false,
+}: {
+  activityId: string;
+  pageant: boolean;
+  first: boolean;
+  /** While the preliminary runs: a judge added now judges pageant proper only. */
+  properOnly?: boolean;
+}) {
   // The new judge's photo, chosen before they're added and sent with them. Kept in a ref too, for the action to read.
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
   const chosen = useRef(photo);
@@ -288,7 +302,7 @@ export function AddJudgeForm({ activityId, pageant, first }: { activityId: strin
   return (
     <form action={action} className={`bg-wash/60 px-5 py-5 ${first ? "" : "border-t border-line"}`}>
       <fieldset className="min-w-0">
-        <legend className="mb-3 font-semibold">Add a judge</legend>
+        <legend className="mb-3 font-semibold">{properOnly ? "Add a pageant proper judge" : "Add a judge"}</legend>
         {/* Shaped like the rows above: a photo (optional, chosen here), then the names. */}
         <div className="flex items-start gap-4 sm:items-end">
           <PhotoPicker
@@ -301,7 +315,8 @@ export function AddJudgeForm({ activityId, pageant, first }: { activityId: strin
           />
           <div className="flex max-w-2xl min-w-0 flex-1 flex-wrap items-end gap-2">
           <NameFields idPrefix="new-judge" />
-          {pageant && (
+          {properOnly && <input type="hidden" name="panel" value="proper" />}
+          {pageant && !properOnly && (
             <div className="min-w-40">
               <label htmlFor="new-judge-panel" className="mb-1 block text-sm font-semibold">
                 Judges in

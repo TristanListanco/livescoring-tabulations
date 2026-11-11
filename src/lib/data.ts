@@ -6,6 +6,7 @@ import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
+import { roundReleased } from "./pageant";
 import { withheldScores } from "./scoring";
 import { toLedFont, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
@@ -59,6 +60,9 @@ export type ActivityRow = {
   kind?: string;
   preliminary_weight?: number | string;
   current_round_id?: string | null;
+  /** Migration 040. */
+  preliminary_ended_at?: string | null;
+  proper_started_at?: string | null;
   scoring_closes_at?: string | null;
   violations?: unknown;
   created_at: string;
@@ -80,6 +84,9 @@ type RoundRow = {
   cut_basis: unknown;
   cut_entry_ids: unknown;
   parent_id?: string | null;
+  /** Migration 040. */
+  live_scoring?: boolean;
+  deliberation_started_at?: string | null;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = {
@@ -178,6 +185,8 @@ export function toActivity(row: ActivityRow): Activity {
     kind: row.kind === "pageant" ? "pageant" : "event",
     preliminaryWeight: Number(row.preliminary_weight ?? 0),
     currentRoundId: row.current_round_id ?? null,
+    preliminaryEndedAt: row.preliminary_ended_at ?? null,
+    properStartedAt: row.proper_started_at ?? null,
     scoringClosesAt: row.scoring_closes_at ?? null,
     violations: toViolations(row.violations),
     createdAt: row.created_at,
@@ -206,6 +215,9 @@ function toRound(row: RoundRow): Round {
     cutEntryIds: Array.isArray(row.cut_entry_ids) ? toIds(row.cut_entry_ids) : null,
     // Null on databases without migration 012, where sub-activities have no parts.
     parentId: row.parent_id ?? null,
+    liveScoring: row.live_scoring ?? true,
+    deliberationStartedAt: row.deliberation_started_at ?? null,
+    signedOffAt: null,
   };
 }
 
@@ -479,6 +491,8 @@ type BoardRows = {
   scores: { data: unknown; error: { message: string } | null };
   rounds: { data: unknown; error: { message: string } | null } | null;
   tieBreaks: { data: unknown; error: { message: string } | null };
+  /** Missing in boards read elsewhere (and before migration 040): no sub-activity is signed off then. */
+  signoffs?: { data: unknown; error: unknown };
 };
 
 /** A board from its rows. A pageant's sub-activities only: an event has none (and a database before 011, no table). */
@@ -493,7 +507,7 @@ function toBoard(activity: Activity, rows: BoardRows): Board {
     judges: (rows.judges.data as JudgeRow[]).map(toJudge),
     entries: (rows.entries.data as EntryRow[]).map(toEntry),
     scores: (rows.scores.data as unknown as ScoreRow[]).map(toScore),
-    rounds: pageant && rows.rounds ? (rows.rounds.data as RoundRow[]).map(toRound) : [],
+    rounds: pageant && rows.rounds ? withSignoffs((rows.rounds.data as RoundRow[]).map(toRound), rows.signoffs ?? null) : [],
     tieBreaks:
       activity.kind === "event" && !activity.liveScoring && !rows.tieBreaks.error
         ? (rows.tieBreaks.data as TieBreakRow[]).map((r) => ({ tieKey: r.tie_key, entryIds: r.entry_ids, reason: r.reason, judgeId: r.judge_id, createdAt: r.created_at }))
@@ -502,6 +516,13 @@ function toBoard(activity: Activity, rows: BoardRows): Board {
 }
 
 type TieBreakRow = { tie_key: string; entry_ids: string[]; reason: string; judge_id: string | null; created_at: string };
+
+/** Each sub-activity's sign-off of its deliberation, from round_signoffs. None before migration 040. */
+function withSignoffs(rounds: Round[], signoffs: { data: unknown; error: unknown } | null): Round[] {
+  if (!signoffs || signoffs.error || !Array.isArray(signoffs.data)) return rounds;
+  const at = new Map((signoffs.data as { round_id: string; signed_at: string }[]).map((s) => [s.round_id, s.signed_at]));
+  return rounds.map((r) => ({ ...r, signedOffAt: at.get(r.id) ?? null }));
+}
 
 /** An activity's judges, entries, scores and sub-activities, read together. */
 function boardRows(activityId: string) {
@@ -514,7 +535,9 @@ function boardRows(activityId: string) {
     db().from("rounds").select("*").eq("activity_id", activityId).order("position").order("created_at"),
     // An event's broken ties (migration 026). Missing before it, when there's nowhere to keep them.
     db().from("tie_breaks").select("tie_key, entry_ids, reason, judge_id, created_at").eq("activity_id", activityId),
-  ]).then(([judges, entries, scores, rounds, tieBreaks]) => ({ judges, entries, scores, rounds, tieBreaks }));
+    // A pageant's sub-activities signed off after their deliberation (migration 040).
+    db().from("round_signoffs").select("round_id, signed_at").eq("activity_id", activityId),
+  ]).then(([judges, entries, scores, rounds, tieBreaks, signoffs]) => ({ judges, entries, scores, rounds, tieBreaks, signoffs }));
 }
 
 async function loadBoard(activity: Activity): Promise<Board> {
@@ -653,14 +676,15 @@ const toBreakdown = (b: Record<string, number | string> | null) => (b ? Object.f
  * A judge's points per criterion for every entry they've scored (events), by entry id: what they review in
  * deliberation, and where a correction there starts from.
  */
-export async function getOwnBreakdowns(judgeId: string): Promise<Record<string, Record<string, number>>> {
-  const { data } = await db().from("scores").select("entry_id, breakdown").eq("judge_id", judgeId).is("round_id", null);
+export async function getOwnBreakdowns(judgeId: string, roundId: string | null = null): Promise<Record<string, Record<string, number>>> {
+  const scores = db().from("scores").select("entry_id, breakdown").eq("judge_id", judgeId);
+  const { data } = await (roundId ? scores.eq("round_id", roundId) : scores.is("round_id", null));
   const rows = (data ?? []) as { entry_id: string; breakdown: Record<string, number | string> | null }[];
   return Object.fromEntries(rows.flatMap((r) => (r.breakdown ? [[r.entry_id, toBreakdown(r.breakdown)!]] : [])));
 }
 
 /**
- * An event's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
+ * An activity's entry details (see entry-details.ts): its fields, and each entry's values by entry id. For the organizer's
  * pages, the results and the LED wall (withEntryDetails): never part of a board as it's read, which judges and the live
  * results are sent. Null before migration 033.
  */
@@ -676,14 +700,39 @@ export async function getEntryDetails(activityId: string): Promise<{ fields: Ent
 }
 
 /**
- * A board with each entry's details as one line, for the LED wall, which shows them under the entry's name: added only
- * by the wall's own pages (its page and the LED wall tab's preview). A pageant's candidates have none.
+ * A board with each entry's (or candidate's) details as one line, for the LED wall, which shows them under the name:
+ * added only by the wall's own pages (its page and the LED wall tab's preview).
  */
 export async function withEntryDetails(board: Board): Promise<Board> {
-  if (board.activity.kind !== "event") return board;
   const details = await getEntryDetails(board.activity.id);
   if (!details?.fields.length) return board;
   return { ...board, entries: board.entries.map((e) => ({ ...e, details: detailsLine(details.fields, details.byEntry[e.id]) || undefined })) };
+}
+
+/** The organizer's sign-off of a pageant sub-activity's deliberation (see round_signoffs). */
+export type RoundSignoff = { signedBy: string; method: "drawn" | "checked"; drawing: string | null; signedAt: string };
+
+/**
+ * A pageant sub-activity's (or part's) deliberation as signed: its judges' signatures and the organizer's sign-off.
+ * Null before migration 040.
+ */
+export async function getRoundSignatures(roundId: string): Promise<{ signatures: JudgeSignature[]; signoff: RoundSignoff | null } | null> {
+  if (!isUuid(roundId)) return null;
+  const [signatures, signoff] = await Promise.all([
+    db().from("round_signatures").select("judge_id, method, drawing, signed_at").eq("round_id", roundId),
+    db().from("round_signoffs").select("signed_by, method, drawing, signed_at").eq("round_id", roundId).maybeSingle(),
+  ]);
+  if (signatures.error || signoff.error) return null;
+  const off = signoff.data as { signed_by: string; method: string; drawing: string | null; signed_at: string } | null;
+  return {
+    signatures: (signatures.data as { judge_id: string; method: string; drawing: string | null; signed_at: string }[]).map((r) => ({
+      judgeId: r.judge_id,
+      method: r.method === "drawn" && r.drawing ? "drawn" : "checked",
+      drawing: r.method === "drawn" ? r.drawing : null,
+      signedAt: r.signed_at,
+    })),
+    signoff: off && { signedBy: off.signed_by, method: off.method === "drawn" && off.drawing ? "drawn" : "checked", drawing: off.method === "drawn" ? off.drawing : null, signedAt: off.signed_at },
+  };
 }
 
 /** The judges' signatures on an activity (see judge_signatures). Null before migration 021. */
@@ -779,7 +828,15 @@ async function loadPublicBoard(publicId: string): Promise<Board | null> {
   const logoUrl = photoUrl(row.owner?.photo_path ?? null, ORGANIZER_BUCKET);
   const organizer = row.owner && logoUrl ? { name: row.owner.name, logoUrl } : null;
   // Scores are held back on the server, so they never reach the audience's screens before they're released: only
-  // which judge has scored which entry does.
+  // which judge has scored which entry does. A pageant holds back each sub-activity (or part) that deliberates, until
+  // it's signed off (see roundReleased).
+  if (board.activity.kind === "pageant") {
+    const held = new Set(board.rounds.filter((r) => !roundReleased(r)).map((r) => r.id));
+    const isHeld = (s: Score) => s.roundId != null && held.has(s.roundId);
+    if (!board.scores.some(isHeld)) return { ...board, activity, judges, organizer };
+    const { scored } = withheldScores({ ...board, scores: board.scores.filter(isHeld) });
+    return { ...board, activity, judges, organizer, scores: board.scores.filter((s) => !isHeld(s)), scored };
+  }
   if (resultsReleased(board.activity)) return { ...board, activity, judges, organizer };
   // A broken tie says which entries were level: that waits for the results too.
   return { ...withheldScores(board), activity, judges, organizer, tieBreaks: [] };

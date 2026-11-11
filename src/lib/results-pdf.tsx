@@ -393,12 +393,16 @@ function ResultsDocument({
  * with criteria scoring the points for each criterion. Each sheet is signed by its judge and the signatories, and
  * carries the report ID of the results sheet it goes with. `part`: a pageant sub-activity's name.
  */
-function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; info: ReportInfo; part?: string; corrected: Map<string, CorrectionView> }) {
-  const { activity, judges } = board;
+/** One part of a judges' score sheets PDF: a board's sheets (a sub-activity's, or a part of one), and its signatures. */
+type SheetSection = { board: Board; part?: string; corrected: Map<string, CorrectionView>; signatures?: JudgeSignature[] | null };
+
+/** A judge's score sheet for one section: every entry with their score (and points per criterion), then their sign-off. */
+function JudgeSheetPage({ section, judge, info }: { section: SheetSection; judge: Judge; info: ReportInfo }) {
+  const { board, part, corrected } = section;
+  const { activity } = board;
   const criteria = activity.scoringMode === "criteria" ? activity.criteria : [];
-  const label = part ? `${activity.name}, ${part}` : activity.name;
   const total = criteria.length === 0 ? "Score" : activity.criteriaDisplay === "ten" ? "Total (of 10)" : "Total";
-  const row = (judge: Judge, r: JudgeSheetRow) => {
+  const row = (r: JudgeSheetRow) => {
     const fix = corrected.get(`${judge.id}|${r.entry.id}`);
     return (
       <View key={r.entry.id} style={s.sheetRow} wrap={false}>
@@ -420,51 +424,61 @@ function JudgeSheetsDocument({ board, info, part, corrected }: { board: Board; i
       </View>
     );
   };
-
+  const rows = judgeSheet(board, judge.id);
+  // The last rows go with the sign-off, so a sheet that runs over never leaves the signatures alone on a page.
+  const kept = rows.slice(-2);
   return (
-    <Document title={`${label}, judges' score sheets`} author="Tabulous" creator="Tabulous">
-      {judges.map((judge) => {
-        const rows = judgeSheet(board, judge.id);
-        // The last rows go with the sign-off, so a sheet that runs over never leaves the signatures alone on a page.
-        const kept = rows.slice(-2);
-        return (
-          <Page key={judge.id} size="A4" orientation={criteria.length > 4 ? "landscape" : "portrait"} style={s.page}>
-            <Header
-              info={info}
-              eyebrow="Judge's score sheet"
-              title={activity.name}
-              subtitle={part}
-              location={activity.location}
-              byline={
-                <>
-                  {judge.name}
-                  <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
-                </>
-              }
-            />
+    <Page size="A4" orientation={criteria.length > 4 ? "landscape" : "portrait"} style={s.page}>
+      <Header
+        info={info}
+        eyebrow="Judge's score sheet"
+        title={activity.name}
+        subtitle={part}
+        location={activity.location}
+        byline={
+          <>
+            {judge.name}
+            <Text style={s.bylineRole}>{`, ${roleOf(judge)}`}</Text>
+          </>
+        }
+      />
 
-            <View style={s.table}>
-              <View style={s.headRow} fixed>
-                <Text style={[s.cell, s.number]}>No.</Text>
-                <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
-                {criteria.map((c) => (
-                  <Text key={c.id} style={[s.cell, s.judge]}>
-                    {`${c.name} (${formatBound(c.max)})`}
-                  </Text>
-                ))}
-                <Text style={[s.cell, s.average]}>{total}</Text>
-              </View>
-              {rows.slice(0, rows.length - kept.length).map((r) => row(judge, r))}
-              <View wrap={false}>
-                {kept.map((r) => row(judge, r))}
-                <SignOff judges={[judge]} signatories={info.signatories ?? []} signatures={info.signatures} />
-              </View>
-            </View>
+      <View style={s.table}>
+        <View style={s.headRow} fixed>
+          <Text style={[s.cell, s.number]}>No.</Text>
+          <Text style={[s.cell, s.entry]}>{part ? "Candidate" : "Entry"}</Text>
+          {criteria.map((c) => (
+            <Text key={c.id} style={[s.cell, s.judge]}>
+              {`${c.name} (${formatBound(c.max)})`}
+            </Text>
+          ))}
+          <Text style={[s.cell, s.average]}>{total}</Text>
+        </View>
+        {rows.slice(0, rows.length - kept.length).map(row)}
+        <View wrap={false}>
+          {kept.map(row)}
+          <SignOff judges={[judge]} signatories={info.signatories ?? []} signatures={section.signatures === undefined ? info.signatures : section.signatures} />
+        </View>
+      </View>
 
-            <Footer info={info} perSheet />
-          </Page>
-        );
-      })}
+      <Footer info={info} perSheet />
+    </Page>
+  );
+}
+
+/**
+ * The judges' score sheets: a page per judge, or with several sections (a pageant sub-activity's parts) a page per
+ * judge for each, a judge's pages together so each can be handed to them to check. `title`: what the whole PDF is of.
+ */
+function JudgeSheetsDocument({ sections, info, title }: { sections: SheetSection[]; info: ReportInfo; title: string }) {
+  const judges = [...new Map(sections.flatMap((section) => section.board.judges).map((j) => [j.id, j])).values()];
+  return (
+    <Document title={`${title}, judges' score sheets`} author="Tabulous" creator="Tabulous">
+      {judges.flatMap((judge) =>
+        sections
+          .filter((section) => section.board.judges.some((j) => j.id === judge.id))
+          .map((section, i) => <JudgeSheetPage key={`${judge.id}-${i}`} section={section} judge={judge} info={info} />),
+      )}
     </Document>
   );
 }
@@ -647,6 +661,7 @@ export function renderJudgeSheetsPdf(
     part,
     corrections = [],
     signatures = null,
+    parts,
   }: {
     timeZone?: string;
     reportId: string;
@@ -655,11 +670,20 @@ export function renderJudgeSheetsPdf(
     part?: string;
     corrections?: CorrectionView[];
     signatures?: JudgeSignature[] | null;
+    /** A pageant sub-activity in parts: each part's board, name, corrections and signatures, in order. */
+    parts?: { board: Board; part: string; corrections: CorrectionView[]; signatures: JudgeSignature[] | null }[];
   },
 ): Promise<Buffer> {
-  const corrected = new Map(corrections.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
+  const corrected = (list: CorrectionView[]) => new Map(list.map((c) => [`${c.judgeId}|${c.entryId}`, c]));
+  const sections: SheetSection[] = parts
+    ? parts.map((p) => ({ board: p.board, part: p.part, corrected: corrected(p.corrections), signatures: p.signatures }))
+    : [{ board, part, corrected: corrected(corrections) }];
   return renderToBuffer(
-    <JudgeSheetsDocument board={board} part={part} corrected={corrected} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }} />,
+    <JudgeSheetsDocument
+      sections={sections}
+      title={part ? `${board.activity.name}, ${part}` : board.activity.name}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }}
+    />,
   );
 }
 

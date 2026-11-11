@@ -56,7 +56,7 @@ export function openJudges(value: unknown): DraftJudge[] | null {
 }
 
 /** A candidate as a pageant draft keeps them, with the photo as an image in the JSON like a judge's. */
-export type SavedCandidate = { name: string; photo: string | null };
+export type SavedCandidate = { name: string; details?: string; photo: string | null };
 
 // Room for photos in one draft: a save over 4.5 MB doesn't reach the server, and candidate photos are ~100 KB each.
 const PHOTO_ROOM = 3_500_000;
@@ -76,7 +76,7 @@ export async function saveCandidates(candidates: DraftCandidate[], used: number)
       dropped++;
     }
     if (photo) room -= photo.length;
-    saved.push({ name: c.name, photo });
+    saved.push({ name: c.name, ...(c.details.trim() ? { details: c.details } : {}), photo });
   }
   return { saved, dropped };
 }
@@ -85,10 +85,10 @@ export async function saveCandidates(candidates: DraftCandidate[], used: number)
 export function openCandidates(value: unknown): DraftCandidate[] {
   const rows: unknown[] = typeof value === "string" ? value.split(/\r?\n/).filter((l) => l.trim()) : Array.isArray(value) ? value : [];
   return rows.slice(0, 300).map((v, key) => {
-    if (typeof v === "string") return { key, name: v.trim(), photo: null, preview: null };
+    if (typeof v === "string") return { key, name: v.trim(), details: "", photo: null, preview: null };
     const c = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
     const photo = typeof c.photo === "string" && c.photo.startsWith("data:image/") ? c.photo : null;
-    return { key, name: String(c.name ?? ""), photo: photo ? dataUrlToBlob(photo) : null, preview: photo };
+    return { key, name: String(c.name ?? ""), details: typeof c.details === "string" ? c.details : "", photo: photo ? dataUrlToBlob(photo) : null, preview: photo };
   });
 }
 

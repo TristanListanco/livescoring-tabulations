@@ -4,8 +4,13 @@ import { useContext, useEffect, useRef, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TimerBar, useScoringTimer } from "@/components/scoring-timer";
 import {
+  awaitingSignoff,
   cutPlan,
   deductionsOpen,
+  deliberatingRound,
+  judgesFor,
+  roundDeliberating,
+  roundReleased,
   judgingOrder,
   partsOf,
   preliminaryComplete,
@@ -13,18 +18,24 @@ import {
   roundLabel,
   roundPool,
   roundProgress,
+  segmentClosed,
   unitOf,
-  waitsForPreliminary,
   type CutPlan,
   type TieGroup,
 } from "@/lib/pageant";
+import { Avatar } from "@/components/avatar";
+import { SignaturePad } from "@/components/signature-pad";
+import { cleanSignature } from "@/lib/deliberation";
+import { runningSegment } from "@/lib/lifecycle";
+import { listNames } from "@/lib/names";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { MAX_REASON, segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { newRequestId } from "@/lib/request-id";
 import { formatBound } from "@/lib/scoring";
 import { ordinal } from "@/lib/ties";
-import type { ActionResult, Activity, Board, Round } from "@/lib/types";
-import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, undoCut } from "../../actions";
+import type { ActionResult, Activity, Board, JudgeSignature, Round } from "@/lib/types";
+import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, signOffRound, startRoundDeliberation, undoCut } from "../../actions";
 import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
@@ -61,12 +72,16 @@ export function PdfLink({ activityId, query, className, children }: { activityId
 }
 
 /**
- * What comes after the sub-activity (or part) being judged: its cut, once its last part is judged and the cut is
- * still to confirm, or the next thing to judge. A part comes back with its full name ("Interview · Q&A").
+ * What comes after the sub-activity (or part) being judged, in the segment running now: its cut, once its last part
+ * is judged and the cut is still to confirm, or the next thing to judge. Null once the segment is all judged (the
+ * desk then offers its end). A part comes back with its full name ("Interview · Q&A").
  */
-export function nextUp(board: Board, round: Round | null): { kind: "cut"; round: Round } | { kind: "round"; round: Round } | null {
-  const order = judgingOrder(board.rounds);
+export function nextUp(board: Board, round: Round | null): { kind: "cut" | "round" | "deliberate"; round: Round } | null {
+  const segment = runningSegment(board.activity);
+  const order = judgingOrder(board.rounds).filter((r) => r.segment === segment);
   const labelled = (r: Round) => ({ ...r, name: roundLabel(board.rounds, r) });
+  // A fully scored one whose results wait for a deliberation not started yet: that comes first.
+  const toDeliberate = (r: Round) => !roundReleased(r) && !r.deliberationStartedAt && roundProgress(board, r).complete;
   // The cut that comes right after this part (or sub-activity), if it's still to confirm.
   const cutAfter = (r: Round) => {
     const unit = unitOf(board.rounds, r);
@@ -78,6 +93,7 @@ export function nextUp(board: Board, round: Round | null): { kind: "cut"; round:
     // Between sub-activities: the first one not done yet, or the cut holding it back.
     for (const r of order) {
       if (roundProgress(board, r).complete) {
+        if (toDeliberate(r)) return { kind: "deliberate", round: labelled(r) };
         const cut = cutAfter(r);
         if (cut) return { kind: "cut", round: cut };
         continue;
@@ -87,15 +103,15 @@ export function nextUp(board: Board, round: Round | null): { kind: "cut"; round:
     }
     return null;
   }
-  const cut = cutAfter(board.rounds.find((r) => r.id === round.id) ?? round);
+  const now = board.rounds.find((r) => r.id === round.id) ?? round;
+  if (toDeliberate(now)) return { kind: "deliberate", round: labelled(now) };
+  const cut = cutAfter(now);
   if (cut) return { kind: "cut", round: cut };
   const next = order[order.findIndex((r) => r.id === round.id) + 1];
-  // Pageant proper waits for the whole preliminary: first, whatever of it still has scores to come.
-  if (next && waitsForPreliminary(board, next)) {
-    const open = order.find((r) => r.segment === "preliminary" && r.id !== round.id && !roundProgress(board, r).complete);
-    return open ? { kind: "round", round: labelled(open) } : null;
-  }
-  return next ? { kind: "round", round: labelled(next) } : null;
+  if (next) return { kind: "round", round: labelled(next) };
+  // The segment's last: whatever of it was skipped and still has scores to come.
+  const open = order.find((r) => r.id !== round.id && !roundProgress(board, r).complete && !roundPool(board, r.id).blockedBy);
+  return open ? { kind: "round", round: labelled(open) } : null;
 }
 
 /** Switch judging to a sub-activity, asking first when the one being judged still has scores to come. */
@@ -157,9 +173,9 @@ const check = (
 
 /**
  * The pageant's program on the desk: each sub-activity with how far judging has got, the cuts between them, and
- * the results PDFs as they become ready. While the session is live, any sub-activity can be put on judges'
- * screens, except one waiting on a cut that isn't confirmed yet, and pageant proper until the preliminary is fully
- * judged. A pageant with deductions records them from here too.
+ * the results PDFs as they become ready. While a segment runs, any of its sub-activities can be put on judges'
+ * screens, a judged one again too, except one waiting on a cut that isn't confirmed yet. The other segment's say why
+ * they're closed. A pageant with deductions records them from here too.
  */
 export function ProgramPanel({ board, live, compact = false, onReviewCut }: { board: Board; live: boolean; compact?: boolean; onReviewCut: (roundId: string) => void }) {
   const { activity } = board;
@@ -169,20 +185,29 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
     ? "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:px-2.5"
     : "btn btn-quiet btn-sm";
   const prelimDone = preliminaryComplete(board);
+  const running = runningSegment(activity);
   const [deductionsShown, setDeductionsShown] = useState(false);
   const deductionCount = board.deductions?.length ?? 0;
   const isCurrent = (r: Round) => r.id === activity.currentRoundId && activity.sessionState === "live";
+  // One being deliberated keeps the judges' screens until it's signed off.
+  const deliberating = deliberatingRound(board);
   const status = (r: Round, judged: boolean) => {
     const progress = roundProgress(board, r);
     // A sub-activity in parts is "judging now" while one of its parts is.
     const current = judged ? isCurrent(r) : partsOf(board.rounds, r.id).some(isCurrent);
-    return current ? (
+    // What judges score here, for a deliberation's state: the sub-activity, or each of its parts.
+    const judgedHere = judged ? [r] : partsOf(board.rounds, r.id);
+    return judged && roundDeliberating(r) ? (
+      <span className="inline-flex items-center rounded-md bg-regal px-2 py-0.5 text-xs font-semibold text-mint">Deliberating</span>
+    ) : current ? (
       <span className="inline-flex items-center rounded-md bg-regal px-2 py-0.5 text-xs font-semibold text-mint">Judging now</span>
+    ) : progress.complete && judgedHere.some((p) => !roundReleased(p)) ? (
+      <span className="text-xs font-semibold text-regal">{judgedHere.some((p) => p.deliberationStartedAt && !p.signedOffAt) ? "Deliberating" : "To deliberate"}</span>
     ) : progress.complete ? (
       <span className="flex items-center gap-1 text-xs font-semibold text-regal">{check}Done</span>
     ) : progress.blockedBy ? (
       <span className="text-xs text-prussian/70">After the {progress.blockedBy.name} cut</span>
-    ) : r.segment === "proper" && !prelimDone ? (
+    ) : r.segment === "proper" && running !== "proper" ? (
       <span className="text-xs text-prussian/70">After the preliminary</span>
     ) : (
       <span className="tabular text-xs text-prussian/70">{progress.submitted > 0 ? `${progress.submitted} of ${progress.possible} scores` : "Not started"}</span>
@@ -202,7 +227,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
         </span>
         {status(r, true)}
-        {live && !current && !progress.blockedBy && !(r.segment === "proper" && !prelimDone) && (
+        {live && !current && !progress.blockedBy && !segmentClosed(activity, r) && !deliberating && (
           <JudgeRoundButton
             board={board}
             round={{ ...r, name: label }}
@@ -210,13 +235,15 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
             onDone={setResult}
             label={
               <>
-                {progress.complete ? "Judge again" : progress.submitted > 0 ? "Resume" : "Judge now"}
+                {progress.complete ? "Show again" : progress.submitted > 0 ? "Resume" : "Judge now"}
                 <span className="sr-only"> {label}</span>
               </>
             }
           />
         )}
-        {progress.complete && <ExportMenu activityId={activity.id} options={sheetOptions(`round=${r.id}`, { judges: true })} className={action} context={label} align="right" />}
+        {progress.complete && roundReleased(r) && (
+          <ExportMenu activityId={activity.id} options={sheetOptions(`round=${r.id}`, { judges: true })} className={action} context={label} align="right" />
+        )}
       </div>
     );
   };
@@ -245,7 +272,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                       {deductionCount > 0 && <span className="tabular ml-1 font-normal text-prussian/75">{deductionCount}</span>}
                     </button>
                   )}
-                  {prelimDone && (
+                  {prelimDone && awaitingSignoff(board, rounds).length === 0 && (
                     <ExportMenu activityId={activity.id} options={sheetOptions("segment=preliminary", { noun: "Standings" })} className={action} context="the preliminary" align="right" />
                   )}
                 </div>
@@ -268,8 +295,15 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                             <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(round.weight)}</span>
                           </span>
                           {status(round, false)}
-                          {roundProgress(board, round).complete && (
-                            <ExportMenu activityId={activity.id} options={sheetOptions(`round=${round.id}`, { noun: "Standings" })} className={action} context={round.name} align="right" />
+                          {roundProgress(board, round).complete && parts.every(roundReleased) && (
+                            <ExportMenu
+                              activityId={activity.id}
+                              // Its standings, and each judge's sheets for every part in one PDF.
+                              options={[...sheetOptions(`round=${round.id}`, { noun: "Standings" }), { label: "Judges' score sheets (PDF)", query: `round=${round.id}&sheet=judges` }]}
+                              className={action}
+                              context={round.name}
+                              align="right"
+                            />
                           )}
                         </div>
                         <ol aria-label={`Parts of ${round.name}`} className="border-l-2 border-line ml-1 pl-2">
@@ -284,7 +318,13 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                         {scissors}
                         <span className="min-w-0 flex-1 font-semibold">{plan.final ? `Final cut: Top ${plan.size}` : `Cut: Top ${plan.size}`}</span>
                         <span className={`text-xs ${round.cutEntryIds ? "font-semibold text-regal" : "text-prussian/70"}`}>
-                          {round.cutEntryIds ? "Confirmed" : plan.ready ? "Ready to confirm" : "Waiting for scores"}
+                          {round.cutEntryIds
+                            ? "Confirmed"
+                            : plan.ready
+                              ? "Ready to confirm"
+                              : plan.rows.every((r) => r.complete) && plan.awaiting.length
+                                ? "Waiting for sign-off"
+                                : "Waiting for scores"}
                         </span>
                         <button type="button" className={action} onClick={() => onReviewCut(round.id)}>
                           {round.cutEntryIds ? "View" : "Review"}
@@ -317,7 +357,7 @@ const pointsText = (n: number) => `${formatBound(n)} ${n === 1 ? "point" : "poin
 
 /**
  * Deductions: points off a candidate's preliminary score for a violation, one from the pageant's list or another
- * with its reason typed here. They can be added and taken back until pageant proper starts; after that they're
+ * with its reason typed here. They can be added and taken back until the preliminary ends; after that they're
  * listed, final. Only the organizer sees them; the results PDFs list them with their reasons.
  */
 function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => void }) {
@@ -371,7 +411,7 @@ function DeductionsDialog({ board, onClose }: { board: Board; onClose: () => voi
           </h2>
           {!open && (
             <p className="hint mt-1 max-w-[65ch]">
-              {activity.sessionState === "ended" ? "The session has ended, so they're final." : "Pageant proper has started, so they're final."}
+              {activity.sessionState === "ended" ? "The session has ended, so they're final." : "The preliminary has ended, so they're final."}
             </p>
           )}
         </div>
@@ -529,6 +569,115 @@ function TieBreaker({ group, picks, onChange, size }: { group: TieGroup; picks: 
   );
 }
 
+/** Start a sub-activity's (or part's) deliberation, once every judge on its panel has scored every candidate in it. */
+export function StartRoundDeliberation({
+  board,
+  round,
+  className,
+  onDone,
+}: {
+  board: Board;
+  round: Round;
+  className: string;
+  onDone?: (result: ActionResult) => void;
+}) {
+  return (
+    <ConfirmDialog
+      triggerLabel={
+        <>
+          Start deliberation<span className="sr-only"> of {round.name}</span>
+        </>
+      }
+      triggerClassName={className}
+      title={`Deliberate ${round.name}?`}
+      confirmLabel="Start deliberation"
+      onConfirm={async () => {
+        const result = await reach(() => startRoundDeliberation(board.activity.id, round.id));
+        onDone?.(result);
+        return result;
+      }}
+    >
+      Every judge has scored every candidate in {round.name}. Their screens switch to their scores in it: each reviews them, corrects any
+      that&apos;s wrong (saying why), and signs. Then you sign it off, and its scores go out on the live results and the LED wall.
+    </ConfirmDialog>
+  );
+}
+
+/**
+ * The desk while a sub-activity (or part) is deliberated: who has signed, and once every judge on its panel has, the
+ * organizer's sign-off (drawn on a touchscreen, or "(Sgd.)"), which sends its scores out. `signatures`: null before
+ * migration 040.
+ */
+export function RoundDeliberationDesk({ board, round, signatures }: { board: Board; round: Round; signatures: JudgeSignature[] | null }) {
+  const judges = judgesFor(board, round);
+  const signed = new Set((signatures ?? []).map((s) => s.judgeId));
+  const waiting = judges.filter((j) => !signed.has(j.id));
+  const touch = useMediaQuery("(any-pointer: coarse)");
+  const [drawing, setDrawing] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, start] = useTransition();
+  const ready = touch ? cleanSignature(drawing) !== null : agreed;
+  const signOff = () =>
+    start(async () => {
+      const r = await reach(() => signOffRound(board.activity.id, round.id, touch ? drawing : null));
+      setResult(r);
+      if (r.ok) toast(`${round.name} signed off`);
+    });
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
+      <p className="max-w-xl text-[15px] leading-relaxed text-powder">
+        Each judge reviews their scores in {round.name}, corrects any that&apos;s wrong (saying why), then signs. Its scores stay off the live results and
+        the LED wall until you sign it off.
+      </p>
+      <ul aria-label="Judges' signatures" className="grid w-full gap-2 sm:grid-cols-2">
+        {judges.map((j) => (
+          <li key={j.id} className="flex items-center gap-3 rounded-xl border border-oxford px-3 py-2">
+            <Avatar name={j.name} src={j.photoUrl} size={32} />
+            <span className="min-w-0 flex-1 truncate font-semibold">{j.name}</span>
+            <span className={`text-sm ${signed.has(j.id) ? "font-semibold text-mint" : "text-powder"}`}>{signed.has(j.id) ? "Signed" : "Reviewing"}</span>
+          </li>
+        ))}
+      </ul>
+      {signatures === null ? (
+        <p className="font-semibold">Signing needs a database update. Run supabase/migrations/040_pageant_segments_and_deliberation.sql.</p>
+      ) : waiting.length > 0 ? (
+        <p role="status" className="font-semibold">
+          Waiting for {listNames(waiting)} to sign.
+        </p>
+      ) : (
+        <form
+          className="w-full max-w-xl"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready && !pending) signOff();
+          }}
+        >
+          <p role="status" className="font-semibold">
+            Every judge has signed. Sign it off to send its scores out.
+          </p>
+          {touch ? (
+            <SignaturePad value={drawing} onChange={setDrawing} />
+          ) : (
+            <label className="mt-3 flex items-start gap-3 text-[15px]">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-mint" />
+              <span>
+                I&apos;ve checked the scores in {round.name} and sign them off. Its results PDF shows <span className="font-semibold">(Sgd.)</span> beside
+                my name.
+              </span>
+            </label>
+          )}
+          <button type="submit" disabled={!ready || pending} className="btn mt-4 bg-mint text-prussian hover:bg-white">
+            {pending ? "Signing off…" : `Sign off ${round.name}`}
+          </button>
+          <FormMessage state={result?.ok ? null : result} small onDark className="mt-2" />
+        </form>
+      )}
+    </div>
+  );
+}
+
 /**
  * Reviewing a cut: the candidates ranked by its basis, the line, and any tie the organizer has to break. Confirming
  * decides who is judged from the next sub-activity on (for the final cut, the placements). Render it keyed by the
@@ -597,6 +746,11 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
             {confirmed ? (
               <p role="note" className="note">
                 Confirmed. {plan.final ? "The order below is the final placement." : `These ${confirmed.length} candidates go through to ${nextUnit?.name ?? "the next part"}.`}
+              </p>
+            ) : !plan.ready && incomplete === 0 && plan.awaiting.length > 0 ? (
+              <p role="note" className="note">
+                {listNames(plan.awaiting)} {plan.awaiting.length === 1 ? "is" : "are"} still to be signed off after {plan.awaiting.length === 1 ? "its" : "their"}{" "}
+                deliberation. You can confirm once {plan.awaiting.length === 1 ? "it is" : "they are"}: the cut counts {plan.awaiting.length === 1 ? "it" : "them"}.
               </p>
             ) : !plan.ready ? (
               <p role="note" className="note">

@@ -5,6 +5,7 @@ import { LedOutput } from "@/components/led/led-graphic";
 import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
 import { LED_FONTS, LED_THEMES, ledFontFamily, type LedFont, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
+import { judgesFor, judgingOrder, withRoundRules } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import type { Board, Entry, Judge, Score } from "@/lib/types";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -67,16 +68,19 @@ const SAMPLE_SHARES = [0.86, 0.92, 0.81, 0.95, 0.88, 0.84, 0.9];
 /**
  * Before the show, the preview plays what the wall does once judging starts: the first entry comes up, each judge's
  * score arrives in turn (or "Scored", when scores wait for every judge), then the average, and it starts again. With the
- * activity's own entries and judges where it has them, and the look chosen; the scores are made up. With reduced motion,
- * it stays on the finished entry.
+ * activity's own entries and judges where it has them, and the look chosen; the scores are made up. A pageant's plays
+ * on the first sub-activity (or part) its judges score, with that one's panel and scoring. With reduced motion, it
+ * stays on the finished entry.
  */
 function useSample(board: Board, playing: boolean): Board {
   const { activity } = board;
+  const round = activity.kind === "pageant" ? (judgingOrder(board.rounds)[0] ?? null) : null;
   const still = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const judges: Judge[] = board.judges.length
-    ? board.judges
+  const panel = round ? judgesFor(board, round) : board.judges;
+  const judges: Judge[] = panel.length
+    ? panel
     : ["Judge 1", "Judge 2", "Judge 3"].map((name, position) => ({ id: `sample-${position}`, name, firstName: name, lastName: null, photoUrl: null, position, isChair: false, panel: "all" }));
-  const entry: Entry = board.entries[0] ?? { id: "sample-entry", name: "Your first entry", photoUrl: null, position: 0 };
+  const entry: Entry = board.entries[0] ?? { id: "sample-entry", name: round ? "Your first candidate" : "Your first entry", photoUrl: null, position: 0 };
   const beats = judges.length + 3;
   const [beat, setBeat] = useState(0);
   useEffect(() => {
@@ -86,14 +90,21 @@ function useSample(board: Board, playing: boolean): Board {
   }, [playing, still, beats]);
   if (!playing) return board;
 
-  const criteria = activity.scoringMode === "criteria";
-  const [low, high] = criteria ? [0, 100] : [activity.min, activity.max];
-  const round = (n: number) => Number(n.toFixed(activity.decimals));
+  const rules = round ? withRoundRules(activity, round) : activity;
+  const [low, high] = rules.scoringMode === "criteria" ? [0, 100] : [rules.min, rules.max];
+  const rounded = (n: number) => Number(n.toFixed(rules.decimals));
   const scored = still ? judges.length : Math.min(beat, judges.length);
   const scores: Score[] = judges
     .slice(0, scored)
-    .map((j, i) => ({ entryId: entry.id, judgeId: j.id, value: round(low + (high - low) * SAMPLE_SHARES[i % SAMPLE_SHARES.length]) }));
-  return { ...board, judges, entries: board.entries.length ? board.entries : [entry], scores, activity: { ...activity, ledEntryId: entry.id } };
+    .map((j, i) => ({ entryId: entry.id, judgeId: j.id, roundId: round?.id ?? null, value: rounded(low + (high - low) * SAMPLE_SHARES[i % SAMPLE_SHARES.length]) }));
+  return {
+    ...board,
+    // The wall narrows a pageant's judges to the sub-activity's panel itself.
+    judges: panel.length ? board.judges : judges,
+    entries: board.entries.length ? board.entries : [entry],
+    scores,
+    activity: { ...activity, ledEntryId: entry.id, ...(round ? { currentRoundId: round.id } : {}) },
+  };
 }
 
 /** A font drawn as a tile, its sample over its name: the tile is the target, filled when chosen (see .choice). */
@@ -185,8 +196,9 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     });
 
   const { index, entry: current } = entryNeighbors(entries, activity.ledEntryId);
-  // Before the session starts, an event's preview plays a sample of the wall at work (a pageant's shows its program).
-  const sampling = activity.sessionState === "draft" && activity.kind === "event";
+  // Before the session starts, the preview plays a sample of the wall at work (a pageant's once it has a program).
+  const pageant = activity.kind === "pageant";
+  const sampling = activity.sessionState === "draft" && (!pageant || board.rounds.length > 0);
   const preview: Board = {
     ...board,
     activity: {
@@ -227,15 +239,17 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
             <span className="sr-only">Preview of the LED wall: </span>
             {sampling ? (
               <>
-                <span className="font-semibold text-prussian">A sample, with made-up scores:</span> once the session starts, the wall follows the entry
-                you show and fills in as the judges score.
+                <span className="font-semibold text-prussian">A sample, with made-up scores:</span>{" "}
+                {pageant
+                  ? "once the preliminary starts, the wall follows the candidate you show and fills in as the judges score."
+                  : "once the session starts, the wall follows the entry you show and fills in as the judges score."}
               </>
             ) : current ? (
               <>
                 Showing <span className="tabular">No. {index + 1}</span> {current.name}
               </>
             ) : (
-              "No entry yet"
+              pageant ? "No candidate yet" : "No entry yet"
             )}
           </figcaption>
         </figure>

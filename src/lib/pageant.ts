@@ -1,3 +1,4 @@
+import { segmentPhase } from "./lifecycle";
 import { PRELIMINARY, type Activity, type Board, type Deduction, type Entry, type Judge, type Round, type Score } from "./types";
 
 /**
@@ -103,7 +104,52 @@ export function roundBoard(board: Board, round: Round): Board {
     judges: judgesFor(board, round),
     entries: roundPool(board, round.id).entries,
     scores: board.scores.filter((s) => s.roundId === round.id),
+    // Held back from the audience (see loadPublicBoard): which judge has scored which candidate in it.
+    ...(board.scored ? { scored: board.scored.filter((s) => s.roundId === round.id) } : {}),
   };
+}
+
+// Deliberation per sub-activity ---------------------------------------------------------
+
+/**
+ * Whether a sub-activity's (or part's) scores are out for the audience: it scores live, or its judges have deliberated
+ * and signed, and the organizer has signed it off. A part follows its sub-activity's setting, and deliberates on its own.
+ */
+export const roundReleased = (round: Pick<Round, "liveScoring" | "signedOffAt">) => round.liveScoring || round.signedOffAt !== null;
+
+/** Whether a sub-activity's (or part's) judges are deliberating it now: started, and not yet signed off. */
+export const roundDeliberating = (round: Pick<Round, "liveScoring" | "deliberationStartedAt" | "signedOffAt">) =>
+  !round.liveScoring && round.deliberationStartedAt !== null && round.signedOffAt === null;
+
+/** The sub-activity (or part) being deliberated, if one is: only one at a time. */
+export const deliberatingRound = (board: Pick<Board, "rounds">): Round | null => judgingOrder(board.rounds).find(roundDeliberating) ?? null;
+
+/** What judges score in these sub-activities: each one's parts, or the sub-activity itself. */
+const judgedIn = (rounds: Round[], units: Round[]) => units.flatMap((u) => (partsOf(rounds, u.id).length ? partsOf(rounds, u.id) : [u]));
+
+/**
+ * The sub-activities (or parts) among these whose deliberation isn't signed off yet: their scores aren't final, so a
+ * cut that counts them, or the end of their segment, waits for them.
+ */
+export const awaitingSignoff = (board: Pick<Board, "rounds">, units: Round[]): Round[] => judgedIn(board.rounds, units).filter((r) => !roundReleased(r));
+
+/**
+ * Why a sub-activity's (or part's) deliberation can't start now, or null when it can: it deliberates rather than
+ * scoring live, every judge on its panel has scored every candidate in it, and no other one is being deliberated.
+ */
+export function roundDeliberationGap(board: Board, round: Round): string | null {
+  const name = roundLabel(board.rounds, round);
+  if (round.liveScoring) return `${name} scores live, so it has no deliberation.`;
+  if (round.signedOffAt) return `${name} is signed off.`;
+  if (round.deliberationStartedAt) return `The judges are deliberating ${name}.`;
+  const progress = roundProgress(board, round);
+  if (!progress.complete) {
+    const left = progress.possible - progress.submitted;
+    return `${name} has ${left} ${left === 1 ? "score" : "scores"} to come. Its deliberation starts once every judge has scored every candidate.`;
+  }
+  const other = deliberatingRound(board);
+  if (other) return `The judges are deliberating ${roundLabel(board.rounds, other)}. Sign it off first.`;
+  return null;
 }
 
 /**
@@ -113,8 +159,12 @@ export function roundBoard(board: Board, round: Round): Board {
 export function showingBoard(board: Board): { board: Board; round: Round | null } {
   if (board.activity.kind !== "pageant") return { board, round: null };
   const round = board.rounds.find((r) => r.id === board.activity.currentRoundId) ?? null;
-  // A part goes by its full name ("Closed-door interview · Q&A") wherever it's shown.
-  if (round) return { board: roundBoard(board, round), round: { ...round, name: roundLabel(board.rounds, round) } };
+  // A part goes by its full name ("Closed-door interview · Q&A") wherever it's shown. One that deliberates holds its
+  // scores back like an event without live scoring (see roundReleased): a tick for each, until it's signed off.
+  if (round) {
+    const shown = roundBoard(board, round);
+    return { board: { ...shown, activity: { ...shown.activity, liveScoring: roundReleased(round) } }, round: { ...round, name: roundLabel(board.rounds, round) } };
+  }
   return { board: { ...board, activity: { ...board.activity, currentEntryId: null, ledEntryId: null }, entries: [], scores: [] }, round: null };
 }
 
@@ -159,8 +209,17 @@ export function preliminaryComplete(board: Board): boolean {
     .every((r) => roundProgress(board, r).complete);
 }
 
-/** Pageant proper waits for the preliminary: none of its sub-activities can be judged until every preliminary score is in. */
-export const waitsForPreliminary = (board: Board, round: Pick<Round, "segment">) => round.segment === "proper" && !preliminaryComplete(board);
+/**
+ * Why a sub-activity (or part) can't go on judges' screens because of its segment, or null when it can: only the
+ * segment running now is judged (see segmentPhase), the preliminary first, then pageant proper.
+ */
+export function segmentClosed(activity: Pick<Activity, "sessionState" | "preliminaryEndedAt" | "properStartedAt">, round: Pick<Round, "segment">): string | null {
+  const phase = segmentPhase(activity, round.segment);
+  if (phase === "live") return null;
+  if (round.segment === "preliminary") return phase === "ended" ? "The preliminary has ended." : "The preliminary hasn't started.";
+  if (phase === "ended") return "Pageant proper has ended.";
+  return segmentPhase(activity, "preliminary") === "live" ? "Pageant proper starts once the preliminary has ended." : "Pageant proper hasn't started.";
+}
 
 /**
  * How many scores a judge gives in the whole pageant: one per candidate in each sub-activity (or part) on their panel.
@@ -260,13 +319,11 @@ export function deductionTotals(deductions: Deduction[] | undefined): Map<string
 }
 
 /**
- * Whether deductions can still be added or taken back: the pageant has them, the session isn't over, and pageant
- * proper hasn't started (no score in it yet), since its first cut can count the preliminary.
+ * Whether deductions can still be added or taken back: the pageant has them, and the preliminary, whose score they
+ * come off, hasn't ended (pageant proper's first cut can count it).
  */
 export function deductionsOpen(board: Board): boolean {
-  if (board.activity.violations === null || board.activity.sessionState === "ended") return false;
-  const proper = new Set(board.rounds.filter((r) => unitOf(board.rounds, r).segment === "proper").map((r) => r.id));
-  return !board.scores.some((s) => s.roundId && proper.has(s.roundId));
+  return board.activity.violations !== null && segmentPhase(board.activity, "preliminary") !== "ended";
 }
 
 /** A sub-activity's parts as weights adding up to 100, for its own standings sheet. */
@@ -341,8 +398,10 @@ export type CutPlan = {
   final: boolean;
   weights: { round: Round; weight: number }[];
   rows: StandingRow[];
-  /** Every score in the basis is in for every candidate in the cut. */
+  /** Every score in the basis is in for every candidate in the cut, and every deliberated one is signed off. */
   ready: boolean;
+  /** Sub-activities (or parts) in the basis whose deliberation isn't signed off yet. */
+  awaiting: Round[];
   ties: TieGroup[];
 };
 
@@ -367,7 +426,8 @@ export function cutPlan(board: Board, round: Round): CutPlan {
     }
     i = j;
   }
-  return { round, size, final, weights, rows, ready: complete, ties };
+  const awaiting = awaitingSignoff(board, weights.map((w) => w.round));
+  return { round, size, final, weights, rows, ready: complete && awaiting.length === 0, awaiting, ties };
 }
 
 /**
@@ -375,6 +435,7 @@ export function cutPlan(board: Board, round: Round): CutPlan {
  * group's order, naming exactly `places` of its candidates. An error when the picks don't fit the plan.
  */
 export function cutResult(plan: CutPlan, picks: string[][]): { ok: true; entryIds: string[] } | { ok: false; error: string } {
+  if (plan.awaiting.length) return { ok: false, error: `Sign off the deliberation of ${plan.awaiting.map((r) => r.name).join(", ")} first: the cut counts it.` };
   if (!plan.ready) return { ok: false, error: "Every judge has to score every candidate in this cut first." };
   if (picks.length !== plan.ties.length) return { ok: false, error: "Break the ties first." };
   const order: string[] = [];

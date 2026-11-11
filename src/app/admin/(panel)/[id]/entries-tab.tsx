@@ -226,10 +226,10 @@ function EntryFieldsForm({ activityId, fields }: { activityId: string; fields: E
 }
 
 /**
- * Adding entries, as on the create form: a list, each entry a name with a line of details under it (an event keeping
- * several named details, from before, fills the first). Cleared once they're added.
+ * Adding entries (or a pageant's candidates), as on the create form: a list, each a name with a line of details under
+ * it (an event keeping several named details, from before, fills the first). Cleared once they're added.
  */
-function AddEntryRows({ activityId, fields }: { activityId: string; fields: EntryField[] }) {
+function AddEntryRows({ activityId, pageant, fields }: { activityId: string; pageant: boolean; fields: EntryField[] }) {
   const [rows, setRows] = useState<NewEntry[]>(() => [blankEntry(0)]);
   const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => {
     const result = toastSaved(await addEntries(activityId, previous, data));
@@ -237,43 +237,21 @@ function AddEntryRows({ activityId, fields }: { activityId: string; fields: Entr
     return result;
   }, null);
   const lines = entryLines(rows);
+  const plural = pageant ? "candidates" : "entries";
   return (
     <form action={action} className="mt-8">
-      <h3 className="label">Add entries</h3>
+      <h3 className="label">Add {plural}</h3>
       <input type="hidden" name="names" value={lines} />
       {rows.some((r) => r.name.trim() && r.details.trim()) && <input type="hidden" name="with_details" value="on" />}
       <EntryRows
         rows={rows}
         setRows={setRows}
+        noun={pageant ? "candidate" : "entry"}
         detailsLabel={fields[0]?.name ?? GENERAL_DETAILS}
-        label="New entry"
-        footer={<SubmitButton pendingLabel="Adding…">Add entries</SubmitButton>}
+        label={pageant ? "New candidate" : "New entry"}
+        footer={<SubmitButton pendingLabel="Adding…">Add {plural}</SubmitButton>}
       />
       <FormMessage state={state?.ok ? null : state} small className="mt-2" />
-    </form>
-  );
-}
-
-function AddEntriesForm({ activityId, pageant, fields }: { activityId: string; pageant: boolean; fields: EntryField[] }) {
-  const [state, action] = useActionState<FormResult, FormData>(async (previous, data) => toastSaved(await addEntries(activityId, previous, data)), null);
-  if (!pageant) return <AddEntryRows activityId={activityId} fields={fields} />;
-  return (
-    <form action={action} className="mt-8 max-w-xl space-y-2">
-      <label htmlFor="new-entries" className="label">
-        {pageant ? "Add candidates, one per line" : "Add entries, one per line"}
-      </label>
-      <textarea
-        id="new-entries"
-        name="names"
-        rows={4}
-        required
-        className="field h-auto py-2.5 leading-relaxed"
-        placeholder={fields.length ? `Agila | ${fields.map((f) => f.name).join(" | ")}` : undefined}
-      />
-      <div className="flex items-center gap-3">
-        <SubmitButton pendingLabel="Adding…">{pageant ? "Add candidates" : "Add entries"}</SubmitButton>
-        <FormMessage state={state?.ok ? null : state} small />
-      </div>
     </form>
   );
 }
@@ -290,7 +268,7 @@ export function EntriesTab({
 }: {
   activityId: string;
   entries: Entry[];
-  /** An event's entry fields and each entry's values; null for a pageant, or before migration 033. */
+  /** The entry fields and each entry's (or candidate's) values; null before migration 033. */
   details?: { fields: EntryField[]; byEntry: Record<string, EntryDetails> } | null;
   /** A pageant calls its entries candidates. */
   pageant?: boolean;
@@ -363,7 +341,7 @@ export function EntriesTab({
                   started={started}
                   // The shuffle's "is now first" no longer holds.
                   onReorder={() => setShuffled(null)}
-                  // An event's entries each have a line of details: its own named fields, or the general one.
+                  // Each entry (or candidate) has a line of details: an older event's own named fields, or the general one.
                   fields={details ? (fields.length ? fields : [GENERAL_FIELD]) : []}
                   details={details?.byEntry[e.id] ?? {}}
                 />
@@ -405,7 +383,7 @@ export function EntriesTab({
               <FormMessage state={shuffled} small className="basis-full" />
             </div>
           )}
-          {!deliberating && <AddEntriesForm activityId={activityId} pageant={pageant} fields={fields} />}
+          {!deliberating && <AddEntryRows activityId={activityId} pageant={pageant} fields={fields} />}
           {/* Naming fields of their own is for events made before details were one general line, which keep theirs. */}
           {details && fields.some((f) => f.name !== GENERAL_DETAILS) && <EntryFieldsForm activityId={activityId} fields={fields} />}
         </div>

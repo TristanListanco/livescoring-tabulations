@@ -4,13 +4,13 @@ import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { applyOwnCorrection, settleCorrection } from "@/lib/correction-settle";
 import { cleanReason, correctionVoters } from "@/lib/corrections";
-import { findJudgeIdByCode, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRounds, getSignatures } from "@/lib/data";
+import { findJudgeIdByCode, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRoundSignatures, getRounds, getSignatures } from "@/lib/data";
 import { cleanSignature } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { atOwnPace, chairMovesEntries, eventTimer, scoreWindowOpen, showColumns } from "@/lib/judging";
-import { onPanel, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
+import { onPanel, segmentClosed, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
 import { listNames } from "@/lib/names";
@@ -223,6 +223,9 @@ export const submitScore = traced("submitScore", async function submitScore(entr
     if (!round) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
     // The preliminary can have its own judges: only the panel of the sub-activity on screen scores it.
     if (!onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant. Wait for your part." };
+    // Only the segment running now scores (the database holds to it too).
+    const closed = segmentClosed(activity, round);
+    if (closed) return { ok: false, error: `${closed} Wait for the organizer.` };
     if (round.timerSeconds && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
       return { ok: false, error: "Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it." };
     }
@@ -318,26 +321,36 @@ export const requestCorrection = traced("requestCorrection", async function requ
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
   const { activity } = context;
-  // An event's judge corrects their own (live scoring off); a pageant's asks the rest of their panel.
-  const own = activity.kind === "event";
-  const why = cleanReason(reason);
-  if (!why) return { ok: false, error: own ? "Say why the score needs correcting: it's kept with the correction." : "Say why the score needs correcting, so the other judges can decide." };
-
-  if (activity.liveScoring && own) return { ok: false, error: "This event scores live, so submitted scores are final." };
-  const deliberating = activity.sessionState === "deliberation";
-  if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
-  // At their own pace, any entry they've scored; otherwise the one on screen.
-  if (!deliberating && activity.currentEntryId !== entryId && !atOwnPace(activity)) {
-    return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
-  }
-
   let rules = activity;
   let roundId: string | null = null;
+  // A pageant sub-activity that deliberates: its judges correct their own, as in an event, until they sign.
+  let roundOwn = false;
+  let roundDeliberating = false;
   if (activity.kind === "pageant") {
     const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
     if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
     rules = withRoundRules(activity, round);
     roundId = round.id;
+    roundOwn = !round.liveScoring;
+    roundDeliberating = roundOwn && round.deliberationStartedAt !== null;
+    if (roundDeliberating) {
+      const signed = await getRoundSignatures(round.id);
+      if (signed?.signoff) return { ok: false, error: "This part of the pageant is signed off, so its scores are final." };
+      if (signed?.signatures.some((s) => s.judgeId === context.judge.id)) return { ok: false, error: "You've signed your scores, so they can't change now." };
+    }
+  }
+  // An event's judge corrects their own (live scoring off), and so does a deliberated sub-activity's; a pageant's
+  // judge otherwise asks the rest of their panel.
+  const own = activity.kind === "event" || roundOwn;
+  const why = cleanReason(reason);
+  if (!why) return { ok: false, error: own ? "Say why the score needs correcting: it's kept with the correction." : "Say why the score needs correcting, so the other judges can decide." };
+
+  if (activity.kind === "event" && activity.liveScoring) return { ok: false, error: "This event scores live, so submitted scores are final." };
+  const deliberating = activity.sessionState === "deliberation";
+  if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
+  // At their own pace, or in a deliberation, any entry they've scored; otherwise the one on screen.
+  if (!deliberating && !roundDeliberating && activity.currentEntryId !== entryId && !atOwnPace(activity)) {
+    return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
   }
 
   let value: number;
@@ -367,7 +380,7 @@ export const requestCorrection = traced("requestCorrection", async function requ
   // or leaves the entry tied (said, with how far a score has to move), is worked out on the scores before it.
   let broke: BrokenTie | null = null;
   let stillTied: string | null = null;
-  if (own && deliberating) {
+  if (activity.kind === "event" && deliberating) {
     const [signatures, board] = await Promise.all([getSignatures(activity.id), getBoard(activity.id)]);
     if (signatures?.some((s) => s.judgeId === context.judge.id)) return { ok: false, error: "You've signed your scores, so they can't change now." };
     if (board) {
@@ -483,6 +496,7 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   if (drawing !== null && !path) return { ok: false, error: "Draw your signature in the box, then sign." };
 
   const { activity } = context;
+  if (activity.kind === "pageant") return signRound(context, path);
   const [corrections, signatures] = await Promise.all([getCorrections(context.activityId), getSignatures(context.activityId)]);
   if (activity.sessionState !== "deliberation") return { ok: false, error: "Signing opens during the deliberation." };
   if (signatures === null) return { ok: false, error: DELIBERATION_HINT };
@@ -504,6 +518,33 @@ export const signOff = traced("signOff", async function signOff(drawing: string 
   changed(context.activity.publicId);
   return { ok: true };
 });
+
+/**
+ * A pageant judge signs the scores they gave in the sub-activity (or part) being deliberated, drawn or "(Sgd.)": once
+ * its deliberation has started and before the organizer signs it off. A score that changes after voids it (see
+ * void_round_signatures).
+ */
+async function signRound(context: { judge: Judge; activity: Activity }, path: string | null): Promise<ActionResult> {
+  const { activity, judge } = context;
+  const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
+  if (activity.sessionState !== "live" || !round || round.liveScoring || !round.deliberationStartedAt) {
+    return { ok: false, error: "Signing opens during the deliberation." };
+  }
+  if (!onPanel(judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
+  const signed = await getRoundSignatures(round.id);
+  if (!signed) return { ok: false, error: DELIBERATION_HINT };
+  if (signed.signatures.some((s) => s.judgeId === judge.id)) return { ok: true };
+  if (signed.signoff) return { ok: false, error: "This part of the pageant is signed off already." };
+  const { error } = await db()
+    .from("round_signatures")
+    .insert({ round_id: round.id, judge_id: judge.id, activity_id: activity.id, method: path ? "drawn" : "checked", drawing: path });
+  if (error && error.code !== "23505") {
+    log("error", "signature_not_saved", { code: error.code, error: error.message });
+    return { ok: false, error: "Your signature didn't save. Check your connection and try again." };
+  }
+  changed(activity.publicId);
+  return { ok: true };
+}
 
 /** The judge who asked takes back a correction no one has settled yet. */
 export const withdrawCorrection = traced("withdrawCorrection", async function withdrawCorrection(correctionId: string): Promise<ActionResult> {

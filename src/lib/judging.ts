@@ -1,5 +1,5 @@
 import { editable } from "./lifecycle";
-import { roundPool, SCORE_UNDO_MS } from "./pageant";
+import { roundDeliberating, roundPool, SCORE_UNDO_MS } from "./pageant";
 import type { Activity, Board, Entry } from "./types";
 
 /**
@@ -106,6 +106,8 @@ export function showColumns(board: Board, entryId: string | null, now: number): 
   }
   const round = board.rounds.find((r) => r.id === board.activity.currentRoundId);
   if (!round) return { error: "Choose the sub-activity to judge first." };
+  // Its judges are reviewing their scores: nothing is shown to score until it's signed off.
+  if (roundDeliberating(round)) return { error: `The judges are deliberating ${round.name}, so no candidate is shown until it's signed off.` };
   if (entryId && !roundPool(board, round.id).entries.some((e) => e.id === entryId)) {
     return { error: `That candidate isn't in ${round.name}.` };
   }

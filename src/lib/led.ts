@@ -31,28 +31,36 @@ export type LedScene =
       average: { state: "none" | "hidden" | "running" | "final"; value: number | null; count: number; total: number };
     };
 
-/** What the LED wall should show right now for the entry the admin put on air. */
+/**
+ * What the LED wall should show right now for the entry the admin put on air. A pageant sub-activity that deliberates
+ * (its board's activity isn't live, see showingBoard) shows only that each judge has scored, until it's signed off:
+ * from the marks the public board carries instead of scores, or from the scores themselves in the organizer's preview.
+ */
 export function ledScene(board: Board): LedScene {
   const { activity, judges } = board;
   const row = rankEntries(board.entries, judges, board.scores, activity).find((r) => r.entry.id === activity.ledEntryId);
   if (!row) return { kind: "empty" };
 
-  const complete = judges.length > 0 && row.count === judges.length;
-  const hold = activity.ledHoldScores && !complete;
+  const held = !activity.liveScoring && !activity.signedOffAt;
+  const marked = new Set((board.scored ?? board.scores).filter((s) => s.entryId === row.entry.id).map((s) => s.judgeId));
+  const count = held ? judges.filter((j) => marked.has(j.id)).length : row.count;
+  const complete = judges.length > 0 && count === judges.length;
+  const hold = held || (activity.ledHoldScores && !complete);
   const labels = firstNames(judges);
   const tiles = judges.map((judge) => {
     const label = activity.ledAnonymous ? null : (labels.get(judge.id) ?? judge.name);
     const value = row.scores.get(judge.id);
+    if (held) return marked.has(judge.id) ? { judge, label, state: "submitted" as const, value: null } : { judge, label, state: "waiting" as const, value: null };
     if (value === undefined) return { judge, label, state: "waiting" as const, value: null };
     return hold ? { judge, label, state: "submitted" as const, value: null } : { judge, label, state: "shown" as const, value };
   });
 
-  const state = complete ? "final" : hold ? "hidden" : row.count === 0 ? "none" : "running";
+  const state = held ? (count === 0 ? "none" : "hidden") : complete ? "final" : hold ? "hidden" : row.count === 0 ? "none" : "running";
   return {
     kind: "entry",
     entry: row.entry,
     number: row.number,
     tiles,
-    average: { state, value: state === "final" || state === "running" ? row.average : null, count: row.count, total: judges.length },
+    average: { state, value: state === "final" || state === "running" ? row.average : null, count, total: judges.length },
   };
 }

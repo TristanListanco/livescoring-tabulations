@@ -7,6 +7,8 @@ import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judg
 // pageant proper. The preliminary (an interview, scored in two parts: its questions 60% and
 // the advocacy 40%) counts for 40%, pageant proper for 60%: evening wear, then a Top 2 cut, then a timed Q&A
 // ending in the final cut. Bea and Cora tie on the Top 2 line (74% each), so the organizer chooses who goes through.
+// The preliminary and pageant proper run as sessions of their own: Dina is done once the preliminary ends, and
+// pageant proper's board waits for it to start.
 const RUN = Date.now().toString(36);
 const NAME = `E2E Pageant ${RUN}`;
 const REALTIME = { timeout: 20_000 };
@@ -99,10 +101,14 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByLabel("Candidate 2 name")).toHaveValue("Bea");
     // Focus stays on the move button, so the keyboard can keep moving her.
     await expect(page.getByRole("button", { name: "Move Bea up" })).toBeFocused();
-    // Enter goes to the next name, adding a row after a named last one; it never moves on to the next step.
+    // Enter goes from a name to its details, then to the next name, adding a row after a named last one; it never
+    // moves on to the next step.
     await page.getByLabel("Candidate 3 name").press("Enter");
+    await expect(page.getByLabel("Details for Cora")).toBeFocused();
+    await page.getByLabel("Details for Cora").press("Enter");
     await expect(page.getByLabel("Candidate 4 name")).toBeFocused();
     await page.getByLabel("Candidate 4 name").press("Enter");
+    await page.getByLabel("Details for Candidate 4").press("Enter");
     await expect(page.getByLabel("Candidate 5 name")).toHaveCount(0);
     await expect(step(1, "Candidates")).toBeVisible();
     await page.getByRole("button", { name: "Continue to judges" }).click();
@@ -111,6 +117,8 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByLabel("Candidate 4 name")).toBeFocused();
     await page.getByRole("button", { name: "Remove Candidate 4" }).click();
     await expect(problems).toBeHidden();
+    // A line of details under a candidate's name, as an event's entries have: shown under it on the LED wall.
+    await page.getByLabel("Details for Ayla").fill("Cebu City");
     // Each photo is cropped and resized before it's kept: here a little bigger in its square.
     await page.getByLabel("Photo for Ayla").setInputFiles(PHOTO);
     const crop = page.getByRole("dialog", { name: "Crop the photo of Ayla" });
@@ -192,6 +200,8 @@ test.describe.serial("a pageant", () => {
     // The other parts take its share, so the interview still counts for 40.
     await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     await page.getByLabel("Share of the overall score for Interview · Questions").fill("24");
+    // Its parts now add up to more than the preliminary's 40%: the interview's sum says so, in the danger colour.
+    await expect(page.getByText(/^sum of parts, [\d.]+% over$/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Undo removing Part 3" })).toHaveCount(0);
     await page.getByLabel("Share of the overall score for Interview · Advocacy").fill("16");
     await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
@@ -278,16 +288,20 @@ test.describe.serial("a pageant", () => {
     // A pageant calls its entries candidates, and its program has its own tab.
     await expect(page.getByRole("link", { name: "Candidates", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Segments", exact: true })).toBeVisible();
-    // Ayla's photo from the setup went up with the pageant.
+    // Ayla's photo from the setup went up with the pageant, and her details with her.
     await page.goto(`${adminPath}?tab=entries`);
     await expect(page.getByRole("button", { name: "View photo of Ayla" })).toBeVisible();
+    await expect(page.getByLabel("Details for Ayla")).toHaveValue("Cebu City");
+    await expect(page.getByRole("heading", { name: "Add candidates" })).toBeVisible();
     await page.goto(`${adminPath}?tab=session`);
     livePath = await screenPath(page, "Open live results");
+    // Before the start, the LED wall's preview plays a sample on the first part judged, with the pageant's candidates.
     await page.goto(`${adminPath}?tab=led`);
+    await expect(page.getByText("once the preliminary starts, the wall follows the candidate you show")).toBeVisible();
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
   });
 
-  test("judges pair their devices and the session starts between sub-activities", async ({ page }) => {
+  test("judges pair their devices and the preliminary starts, pageant proper's judges waiting", async ({ page }) => {
     await signInAsSuperAdmin(page);
     for (const [judge, code, name] of [
       [dina, codes[0], "Dina Lopez"],
@@ -302,19 +316,42 @@ test.describe.serial("a pageant", () => {
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
 
-    await page.goto(`${adminPath}?tab=session`);
-    await page.getByRole("button", { name: "Start session" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
-    // No sub-activity is on yet: the desk offers the first one, and judges wait for it.
-    await expect(page.getByText("Choose what to judge next")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Judge Interview · Questions", exact: true })).toBeVisible();
-    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Waiting for the next part of the pageant", REALTIME);
+    // Settings shows each sub-activity's scoring, chosen from the program.
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByLabel("Scoring of").selectOption({ label: "Q&A" });
+    await expect(page.getByText("5 seconds per candidate")).toBeVisible();
+    // The live results say the pageant hasn't started, then that judging starts soon.
+    await page.goto(livePath);
+    await expect(page.getByText("The pageant hasn't started yet.", { exact: false })).toBeVisible();
 
-    // The program is final once judging starts: read-only, timers included.
+    await page.goto(`${adminPath}?tab=session`);
+    await page.getByRole("button", { name: "Start preliminary" }).click();
+    await page.getByRole("dialog", { name: "Start the preliminary?" }).getByRole("button", { name: "Start preliminary" }).click();
+    await expect(page.getByText("Live · Preliminary")).toBeVisible();
+    await page.goto(livePath);
+    await expect(page.getByText("Judging starts soon.", { exact: false })).toBeVisible(REALTIME);
+    await page.goto(`${adminPath}?tab=session`);
+    // No sub-activity is on yet: the desk offers the first one, and the preliminary's judges wait for it.
+    await expect(page.getByText("Choose what to judge next")).toBeVisible();
+    await expect(page.getByText("Live · Preliminary")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Judge Interview · Questions", exact: true })).toBeVisible();
+    await expect(dina.getByRole("heading", { level: 1 })).toHaveText("Waiting for the next part of the pageant", REALTIME);
+    // Pageant proper's board waits for its own start.
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
+
+    // The preliminary's part of the program is final once it starts; pageant proper's can change until it starts.
     await page.goto(`${adminPath}?tab=segments`);
-    await expect(page.getByText("The session has started, so the program is final and can't be changed.")).toBeVisible();
-    await expect(page.getByText("Judges get 5 seconds to score each candidate.")).toBeVisible();
-    await expect(page.getByRole("main").getByRole("textbox")).toHaveCount(0);
+    await expect(page.getByText("The preliminary has started, so its part of the program is final.")).toBeVisible();
+    await expect(page.getByLabel("Name of Preliminary sub-activity 1")).toHaveCount(0);
+    await expect(page.getByLabel("Name of Pageant proper sub-activity 2")).toHaveValue("Q&A");
+    await snap(page, "segments with the preliminary locked");
+    // So can pageant proper's own judges: the preliminary's are locked.
+    await page.goto(`${adminPath}?tab=judges`);
+    await expect(page.getByText("The preliminary has started, so its judges are locked.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove Ben Torres" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove Dina Lopez" })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Add a pageant proper judge" })).toBeVisible();
+    await expectAccessible(page);
   });
 
   test("the preliminary is judged part by part, candidate by candidate", async ({ page }) => {
@@ -324,14 +361,14 @@ test.describe.serial("a pageant", () => {
     await page.getByRole("button", { name: "Judge Interview · Questions", exact: true }).click();
     await expect(page.getByRole("heading", { name: /^Interview · Questions · / })).toBeVisible();
     await expect(dina.getByText(`${NAME} · Interview · Questions`)).toBeVisible(REALTIME);
-    // The preliminary has its own board, so pageant proper's judges wait for theirs.
-    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Waiting for your part of the pageant", REALTIME);
+    // The preliminary has its own board, so pageant proper's judges wait for theirs to start.
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
 
     await judgeCandidate(page, preliminaryBoard(), "Show first candidate", "Ayla", "9", "9.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Cora", "Cora", "8", "8.00");
 
-    // Pageant proper waits until every preliminary score is in.
+    // Pageant proper waits for its own start.
     const program = page.getByRole("region", { name: "Program" });
     await expect(program.getByRole("button", { name: "Judge now Evening wear" })).toHaveCount(0);
     await expect(program).toContainText("After the preliminary");
@@ -357,8 +394,30 @@ test.describe.serial("a pageant", () => {
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
     await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Cora", "Cora", "8", "8.00");
 
-    // The last candidate in, the desk moves on to the next sub-activity rather than ending the session.
-    await page.getByRole("button", { name: "Next: Evening wear" }).click();
+    // A judged sub-activity can go back on judges' screens.
+    await expect(program.getByRole("button", { name: "Show again Interview · Questions" })).toBeVisible();
+
+    // The last preliminary candidate in, the desk offers the preliminary's end, rather than pageant proper.
+    const end = page.getByRole("dialog", { name: "End the preliminary?" });
+    await page.getByRole("button", { name: "End preliminary" }).click();
+    await end.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await end.getByRole("button", { name: "End preliminary" }).click();
+    // Dina judges only the preliminary: she's done. Pageant proper's board still waits.
+    await expect(dina.getByRole("heading", { level: 1 })).toHaveText("Your part of the pageant is done", REALTIME);
+    await expect(page.getByText("The preliminary has ended", { exact: true })).toBeVisible(REALTIME);
+    await expect(page.getByText("Live · Between segments")).toBeVisible();
+    await snap(page, "desk between the segments");
+    await snap(dina, "judge whose part is done");
+    // Deductions closed with it.
+    await program.getByRole("button", { name: /^Deductions/ }).click();
+    await expect(page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Deduct" })).toHaveCount(0);
+    await page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("button", { name: "Start pageant proper" }).click();
+    await page.getByRole("dialog", { name: "Start pageant proper?" }).getByRole("button", { name: "Start pageant proper" }).click();
+    await expect(page.getByText("Live · Pageant proper")).toBeVisible(REALTIME);
+    await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Waiting for the next part of the pageant", REALTIME);
+    await page.getByRole("button", { name: "Judge Evening wear", exact: true }).click();
     await expect(page.getByRole("heading", { name: /^Evening wear · / })).toBeVisible(REALTIME);
   });
 
@@ -430,7 +489,8 @@ test.describe.serial("a pageant", () => {
     const led = await (await browser.newContext({ viewport: { width: 1920, height: 1080 } })).newPage();
     await led.goto(ledPath);
     await expect(led.getByText("Ayla", { exact: true })).toBeVisible(REALTIME);
-    await expect(led.getByText("Q&A", { exact: true })).toBeVisible();
+    // Under her name, her details (a candidate without them has the sub-activity's name there).
+    await expect(led.getByText("Cebu City", { exact: true })).toBeVisible();
     // Ayla's photo from the setup sits beside her name, on the green screen and full screen alike.
     await expect.poll(() => led.locator("img[data-entry-photo]").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
     await snap(led, "LED lower third in a pageant");
@@ -473,11 +533,11 @@ test.describe.serial("a pageant", () => {
     await snap(page, "final results");
     await dialog.getByRole("button", { name: "Close" }).click();
 
-    // Nothing is left to judge, so the desk offers to end the session.
-    await page.getByRole("button", { name: "End session" }).click();
-    const end = page.getByRole("dialog", { name: "End the session?" });
+    // Nothing is left to judge, so the desk offers to end pageant proper, and with it the pageant.
+    await page.getByRole("button", { name: "End pageant proper" }).click();
+    const end = page.getByRole("dialog", { name: "End pageant proper?" });
     await end.getByLabel("Your password").fill(ADMIN_PASSWORD);
-    await end.getByRole("button", { name: "End session" }).click();
+    await end.getByRole("button", { name: "End pageant proper" }).click();
     await expect(page.getByRole("heading", { name: "Judging has ended" })).toBeVisible();
     await expect(page.getByText(/scores? (is|are) missing/)).toHaveCount(0);
   });
@@ -489,6 +549,8 @@ test.describe.serial("a pageant", () => {
       ["Interview · Questions", "Results (PDF)", `${slug}-interview-questions-results.pdf`],
       ["Interview · Questions", "Judges' score sheets (PDF)", `${slug}-interview-questions-judges-score-sheets.pdf`],
       ["Interview", "Standings (PDF)", `${slug}-interview-results.pdf`],
+      // A sub-activity in parts: each judge's sheets for every part, in one PDF.
+      ["Interview", "Judges' score sheets (PDF)", `${slug}-interview-judges-score-sheets.pdf`],
       ["Q&A", "Results (PDF)", `${slug}-qa-results.pdf`],
       ["Q&A", "Judges' score sheets (PDF)", `${slug}-qa-judges-score-sheets.pdf`],
       ["the preliminary", "Standings (PDF)", `${slug}-preliminary-results.pdf`],
@@ -502,7 +564,8 @@ test.describe.serial("a pageant", () => {
     // The same sheets as CSV: a sub-activity's results, and the final results with each candidate's place.
     const qa = await exportFile(page, "Results (CSV) for Q&A", "Export Q&A");
     expect(qa.suggestedFilename()).toBe(`${slug}-qa-results.csv`);
-    expect(readFileSync(await qa.path(), "utf8")).toContain("Rank,No.,Candidate,");
+    expect(readFileSync(await qa.path(), "utf8")).toContain("Rank,No.,Candidate,Details,");
+    expect(readFileSync(await qa.path(), "utf8")).toContain("Cebu City");
     const final = await exportFile(page, "Results (CSV) for the final results", "Export the final results");
     expect(final.suggestedFilename()).toBe(`${slug}-final-results.csv`);
     expect(readFileSync(await final.path(), "utf8")).toContain("Place,Rank,No.,Candidate,");

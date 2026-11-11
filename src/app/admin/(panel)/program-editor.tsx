@@ -60,6 +60,9 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
       cutBasis: [],
       cutEntryIds: null,
       parentId: null,
+      liveScoring: true,
+      deliberationStartedAt: null,
+      signedOffAt: null,
     }),
   );
   const share = Number(draft.preliminaryWeight) || 0;
@@ -477,6 +480,8 @@ function RoundCard({
   const group = shareGroups(draft).find((g) => g.rounds.some((r) => r.key === round.key));
   const used = (group?.rounds ?? []).reduce((n, r) => n + roundShare(r), 0);
   const room = group?.target == null ? 0 : Math.round((group.target - used) * 100) / 100;
+  // Its group's shares are over or under what they should add up to (its parts' shares are its share).
+  const off = group?.target != null && room !== 0;
   const scope = shareScope(draft.rounds, round);
   // Alone after a cut it counts for all of its stage, so there's no share to give.
   const alone = aloneAfterCut(draft.rounds, round);
@@ -575,9 +580,12 @@ function RoundCard({
                 {scope} for {name}
               </span>
             </p>
-            <p className="flex h-11 items-center gap-2 whitespace-nowrap">
+            {/* In the danger colour, saying by how much, while its group's shares don't add up to what they should. */}
+            <p className={`flex h-11 items-center gap-2 whitespace-nowrap ${off ? "text-danger" : ""}`}>
               <span className="tabular font-semibold">{shareText(roundShare(round))}%</span>
-              <span className="hint">sum of parts</span>
+              <span className={off ? "text-sm font-semibold" : "hint"}>
+                sum of parts{off && <span className="tabular">{room < 0 ? `, ${shareText(-room)}% over` : `, ${shareText(room)}% under`}</span>}
+              </span>
             </p>
           </div>
         ) : (
@@ -642,6 +650,28 @@ function RoundCard({
           onChange={(parts) => onChange({ parts, weight: shareText(roundShare({ weight: "", parts })) })}
         />
       )}
+
+      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow it. */}
+      <fieldset className="mt-4">
+        <legend className="font-semibold">
+          Results<span className="sr-only"> of {name}</span>
+        </legend>
+        <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
+          <label className="flex items-center gap-2.5">
+            <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false })} />
+            Live
+          </label>
+          <label className="flex items-center gap-2.5">
+            <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true })} />
+            After a deliberation
+          </label>
+        </div>
+        <p className="hint mt-1">
+          {round.deliberate
+            ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
+            : "Each score shows on the live results and the LED wall as it comes in."}
+        </p>
+      </fieldset>
 
       {round.segment === "proper" && (
         <div className={`mt-4 ${cut ? "rounded-xl bg-wash/60 p-4" : ""}`}>
