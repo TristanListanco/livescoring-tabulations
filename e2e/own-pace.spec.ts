@@ -112,7 +112,7 @@ test.describe.serial("judges at their own pace", () => {
     await page.goto(`/admin/${activity.id}?tab=session`);
     await expect(page.getByText("Judges score at their own pace")).toBeVisible();
     await expect(page.getByText("3 of 6 scores in")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Show first entry|Show next entry/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Show first entry|^Next: / })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Judge now/ })).toHaveCount(0);
 
     // Ben goes in running order.

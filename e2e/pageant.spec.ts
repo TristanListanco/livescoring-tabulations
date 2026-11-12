@@ -367,8 +367,8 @@ test.describe.serial("a pageant", () => {
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
 
     await judgeCandidate(page, preliminaryBoard(), "Show first candidate", "Ayla", "9", "9.00");
-    await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
-    await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Cora", "Cora", "8", "8.00");
+    await judgeCandidate(page, preliminaryBoard(), "Next: Bea", "Bea", "8", "8.00");
+    await judgeCandidate(page, preliminaryBoard(), "Next: Cora", "Cora", "8", "8.00");
 
     // Pageant proper waits for its own start.
     const program = page.getByRole("region", { name: "Program" });
@@ -393,8 +393,8 @@ test.describe.serial("a pageant", () => {
     await page.getByRole("button", { name: "Next: Interview · Advocacy" }).click();
     await expect(page.getByRole("heading", { name: /^Interview · Advocacy · / })).toBeVisible(REALTIME);
     await judgeCandidate(page, preliminaryBoard(), "Show first candidate", "Ayla", "9", "9.00");
-    await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Bea", "Bea", "8", "8.00");
-    await judgeCandidate(page, preliminaryBoard(), "Show next candidate: Cora", "Cora", "8", "8.00");
+    await judgeCandidate(page, preliminaryBoard(), "Next: Bea", "Bea", "8", "8.00");
+    await judgeCandidate(page, preliminaryBoard(), "Next: Cora", "Cora", "8", "8.00");
 
     // A judged sub-activity can go back on judges' screens.
     await expect(program.getByRole("button", { name: "Show again Interview · Questions" })).toBeVisible();
@@ -410,12 +410,15 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Preliminary done · Waiting for pageant proper")).toBeVisible();
     await snap(page, "desk between the segments");
     await snap(dina, "judge whose part is done");
-    // The break, in the order the work goes: deductions (open until pageant proper starts), pageant proper's judges
-    // (their devices approved right here), then its start.
-    const steps = page.getByRole("listitem").filter({ has: page.getByRole("heading", { level: 3 }) });
-    await expect(steps.getByRole("heading", { level: 3 })).toHaveText(["Record deductions", "Pair pageant proper's judges", "Start pageant proper"]);
-    await expect(page.getByRole("listitem", { name: "Record deductions" }).getByRole("button", { name: "Deduct" })).toBeVisible();
+    // The break, in the order the work goes: deductions (open until pageant proper starts), then pageant proper's
+    // judges (their devices approved right here, ticked once all are paired). Its start is in the action bar.
+    const steps = page.getByRole("region", { name: "Before pageant proper" }).getByRole("heading", { level: 3 });
+    await expect(steps).toHaveText(["Record deductions", "Pair pageant proper's judges, done"]);
+    await page.getByRole("listitem", { name: "Record deductions" }).getByRole("button", { name: "Add a deduction" }).click();
+    await expect(page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Deduct" })).toBeVisible();
+    await page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Close" }).click();
     await expect(page.getByRole("list", { name: "Pageant proper's judges" }).getByRole("listitem")).toHaveCount(3);
+    await expect(page.getByRole("group", { name: "Pageant proper's start" }).getByRole("status")).toHaveText("Pageant proper's judges are ready.");
 
     await page.getByRole("button", { name: "Start pageant proper" }).click();
     await page.getByRole("dialog", { name: "Start pageant proper?" }).getByRole("button", { name: "Start pageant proper" }).click();
@@ -432,8 +435,8 @@ test.describe.serial("a pageant", () => {
   test("a tie on the cut line is broken by the organizer", async ({ page }) => {
     await openDesk(page);
     await judgeCandidate(page, properBoard(), "Show first candidate", "Ayla", "9", "9.00");
-    await judgeCandidate(page, properBoard(), "Show next candidate: Bea", "Bea", "7", "7.00");
-    await judgeCandidate(page, properBoard(), "Show next candidate: Cora", "Cora", "7", "7.00");
+    await judgeCandidate(page, properBoard(), "Next: Bea", "Bea", "7", "7.00");
+    await judgeCandidate(page, properBoard(), "Next: Cora", "Cora", "7", "7.00");
 
     await page.getByRole("button", { name: "Review the Top 2", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Cut: Top 2" });
@@ -522,7 +525,7 @@ test.describe.serial("a pageant", () => {
   test("the final cut places the winners", async ({ page }) => {
     await openDesk(page);
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Ayla." })).toBeVisible(REALTIME);
-    await page.getByRole("button", { name: "Show next candidate: Cora", exact: true }).click();
+    await page.getByRole("button", { name: "Next: Cora", exact: true }).click();
     // Cora keeps her number from the full running order.
     await expect(ana.getByText("No. 3", { exact: true })).toBeVisible(REALTIME);
     // Q&A gives judges 5 seconds each: the board scores together.
