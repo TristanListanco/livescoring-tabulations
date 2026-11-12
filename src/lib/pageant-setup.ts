@@ -51,6 +51,11 @@ export type RoundDraft = {
    * follow it. Missing in drafts from before, which score live.
    */
   deliberate?: boolean;
+  /**
+   * With `deliberate` only: its judges score its candidates in any order, at their own pace, with no timer. Its parts
+   * follow it. Missing in older drafts.
+   */
+  ownPace?: boolean;
 };
 /** A violation the organizer can deduct points for, as typed: e.g. "Late for call time", "1". `id`: a saved one's, or "". */
 export type ViolationDraft = { key: string; id: string; reason: string; points: string };
@@ -72,6 +77,8 @@ export type CheckedRound = {
   parts: CheckedPart[];
   /** Its scores (and its parts') go out as they come in; false when they wait for a deliberation. */
   liveScoring: boolean;
+  /** Judges score it at their own pace (only when it deliberates); then it and its parts have no timer. */
+  independentScoring: boolean;
 };
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
 
@@ -439,8 +446,10 @@ export function checkPageant(
       const scope = segment === "proper" ? shareScope(draft.rounds, round) : "of the overall score";
       if (!round.parts && !(ownShare > 0 && ownShare <= 100)) return fail(`Give ${name} its share ${scope}, e.g. 20.`, segment, at("share"));
 
+      // At their own pace, judges have no timer: none is kept, whatever was typed before it was chosen.
+      const paced = round.deliberate === true && round.ownPace === true;
       // Judges score the sub-activity itself, or each of its parts.
-      const own = checkScored(name, round.scoring, round.timer, newId);
+      const own = checkScored(name, round.scoring, paced ? "" : round.timer, newId);
       if ("error" in own && !round.parts) return fail(own.error, segment, at(own.input));
       const parts: CheckedPart[] = [];
       let partTotal = 0;
@@ -457,7 +466,7 @@ export function checkPageant(
           const partWeight = parseShare(part.weight);
           if (!(partWeight > 0 && partWeight <= 100)) return fail(`Give ${name} · ${partName} its share ${scope}, e.g. 10.`, segment, at("share", part.key));
           partTotal += partWeight;
-          const scored = checkScored(`${name} · ${partName}`, part.scoring, part.timer, newId);
+          const scored = checkScored(`${name} · ${partName}`, part.scoring, paced ? "" : part.timer, newId);
           if ("error" in scored) return fail(scored.error, segment, at(scored.input, part.key));
           parts.push({ key: part.key, name: partName, position: parts.length, weight: partWeight, ...scored });
         }
@@ -466,7 +475,19 @@ export function checkPageant(
       totals[Math.max(0, stages.findIndex((stage) => stage.includes(round)))] += weight;
       // A sub-activity with parts keeps a placeholder scoring of its own: only its parts are scored.
       const self = "error" in own ? { scoring: PLACEHOLDER_SCORING, timerSeconds: null } : own;
-      checked.push({ key: round.key, segment, name, position: checked.length, weight, ...self, cutSize: null, cutBasis: [], parts, liveScoring: !round.deliberate });
+      checked.push({
+        key: round.key,
+        segment,
+        name,
+        position: checked.length,
+        weight,
+        ...self,
+        cutSize: null,
+        cutBasis: [],
+        parts,
+        liveScoring: !round.deliberate,
+        independentScoring: paced,
+      });
     }
     for (const [stage, rounds] of stages.entries()) {
       const target = segment === "preliminary" ? preliminaryWeight : stage === 0 ? 100 - preliminaryWeight : 100;
@@ -586,6 +607,7 @@ export function parsePageantDraft(json: string): PageantDraft | null {
           })
         : null,
       deliberate: r.deliberate === true,
+      ownPace: r.ownPace === true,
     };
   });
   const violations = Array.isArray(obj.violations)
@@ -640,6 +662,7 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
             }))
           : null,
         deliberate: !r.liveScoring,
+        ownPace: r.independentScoring,
       };
     }),
   });

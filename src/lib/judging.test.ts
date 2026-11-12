@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { entryNeighbors, eventTimer, judgesLocked, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns } from "./judging";
-import { activityFixture } from "./test-fixtures";
+import { entryNeighbors, eventTimer, judgesLocked, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns, startReady } from "./judging";
+import { activityFixture, roundFixture } from "./test-fixtures";
 
 const entries = [
   { id: "e1", name: "Agila", photoUrl: null, position: 0 },
@@ -129,5 +129,53 @@ describe("judgesLocked", () => {
     expect(judgesLocked({ sessionState: "ended", sessionStartedAt: "2026-11-08T00:00:00Z" })).toBe(true);
     // Reset: back to not started, but it started once.
     expect(judgesLocked({ sessionState: "draft", sessionStartedAt: "2026-11-08T00:00:00Z" })).toBe(true);
+  });
+});
+
+describe("startReady", () => {
+  const approved = (judgeId: string) => ({ judgeId, status: "approved" as const });
+  const judges = [
+    { id: "a", panel: "all" as const },
+    { id: "p", panel: "preliminary" as const },
+    { id: "q", panel: "proper" as const },
+  ];
+  const at = (extra: Parameters<typeof startReady>[0]) => extra;
+
+  it("starts an event's session once every judge is in", () => {
+    const event = at({ kind: "event", sessionState: "draft", preliminaryEndedAt: null, properStartedAt: null });
+    expect(startReady(event, judges, [approved("a"), approved("p")])).toBeNull();
+    expect(startReady(event, judges, judges.map((j) => approved(j.id)))).toEqual({ what: "session", count: 3 });
+    expect(startReady({ ...event, sessionState: "live" }, judges, judges.map((j) => approved(j.id)))).toBeNull();
+  });
+
+  it("starts a pageant's preliminary once its board is in, pageant proper's own judges aside", () => {
+    const pageant = at({ kind: "pageant", sessionState: "draft", preliminaryEndedAt: null, properStartedAt: null });
+    expect(startReady(pageant, judges, [approved("a")])).toBeNull();
+    expect(startReady(pageant, judges, [approved("a"), approved("p")])).toEqual({ what: "preliminary", count: 2 });
+  });
+
+  it("starts pageant proper in the break once its board is in", () => {
+    const live = at({ kind: "pageant", sessionState: "live", preliminaryEndedAt: null, properStartedAt: null });
+    expect(startReady(live, judges, judges.map((j) => approved(j.id)))).toBeNull();
+    const between = { ...live, preliminaryEndedAt: "2026-11-12T09:00:00Z" };
+    expect(startReady(between, judges, [approved("a")])).toBeNull();
+    expect(startReady(between, judges, [approved("a"), approved("q")])).toEqual({ what: "proper", count: 2 });
+    expect(startReady({ ...between, properStartedAt: "2026-11-12T09:30:00Z" }, judges, judges.map((j) => approved(j.id)))).toBeNull();
+  });
+});
+
+describe("a pageant sub-activity at its judges' own pace", () => {
+  const round = roundFixture({ id: "r", segment: "preliminary", name: "Talent", liveScoring: false, independentScoring: true });
+  const board = {
+    activity: activityFixture({ kind: "pageant", sessionState: "live", currentRoundId: "r" }),
+    judges: [],
+    entries,
+    scores: [],
+    rounds: [round],
+  };
+
+  it("shows no candidate, though judges can be sent to wait", () => {
+    expect(showColumns(board, "e1", 0)).toEqual({ error: "Judges score Talent at their own pace, so no candidate is shown." });
+    expect(showColumns(board, null, 0)).toEqual({ columns: { current_entry_id: null, scoring_closes_at: null } });
   });
 });

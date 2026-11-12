@@ -314,6 +314,9 @@ create index if not exists rounds_parent_idx on public.rounds (parent_id);
 -- until its judges have reviewed and signed them, and the organizer has too (migration 040). Its parts follow it.
 alter table public.rounds add column if not exists live_scoring boolean not null default true;
 alter table public.rounds add column if not exists deliberation_started_at timestamptz;
+-- A sub-activity that deliberates can have its judges score its candidates in any order, at their own pace, with no
+-- timer (migration 041). Its parts follow it.
+alter table public.rounds add column if not exists independent_scoring boolean not null default false;
 -- The sub-activity being judged now.
 alter table public.activities add column if not exists current_round_id uuid references public.rounds (id) on delete set null;
 -- A pageant's segments as sessions of their own (migration 040): the session runs from the preliminary's start

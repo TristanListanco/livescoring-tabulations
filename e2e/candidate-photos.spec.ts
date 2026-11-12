@@ -45,19 +45,15 @@ test("twelve candidates' photos go up with the new pageant", async ({ page }) =>
   }, CANDIDATES.join("\n"));
   await expect(page.getByLabel(`Candidate ${CANDIDATES.length} name`)).toHaveValue(CANDIDATES.at(-1)!);
   for (const name of CANDIDATES) await choosePhoto(page, `Photo for ${name}`);
-  await page.getByRole("button", { name: "Continue to judges" }).click();
 
   for (const [i, [first, last]] of [["Ana", "Cruz"], ["Ben", "Torres"], ["Cara", "Diaz"]].entries()) {
     await page.getByLabel(`Judge ${i + 1} first name`).fill(first);
     await page.getByLabel(`Judge ${i + 1} last name`).fill(last);
   }
   await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-  await page.getByRole("button", { name: "Continue to preliminary" }).click();
   await page.getByLabel("Name of Preliminary sub-activity 1").fill("Interview");
-  await page.getByRole("button", { name: "Continue to pageant proper" }).click();
   await page.getByLabel("Name of Pageant proper sub-activity 1").fill("Evening wear");
   await page.getByLabel("Top (candidates placed in the final cut after Evening wear)").fill("3");
-  await page.getByRole("button", { name: "Continue to review" }).click();
   await expect(page.getByText(`${CANDIDATES.length} in running order, ${CANDIDATES.length} with photos`)).toBeVisible();
 
   await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");

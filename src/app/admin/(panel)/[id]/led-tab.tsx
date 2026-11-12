@@ -2,8 +2,7 @@
 
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
-import { LED_FONT_VARIABLES } from "@/components/led/led-fonts";
-import { LED_FONTS, LED_THEMES, ledFontFamily, type LedFont, type LedTheme } from "@/lib/led-style";
+import { LED_THEMES, type LedFont, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { judgesFor, judgingOrder, withRoundRules } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
@@ -69,12 +68,14 @@ const SAMPLE_SHARES = [0.86, 0.92, 0.81, 0.95, 0.88, 0.84, 0.9];
  * Before the show, the preview plays what the wall does once judging starts: the first entry comes up, each judge's
  * score arrives in turn (or "Scored", when scores wait for every judge), then the average, and it starts again. With the
  * activity's own entries and judges where it has them, and the look chosen; the scores are made up. A pageant's plays
- * on the first sub-activity (or part) its judges score, with that one's panel and scoring. With reduced motion, it
- * stays on the finished entry.
+ * on pageant proper's first sub-activity (or part), with its panel and scoring: the judges the wall shows most. With
+ * reduced motion, it stays on the finished entry.
  */
 function useSample(board: Board, playing: boolean): Board {
   const { activity } = board;
-  const round = activity.kind === "pageant" ? (judgingOrder(board.rounds)[0] ?? null) : null;
+  // A pageant's: pageant proper's first sub-activity, with its judges (the wall's busiest part), else the first judged.
+  const judged = activity.kind === "pageant" ? judgingOrder(board.rounds) : [];
+  const round = judged.find((r) => r.segment === "proper") ?? judged[0] ?? null;
   const still = useMediaQuery("(prefers-reduced-motion: reduce)");
   const panel = round ? judgesFor(board, round) : board.judges;
   const judges: Judge[] = panel.length
@@ -107,12 +108,9 @@ function useSample(board: Board, playing: boolean): Board {
   };
 }
 
-/** A font drawn as a tile, its sample over its name: the tile is the target, filled when chosen (see .choice). */
-const TILE = "choice relative flex-col items-stretch gap-1.5 px-1.5 pt-1.5 pb-2 text-center";
-
 /**
- * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colour and font,
- * each choice drawn as what it looks like (its panels are always rounded). Saves on change; the wall follows within
+ * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colour, each
+ * choice drawn as what it looks like (its panels are always rounded; its font is always Modern). Saves on change; the wall follows within
  * seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
  * activity's other settings (they change the live results too).
  */
@@ -150,20 +148,6 @@ function WallSettings({ options, onChange, disabled }: { options: LedOptions; on
                 </span>
                 <span className="size-2 rounded-full" style={{ backgroundColor: t.colors.muted }} />
               </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend className="label">Font</legend>
-        <div className={`grid grid-cols-3 gap-1.5 ${LED_FONT_VARIABLES}`}>
-          {LED_FONTS.map((f) => (
-            <label key={f.value} className={TILE}>
-              <input type="radio" name="led-font" className={COVER} checked={options.font === f.value} onChange={() => onChange({ font: f.value })} disabled={disabled} />
-              <span aria-hidden className="text-lg leading-tight font-bold" style={{ fontFamily: ledFontFamily(f.value), fontFeatureSettings: '"lnum" 1' }}>
-                Aa 9.75
-              </span>
-              <span className="text-xs leading-tight font-semibold">{f.label}</span>
             </label>
           ))}
         </div>
@@ -241,7 +225,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
               <>
                 <span className="font-semibold text-prussian">A sample, with made-up scores:</span>{" "}
                 {pageant
-                  ? "once the preliminary starts, the wall follows the candidate you show and fills in as the judges score."
+                  ? "pageant proper's judges, as the wall will show them. Once the preliminary starts, the wall follows the candidate you show and fills in as the judges score."
                   : "once the session starts, the wall follows the entry you show and fills in as the judges score."}
               </>
             ) : current ? (

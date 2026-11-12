@@ -65,25 +65,30 @@ test.describe.serial("a pageant", () => {
     await deleteActivityNamed(NAME);
   });
 
-  test("the organizer sets up a pageant step by step, candidates first", async ({ page }) => {
+  test("the organizer sets up a pageant on one page, as an event, candidates first", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto("/admin/new");
     await page.getByRole("radio", { name: /^Pageant/ }).check();
-    const step = (n: number, name: string) => page.getByRole("heading", { level: 2, name: `Step ${n} of 5: ${name}` });
-    // What a step needs fixed before it moves on: listed at its top, each linking to its field.
-    const problems = page.locator("#step-problems");
+    // What Create needs fixed: listed above it, each linking to its field.
+    const problems = page.locator("#form-problems");
+    // The sections, beside the form at this width, each marked done once it has what Create needs.
+    const index = page.getByRole("navigation", { name: "Sections of the form" });
+    for (const name of ["Details", "Candidates", "Judges", "Preliminary", "Pageant proper", "Results"]) {
+      await expect(index.getByRole("link", { name: `${name}, not done yet` })).toBeVisible();
+    }
 
-    // 1. Candidates. Each step is checked before moving on: every problem is listed, the first field takes focus
-    // with its message under it, and each message goes as soon as its field is fixed.
-    await expect(step(1, "Candidates")).toBeVisible();
-    await page.getByRole("button", { name: "Continue to judges" }).click();
-    await expect(problems).toContainText("Fix these 4 things to continue");
+    // Create checks the whole page: every problem is listed, the first field takes focus with its message under it,
+    // and each message goes as soon as its field is fixed.
+    await page.getByRole("button", { name: "Create pageant" }).click();
+    await expect(problems).toContainText(/Fix these \d+ things to create the pageant/);
     await expect(problems).toContainText("Give the pageant a name.");
     await expect(problems).toContainText("Enter candidate 3's name, or remove the row.");
     await expect(page.getByLabel("Pageant name")).toBeFocused();
     await expect(page.getByLabel("Pageant name")).toHaveAttribute("aria-invalid", "true");
-    await snap(page, "pageant setup step problems");
+    await snap(page, "pageant setup problems");
     await page.getByLabel("Pageant name").fill(NAME);
+    await page.getByLabel(/^Location/).fill("University Gymnasium");
+    await expect(index.getByRole("link", { name: "Details, done" })).toBeVisible();
     await expect(problems).not.toContainText("Give the pageant a name.");
     await expect(page.getByLabel("Pageant name")).not.toHaveAttribute("aria-invalid", "true");
     // Each candidate has a row, with a photo for the LED wall; a new pageant starts with three. A list pasted into a
@@ -95,14 +100,14 @@ test.describe.serial("a pageant", () => {
     }, "1. Ayla\n2. Cora\n3. Bea");
     await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Bea");
     await expect(page.getByLabel("Candidate 3 name")).toBeFocused();
-    await expect(problems).toBeHidden();
+    await expect(problems).not.toContainText("Enter candidate");
     await expect(page.getByText(/^Pasted 3 names\. 3 candidates, in running order/)).toBeVisible();
     await page.getByRole("button", { name: "Move Bea up" }).click();
     await expect(page.getByLabel("Candidate 2 name")).toHaveValue("Bea");
     // Focus stays on the move button, so the keyboard can keep moving her.
     await expect(page.getByRole("button", { name: "Move Bea up" })).toBeFocused();
     // Enter goes from a name to its details, then to the next name, adding a row after a named last one; it never
-    // moves on to the next step.
+    // creates the pageant.
     await page.getByLabel("Candidate 3 name").press("Enter");
     await expect(page.getByLabel("Details for Cora")).toBeFocused();
     await page.getByLabel("Details for Cora").press("Enter");
@@ -110,13 +115,12 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("Candidate 4 name").press("Enter");
     await page.getByLabel("Details for Candidate 4").press("Enter");
     await expect(page.getByLabel("Candidate 5 name")).toHaveCount(0);
-    await expect(step(1, "Candidates")).toBeVisible();
-    await page.getByRole("button", { name: "Continue to judges" }).click();
-    await expect(problems).toContainText("Fix this to continue");
     await expect(problems).toContainText("Enter candidate 4's name, or remove the row.");
+    await page.getByRole("button", { name: "Create pageant" }).click();
     await expect(page.getByLabel("Candidate 4 name")).toBeFocused();
     await page.getByRole("button", { name: "Remove Candidate 4" }).click();
-    await expect(problems).toBeHidden();
+    await expect(problems).not.toContainText("candidate 4");
+    await expect(index.getByRole("link", { name: "Candidates, done" })).toBeVisible();
     // A line of details under a candidate's name, as an event's entries have: shown under it on the LED wall.
     await page.getByLabel("Details for Ayla").fill("Cebu City");
     // Each photo is cropped and resized before it's kept: here a little bigger in its square.
@@ -129,10 +133,8 @@ test.describe.serial("a pageant", () => {
     await expect(crop).toBeHidden();
     await expect(page.getByRole("button", { name: "View photo of Ayla" })).toBeVisible();
     await expectAccessible(page);
-    await page.getByRole("button", { name: "Continue to judges" }).click();
 
-    // 2. Judges. Names are letters only, and pageant proper needs at least three judges.
-    await expect(step(2, "Judges")).toBeFocused();
+    // Judges. Names are letters only, and pageant proper needs at least three judges.
     await page.getByRole("button", { name: "Remove judge 3" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByLabel("Judge 1 last name").fill("Cruz");
@@ -140,7 +142,7 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("alert").filter({ hasText: "Use letters only for the first name." })).toBeVisible();
     await page.getByLabel("Judge 2 last name").fill("Torres");
     await page.getByRole("radio", { name: "Chair of the board of judges: judge 1" }).check();
-    await page.getByRole("button", { name: "Continue to preliminary" }).click();
+    await page.getByRole("button", { name: "Create pageant" }).click();
     await expect(problems).toContainText("Use letters only for judge 2's first name.");
     await expect(problems).toContainText("Pageant proper needs at least three judges. Add one more judge.");
     await expect(page.getByLabel("Judge 2 first name")).toBeFocused();
@@ -158,7 +160,7 @@ test.describe.serial("a pageant", () => {
     await page.getByLabel("Preliminary judge 1 last name").fill("Lopez");
     await page.getByRole("button", { name: "Remove preliminary judge 3" }).click();
     await page.getByRole("button", { name: "Remove preliminary judge 2" }).click();
-    await page.getByRole("button", { name: "Continue to preliminary" }).click();
+    await page.getByRole("button", { name: "Create pageant" }).click();
     await expect(problems).toContainText("Choose the chair of the preliminary board of judges.");
     await expect(problems).toContainText("Pageant proper needs at least three judges. Add one more judge to its board.");
     await expect(page.getByRole("radio", { name: "Chair of the preliminary board: judge 1" })).toBeFocused();
@@ -167,11 +169,13 @@ test.describe.serial("a pageant", () => {
     await page.getByRole("button", { name: "Add a judge to the pageant proper board" }).click();
     await page.getByLabel("Pageant proper judge 3 first name").fill("Cara");
     await page.getByLabel("Pageant proper judge 3 last name").fill("Diaz");
+    await expect(index.getByRole("link", { name: "Judges, done" })).toBeVisible();
     await expectAccessible(page);
-    await page.getByRole("button", { name: "Continue to preliminary" }).click();
 
-    // 3. Preliminary: its share of the overall score, and its sub-activities.
-    await expect(step(3, "Preliminary")).toBeFocused();
+    // Each segment's part of the program, apart from the review below, which repeats some of what they say.
+    const prelimProgram = page.locator("#preliminary-program");
+    const properProgram = page.locator("#proper-program");
+    // Preliminary: its share of the overall score, and its sub-activities.
     // Shares are percentages of the overall score, as score sheets write them. The preliminary going from 30% to
     // 40% takes its sub-activity's share with it (and pageant proper's from 70 to 60).
     await page.getByLabel("The preliminary counts for").fill("40");
@@ -180,7 +184,7 @@ test.describe.serial("a pageant", () => {
     // Its only sub-activity can't be removed, and says why.
     // (It's marked unavailable rather than disabled, so it can still be pressed to hear why.)
     await page.getByRole("button", { name: "Remove Interview", exact: true }).click({ force: true });
-    await expect(page.getByText("The preliminary needs at least one sub-activity.")).toBeVisible();
+    await expect(prelimProgram.getByText("The preliminary needs at least one sub-activity.")).toBeVisible();
     // The interview is scored in parts, each with its own scoring and share; their shares add up to the interview's 40.
     await page.getByRole("checkbox", { name: "Score it in parts for Interview" }).check();
     await page.getByLabel("Name of part 1 of Interview").fill("Questions");
@@ -188,7 +192,7 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByLabel("Share of the overall score for Interview · Advocacy")).toHaveValue("20");
     // A third part takes its share by splitting the interview's 40 evenly, rather than leaving a share to fix.
     await page.getByRole("button", { name: "Add a part to Interview" }).click();
-    await expect(page.getByText("Shares were split evenly to make room.").filter({ visible: true })).toBeVisible();
+    await expect(prelimProgram.getByText("Shares were split evenly to make room.").filter({ visible: true })).toBeVisible();
     await expect(page.getByLabel("Share of the overall score for Interview · Questions")).toHaveValue("14");
     await page.getByRole("button", { name: "Remove Interview · Part 3" }).click();
     // Removing can be undone, as long as nothing else has changed: focus waits on Undo, where the part was.
@@ -198,58 +202,56 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByLabel("Share of the overall score for Interview · Questions")).toHaveValue("14");
     await page.getByRole("button", { name: "Remove Interview · Part 3" }).click();
     // The other parts take its share, so the interview still counts for 40.
-    await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
+    await expect(prelimProgram.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     await page.getByLabel("Share of the overall score for Interview · Questions").fill("24");
     // Its parts now add up to more than the preliminary's 40%: the interview's sum says so, in the danger colour.
-    await expect(page.getByText(/^sum of parts, [\d.]+% over$/)).toBeVisible();
+    await expect(prelimProgram.getByText(/^sum of parts, [\d.]+% over$/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Undo removing Part 3" })).toHaveCount(0);
     await page.getByLabel("Share of the overall score for Interview · Advocacy").fill("16");
-    await expect(page.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
+    await expect(prelimProgram.getByText("Shares total 40 of 40%").filter({ visible: true })).toBeVisible();
     // In parts, the interview's share is theirs added up: shown, not typed.
     await expect(page.getByLabel("Share of the overall score for Interview", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("sum of parts")).toBeVisible();
+    await expect(prelimProgram.getByText("sum of parts")).toBeVisible();
     // Deductions for violations: points off the preliminary score, given at the desk.
     await page.getByRole("checkbox", { name: "Deductions for violations" }).check();
     await page.getByLabel("Violation 1", { exact: true }).fill("Late for call time");
     await page.getByLabel("Violation 1 Points off").fill("1");
-    await page.getByRole("button", { name: "Continue to pageant proper" }).click();
 
-    // 4. Pageant proper: evening wear with a Top 2 cut, then a timed Q&A with the final cut.
-    await expect(step(4, "Pageant proper")).toBeFocused();
+    // Pageant proper: evening wear with a Top 2 cut, then a timed Q&A with the final cut.
     await page.getByLabel("Name of Pageant proper sub-activity 1").fill("Evening wear");
     // Evening wear has all of pageant proper's 60, so adding Q&A splits it evenly instead of leaving Q&A a share to fix.
-    await page.getByRole("button", { name: "Add a sub-activity" }).click();
+    await page.locator("#proper-program").getByRole("button", { name: "Add a sub-activity" }).click();
     await page.getByLabel("Name of Pageant proper sub-activity 2").fill("Q&A");
     await expect(page.getByLabel("Share of the overall score for Evening wear")).toHaveValue("30");
     await expect(page.getByLabel("Share of the overall score for Q&A")).toHaveValue("30");
-    // Each segment has its own total; the preliminary's is on its (hidden) step.
-    await expect(page.getByText("Shares total 60 of 60%").filter({ visible: true })).toBeVisible();
+    // Each segment has its own total.
+    await expect(properProgram.getByText("Shares total 60 of 60%").filter({ visible: true })).toBeVisible();
 
     await page.getByRole("checkbox", { name: "Make a cut after Evening wear" }).check();
     // Scores start over after a cut: evening wear now has all of pageant proper's 60%, and Q&A, after the cut, 100%.
     await expect(page.getByLabel("Share of the overall score for Evening wear")).toHaveValue("60");
     // The cut knows how many candidates are left before it, and says so as soon as a size is too big.
-    await expect(page.getByText("of the 3 candidates left go through")).toBeVisible();
+    await expect(properProgram.getByText("of the 3 candidates left go through")).toBeVisible();
     await page.getByLabel("Top (candidates who go through after Evening wear)").fill("3");
     await expect(page.getByRole("alert").filter({ hasText: "Top 3 has to be fewer than the 3 candidates left before this cut." })).toBeVisible();
     await page.getByLabel("Top (candidates who go through after Evening wear)").fill("2");
-    await expect(page.getByText("of the 2 candidates left are placed")).toBeVisible();
+    await expect(properProgram.getByText("of the 2 candidates left are placed")).toBeVisible();
     // Alone after the cut, Q&A counts for 100% of the score from there, so it has no share to give.
-    await expect(page.getByText("After the Top 2 cut, scores start over", { exact: true }).filter({ visible: true })).toBeVisible();
+    await expect(properProgram.getByText("After the Top 2 cut, scores start over", { exact: true }).filter({ visible: true })).toBeVisible();
     await expect(page.getByLabel(/^Share .* for Q&A$/)).toHaveCount(0);
     // The first cut counts everything so far; the preliminary keeps its 40%.
-    await expect(page.getByText("Counts as Interview 40%, Evening wear 60%.")).toBeVisible();
+    await expect(properProgram.getByText("Counts as Interview 40%, Evening wear 60%.")).toBeVisible();
     await page.getByLabel("Top (candidates placed in the final cut after Q&A)").fill("2");
-    await expect(page.getByText("Counts as Q&A 100%.")).toBeVisible();
+    await expect(properProgram.getByText("Counts as Q&A 100%.")).toBeVisible();
     // Scoring and its timer fold to one line, the defaults until opened.
     await expect(page.locator("summary").filter({ hasText: "Scoring for Q&A" })).toContainText("Scores 1 to 10 · 2 decimal places");
     await page.locator("summary").filter({ hasText: "Scoring for Q&A" }).click();
     await page.getByRole("checkbox", { name: "Time limit for scoring Q&A" }).check();
     await page.getByLabel("Judges get this many seconds per candidate in Q&A").fill("5");
-    await page.getByRole("button", { name: "Continue to review" }).click();
+    await expect(index.getByRole("link", { name: "Preliminary, done" })).toBeVisible();
+    await expect(index.getByRole("link", { name: "Pageant proper, done" })).toBeVisible();
 
-    // 5. Review, then create. It reads like the score sheet: each segment a table of shares and scoring, cuts in place.
-    await expect(step(5, "Review")).toBeFocused();
+    // The review, then create. It reads like the score sheet: each segment a table of shares and scoring, cuts in place.
     const preliminary = page.getByRole("table", { name: /^Preliminary/ });
     await expect(preliminary.getByRole("row").filter({ hasText: "Interview" }).first()).toContainText("40%");
     await expect(preliminary.getByRole("row").filter({ hasText: "Questions" })).toContainText("24%");
@@ -268,13 +270,12 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("listitem").filter({ hasText: "Dina Lopez" })).toContainText("Chair");
     await expect(page.getByRole("listitem").filter({ hasText: "Ana Cruz" })).toContainText("Chair");
     await expect(page.getByRole("listitem").filter({ hasText: "Ben Torres" })).not.toContainText("Chair");
-    // Edit goes back to that step.
+    // Edit goes to that section.
     await page.getByRole("button", { name: "Edit the candidates" }).click();
-    await expect(step(1, "Candidates")).toBeFocused();
-    for (const next of ["judges", "preliminary", "pageant proper", "review"]) await page.getByRole("button", { name: `Continue to ${next}` }).click();
-    await expect(step(5, "Review")).toBeFocused();
+    await expect(page.getByRole("heading", { level: 2, name: "Candidates" })).toBeFocused();
     await expectAccessible(page);
     await page.getByLabel("Signatory 1 full name").fill("Maria Reyes");
+    await expect(index.getByRole("link", { name: "Results, done" })).toBeVisible();
     await snap(page, "pageant setup review");
     await page.getByRole("checkbox", { name: /I have their consent/ }).check();
     await page.getByRole("button", { name: "Create pageant" }).click();
@@ -316,16 +317,25 @@ test.describe.serial("a pageant", () => {
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
 
-    // Settings shows each sub-activity's scoring, chosen from the program.
+    // Every judge the preliminary opens screens for is in (Dina; pageant proper's judges start with it): the other
+    // tabs say so, with the way to start it.
     await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByRole("region", { name: "The preliminary judge is in" })).toBeVisible();
+    // Settings shows each sub-activity's scoring, chosen from the program.
     await page.getByLabel("Scoring of").selectOption({ label: "Q&A" });
     await expect(page.getByText("5 seconds per candidate")).toBeVisible();
     // The live results say the pageant hasn't started, then that judging starts soon.
     await page.goto(livePath);
     await expect(page.getByText("The pageant hasn't started yet.", { exact: false })).toBeVisible();
 
+    // Before the start, the Session tab shows each sub-activity's scoring too, and no line about sharing the live results
+    // (each sub-activity says how its results come out).
     await page.goto(`${adminPath}?tab=session`);
-    await page.getByRole("button", { name: "Start preliminary" }).click();
+    await expect(page.getByRole("region", { name: "Scoring", exact: true }).getByLabel("Scoring of")).toBeVisible();
+    await expect(page.getByText("Share it now", { exact: false })).toHaveCount(0);
+    // The banner's button starts the preliminary from another tab: the Session tab opens asking.
+    await page.goto(`${adminPath}?tab=judges`);
+    await page.getByRole("region", { name: "The preliminary judge is in" }).getByRole("link", { name: "Start preliminary" }).click();
     await page.getByRole("dialog", { name: "Start the preliminary?" }).getByRole("button", { name: "Start preliminary" }).click();
     await expect(page.getByText("Live · Preliminary")).toBeVisible();
     await page.goto(livePath);

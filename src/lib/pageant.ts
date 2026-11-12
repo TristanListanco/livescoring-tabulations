@@ -113,6 +113,13 @@ export function roundBoard(board: Board, round: Round): Board {
 // Deliberation per sub-activity ---------------------------------------------------------
 
 /**
+ * Whether judges score a sub-activity (or part) at their own pace: it deliberates, the organizer chose it, and its
+ * deliberation hasn't started. A part follows its sub-activity (its row carries the same setting).
+ */
+export const roundAtOwnPace = (round: Pick<Round, "liveScoring" | "independentScoring" | "deliberationStartedAt">) =>
+  !round.liveScoring && round.independentScoring && round.deliberationStartedAt === null;
+
+/**
  * Whether a sub-activity's (or part's) scores are out for the audience: it scores live, or its judges have deliberated
  * and signed, and the organizer has signed it off. A part follows its sub-activity's setting, and deliberates on its own.
  */
@@ -164,7 +171,10 @@ export function showingBoard(board: Board): { board: Board; round: Round | null 
   // scores back like an event without live scoring (see roundReleased): a tick for each, until it's signed off.
   if (round) {
     const shown = roundBoard(board, round);
-    return { board: { ...shown, activity: { ...shown.activity, liveScoring: roundReleased(round) } }, round: { ...round, name: roundLabel(board.rounds, round) } };
+    return {
+      board: { ...shown, activity: { ...shown.activity, liveScoring: roundReleased(round), independentScoring: roundAtOwnPace(round) } },
+      round: { ...round, name: roundLabel(board.rounds, round) },
+    };
   }
   return { board: { ...board, activity: { ...board.activity, currentEntryId: null, ledEntryId: null }, entries: [], scores: [] }, round: null };
 }

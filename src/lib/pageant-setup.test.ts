@@ -288,6 +288,10 @@ describe("sub-activities with parts", () => {
     const deliberated = draftFromRounds(30, [{ ...interview, liveScoring: false }, advocacy, night, qna]);
     expect(deliberated.rounds.map((r) => r.deliberate)).toEqual([true, false]);
     expect(parsePageantDraft(JSON.stringify(deliberated))?.rounds.map((r) => r.deliberate)).toEqual([true, false]);
+    // Judged at its judges' own pace, too.
+    const paced = draftFromRounds(30, [{ ...interview, liveScoring: false, independentScoring: true }, advocacy, night, qna]);
+    expect(paced.rounds.map((r) => r.ownPace)).toEqual([true, false]);
+    expect(parsePageantDraft(JSON.stringify(paced))?.rounds.map((r) => r.ownPace)).toEqual([true, false]);
 
     // Saved as overall percentages: they come back as they are.
     const now = draftFromRounds(40, [
@@ -444,5 +448,30 @@ describe("deductions for violations", () => {
     expect(checkPageant({ ...program, violations: [v("a", "Late", "")] }, 3, newIds())).toMatchObject({ ok: false, segment: "preliminary" });
     // Saved ones come back for editing on the Segments tab.
     expect(draftFromRounds(30, [], [{ id: "v1", reason: "Late", points: 1.5 }]).violations).toEqual([v("v1", "Late", "1.5", "v1")]);
+  });
+});
+
+describe("judging at the judges' own pace", () => {
+  const timed = blankScoring();
+  const withPace = (extra: Partial<RoundDraft>) =>
+    draft([round("Interview", "preliminary", "30", { scoring: timed, timer: "45", ...extra }), round("Gown", "proper", "70", { scoring: timed, cutSize: "3" })]);
+
+  it("comes only with a deliberation, and then has no timer, its parts' included", () => {
+    const paced = checkPageant(withPace({ deliberate: true, ownPace: true }), 10, ids);
+    expect(paced.ok).toBe(true);
+    if (!paced.ok) return;
+    expect(paced.rounds[0]).toMatchObject({ liveScoring: false, independentScoring: true, timerSeconds: null });
+    expect(paced.rounds[1].independentScoring).toBe(false);
+    // Without a deliberation it isn't kept, and the timer stays.
+    const live = checkPageant(withPace({ ownPace: true }), 10, ids);
+    expect(live.ok && live.rounds[0]).toMatchObject({ liveScoring: true, independentScoring: false, timerSeconds: 45 });
+  });
+
+  it("drops the parts' timers too", () => {
+    const part = (key: string, weight: string): PartDraft => ({ key, name: key, weight, scoring: timed, timer: "30" });
+    const paced = checkPageant(withPace({ deliberate: true, ownPace: true, parts: [part("Q&A", "15"), part("Advocacy", "15")] }), 10, ids);
+    expect(paced.ok).toBe(true);
+    if (!paced.ok) return;
+    expect(paced.rounds[0].parts.map((p) => p.timerSeconds)).toEqual([null, null]);
   });
 });

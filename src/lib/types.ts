@@ -70,6 +70,11 @@ export type Round = {
    * True before migration 040.
    */
   liveScoring: boolean;
+  /**
+   * With a deliberation only: its judges score its candidates in any order, at their own pace, none shown one at a
+   * time, and with no timer (see roundAtOwnPace). A part follows its sub-activity. False before migration 041.
+   */
+  independentScoring: boolean;
   /** When its deliberation started (ISO time), or null: the judges are reviewing it until it's signed off. */
   deliberationStartedAt: string | null;
   /** When the organizer signed off its deliberation (ISO time), or null: then its scores go out. Read with the board. */

@@ -17,6 +17,7 @@ import {
   programOrder,
   roundLabel,
   roundPool,
+  roundAtOwnPace,
   roundDeliberating,
   roundDeliberationGap,
   roundProgress,
@@ -30,6 +31,7 @@ import {
   timerPhase,
   warningSeconds,
 } from "./pageant";
+import { atOwnPace } from "./judging";
 import { activityFixture, roundFixture } from "./test-fixtures";
 import { PRELIMINARY, type Board, type Deduction, type Round, type Score } from "./types";
 
@@ -405,5 +407,25 @@ describe("a sub-activity that deliberates", () => {
     expect(shown.activity.liveScoring).toBe(false);
     expect(shown.scored).toEqual([{ entryId: "A", judgeId: "j1", roundId: "costume" }]);
     expect(showingBoard(pageant([interview, costume, swim, qa], prelimAndSwim, "costume")).board.activity.liveScoring).toBe(true);
+  });
+});
+
+describe("a sub-activity at its judges' own pace", () => {
+  const paced = { ...interview, liveScoring: false, independentScoring: true, deliberationStartedAt: null };
+
+  it("only deliberating ones, until their deliberation starts", () => {
+    expect(roundAtOwnPace(paced)).toBe(true);
+    expect(roundAtOwnPace({ ...paced, liveScoring: true })).toBe(false);
+    expect(roundAtOwnPace({ ...paced, independentScoring: false })).toBe(false);
+    expect(roundAtOwnPace({ ...paced, deliberationStartedAt: "2026-11-12T09:00:00Z" })).toBe(false);
+  });
+
+  it("narrows the board judges and the desk follow to it, while a pageant's own row never is", () => {
+    const board = pageant([paced, costume, swim, qa], [], "interview");
+    const shown = showingBoard(board).board.activity;
+    expect(atOwnPace(shown)).toBe(true);
+    expect(atOwnPace(board.activity)).toBe(false);
+    const started = showingBoard(pageant([{ ...paced, deliberationStartedAt: "2026-11-12T09:00:00Z" }, costume, swim, qa], [], "interview")).board.activity;
+    expect(atOwnPace(started)).toBe(false);
   });
 });

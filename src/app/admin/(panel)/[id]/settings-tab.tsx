@@ -4,9 +4,7 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
-import { judgingOrder, roundLabel } from "@/lib/pageant";
-import { segmentLabel } from "@/lib/pageant-setup";
-import type { ActionResult, Activity, Criterion, Round, Signatory } from "@/lib/types";
+import type { ActionResult, Activity, Round, Signatory } from "@/lib/types";
 import { editable, scoresGoOutLive } from "@/lib/lifecycle";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
@@ -21,85 +19,7 @@ import { ResetScoresButton } from "./reset-scores";
 import { ArchiveButton } from "../archive-controls";
 import { DECIMAL_OPTIONS, RESULT_DECIMAL_OPTIONS } from "../scoring-fields";
 import { RankingSwitch } from "./ranking-switch";
-
-/** Criteria with their points, and the 100 they add up to. */
-function CriteriaTable({ criteria }: { criteria: Criterion[] }) {
-  return (
-    <table className="w-full max-w-sm text-left">
-      <thead className="sr-only">
-        <tr>
-          <th scope="col">Criterion</th>
-          <th scope="col">Max points</th>
-        </tr>
-      </thead>
-      <tbody className="tabular">
-        {criteria.map((c) => (
-          <tr key={c.id} className="border-b border-line">
-            <td className="py-1.5 pr-4">{c.name}</td>
-            <td className="py-1.5 text-right">{c.min ? `${formatBound(c.min)} to ${formatBound(c.max)}` : formatBound(c.max)}</td>
-          </tr>
-        ))}
-      </tbody>
-      <tfoot className="tabular font-semibold text-prussian">
-        <tr>
-          <th scope="row" className="pt-1.5 pr-4 font-semibold">
-            Total
-          </th>
-          <td className="pt-1.5 text-right">100</td>
-        </tr>
-      </tfoot>
-    </table>
-  );
-}
-
-/**
- * A pageant's scoring, one sub-activity (or part) at a time: chosen from the program, in its order, and shown as an
- * event's is (its range or its criteria, decimal places, timer), with how its results come out.
- */
-function PageantScoring({ rounds }: { rounds: Round[] }) {
-  const judged = judgingOrder(rounds);
-  const [chosen, setChosen] = useState(judged[0]?.id ?? "");
-  const round = judged.find((r) => r.id === chosen) ?? judged[0];
-  if (!round) return null;
-  const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
-  const criteria = round.scoringMode === "criteria";
-  const rows: [string, React.ReactNode][] = [
-    ["Method", criteria ? "Criteria" : `Simple, scores from ${rangeLabel(round)}`],
-    ...(criteria ? ([["Criteria", <CriteriaTable key="criteria" criteria={round.criteria} />]] as [string, React.ReactNode][]) : []),
-    [criteria ? "Judges give points in" : "Judges score with", places(round.decimals)],
-    ...(criteria ? ([["Totals shown", round.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"]] as [string, React.ReactNode][]) : []),
-    ["Time limit", round.timerSeconds ? `${round.timerSeconds} seconds per candidate` : "None"],
-    ["Results", round.liveScoring ? "Live, as each score comes in" : "After a deliberation"],
-  ];
-  return (
-    <div className="mt-6 max-w-2xl border-t border-line pt-5">
-      <label htmlFor="scoring-round" className="label">
-        Scoring of
-      </label>
-      <select id="scoring-round" className="field max-w-sm" value={round.id} onChange={(e) => setChosen(e.target.value)}>
-        {(["preliminary", "proper"] as const).map((segment) => (
-          <optgroup key={segment} label={segmentLabel(segment)}>
-            {judged
-              .filter((r) => r.segment === segment)
-              .map((r) => (
-                <option key={r.id} value={r.id}>
-                  {roundLabel(rounds, r)}
-                </option>
-              ))}
-          </optgroup>
-        ))}
-      </select>
-      <dl aria-live="polite" className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-[11rem_1fr]">
-        {rows.map(([term, value]) => (
-          <div key={term} className="contents">
-            <dt className="font-semibold">{term}</dt>
-            <dd className="text-prussian/80">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
+import { CriteriaTable, PageantScoring } from "./pageant-scoring";
 
 /**
  * How the activity is scored, shown here. The method and range are fixed when it's created; the decimal places and an
@@ -510,7 +430,11 @@ export function SettingsTab({
 
       <Section quiet title="Scoring">
         <ScoringSummary activity={activity} />
-        {activity.kind === "pageant" && <PageantScoring rounds={rounds} />}
+        {activity.kind === "pageant" && (
+          <div className="mt-6 max-w-2xl border-t border-line pt-5">
+            <PageantScoring rounds={rounds} />
+          </div>
+        )}
         {editable(activity, "rules") && <ScoringPlaces activity={activity} />}
         {activity.kind === "event" && editable(activity, "rules") && <EventTimer activity={activity} />}
       </Section>

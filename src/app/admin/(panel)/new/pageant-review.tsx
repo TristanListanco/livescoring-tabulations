@@ -26,11 +26,6 @@ const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 
 const JUDGE_DECIMALS = ["Whole numbers", "1 decimal place", "2 decimal places", "3 decimal places"] as const;
 
-const RESULT_DECIMALS: { value: ResultDecimals; label: string }[] = [0, 1, 2, 3, 4].map((n) => ({
-  value: n as ResultDecimals,
-  label: `${n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`} (${(87.4567).toFixed(n)})`,
-}));
-
 /** What a cut counts, as weights: "Interview 40%, Swimsuit 60%". */
 function basisSummary(draft: PageantDraft, round: RoundDraft): string {
   const rounds = draft.rounds.map((r, position) => ({ id: r.key, segment: r.segment, name: r.name.trim() || "Untitled", position, weight: Number(r.weight) || 0, parentId: null }) as Round);
@@ -258,8 +253,9 @@ function JudgeList({ judges, chairKey }: { judges: DraftJudge[]; chairKey: numbe
     <ol className="space-y-2">
       {judges.map((j) => (
         <li key={j.key} className="flex items-center gap-2.5">
-          <Avatar name={fullName(j)} src={j.preview} size={28} />
-          <span className="min-w-0 truncate">{fullName(j)}</span>
+          <Avatar name={fullName(j) || "?"} src={j.preview} size={28} />
+          {/* Shown as the form is filled in, so a judge with no name yet reads as one. */}
+          <span className={`min-w-0 truncate ${fullName(j) ? "" : "text-prussian/70"}`}>{fullName(j) || "Unnamed"}</span>
           {j.key === chairKey && <span className="rounded-full bg-wash px-2 py-0.5 text-xs font-semibold">Chair</span>}
         </li>
       ))}
@@ -268,9 +264,9 @@ function JudgeList({ judges, chairKey }: { judges: DraftJudge[]; chairKey: numbe
 }
 
 /**
- * The last step of the pageant setup, laid out like the score sheet it was set up from: the program with each
- * share, scoring and cut in place, then the candidates in running order and the judges by board. Each block can
- * be edited from here, so checking it against the paper sheet takes one look.
+ * The last section of the pageant setup, laid out like the score sheet it was set up from: the program with each
+ * share, scoring and cut in place, then the candidates in running order and the judges by board. Each block's Edit
+ * goes to its section, so checking it against the paper sheet takes one look.
  */
 export function PageantReview({
   name,
@@ -281,7 +277,6 @@ export function PageantReview({
   properBoard,
   chairs,
   resultDecimals,
-  onResultDecimals,
   onEdit,
 }: {
   name: string;
@@ -292,9 +287,8 @@ export function PageantReview({
   properBoard: DraftJudge[];
   chairs: { preliminary: number | null; proper: number | null };
   resultDecimals: ResultDecimals;
-  onResultDecimals: (value: ResultDecimals) => void;
-  /** Go back to a step of the setup: 0 candidates, 1 judges, 2 preliminary, 3 pageant proper. */
-  onEdit: (step: number) => void;
+  /** Go to a section of the setup: 0 candidates, 1 judges, 2 preliminary, 3 pageant proper. */
+  onEdit: (section: number) => void;
 }) {
   const share = Number(draft.preliminaryWeight) || 0;
   const judgeCount = preliminaryBoard.length + properBoard.length;
@@ -309,24 +303,11 @@ export function PageantReview({
             {separate ? " on two boards" : ""} · Preliminary {share}%, pageant proper {100 - share}%
           </p>
         </div>
-        <div>
-          <label htmlFor="result-decimals" className="mb-1 block text-sm font-semibold">
-            Results shown to
-          </label>
-          <select
-            id="result-decimals"
-            name="result_decimals"
-            value={resultDecimals}
-            onChange={(e) => onResultDecimals(Number(e.target.value) as ResultDecimals)}
-            className="field h-10 w-auto py-0"
-          >
-            {RESULT_DECIMALS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Chosen in Results above. */}
+        <p className="text-sm">
+          <span className="font-semibold">Results shown to</span>{" "}
+          {resultDecimals === 0 ? "whole numbers" : `${resultDecimals} decimal place${resultDecimals > 1 ? "s" : ""}`}
+        </p>
       </header>
 
       <div className="divide-y divide-line">

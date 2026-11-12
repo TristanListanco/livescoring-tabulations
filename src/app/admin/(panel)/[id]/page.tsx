@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { correctionView, withoutValues } from "@/lib/corrections";
 import { activityChangedAt, getActivityAccessCodes, getActivityNotes, getActivitySignatories, getAdminBoard, getBoard, getCorrections, getEntryDetails, getRoundSignatures, getSignatures, listActivityDevices, listAdmins, resultsReleased, withEntryDetails } from "@/lib/data";
 import { deliberationResults } from "@/lib/deliberation";
-import { chairMovesEntries, judgesLocked } from "@/lib/judging";
+import { chairMovesEntries, judgesLocked, startReady } from "@/lib/judging";
 import { testToolsAllowed } from "@/lib/environment";
 import { siteOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -76,8 +76,21 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
   const { tabs, tab } = activityTabs(activity, asked);
   const started = activity.sessionState !== "draft";
   const waitingDevices = devices.filter((d) => d.status === "pending").length;
-  // Before the session starts, every judge on their screen with an approved device: ready to start.
-  const allIn = activity.sessionState === "draft" && judges.length > 0 && judges.every((j) => devices.some((d) => d.judgeId === j.id && d.status === "approved"));
+  // Every judge a start opens screens for, on their screen with an approved device: the session (a pageant's preliminary),
+  // or pageant proper in the break between the segments, is ready to start.
+  const ready = startReady(activity, judges, devices);
+  // The break between a pageant's segments, pageant proper's judges still pairing: the banner shows the way back anyway.
+  const properBoard = judges.filter((j) => j.panel !== "preliminary");
+  const inBreak = pageant && activity.sessionState === "live" && activity.preliminaryEndedAt !== null && activity.properStartedAt === null;
+  const banner =
+    ready ??
+    (inBreak
+      ? {
+          what: "break" as const,
+          paired: properBoard.filter((j) => devices.some((d) => d.judgeId === j.id && d.status === "approved")).length,
+          count: properBoard.length,
+        }
+      : null);
   // A pageant's progress counts every sub-activity: each judge scoring each candidate still in it.
   const progress = pageant ? programProgress(board) : scoreProgress(board);
   // When this board was read, so the session desk can say how fresh it is if realtime drops. A Server Component
@@ -183,7 +196,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
         </nav>
       )}
 
-      {allIn && tab !== "session" && <JudgesIn activityId={activity.id} count={judges.length} />}
+      {banner && tab !== "session" && <JudgesIn activityId={activity.id} ready={banner} />}
 
       {/* While another tab opens, its skeleton covers this one (see .tab-skeleton in globals.css). */}
       <div className="relative">

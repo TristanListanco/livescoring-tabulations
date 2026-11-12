@@ -61,6 +61,7 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
       cutEntryIds: null,
       parentId: null,
       liveScoring: true,
+      independentScoring: false,
       deliberationStartedAt: null,
       signedOffAt: null,
     }),
@@ -164,6 +165,7 @@ function ScoredFields({
   name,
   scoring,
   timer,
+  untimed = false,
   onScoring,
   onTimer,
 }: {
@@ -171,6 +173,8 @@ function ScoredFields({
   name: string;
   scoring: ScoringDraft;
   timer: string;
+  /** Judged at the judges' own pace: no timer, said in place of its choice. */
+  untimed?: boolean;
   onScoring: (scoring: ScoringDraft) => void;
   onTimer: (timer: string) => void;
 }) {
@@ -186,37 +190,41 @@ function ScoredFields({
           <span className="font-semibold">
             Scoring<span className="sr-only"> for {name}</span>
           </span>
-          <span className="hint tabular min-w-0 flex-1">{scoringLine(scoring, timer)}</span>
+          <span className="hint tabular min-w-0 flex-1">{scoringLine(scoring, untimed ? "" : timer)}</span>
           <svg viewBox="0 0 16 16" className="size-4 shrink-0 self-center transition-transform group-open:rotate-180" aria-hidden>
             <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </summary>
         <div className="space-y-6 border-t border-line px-4 py-4">
           <ScoringEditor value={scoring} onChange={onScoring} idPrefix={id} label={name} />
-          <div>
-            <label className="flex items-center gap-2.5 text-sm font-semibold">
-              <input type="checkbox" className="size-5" checked={timed} onChange={(e) => onTimer(e.target.checked ? "60" : "")} />
-              Time limit for scoring<span className="sr-only"> {name}</span>
-            </label>
-            {timed && (
-              <div className="mt-2 ml-7.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <label htmlFor={`${id}timer`} className="text-sm">
-                  Judges get<span className="sr-only"> this many seconds per candidate in {name}</span>
-                </label>
-                <input
-                  id={`${id}timer`}
-                  value={timer}
-                  // Never blank while the timer is on (blank means off): a cleared field reads 0 until a number is typed.
-                  onChange={(e) => onTimer(e.target.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "").slice(0, 4) || "0")}
-                  inputMode="numeric"
-                  className={`field tabular w-20 ${problemBorder(problems, `${id}timer`)}`}
-                  {...problemProps(problems, `${id}timer`)}
-                />
-                <span className="text-sm">seconds per candidate</span>
-                <FieldProblem fieldId={`${id}timer`} className="basis-full" />
-              </div>
-            )}
-          </div>
+          {untimed ? (
+            <p className="hint">No timer: judges score at their own pace.</p>
+          ) : (
+            <div>
+              <label className="flex items-center gap-2.5 text-sm font-semibold">
+                <input type="checkbox" className="size-5" checked={timed} onChange={(e) => onTimer(e.target.checked ? "60" : "")} />
+                Time limit for scoring<span className="sr-only"> {name}</span>
+              </label>
+              {timed && (
+                <div className="mt-2 ml-7.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <label htmlFor={`${id}timer`} className="text-sm">
+                    Judges get<span className="sr-only"> this many seconds per candidate in {name}</span>
+                  </label>
+                  <input
+                    id={`${id}timer`}
+                    value={timer}
+                    // Never blank while the timer is on (blank means off): a cleared field reads 0 until a number is typed.
+                    onChange={(e) => onTimer(e.target.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "").slice(0, 4) || "0")}
+                    inputMode="numeric"
+                    className={`field tabular w-20 ${problemBorder(problems, `${id}timer`)}`}
+                    {...problemProps(problems, `${id}timer`)}
+                  />
+                  <span className="text-sm">seconds per candidate</span>
+                  <FieldProblem fieldId={`${id}timer`} className="basis-full" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </details>
     </>
@@ -428,6 +436,7 @@ function PartsEditor({
                   name={full}
                   scoring={part.scoring}
                   timer={part.timer}
+                  untimed={!!round.ownPace}
                   onScoring={(scoring) => patch(part.key, { scoring })}
                   onTimer={(timer) => patch(part.key, { timer })}
                 />
@@ -638,6 +647,7 @@ function RoundCard({
           name={name}
           scoring={round.scoring}
           timer={round.timer}
+          untimed={!!round.ownPace}
           onScoring={(scoring) => onChange({ scoring })}
           onTimer={(timer) => onChange({ timer })}
         />
@@ -658,7 +668,7 @@ function RoundCard({
         </legend>
         <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
           <label className="flex items-center gap-2.5">
-            <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false })} />
+            <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false, ownPace: false })} />
             Live
           </label>
           <label className="flex items-center gap-2.5">
@@ -671,6 +681,29 @@ function RoundCard({
             ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
             : "Each score shows on the live results and the LED wall as it comes in."}
         </p>
+        {/* With a deliberation only, as for an event: nothing goes out until it's signed off, so the order doesn't show. */}
+        {round.deliberate && (
+          <div className="mt-3">
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                className="size-5 shrink-0"
+                checked={!!round.ownPace}
+                onChange={(e) =>
+                  onChange(
+                    e.target.checked
+                      ? { ownPace: true, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null }
+                      : { ownPace: false },
+                  )
+                }
+              />
+              Judges score at their own pace<span className="sr-only"> in {name}</span>
+            </label>
+            <p className="hint mt-1 ml-7.5">
+              No candidate is shown: each judge scores the candidates in any order, with no timer. You start the deliberation once every score is in.
+            </p>
+          </div>
+        )}
       </fieldset>
 
       {round.segment === "proper" && (
@@ -852,6 +885,12 @@ function DeductionsFields({ violations, onChange }: { violations: ViolationDraft
     </section>
   );
 }
+
+/** What each segment's part of the program decides, under its heading on the create form and the Segments tab. */
+export const SEGMENT_DESCRIPTION = {
+  preliminary: "Its share of the overall score, its sub-activities, and any deductions for violations.",
+  proper: "Its sub-activities and the cuts between them. The last sub-activity ends with the final cut, whose order is the final placement.",
+} as const;
 
 /**
  * One segment of a pageant's program: its sub-activities, in order, with their shares (adding up to 100%), scoring,

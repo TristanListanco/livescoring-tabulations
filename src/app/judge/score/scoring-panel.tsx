@@ -1081,9 +1081,14 @@ function WaitingCard({
     },
     scored: { title: "Your score is in", body: "Show the next entry below once every judge has scored." },
   };
+  // A pageant sub-activity at its judges' own pace: its candidates, and the organizer starts its deliberation.
+  const noun = activity.kind === "pageant" ? "candidate" : "entry";
   const ownPaceCopy: Partial<typeof copy> = {
-    waiting: { title: "You've scored every entry", body: "The chair starts the deliberation once every judge has. Open any entry in your scores to see it again." },
-    scored: { title: "Your score is in", body: "Open any entry in your scores to see it again." },
+    waiting: {
+      title: `You've scored every ${noun}`,
+      body: `${activity.kind === "pageant" ? "The organizer" : "The chair"} starts the deliberation once every judge has. Open any ${noun} in your scores to see it again.`,
+    },
+    scored: { title: "Your score is in", body: `Open any ${noun} in your scores to see it again.` },
   };
   // A pageant between sub-activities: nothing to score until the organizer starts the next one.
   const betweenRounds = activity.kind === "pageant" && !round && view.kind === "waiting";

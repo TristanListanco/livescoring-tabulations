@@ -121,7 +121,8 @@ export function canReset(activity: Parameters<typeof phaseOf>[0], scope: ResetSc
 
 /**
  * What can still change, by phase. One table instead of the checks each form and action used to make on its own.
- * - judges: who's on the panel (and the chair). Fixed once judging has started, even after a reset.
+ * - judges: who's on the panel (and the chair). Fixed once judging has started, even after a reset (a pageant's full
+ *   reset starts it over as new, session_started_at cleared, so its judges can change again).
  * - rules: how judges score: live scoring, the time limit, own pace, decimal places. Fixed like the panel.
  * - order, program, guides: the running order, a pageant's program, the criteria's guides. Until judging starts, and
  *   again after a reset, when nothing has been scored by them.

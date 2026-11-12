@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
-import { finalCutRound, judgesFor, placeTitle, preliminaryEndGap, roundDeliberating, showingBoard, unitOf } from "@/lib/pageant";
+import { finalCutRound, judgesFor, placeTitle, preliminaryEndGap, roundDeliberating, roundLabel, roundProgress, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
@@ -27,6 +27,7 @@ import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
+import { PageantScoring } from "./pageant-scoring";
 import { CutDialog, DeductionsButton, DeskTimer, FinalPlacements, JudgeRoundButton, nextUp, PdfLink, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
@@ -283,11 +284,14 @@ export function SessionTab({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  // Sent here by "All judges are in" (see JudgesIn) to start: Start session asks at once, and the address forgets it.
-  const askedToStart = useSearchParams().get("start") === "1";
+  // Sent here by "All judges are in" (see JudgesIn) to start: Start session (a pageant's preliminary), or pageant proper
+  // in the break, asks at once, and the address forgets it.
+  const asked = useSearchParams().get("start");
+  const askedToStart = asked === "1";
+  const askedToStartProper = asked === "proper";
   useEffect(() => {
-    if (askedToStart) window.history.replaceState(null, "", `${window.location.pathname}?tab=session`);
-  }, [askedToStart]);
+    if (asked) window.history.replaceState(null, "", `${window.location.pathname}?tab=session`);
+  }, [asked]);
   const textAction =
     "inline-flex h-7 items-center rounded px-1.5 text-sm font-semibold text-regal hover:bg-wash pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center pointer-coarse:px-2.5";
 
@@ -328,8 +332,9 @@ export function SessionTab({
           </a>
           {liveQrDialog(`${textAction} gap-1.5`)}
         </div>
-        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
-        {!activity.liveScoring && !pageant && (
+        {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. A pageant's
+            too: its standings, and any sub-activity holding its scores back, are the organizer's alone. */}
+        {(pageant || !activity.liveScoring) && (
           <div className="flex flex-wrap items-center gap-x-1 border-t border-line pt-2">
             <span className="min-w-0 flex-1 font-semibold">Private tally</span>
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
@@ -356,7 +361,7 @@ export function SessionTab({
    */
   const segment =
     "inline-flex h-10 items-center justify-center gap-1.5 px-4 text-sm font-semibold text-regal transition-colors hover:bg-wash max-sm:flex-1 pointer-coarse:h-11";
-  const liveResultsCard = (now: string) => (
+  const liveResultsCard = (now: string | null) => (
     <section aria-labelledby="live-results" className="card overflow-hidden">
       <div className="p-5 sm:px-6">
         <div className="flex items-start gap-3.5">
@@ -371,7 +376,7 @@ export function SessionTab({
             <h2 id="live-results" className="title-sm">
               Live results
             </h2>
-            <p className="mt-0.5 text-[15px] text-prussian/75">{now}</p>
+            {now && <p className="mt-0.5 text-[15px] text-prussian/75">{now}</p>}
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -393,7 +398,7 @@ export function SessionTab({
       {/* Whether the page ranks is set in Settings. Under the address, what's for the organizer alone, while it's on. */}
       <div className="space-y-3 border-t border-line px-5 py-4 empty:hidden sm:px-6">
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
-        {state !== "ended" && !activity.liveScoring && !pageant && (
+        {state !== "ended" && (pageant || !activity.liveScoring) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="font-medium">Private tally</span>
             <span className="hint text-sm">Every score so far, for you alone</span>
@@ -460,7 +465,24 @@ export function SessionTab({
   const devicesOf = (judgeId: string) => devices.filter((d) => d.judgeId === judgeId);
   const unpaired = judges.filter((j) => !devicesOf(j.id).some((d) => d.status === "approved"));
   // Who the start opens screens for: a pageant's preliminary judges, or everyone.
+  const startBoard = pageant ? judges.filter((j) => j.panel !== "proper") : judges;
   const startUnpaired = pageant ? unpaired.filter((j) => j.panel !== "proper") : unpaired;
+  // A pageant with separate boards, before the start: its judges by board, in the order they judge. Pageant proper's own
+  // judges come later, so the desk shows them stepping back.
+  const boardGroups =
+    pageant && judges.some((j) => j.panel !== "all")
+      ? [
+          { key: "preliminary", title: "Preliminary", note: "Judges the preliminary only.", later: false, judges: judges.filter((j) => j.panel === "preliminary") },
+          { key: "all", title: "Both segments", note: "Judges the preliminary, then pageant proper.", later: false, judges: judges.filter((j) => j.panel === "all") },
+          {
+            key: "proper",
+            title: "Pageant proper",
+            note: "Judges once pageant proper starts, after the preliminary. They can pair now or then.",
+            later: true,
+            judges: judges.filter((j) => j.panel === "proper"),
+          },
+        ].filter((g) => g.judges.length > 0)
+      : null;
   const missing = progress.possible - progress.submitted;
   const missingLine = `${missing} ${missing === 1 ? "score is" : "scores are"} missing`;
   // An event with live scoring that ended with every score in: by itself, and for good (see setSessionState).
@@ -554,6 +576,11 @@ export function SessionTab({
     ) : null;
   // A sub-activity's deliberation once every judge on its panel has signed: the organizer's sign-off is next.
   const reviewSigned = !!underReview && roundSignatures !== null && judgesFor(board, underReview).every((j) => roundSignatures.some((s) => s.judgeId === j.id));
+  // The sub-activity (or part) whose scoring the Session tab shows first: the one on judges' screens, else the next one
+  // to judge, else the first.
+  // (As stored: the round on screens carries its full name already.)
+  const scoringId = round?.id ?? (upNext?.kind === "round" ? upNext.round.id : null);
+  const scoringOf = pageant ? (board.rounds.find((r) => r.id === scoringId) ?? null) : null;
   // The break between a pageant's segments: the preliminary has ended, pageant proper hasn't started.
   const theBreak = between && judging === null;
   // The final cut confirmed with nothing left to judge: the desk turns to the placements and the pageant's end.
@@ -569,6 +596,8 @@ export function SessionTab({
   const deliberateNext = !pageant && !activity.liveScoring && progress.complete;
   // Judges scoring at their own pace (see atOwnPace): no entry to show, only how far they've got, then the deliberation.
   const ownPace = atOwnPace(activity);
+  // At their own pace: how far the event, or the pageant sub-activity on screens, has got.
+  const paceProgress = pageant && round ? roundProgress(board, round) : progress;
 
   /**
    * What moving to `target` would interrupt or skip, in the order the operator needs to hear it. Empty when the
@@ -710,7 +739,14 @@ export function SessionTab({
   const breakJudges = judges.filter((j) => j.panel !== "preliminary" || devicesOf(j.id).some((d) => d.status === "pending"));
   const deductionCount = board.deductions?.length ?? 0;
   const startProper = (triggerClassName: string) => (
-    <ConfirmDialog triggerLabel="Start pageant proper" triggerClassName={triggerClassName} title="Start pageant proper?" confirmLabel="Start pageant proper" onConfirm={() => changeSegment("startProper")}>
+    <ConfirmDialog
+      triggerLabel="Start pageant proper"
+      triggerClassName={triggerClassName}
+      title="Start pageant proper?"
+      confirmLabel="Start pageant proper"
+      openOnMount={askedToStartProper}
+      onConfirm={() => changeSegment("startProper")}
+    >
       Pageant proper&apos;s judges&apos; screens open, and its judges and sub-activities lock.
       {activity.violations !== null && ` Deductions close: ${board.deductions?.length ?? 0} given, none after this.`} Choose its first sub-activity when
       you&apos;re ready.
@@ -921,7 +957,7 @@ export function SessionTab({
                       ? `Every judge has signed: sign off ${underReview.name}`
                       : "The judges are reviewing their scores"
                     : ownPace
-                    ? `${progress.submitted} of ${progress.possible} scores in`
+                    ? `${paceProgress.submitted} of ${paceProgress.possible} scores in`
                     : entry
                       ? entry.name
                       : between
@@ -1060,11 +1096,12 @@ export function SessionTab({
                   // At their own pace there's nothing to show: how many scores are still to come, then the deliberation.
                   <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
                     <p role="status" className="min-w-48 flex-1 leading-snug font-semibold">
-                      {progress.complete
-                        ? "Every judge has scored every entry."
-                        : `${progress.possible - progress.submitted} ${progress.possible - progress.submitted === 1 ? "score" : "scores"} to come.`}
+                      {paceProgress.complete
+                        ? `Every judge has scored every ${noun}.`
+                        : `${paceProgress.possible - paceProgress.submitted} ${paceProgress.possible - paceProgress.submitted === 1 ? "score" : "scores"} to come.`}
                     </p>
-                    {progress.complete && startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:w-full")}
+                    {/* A pageant sub-activity's own deliberation (nextUp offers it once every score is in); an event's. */}
+                    {paceProgress.complete && (pageant ? pageantNext : startDeliberation("btn bg-mint text-prussian hover:bg-white max-sm:w-full"))}
                   </div>
                 ) : (
                 /* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */
@@ -1147,6 +1184,18 @@ export function SessionTab({
                 <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />
               </div>
             )}
+            {/* Each sub-activity's scoring, starting on the one on judges' screens: folded away until it's wanted. */}
+            {pageant && (
+              <details className="card max-h-[40%] min-h-0 shrink-0 overflow-y-auto px-5 py-3 text-sm">
+                <summary className="flex cursor-pointer items-center gap-2 font-semibold pointer-coarse:min-h-11">
+                  Scoring
+                  {scoringOf && <span className="min-w-0 truncate font-normal text-prussian/75">· {roundLabel(board.rounds, scoringOf)}</span>}
+                </summary>
+                <div className="mt-3 border-t border-line pt-3">
+                  <PageantScoring key={scoringOf?.id ?? "none"} rounds={board.rounds} initialId={scoringOf?.id} compact />
+                </div>
+              </details>
+            )}
             {runningOrder(true)}
 
             {screens(progress.complete && !pageant && activity.liveScoring && (
@@ -1182,21 +1231,45 @@ export function SessionTab({
                     <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.02em] text-balance">
                       {judges.length === 0
                         ? "Add judges to get started"
-                        : unpaired.length === 0
-                          ? "Every judge has an approved device"
-                          : `${judges.length - unpaired.length} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} an approved device`}
+                        : boardGroups
+                          ? // The start needs the preliminary's judges; pageant proper's pair in their own time.
+                            startUnpaired.length === 0
+                            ? "Every preliminary judge has an approved device"
+                            : `${startBoard.length - startUnpaired.length} of ${startBoard.length} preliminary ${startBoard.length === 1 ? "judge has" : "judges have"} an approved device`
+                          : unpaired.length === 0
+                            ? "Every judge has an approved device"
+                            : `${judges.length - unpaired.length} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} an approved device`}
                     </p>
                   </div>
                   <DeskConnection status={connection} renderedAt={renderedAt} className="shrink-0 pt-1 text-powder" />
                 </div>
                 <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "pt-2 font-semibold"} />
-                {judges.length > 0 && (
-                  <ul className="mt-5 grid gap-2 sm:grid-cols-2">
-                    {judges.map((j) => (
-                      <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
-                    ))}
-                  </ul>
-                )}
+                {judges.length > 0 &&
+                  (boardGroups ? (
+                    // Separate boards: each board apart, in the order they judge. Pageant proper's own judges step back
+                    // until it's their turn (their devices can still be approved now).
+                    <div className="mt-5 space-y-5">
+                      {boardGroups.map((group) => (
+                        <section key={group.key} aria-labelledby={`desk-board-${group.key}`} className={group.later ? "opacity-60" : undefined}>
+                          <h3 id={`desk-board-${group.key}`} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                            <span className="font-semibold text-mint">{group.title}</span>
+                            <span className="text-powder">{group.note}</span>
+                          </h3>
+                          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {group.judges.map((j) => (
+                              <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
+                            ))}
+                          </ul>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+                      {judges.map((j) => (
+                        <JudgeTile key={j.id} judge={j} devices={devicesOf(j.id)} scored={null} />
+                      ))}
+                    </ul>
+                  ))}
               </div>
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
                 <p className="min-w-56 flex-1 text-[15px] text-powder">
@@ -1404,9 +1477,12 @@ export function SessionTab({
           {!archived &&
             liveResultsCard(
               state === "draft"
-                ? `Share it now: the audience sees that judging hasn't started, then ${
-                    pageant || activity.liveScoring ? "each score as it comes in." : "the results once the judges have deliberated and signed."
-                  }`
+                ? // A pageant's sub-activities each say how their results come out (live, or after a deliberation).
+                  pageant
+                  ? null
+                  : `Share it now: the audience sees that judging hasn't started, then ${
+                      activity.liveScoring ? "each score as it comes in." : "the results once the judges have deliberated and signed."
+                    }`
                 : state === "deliberation"
                   ? "The audience sees that the judges are deliberating. The results show once they've all signed, and you have."
                   : "The final standings, until you archive the activity.",
@@ -1433,6 +1509,16 @@ export function SessionTab({
         </div>
 
         {pageant && <ProgramPanel board={board} live={false} onReviewCut={setCutOpen} />}
+        {pageant && (
+          <section aria-labelledby="scoring-heading" className="card p-5 sm:px-6">
+            <h2 id="scoring-heading" className="title-sm">
+              Scoring
+            </h2>
+            <div className="mt-4">
+              <PageantScoring key={scoringOf?.id ?? "none"} rounds={board.rounds} initialId={scoringOf?.id} />
+            </div>
+          </section>
+        )}
         {runningOrder(false)}
         {cutDialog}
 

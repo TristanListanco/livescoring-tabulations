@@ -10,9 +10,10 @@ import { TallyView } from "./tally-view";
 export const metadata: Metadata = { title: "Private tally", robots: { index: false, follow: false } };
 
 /**
- * An event's private tally: every score so far, judge by judge and criterion by criterion, for the organizer to tabulate
- * by hand if something fails during judging. Events without live scoring only (with it, the live results show every
- * score). Opens with the admin's password, on this browser, for a few minutes (see tally-access.ts).
+ * The private tally: every score so far, judge by judge and criterion by criterion, for the organizer to tabulate by
+ * hand if something fails during judging. Events without live scoring (with it, the live results show every score),
+ * and pageants: their standings, and any sub-activity holding its scores back, are the organizer's alone. Opens with the
+ * admin's password, on this browser, for a few minutes (see tally-access.ts).
  */
 export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally">) {
   const session = await requireAdmin();
@@ -26,7 +27,7 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     </Link>
   );
 
-  if (activity.kind !== "event" || activity.liveScoring) {
+  if (activity.kind === "event" && activity.liveScoring) {
     return (
       <>
         {back}
@@ -52,7 +53,13 @@ export default async function TallyPage({ params }: PageProps<"/admin/[id]/tally
     return (
       <>
         {back}
-        <TallyLock activityId={id} name={activity.name} superAdmin={session.kind === "super"} official={activity.signedOffAt !== null} />
+        <TallyLock
+          activityId={id}
+          name={activity.name}
+          superAdmin={session.kind === "super"}
+          // A pageant's tally is official once it has ended (see TallyView).
+          official={activity.kind === "pageant" ? activity.sessionState === "ended" : activity.signedOffAt !== null}
+        />
       </>
     );
   }

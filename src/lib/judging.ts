@@ -1,6 +1,6 @@
-import { editable } from "./lifecycle";
-import { roundDeliberating, roundPool, SCORE_UNDO_MS } from "./pageant";
-import type { Activity, Board, Entry } from "./types";
+import { editable, segmentPhase } from "./lifecycle";
+import { roundAtOwnPace, roundDeliberating, roundPool, SCORE_UNDO_MS } from "./pageant";
+import type { Activity, Board, Entry, Judge, JudgeDevice } from "./types";
 
 /**
  * What a judge's screen shows. The organizer drives judging: judges never pick entries themselves.
@@ -29,11 +29,12 @@ export function judgeView(activity: Pick<Activity, "sessionState" | "currentEntr
 }
 
 /**
- * Whether judges score at their own pace: an event without live scoring whose organizer chose it. Each judge then scores
- * the entries in any order, without waiting for the next one to be shown; the chair still starts the deliberation.
+ * Whether judges score at their own pace: an event without live scoring whose organizer chose it, or a pageant board
+ * narrowed to a sub-activity that is judged so (see showingBoard and roundAtOwnPace; a pageant's own row never is).
+ * Each judge then scores the entries in any order, without waiting for the next one to be shown; an event's chair still
+ * starts the deliberation, a sub-activity's organizer does.
  */
-export const atOwnPace = (activity: Pick<Activity, "kind" | "liveScoring" | "independentScoring">) =>
-  activity.kind === "event" && !activity.liveScoring && activity.independentScoring;
+export const atOwnPace = (activity: Pick<Activity, "liveScoring" | "independentScoring">) => !activity.liveScoring && activity.independentScoring;
 
 /**
  * The panel of judges can't change once judging has started, and stays that way after the scores are reset (the
@@ -108,9 +109,35 @@ export function showColumns(board: Board, entryId: string | null, now: number): 
   if (!round) return { error: "Choose the sub-activity to judge first." };
   // Its judges are reviewing their scores: nothing is shown to score until it's signed off.
   if (roundDeliberating(round)) return { error: `The judges are deliberating ${round.name}, so no candidate is shown until it's signed off.` };
+  // At their own pace each judge picks the candidates: none is shown (having them wait is still fine).
+  if (entryId && roundAtOwnPace(round)) return { error: `Judges score ${round.name} at their own pace, so no candidate is shown.` };
   if (entryId && !roundPool(board, round.id).entries.some((e) => e.id === entryId)) {
     return { error: `That candidate isn't in ${round.name}.` };
   }
   const closesAt = entryId && round.timerSeconds ? new Date(now + round.timerSeconds * 1000).toISOString() : null;
   return { columns: { ...showEntryColumns(entryId), scoring_closes_at: closesAt } };
+}
+
+/**
+ * What can start now that every judge it opens screens for has an approved device: an event's session, a pageant's
+ * preliminary (its own board: judges of pageant proper only don't count, as the desk's start doesn't), or pageant proper
+ * in the break between the segments (its board). Null otherwise. `count`: how many judges that is. Said on the
+ * activity's other tabs, with a button to the Session tab (see JudgesIn).
+ */
+export function startReady(
+  activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt">,
+  judges: Pick<Judge, "id" | "panel">[],
+  devices: Pick<JudgeDevice, "judgeId" | "status">[],
+): { what: "session" | "preliminary" | "proper"; count: number } | null {
+  const ready = (board: Pick<Judge, "id">[]) => board.length > 0 && board.every((j) => devices.some((d) => d.judgeId === j.id && d.status === "approved"));
+  if (activity.kind !== "pageant") return activity.sessionState === "draft" && ready(judges) ? { what: "session", count: judges.length } : null;
+  if (activity.sessionState === "draft") {
+    const board = judges.filter((j) => j.panel !== "proper");
+    return ready(board) ? { what: "preliminary", count: board.length } : null;
+  }
+  if (segmentPhase(activity, "preliminary") === "ended" && segmentPhase(activity, "proper") === "setup") {
+    const board = judges.filter((j) => j.panel !== "preliminary");
+    return ready(board) ? { what: "proper", count: board.length } : null;
+  }
+  return null;
 }
