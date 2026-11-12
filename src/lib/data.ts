@@ -87,6 +87,7 @@ type RoundRow = {
   /** Migration 040. */
   live_scoring?: boolean;
   deliberation_started_at?: string | null;
+  independent_scoring?: boolean;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = {
@@ -216,6 +217,7 @@ function toRound(row: RoundRow): Round {
     // Null on databases without migration 012, where sub-activities have no parts.
     parentId: row.parent_id ?? null,
     liveScoring: row.live_scoring ?? true,
+    independentScoring: row.independent_scoring ?? false,
     deliberationStartedAt: row.deliberation_started_at ?? null,
     signedOffAt: null,
   };

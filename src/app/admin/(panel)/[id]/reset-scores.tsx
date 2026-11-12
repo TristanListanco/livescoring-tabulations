@@ -111,8 +111,9 @@ export function ResetScoresButton({
             )}
           </p>
           <p className="mt-2">
-            The session goes back to not started and every judge is signed out: they sign in again with their codes. The judges stay as they are, and
-            you can still change the running order.
+            {pageant
+              ? "The pageant goes back to not started, as if new: every judge is signed out, and its judges, candidates and program can change again."
+              : "The session goes back to not started and every judge is signed out: they sign in again with their codes. The judges stay as they are, and you can still change the running order."}
           </p>
         </>
       )}

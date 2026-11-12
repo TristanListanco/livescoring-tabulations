@@ -27,12 +27,13 @@ export default async function ScorePage() {
   const onScreen = found.activity.currentEntryId;
   const deliberating = found.activity.sessionState === "deliberation";
   // At their own pace, a judge can open any entry they've scored: the points and corrections behind each come along.
-  const ownPace = atOwnPace(found.activity) && found.activity.sessionState === "live";
+  // An event's, read with the rest; a pageant sub-activity's is known once the sub-activity is (below).
+  const eventOwnPace = found.activity.kind === "event" && atOwnPace(found.activity) && found.activity.sessionState === "live";
   const [board, allCorrections, givenOnScreen, breakdowns, signatures, assistance] = await Promise.all([
     getBoard(context.activityId),
     getCorrections(context.activityId),
     onScreen ? getOwnBreakdown(context.judge.id, onScreen, found.activity.currentRoundId) : null,
-    (deliberating || ownPace) && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
+    (deliberating || eventOwnPace) && found.activity.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id) : {},
     deliberating ? getSignatures(context.activityId) : null,
     getJudgeAssistance(context.judge.id),
   ]);
@@ -59,9 +60,14 @@ export default async function ScorePage() {
   // A sub-activity (or part) whose judges are deliberating it: this judge reviews their scores in it and signs, as in an
   // event's deliberation. Read only then: its signatures, and the points behind each of this judge's scores.
   const underReview = round && !offPanel && gate.status === "approved" && roundDeliberating(round) ? round : null;
+  // At their own pace (an event, or the sub-activity on screens: see showingBoard), any of its entries to open.
+  const ownPace = atOwnPace(showing.activity) && showing.activity.sessionState === "live" && !offPanel;
+  const paced = round && ownPace && gate.status === "approved" ? round : null;
   const [roundSigned, roundBreakdowns] = underReview
     ? await Promise.all([getRoundSignatures(underReview.id), underReview.scoringMode === "criteria" ? getOwnBreakdowns(context.judge.id, underReview.id) : {}])
-    : [null, null];
+    : paced?.scoringMode === "criteria"
+      ? [null, await getOwnBreakdowns(context.judge.id, paced.id)]
+      : [null, null];
 
   // Judges only ever receive their own scores, and nothing at all until their device is approved.
   const mine =
@@ -111,7 +117,7 @@ export default async function ScorePage() {
           mineByEntry: ownPace
             ? Object.fromEntries(
                 allCorrections
-                  .filter((c) => c.judgeId === context.judge.id && c.status !== "withdrawn")
+                  .filter((c) => c.judgeId === context.judge.id && c.roundId === (round?.id ?? null) && c.status !== "withdrawn")
                   .map((c) => [c.entryId, correctionView(board, c)] as const),
               )
             : undefined,
@@ -206,7 +212,8 @@ export default async function ScorePage() {
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   // With live scoring only the organizer moves on, so the chair judges as the others do.
   const panel =
-    gate.status === "approved" && context.judge.isChair && !offPanel && chairMovesEntries(activity)
+    // Not at a sub-activity's own pace: nothing is shown to move between, and the organizer starts its deliberation.
+    gate.status === "approved" && context.judge.isChair && !offPanel && chairMovesEntries(activity) && !(round && ownPace)
       ? showing.judges.map((j) => ({
           id: j.id,
           name: j.name,
@@ -236,7 +243,7 @@ export default async function ScorePage() {
       offPanel={offPanel}
       segmentFresh={segmentFresh}
       assistance={assistance}
-      ownBreakdowns={ownPace ? (breakdowns ?? {}) : null}
+      ownBreakdowns={ownPace ? ((round ? roundBreakdowns : breakdowns) ?? {}) : null}
       // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
       // eslint-disable-next-line react-hooks/purity
       serverNow={Date.now()}

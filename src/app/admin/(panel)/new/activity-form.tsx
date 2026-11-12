@@ -14,7 +14,7 @@ import { checkScoring } from "@/lib/scoring-rules";
 import { blankEventScoring, DEFAULT_RESULT_DECIMALS, ScoringFields } from "../scoring-fields";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId, useFieldProblem } from "../field-errors";
 import { blankEntry, entryLines, EntryRows, namedEntries, type EntryRow } from "../entry-rows";
-import { Section } from "../section";
+import { Section, SectionIndex } from "../section";
 import { filledSignatories, openSignatories, SIGNATORY_ID, signatoryProblem, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { CONSENT_ID, CONSENT_PROBLEM, ConsentField } from "./consent-field";
@@ -230,6 +230,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   return (
     <FieldProblemsProvider value={problems}>
     <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,1fr)_12rem] xl:items-start xl:gap-10">
+    <SectionIndex sections={sections} />
     <form ref={formRef} onSubmit={submit} className="min-w-0">
       <Section id="details" title="Details" description="What it's called and where it happens.">
         <label htmlFor="name" className="label">
@@ -373,7 +374,6 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
         )}
       </div>
     </form>
-    <SectionIndex sections={sections} />
     </div>
     </FieldProblemsProvider>
   );
@@ -418,37 +418,6 @@ function JudgingChoice({ value, onChange }: { value: boolean | null; onChange: (
 
 /** The first entry's name: where "Add at least one entry" points. */
 const ENTRIES_ID = "entry-first";
-
-/**
- * Beside the form from 1280px: its sections, each a link, marked done once it has what Create needs. Held in view
- * while the long form scrolls, so what's left is always one glance away.
- */
-function SectionIndex({ sections }: { sections: { id: string; title: string; done: boolean }[] }) {
-  return (
-    <nav aria-label="Sections of the form" className="sticky top-6 mt-4 hidden xl:block">
-      <ol className="space-y-1">
-        {sections.map((section) => (
-          <li key={section.id}>
-            <a href={`#${section.id}`} className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[15px] font-semibold hover:bg-white">
-              {section.done ? (
-                <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-regal" aria-hidden>
-                  <circle cx="8" cy="8" r="7" fill="currentColor" />
-                  <path d="M4.8 8.2l2.1 2.1 4.3-4.4" fill="none" stroke="var(--color-mint)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-field" aria-hidden>
-                  <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                </svg>
-              )}
-              {section.title}
-              <span className="sr-only">{section.done ? ", done" : ", not done yet"}</span>
-            </a>
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
-}
 
 /**
  * An event's scoring timer on the create form, as a pageant sub-activity's: off, or the seconds judges get for each

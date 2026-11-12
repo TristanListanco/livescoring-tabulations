@@ -155,6 +155,19 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await live.goto(livePath);
     await expect(live.getByText("A tick shows each score that's in.", { exact: false })).toBeVisible(REALTIME);
     await expect(live.getByText("9", { exact: true })).toHaveCount(0);
+    // The organizer's private tally has them: the password opens it, partial and unofficial, on the sub-activity on
+    // judges' screens. The preliminary's standings are there too.
+    const tally = await page.context().newPage();
+    await tally.goto(`${adminPath}/tally`);
+    await tally.getByLabel("Super admin password").fill(ADMIN_PASSWORD);
+    await tally.getByRole("button", { name: "Open the tally" }).click();
+    await expect(tally.getByText("Partial and unofficial tally")).toBeVisible();
+    await expect(tally.getByLabel("Tally of")).toHaveValue(round.talent);
+    await expect(tally.getByRole("region", { name: "Scores by candidate" }).getByRole("row").filter({ hasText: "Ayla" })).toContainText("9");
+    await expect(tally.getByText("Held back from the audience until it's signed off.", { exact: false })).toBeVisible();
+    await tally.getByLabel("Tally of").selectOption({ label: "Preliminary standings" });
+    await expect(tally.getByRole("heading", { name: "Preliminary standings" })).toBeVisible();
+    await tally.close();
 
     // Every score in, the desk offers the deliberation before anything else.
     await page.getByRole("button", { name: "Start deliberation of Talent" }).click();
@@ -258,5 +271,22 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     const program = page.getByRole("region", { name: "Program" });
     await expect(program.getByRole("listitem").filter({ hasText: "Talent" })).toContainText("Done");
     await expect(program.getByRole("listitem").filter({ hasText: "Gown" })).not.toContainText("Done");
+
+    // In the break, every other tab offers the way back to the desk: here, pageant proper's judges are all in.
+    await page.goto(`${adminPath}?tab=settings`);
+    await expect(page.getByRole("region", { name: "Pageant proper's 3 judges are in" }).getByRole("link", { name: "Start pageant proper" })).toBeVisible();
+
+    // Both segments reset: the pageant starts over as if new, so its judges and candidates can change again.
+    await page.getByRole("button", { name: "Reset scores" }).click();
+    const all = page.getByRole("dialog", { name: "Reset every score?" });
+    await expect(all).toContainText("its judges, candidates and program can change again");
+    await all.getByLabel("Your password").fill(ADMIN_PASSWORD);
+    await all.getByRole("button", { name: "Reset scores" }).click();
+    await expect(all).toBeHidden();
+    await page.goto(`${adminPath}?tab=judges`);
+    await expect(page.getByRole("group", { name: "Add a judge" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Remove Cara Diaz" })).toBeVisible();
+    await page.goto(`${adminPath}?tab=entries`);
+    await expect(page.getByRole("heading", { name: "Add candidates" })).toBeVisible();
   });
 });

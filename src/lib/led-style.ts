@@ -1,20 +1,21 @@
 import type { CSSProperties } from "react";
 
 /**
- * The LED wall's look, chosen on the LED wall tab: a font and a dark colour theme, with rounded panels. Every theme
- * keeps the wall's text readable (at least 5:1 against what it sits on); the green screen around the lower third
+ * The LED wall's look: a dark colour theme, chosen on the LED wall tab, and one font, Modern, with rounded panels. Every
+ * theme keeps the wall's text readable (at least 5:1 against what it sits on); the green screen around the lower third
  * stays chroma green whatever the theme, so it still keys out. Activities set before to a choice no longer offered
- * (a light theme, a serif font, square or soft corners) show the default instead; the database keeps what they had.
+ * (a light theme, another font, square or soft corners) show the default instead; the database keeps what they had.
  */
 
 export type LedFont = "default" | "modern" | "condensed";
 export type LedTheme = "navy" | "gold" | "crimson" | "emerald" | "royal" | "teal" | "rose" | "sunset" | "berry" | "graphite";
 
-/** The CSS variable each font sets (see led-fonts.ts), or null for the app's own. */
+/**
+ * The wall's font and the CSS variable it sets (see led-fonts.ts). Modern alone: Standard (the app's own) and the heavy
+ * Condensed were taken away, and walls set to them show Modern.
+ */
 export const LED_FONTS: { value: LedFont; label: string; variable: string | null; fallback: string }[] = [
-  { value: "default", label: "Standard", variable: null, fallback: "sans-serif" },
   { value: "modern", label: "Modern", variable: "--font-led-modern", fallback: "sans-serif" },
-  { value: "condensed", label: "Condensed", variable: "--font-led-condensed", fallback: "sans-serif" },
 ];
 
 /**
@@ -39,7 +40,7 @@ export const LED_THEMES: { value: LedTheme; label: string; colors: LedColors }[]
 /** The panels' rounded corners: in stage pixels for the 1920×1080 lower third, and in container units for the full screen. */
 const RADIUS = { overlay: "28px", full: "min(2cqw, 3.6cqh)" };
 
-export const toLedFont = (value: unknown): LedFont => LED_FONTS.find((f) => f.value === value)?.value ?? "default";
+export const toLedFont = (value: unknown): LedFont => LED_FONTS.find((f) => f.value === value)?.value ?? "modern";
 export const toLedTheme = (value: unknown): LedTheme => LED_THEMES.find((t) => t.value === value)?.value ?? "navy";
 
 /** A theme's colours. */

@@ -86,7 +86,7 @@ test.describe.serial("drafts", () => {
     await expect(page.getByRole("link", { name: EDITED, exact: true })).toBeVisible();
   });
 
-  test("a pageant draft opens on the step it was saved on", async ({ page }) => {
+  test("a pageant draft opens with what was typed", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto("/admin/new");
     await page.getByRole("radio", { name: /^Pageant/ }).check();
@@ -94,7 +94,6 @@ test.describe.serial("drafts", () => {
     for (const [i, name] of ["Ayla", "Bea", "Cora"].entries()) await page.getByLabel(`Candidate ${i + 1} name`).fill(name);
     // Candidates' photos are kept in the draft too.
     await choosePhoto(page, "Photo for Bea");
-    await page.getByRole("button", { name: "Continue to judges" }).click();
     await page.getByLabel("Judge 1 first name").fill("Ana");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByRole("status").filter({ hasText: /^Draft saved at / })).toBeVisible();
@@ -102,10 +101,8 @@ test.describe.serial("drafts", () => {
     await page.goto("/admin");
     await page.getByRole("link", { name: `Continue ${PAGEANT}` }).click();
     await expect(page.getByRole("radio", { name: /^Pageant/ })).toBeChecked();
-    await expect(page.getByRole("heading", { level: 2, name: "Step 2 of 5: Judges" })).toBeVisible();
     await expect(page.getByLabel("Judge 1 first name")).toHaveValue("Ana");
-    // Back on the candidates, the draft kept their names and Bea's photo.
-    await page.getByRole("button", { name: /Candidates \(done, go back\)/ }).click();
+    // The draft kept the candidates' names and Bea's photo.
     await expect(page.getByLabel("Candidate 3 name")).toHaveValue("Cora");
     await expect(page.getByRole("button", { name: "View photo of Bea" })).toBeVisible();
 

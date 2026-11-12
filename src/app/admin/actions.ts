@@ -85,6 +85,7 @@ import {
   type CriteriaDisplay,
   type JudgePanel,
   type ResultDecimals,
+  type Round,
   type SessionState,
   type Signatory,
 } from "@/lib/types";
@@ -320,7 +321,7 @@ async function passwordMatches(session: AdminSession, password: string): Promise
 }
 
 /**
- * Opens an event's private tally on this browser (see tally-access.ts): with the signed-in admin's own password, every
+ * Opens an activity's private tally on this browser (see tally-access.ts; an event without live scoring, or a pageant): with the signed-in admin's own password, every
  * time, counted against the same limits as signing in. Every opening and every refusal is logged with who and on what
  * device, so a leak can be traced.
  */
@@ -328,7 +329,7 @@ export const openTally = traced("openTally", async function openTally(activityId
   const managed = await manageActivity(activityId);
   if (!managed) return NOT_FOUND;
   const { session, activity } = managed;
-  if (activity.kind !== "event" || activity.liveScoring) return err("This event scores live: its live results already show every score.");
+  if (activity.kind === "event" && activity.liveScoring) return err("This event scores live: its live results already show every score.");
   if (activity.archivedAt) return err("The private tally closed when this activity was archived.");
   const admin = session.kind === "super" ? "super" : session.admin.id;
   const address = await clientAddress();
@@ -496,6 +497,7 @@ const PARTS_HINT =
 
 /** Segments run on their own, and sub-activities that deliberate (migration 040). */
 const SEGMENTS_HINT = "This needs a database update. Run supabase/migrations/040_pageant_segments_and_deliberation.sql in the Supabase SQL editor.";
+const ROUND_OWN_PACE_HINT = "Judging at their own pace needs a database update. Run supabase/migrations/041_round_own_pace.sql in the Supabase SQL editor.";
 const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrations/015_deductions_and_themes.sql in the Supabase SQL editor.";
 
 /**
@@ -503,7 +505,7 @@ const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrati
  * ids, so cut bases (which name sub-activities by key) and parts (which name their sub-activity) can be written in
  * the same go. Upserts, so a saved program is updated in place.
  */
-async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>, deliberatedBefore = false) {
+async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Map<string, string>, saved: Round[] = []) {
   for (const r of rounds) {
     if (!ids.has(r.key)) ids.set(r.key, randomUUID());
     for (const p of r.parts) if (!ids.has(p.key)) ids.set(p.key, randomUUID());
@@ -519,9 +521,15 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
     timer_seconds: r.timerSeconds,
   });
   // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012;
-  // live_scoring only when a sub-activity deliberates (or did), so programs that score live save without migration 040.
+  // live_scoring only when a sub-activity deliberates (or did), so programs that score live save without migration 040;
+  // independent_scoring only when one is judged at its judges' own pace (or was), so others save without migration 041.
   const withParts = rounds.some((r) => r.parts.length > 0);
-  const live = (r: CheckedRound) => (deliberatedBefore || rounds.some((x) => !x.liveScoring) ? { live_scoring: r.liveScoring } : {});
+  const deliberated = saved.some((r) => !r.liveScoring) || rounds.some((x) => !x.liveScoring);
+  const paced = saved.some((r) => r.independentScoring) || rounds.some((x) => x.independentScoring);
+  const live = (r: CheckedRound) => ({
+    ...(deliberated ? { live_scoring: r.liveScoring } : {}),
+    ...(paced ? { independent_scoring: r.independentScoring } : {}),
+  });
   const rows = rounds.flatMap((r) => [
     {
       id: ids.get(r.key)!,
@@ -600,11 +608,12 @@ export const savePageant = traced("savePageant", async function savePageant(acti
   const keys = draft.rounds.flatMap((r) => [r.key, ...(r.parts ?? []).map((p) => p.key)]);
   const ids = new Map(keys.filter((k) => saved.has(k)).map((k) => [k, k]));
   try {
-    await insertProgram(activityId, checked.rounds, ids, board.rounds.some((r) => !r.liveScoring));
+    await insertProgram(activityId, checked.rounds, ids, board.rounds);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
     if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
+    if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
     return dbErr({ message });
   }
   const kept = new Set(ids.values());
@@ -1066,6 +1075,8 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       if (/panel|one_chair/.test(message)) return needsMigration(PANELS_HINT);
       if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
       if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
+      // Before /rounds/: a missing column's message names the table.
+      if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
       if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
       log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
       return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
@@ -2158,8 +2169,10 @@ export const shuffleEntries = traced("shuffleEntries", async function shuffleEnt
  * Start judging over: every score goes, with what's built on them (corrections and their votes, judges' notes and
  * signatures, broken ties, the organizer's sign-off; a pageant's cuts and deductions), and every judge's device is
  * signed out, so judges sign in again with their codes. The session goes back to not started, so the running order
- * can still change, but the panel of judges stays as it was: judging started once, and the same judges score again
- * (judgesLocked). Any time until the activity is archived, even mid-show, with the signed-in admin's password.
+ * can still change, but an event's panel of judges stays as it was: judging started once, and the same judges score
+ * again (judgesLocked). A pageant starts over as if new: its judges, candidates and program can all change again
+ * (session_started_at goes too). Any time until the activity is archived, even mid-show, with the signed-in admin's
+ * password.
  */
 export const resetScores = traced("resetScores", async function resetScores(activityId: string, password: string, scope: ResetScope = "all"): Promise<ActionResult> {
   if (scope !== "all" && scope !== "preliminary" && scope !== "proper") return err("That isn't something that can be reset.");
@@ -2215,10 +2228,16 @@ export const resetScores = traced("resetScores", async function resetScores(acti
     await db().from("activities").update({ current_round_id: null }).eq("id", activityId);
     // Both segments back to not started, and no sub-activity deliberating (each fails harmlessly before migration 040).
     await db().from("activities").update({ preliminary_ended_at: null, proper_started_at: null }).eq("id", activityId);
+    // As if it had never started: its judges can change again (the database's judges_locked reads this too).
+    await db().from("activities").update({ session_started_at: null }).eq("id", activityId);
     await db().from("rounds").update({ deliberation_started_at: null }).eq("activity_id", activityId);
   }
   changed(activity.publicId);
-  return ok("Every score and judge's note was deleted, and every judge was signed out. The session is back to not started.");
+  return ok(
+    activity.kind === "pageant"
+      ? "Every score was deleted and every judge signed out. The pageant is back to not started: its judges, candidates and program can change again."
+      : "Every score and judge's note was deleted, and every judge was signed out. The session is back to not started.",
+  );
 });
 
 /**

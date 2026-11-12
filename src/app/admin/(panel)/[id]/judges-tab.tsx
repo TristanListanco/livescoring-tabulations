@@ -9,7 +9,6 @@ import type { Judge } from "@/lib/types";
 import { nameParts } from "@/lib/names";
 import { reach } from "@/lib/reach";
 import type { ActionResult, JudgePanel } from "@/lib/types";
-import { MIN_PROPER_JUDGES } from "@/lib/pageant-setup";
 import { addJudge, removeJudge, renameJudge, setChair, setJudgePanel, setJudgePhoto, type FormResult } from "../../actions";
 import { PANEL_OPTIONS } from "../new/judges-fields";
 import { FormMessage } from "../form-message";
@@ -50,8 +49,6 @@ function PanelSelect({ judge }: { judge: Judge }) {
   );
 }
 
-const panelLabel = (panel: JudgePanel) => PANEL_OPTIONS.find((o) => o.value === panel)?.label ?? "Both segments";
-
 /** What a chair chairs: the board of judges, or in a pageant with separate boards, one of them. */
 const boardOf = (judge: Judge) =>
   judge.panel === "preliminary" ? "the preliminary board" : judge.panel === "proper" ? "the pageant proper board" : "the board of judges";
@@ -77,29 +74,6 @@ function TakeChair({ judge, pageant, onResult }: { judge: Judge; pageant: boolea
       {label}
       <span className="sr-only"> {judge.name}</span>
     </button>
-  );
-}
-
-/** A pageant's boards at a glance: one board, or the preliminary's and pageant proper's, each with its chair. */
-export function BoardsSummary({ judges }: { judges: Judge[] }) {
-  const separate = judges.some((j) => j.panel !== "all");
-  const board = (panel: "preliminary" | "proper") => judges.filter((j) => j.panel === "all" || j.panel === panel);
-  const chair = (list: Judge[]) => list.find((j) => j.isChair)?.name;
-  const describe = (list: Judge[]) => `${list.length} ${list.length === 1 ? "judge" : "judges"}${chair(list) ? `, chaired by ${chair(list)}` : ""}`;
-  const proper = board("proper");
-  return (
-    <div className="mt-3 space-y-2">
-      <p className="hint">
-        {separate
-          ? `Separate boards. Preliminary: ${describe(board("preliminary"))}. Pageant proper: ${describe(proper)}.`
-          : `One board for the whole pageant: ${describe(judges)}.`}
-      </p>
-      {proper.length < MIN_PROPER_JUDGES && (
-        <p role="note" className="note">
-          Pageant proper needs at least three judges before it starts.
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -169,7 +143,8 @@ export function JudgeEditor({
         </form>
         <FormMessage state={state?.ok ? null : state} small />
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
-        {pageant && (fixedPanel ? <p className="text-sm">Judges in {panelLabel(judge.panel).toLowerCase()}</p> : <PanelSelect judge={judge} />)}
+        {/* Which segments they judge: the board's section heading says it; here it can be changed until it's fixed. */}
+        {pageant && !fixedPanel && <PanelSelect judge={judge} />}
         {(judge.isChair || detail || canChair) && (
           <div className="hint tabular flex flex-wrap items-center gap-x-3 gap-y-1">
             {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
@@ -208,7 +183,7 @@ export function RemoveJudge({ judge, scored }: { judge: Judge; scored: number })
   );
 }
 
-/** A judge's row once the session has started: the panel is locked, so their name, chair and segments only. */
+/** A judge's row once the session has started: the panel is locked, so their name and chair only. */
 export function JudgeIdentity({ judge, pageant, detail }: { judge: Judge; pageant: boolean; detail: string }) {
   return (
     <div className="flex items-center gap-4">
@@ -218,10 +193,8 @@ export function JudgeIdentity({ judge, pageant, detail }: { judge: Judge; pagean
           <span className="truncate text-lg font-semibold">{judge.name}</span>
           {judge.isChair && (pageant ? <ChairBadge judge={judge} /> : <PlainChairBadge />)}
         </p>
-        <p className="hint tabular">
-          {pageant && `${panelLabel(judge.panel)} · `}
-          {detail}
-        </p>
+        {/* Their segments are their board's section heading (or, with one board, both). */}
+        {detail && <p className="hint tabular">{detail}</p>}
       </div>
     </div>
   );

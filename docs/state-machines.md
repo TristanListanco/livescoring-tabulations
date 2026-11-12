@@ -56,15 +56,17 @@ Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant 
 
 ## 3. Activity mode
 
-**Lives in:** `kind` × `live_scoring` × `independent_scoring`.
+**Lives in:** `kind` × `live_scoring` × `independent_scoring` (an event's), and a pageant's `rounds.live_scoring` × `rounds.independent_scoring` (migration 041).
 
 **Modes:**
 - a live event: scores show as they come in;
 - a deliberated event: scores stay with the judges until everyone has signed;
 - an own-pace event: a deliberated event where judges pick entries themselves;
-- a pageant, whose scores go out live, except a sub-activity set to deliberate (see section 15).
+- a pageant, whose scores go out live, except a sub-activity set to deliberate (see section 15), which can also be judged at its judges' own pace.
 
-**Helpers:** `scoresGoOutLive` (also "has an LED wall" and the "Live" status), `resultsReleased` (in `data.ts`), `atOwnPace` and `chairMovesEntries` (in `judging.ts`).
+**Helpers:** `scoresGoOutLive` (also "has an LED wall" and the "Live" status), `resultsReleased` (in `data.ts`), `atOwnPace` and `chairMovesEntries` (in `judging.ts`), `roundAtOwnPace` (in `pageant.ts`; `showingBoard` narrows the shown board to it, so `atOwnPace` reads it for the sub-activity on screens; a pageant's own row never sets `independent_scoring`).
+
+**Starting:** `startReady` (in `judging.ts`) says when every judge a start opens screens for has an approved device: an event's session, a pageant's preliminary (its own board), or pageant proper in the break. The activity's other tabs then show "All N judges are in" (`JudgesIn`), whose button opens the Session tab with that start asked (`?start=1`, `?start=proper`).
 
 ## 4. Deliberation
 
@@ -122,7 +124,7 @@ Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant 
 - closed
 
 **Guards:**
-- **S** `submitScore` with `scoreWindowOpen`, `SUBMIT_GRACE_MS`.
+- **S** `submitScore` with `scoreWindowOpen`, `SUBMIT_GRACE_MS`; at a sub-activity's own pace, any candidate in its pool (`roundPool`), and no one else.
 - **D** `check_score` (only while live).
 - A score sent again after it was saved counts as saved even if the window has closed since.
 
@@ -186,7 +188,7 @@ A call is answered only while it's open, never once cancelled. One open call per
 - created, or restored if Create fails
 - gone
 
-The forms read **"gone"** from the result's `code: "draft-gone"`, not from its wording.
+The forms read **"gone"** from the result's `code: "draft-gone"`, not from its wording. The pageant form is one page, as the event's is; a pageant draft saved while it was in steps opens with the step ignored.
 
 ## 13. LED wall
 
@@ -216,17 +218,18 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **The break on the desk:** two steps in order, record deductions and pair pageant proper's judges (approved on the desk, ticked once all are paired), with start pageant proper in the action bar. The desk offers **End preliminary** only once `preliminaryEndGap` is null, the same check `moveSegment` makes. Once the final cut is confirmed and nothing is left to judge, the desk shows the final placements, with ending pageant proper as its next step. Where the desk can't approve devices itself (between sub-activities, a sub-activity's deliberation, the final placements), the panel's approval dialog does (`data-device-approvals` only where it can). A judge tile shows a replacement device's request (a new phone while one is approved) beside the judge's state, so a device swapped mid-show is approved on the desk too.
 
-**Reset** (`resetScores`, `canReset`): both segments (back to not started, as any activity), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
+**Reset** (`resetScores`, `canReset`): both segments (back to not started as if new: `session_started_at` goes too, so its judges, candidates and program can change again; an event's reset keeps it, and its panel stays locked), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
 
 ## 15. Deliberation per sub-activity
 
 **Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
 
-**Steps:** judged as usual (the audience sees a tick per score, `loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
+**Steps:** judged a candidate at a time, or at its judges' own pace (`rounds.independent_scoring`, migration 041: no candidate shown, no timer, any candidate in its pool in any order); the audience sees a tick per score (`loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
 
 | Guard | Where |
 |-------|-------|
 | One deliberation at a time; the desk can't switch sub-activity or show a candidate meanwhile | **S** `roundDeliberationGap`, `setCurrentRound`, `showColumns` |
+| At its judges' own pace no candidate is shown, and a score only for a candidate in its pool | **S** `showColumns`, `submitScore` |
 | Signatures and sign-off voided by any score change in it | **D** `void_round_signatures` |
 | Cuts, the preliminary's end and the pageant's end wait for its sign-off | **S** `awaitingSignoff` |
 | Its results PDF waits for its sign-off and prints its judges' signatures | **S** `exports.ts` |

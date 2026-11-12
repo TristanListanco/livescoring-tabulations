@@ -13,15 +13,14 @@ import { listChanged } from "../activities-refresh";
 import { filledSignatories, openSignatories, SIGNATORY_ID, signatoryProblem, SignatoryRows, type SignatoryRow } from "../signatories-editor";
 import { toast } from "../toaster";
 import { describedBy, FieldProblem, FieldProblemsProvider, problemId } from "../field-errors";
-import { SegmentEditor } from "../program-editor";
-import { DEFAULT_RESULT_DECIMALS } from "../scoring-fields";
+import { SEGMENT_DESCRIPTION, SegmentEditor } from "../program-editor";
+import { DEFAULT_RESULT_DECIMALS, ResultDecimalsField } from "../scoring-fields";
+import { Section, SectionIndex } from "../section";
 import { blankCandidate, CandidatesFields, MAX_CANDIDATES, type DraftCandidate, type PasteResult } from "./candidates-fields";
 import { blankJudge, JudgesFields, MAX_JUDGES, type DraftJudge } from "./judges-fields";
 import { CONSENT_ID, CONSENT_PROBLEM, ConsentField } from "./consent-field";
 import { PageantReview } from "./pageant-review";
 import { openCandidates, openJudges, SaveDraftButton, saveCandidates, saveJudges, useDraft, type DraftHostProps } from "./use-draft";
-
-const STEPS = ["Candidates", "Judges", "Preliminary", "Pageant proper", "Review"] as const;
 
 /** One board of judges for the whole pageant, or separate boards for the preliminary and pageant proper. */
 type Boards = "one" | "separate";
@@ -46,12 +45,18 @@ const startingProgram = (): PageantDraft => ({
 const cleanName = (name: string) => name.replace(/\s+/g, " ").trim();
 const OFFLINE = "That didn't reach the server. Check this screen's connection and try again.";
 
-/** Something to fix before moving on: what, and the id of the field it's about when there is one. */
+/** Something to fix before creating: what, and the id of the field it's about when there is one. */
 /** `also`: other fields to mark with it, whose message is the first field's (a judge's blank first and last name). */
 type Problem = { message: string; field?: string; also?: string[] };
 
-/** The id of the list of a step's problems, focused when no problem has a field of its own. */
-const STEP_PROBLEMS = "step-problems";
+/** The form's sections, in order: each a card (the program's are bare: its sub-activities are cards already). */
+type SectionId = "details" | "candidates" | "judges" | "preliminary" | "proper" | "results";
+
+/** The id of the list of problems, focused when no problem has a field of its own. */
+const FORM_PROBLEMS = "form-problems";
+
+/** Where a section is on the page, for the review's Edit buttons. */
+const SECTION_IDS = ["candidates", "judges", "preliminary-program", "proper-program"] as const;
 
 /** The field a program problem points at, by the ids the program editor gives its fields. */
 function programField(target: ProgramTarget | undefined): string | undefined {
@@ -76,18 +81,18 @@ function focusField(id: string) {
 }
 
 /**
- * A step's problems at the top of the step, each linking to its field. Not a live region: focus goes to the first
- * problem's field, which reads out its own message, so this doesn't repeat itself on every keystroke.
+ * What's left to fix, above Create, each linking to its field. Not a live region: focus goes to the first problem's
+ * field, which reads out its own message, so this doesn't repeat itself on every keystroke.
  */
-function StepProblems({ problems, onPick }: { problems: Problem[]; onPick: (field: string) => void }) {
+function FormProblems({ problems, onPick }: { problems: Problem[]; onPick: (field: string) => void }) {
   return (
-    <div id={STEP_PROBLEMS} tabIndex={-1} aria-labelledby={`${STEP_PROBLEMS}-title`} className="mt-5 max-w-2xl rounded-xl border border-danger/40 bg-danger/5 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-danger/40">
-      <h3 id={`${STEP_PROBLEMS}-title`} className="font-semibold text-danger-ink">
-        {problems.length === 1 ? "Fix this to continue" : `Fix these ${problems.length} things to continue`}
+    <div id={FORM_PROBLEMS} tabIndex={-1} aria-labelledby={`${FORM_PROBLEMS}-title`} className="mt-6 max-w-2xl rounded-xl border border-danger/40 bg-danger/5 px-4 py-3 outline-none focus-visible:ring-2 focus-visible:ring-danger/40">
+      <h3 id={`${FORM_PROBLEMS}-title`} className="font-semibold text-danger-ink">
+        {problems.length === 1 ? "Fix this to create the pageant" : `Fix these ${problems.length} things to create the pageant`}
       </h3>
       <ul className="mt-1.5 space-y-1 text-[15px]">
         {problems.map((p, i) => (
-          <li key={`${p.field ?? "step"}-${i}`}>
+          <li key={`${p.field ?? "form"}-${i}`}>
             {p.field ? (
               <a
                 href={`#${p.field}`}
@@ -125,10 +130,10 @@ function opened(data: unknown) {
   const candidates = saved.length ? saved : [blankCandidate(0), blankCandidate(1), blankCandidate(2)];
   const program = d.program ? parsePageantDraft(JSON.stringify(d.program)) : null;
   const places = Number(d.resultDecimals);
-  const step = Number(d.step);
+  // Drafts saved while the form was in steps kept the step too: it's ignored.
   return {
-    step: Number.isInteger(step) && step >= 0 && step < STEPS.length ? step : 0,
     name: typeof d.name === "string" ? d.name : "",
+    location: typeof d.location === "string" ? d.location : "",
     candidates,
     boards,
     judges,
@@ -140,9 +145,10 @@ function opened(data: unknown) {
 }
 
 /**
- * Set up a pageant step by step: the candidates first, then the judges, the preliminary's sub-activities, pageant
- * proper's sub-activities and cuts, and a last look before creating it. Every step stays on the page (hidden), so
- * the whole pageant is sent at once and nothing is saved half-made.
+ * Set up a pageant on one page, as an event is: its details, the candidates, the judges, the preliminary's
+ * sub-activities, pageant proper's sub-activities and cuts, and who signs the results, each a section marked done in
+ * the index once it has what Create needs, then a last look laid out like the score sheet. Create checks it all and
+ * takes focus to the first thing to fix; the whole pageant is sent at once, so nothing is saved half-made.
  */
 export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: DraftHostProps) {
   const router = useRouter();
@@ -154,13 +160,13 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const [progress, setProgress] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; missed: string[] } | null>(null);
   const [start] = useState(() => opened(openedDraft?.data));
-  const [step, setStep] = useState(start.step);
-  // The step whose problems show: set when Continue (or Create) finds some, and re-checked as the organizer types,
-  // so each message goes as soon as its field is fixed. `attempt` counts tries, so the same step can refocus.
-  const [checkedStep, setCheckedStep] = useState<number | null>(null);
+  // Set once Create finds problems: from then they show, re-checked as the organizer types, so each message goes as
+  // soon as its field is fixed. `attempt` counts tries, so the same problem can take focus again.
+  const [checked, setChecked] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const focusNext = useRef<string | null>(null);
   const [name, setName] = useState(start.name);
+  const [location, setLocation] = useState(start.location);
   const [candidates, setCandidates] = useState<DraftCandidate[]>(start.candidates);
   const [signatories, setSignatories] = useState<SignatoryRow[]>(start.signatories);
   // Confirmed on each create, never kept with a draft.
@@ -213,7 +219,6 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     return at < 0 ? null : at;
   };
   const chairPositions = { preliminary: separate ? positionOf(chairs.preliminary) : null, proper: positionOf(chairs.proper) };
-  // Saving keeps the step too, so a draft opens where it was left; moving between steps alone isn't a change to save.
   const saved = useDraft({
     openedId: openedDraft?.id ?? null,
     openedSavedAt: openedDraft?.savedAt ?? null,
@@ -223,6 +228,7 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     name,
     snapshot: JSON.stringify([
       name,
+      location,
       candidates.map((c) => [c.name, c.details, c.preview]),
       boards,
       ordered.map((j) => [j.first, j.last, j.preview, j.panel]),
@@ -239,38 +245,31 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
           `${dropped === 1 ? "One candidate's photo" : `${dropped} candidates' photos`} didn't fit in the draft. Add ${dropped === 1 ? "it" : "them"} again before creating the pageant, or later on its Candidates tab.`,
         );
       }
-      return { step, name, candidates: saved, boards, judges: savedJudges, chairs: chairPositions, program: draft, resultDecimals, signatories: filledSignatories(signatories) };
+      return { name, location, candidates: saved, boards, judges: savedJudges, chairs: chairPositions, program: draft, resultDecimals, signatories: filledSignatories(signatories) };
     },
   });
-  const heading = useRef<HTMLHeadingElement>(null);
-  const moved = useRef(false);
-
-  // A new step's heading takes focus, so keyboard and screen reader users start at the top of it. After a try that
-  // found problems, the first problem's field does instead (or the list of problems, when it has no field).
+  // After a try that found problems, the first problem's field takes focus (or the list of problems, when it has no field).
   useEffect(() => {
     const target = focusNext.current;
     focusNext.current = null;
-    if (target) {
-      focusField(target);
-      return;
-    }
-    if (!moved.current) return;
-    heading.current?.focus();
-    heading.current?.scrollIntoView({ block: "start" });
-  }, [step, attempt]);
+    if (target) focusField(target);
+  }, [attempt]);
 
-  /** Every problem on a step, each with the id of the field it's about when there is one. */
-  const problems = (i: number): Problem[] => {
+  // The program's check stops at its first problem: it's shown at its field, and the next one after it's fixed.
+  const program = checkPageant(draft, candidates.length, () => "");
+
+  /** Every problem in a section, each with the id of the field it's about when there is one. */
+  const problems = (section: SectionId): Problem[] => {
     const found: Problem[] = [];
-    if (i === 0) {
-      if (!name.trim()) found.push({ message: "Give the pageant a name.", field: "name" });
+    if (section === "details" && !name.trim()) found.push({ message: "Give the pageant a name.", field: "name" });
+    if (section === "candidates") {
       candidates.forEach((c, n) => {
         if (!c.name.trim()) found.push({ message: `Enter candidate ${n + 1}'s name, or remove the row.`, field: `candidate-${c.key}` });
       });
       if (candidates.length < 2) found.push({ message: "Add at least two candidates.", field: "add-candidate" });
       if (candidates.length > MAX_CANDIDATES) found.push({ message: `A pageant can have up to ${MAX_CANDIDATES} candidates.` });
     }
-    if (i === 1) {
+    if (section === "judges") {
       // Each judge's name, then the board's chair, board by board; then pageant proper's three judges.
       const board = (list: DraftJudge[], who: string, start: number, chairKey: number | null, chairMessage: string) => {
         list.forEach((j, n) => {
@@ -299,51 +298,42 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
         });
       }
     }
-    if (i === 2 || i === 3) {
-      // The program's check stops at its first problem: it's shown at its field, and the next one after it's fixed.
-      const checked = checkPageant(draft, candidates.length, () => "");
-      // The preliminary step only answers for itself; pageant proper is the next step's.
-      if (!checked.ok && (i === 3 || checked.segment !== "proper")) found.push({ message: checked.error, field: programField(checked.target) });
+    // The preliminary's section answers for its own problems; pageant proper's for its own and any left before it.
+    if (!program.ok && (section === "proper" ? true : section === "preliminary" && program.segment !== "proper")) {
+      found.push({ message: program.error, field: programField(program.target) });
     }
-    if (i === STEPS.length - 1) {
+    if (section === "results") {
       const gap = signatoryProblem(signatories);
       if (gap) found.push(gap);
-      if (!consent) found.push({ message: CONSENT_PROBLEM, field: CONSENT_ID });
     }
     return found;
   };
-
-  const go = (to: number) => {
-    moved.current = true;
-    setCheckedStep(null);
-    setStep(to);
-  };
-  /** Show a step's problems and take focus to the first. */
-  const report = (at: number, found: Problem[]) => {
-    focusNext.current = found.find((p) => p.field)?.field ?? STEP_PROBLEMS;
-    setCheckedStep(at);
-    setStep(at);
-    setAttempt((n) => n + 1);
-  };
-  const next = () => {
-    const found = problems(step);
-    if (found.length) report(step, found);
-    else go(step + 1);
-  };
+  // Everything Create needs, in page order; the program's one problem once, then the consent.
+  const found: Problem[] = [
+    ...problems("details"),
+    ...problems("candidates"),
+    ...problems("judges"),
+    ...problems("proper"),
+    ...problems("results"),
+    ...(consent ? [] : [{ message: CONSENT_PROBLEM, field: CONSENT_ID }]),
+  ];
+  // Done once a section has what Create needs, for the index.
+  const sections = [
+    { id: "details", title: "Details", done: problems("details").length === 0 },
+    { id: "candidates", title: "Candidates", done: problems("candidates").length === 0 },
+    { id: "judges", title: "Judges", done: problems("judges").length === 0 },
+    { id: "preliminary-program", title: "Preliminary", done: problems("preliminary").length === 0 },
+    { id: "proper-program", title: "Pageant proper", done: program.ok },
+    { id: "results", title: "Results", done: problems("results").length === 0 },
+  ];
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Enter in a field moves on a step rather than creating the pageant early.
-    if (step < STEPS.length - 1) {
-      next();
+    if (found.length) {
+      focusNext.current = found.find((p) => p.field)?.field ?? FORM_PROBLEMS;
+      setChecked(true);
+      setAttempt((n) => n + 1);
       return;
-    }
-    for (let i = 0; i < STEPS.length; i++) {
-      const found = problems(i);
-      if (found.length) {
-        report(i, found);
-        return;
-      }
     }
     const data = new FormData(e.currentTarget);
     data.set("kind", "pageant");
@@ -422,8 +412,6 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
   const chooseBoards = (next: Boards) => {
     if (next === boards) return;
     setBoards(next);
-    // New rows to fill in: their problems wait for the next Continue.
-    setCheckedStep(null);
     if (next === "separate") {
       const preliminary = [0, 1, 2].map(() => blankJudge(nextKey.current++, "preliminary"));
       setJudges([...preliminary, ...judges.map((j) => ({ ...j, panel: "proper" as const }))]);
@@ -438,9 +426,8 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
       return { preliminary: null, proper: chair };
     });
   };
-  const error = step === STEPS.length - 1 ? serverError : null;
   // Live: a fixed field's message goes as soon as it's fixed.
-  const shownProblems = checkedStep === step ? problems(step) : [];
+  const shownProblems = checked ? found : [];
   const fieldProblems = new Map<string, string>();
   for (const p of shownProblems) if (p.field && !fieldProblems.has(p.field)) fieldProblems.set(p.field, p.message);
   // Marked, with the message shown once, at the first field.
@@ -460,69 +447,29 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
     );
   }
 
+  // The review's Edit buttons go to their section: its heading, in view, focused.
+  const editSection = (i: number) => {
+    const section = document.getElementById(SECTION_IDS[i]);
+    section?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    document.getElementById(`${SECTION_IDS[i]}-title`)?.focus({ preventScroll: true });
+  };
+
   return (
     <FieldProblemsProvider value={fieldProblems}>
-      <form
-        ref={formRef}
-        onSubmit={submit}
-        // Enter in a field never changes step: only the Continue button does. (Name lists go to their next line.)
-        onKeyDown={(e) => {
-          const field = e.target;
-          if (e.key === "Enter" && field instanceof HTMLInputElement && !["submit", "button", "image", "reset"].includes(field.type)) e.preventDefault();
-        }}
-        noValidate
-        className="mt-8 max-w-4xl"
-      >
-        <nav aria-label="Pageant setup steps">
-          <ol className="flex flex-wrap gap-x-1 gap-y-2">
-            {STEPS.map((label, i) => {
-              const done = i < step;
-              const current = i === step;
-              const badge = (
-                <span
-                  aria-hidden
-                  className={`tabular inline-flex size-6 items-center justify-center rounded-full text-xs font-bold ${
-                    current ? "bg-regal text-mint" : done ? "bg-wash text-regal" : "border border-line text-prussian/75"
-                  }`}
-                >
-                  {done ? "✓" : i + 1}
-                </span>
-              );
-              return (
-                <li key={label} className="flex items-center gap-1">
-                  {done ? (
-                    <button type="button" className="btn btn-sm gap-2 px-2.5 font-semibold text-regal hover:bg-wash" onClick={() => go(i)}>
-                      {badge}
-                      {label}
-                      <span className="sr-only"> (done, go back)</span>
-                    </button>
-                  ) : (
-                    <span aria-current={current ? "step" : undefined} className={`inline-flex h-9 items-center gap-2 px-2.5 text-sm font-semibold ${current ? "" : "text-prussian/75"}`}>
-                      {badge}
-                      {label}
-                    </span>
-                  )}
-                  {i < STEPS.length - 1 && (
-                    // On phones the steps wrap, so the connectors would dangle at line ends.
-                    <span aria-hidden className="mx-1 hidden h-px w-4 bg-line sm:inline-block" />
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
-
-        <h2 ref={heading} tabIndex={-1} className="title-sm mt-8 scroll-mt-6 text-2xl outline-none">
-          <span className="sr-only">
-            Step {step + 1} of {STEPS.length}:{" "}
-          </span>
-          {STEPS[step]}
-        </h2>
-
-        {shownProblems.length > 0 && <StepProblems problems={shownProblems} onPick={focusField} />}
-
-        <section hidden={step !== 0} className="mt-5 space-y-6">
-          <div>
+      <div className="mt-6 xl:grid xl:grid-cols-[minmax(0,1fr)_12rem] xl:items-start xl:gap-10">
+        <SectionIndex sections={sections} />
+        <form
+          ref={formRef}
+          onSubmit={submit}
+          // Enter in a field never creates the pageant: only the Create button does. (Name lists go to their next line.)
+          onKeyDown={(e) => {
+            const field = e.target;
+            if (e.key === "Enter" && field instanceof HTMLInputElement && !["submit", "button", "image", "reset"].includes(field.type)) e.preventDefault();
+          }}
+          noValidate
+          className="min-w-0"
+        >
+          <Section id="details" title="Details" description="What the pageant is called and where it happens.">
             <label htmlFor="name" className="label">
               Pageant name
             </label>
@@ -538,9 +485,26 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
               aria-describedby={describedBy(fieldProblems.has("name") && problemId("name"))}
             />
             <FieldProblem fieldId="name" />
-          </div>
-          <div>
-            <h3 className="label">Candidates</h3>
+            {/* Where it happens, for telling rooms apart: on the judges' screens and the results PDFs too. */}
+            <label htmlFor="location" className="label mt-5">
+              Location <span className="font-normal text-prussian/70">(optional)</span>
+            </label>
+            <input
+              id="location"
+              name="location"
+              maxLength={120}
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="field max-w-xl"
+              placeholder="e.g. University Gymnasium"
+              aria-describedby="location-hint"
+            />
+            <p id="location-hint" className="hint mt-2">
+              Judges see it on their screens, and it prints on the results.
+            </p>
+          </Section>
+
+          <Section id="candidates" title="Candidates" description="Who competes, each with an optional photo for the LED wall and a line of details, such as their town.">
             <CandidatesFields
               candidates={candidates}
               onChange={(key, patch) => setCandidates((list) => list.map((c) => (c.key === key ? { ...c, ...patch } : c)))}
@@ -561,126 +525,130 @@ export function PageantForm({ draft: openedDraft, onDirty, formRef, saveRef }: D
               }}
               onPasteNames={pasteNames}
             />
-          </div>
-        </section>
+          </Section>
 
-        <section hidden={step !== 1} className="mt-5 space-y-8">
-          <fieldset className="max-w-3xl">
-            <legend className="label">Boards of judges</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {BOARD_OPTIONS.map((o) => (
-                <label key={o.value} className="choice items-center">
-                  <input type="radio" name="boards" checked={boards === o.value} onChange={() => chooseBoards(o.value)} />
-                  <span className="font-semibold">{o.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          {separate ? (
-            <>
-              <section aria-labelledby="preliminary-board">
-                <h3 id="preliminary-board" className="title-sm mb-4 text-lg">
-                  Preliminary board of judges
-                </h3>
+          <Section id="judges" title="Judges" description="One board for the whole pageant, or one for each segment, each with its own chair. Pageant proper needs at least three.">
+            <fieldset className="max-w-3xl">
+              <legend className="label">Boards of judges</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {BOARD_OPTIONS.map((o) => (
+                  <label key={o.value} className="choice items-center">
+                    <input type="radio" name="boards" checked={boards === o.value} onChange={() => chooseBoards(o.value)} />
+                    <span className="font-semibold">{o.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {separate ? (
+              <>
+                <section aria-labelledby="preliminary-board" className="mt-6 border-t border-line pt-5">
+                  <h3 id="preliminary-board" className="mb-4 font-semibold">
+                    Preliminary board of judges
+                  </h3>
+                  <JudgesFields
+                    judges={preliminaryBoard}
+                    chairKey={chairs.preliminary}
+                    onChange={updateJudge}
+                    onRemove={removeJudge}
+                    onChair={(key) => setChairs((c) => ({ ...c, preliminary: key }))}
+                    onAdd={() => addJudge("preliminary")}
+                    who="Preliminary judge"
+                    chairOf="the preliminary board"
+                    chairGroup="chair-preliminary"
+                    addTo="the preliminary board"
+                    full={judges.length >= MAX_JUDGES}
+                  />
+                </section>
+                <section aria-labelledby="proper-board" className="mt-6 border-t border-line pt-5">
+                  <h3 id="proper-board" className="mb-4 font-semibold">
+                    Pageant proper board of judges
+                  </h3>
+                  <JudgesFields
+                    judges={properBoard}
+                    chairKey={chairs.proper}
+                    onChange={updateJudge}
+                    onRemove={removeJudge}
+                    onChair={(key) => setChairs((c) => ({ ...c, proper: key }))}
+                    onAdd={() => addJudge("proper")}
+                    start={preliminaryBoard.length}
+                    who="Pageant proper judge"
+                    chairOf="the pageant proper board"
+                    chairGroup="chair-proper"
+                    addTo="the pageant proper board"
+                    full={judges.length >= MAX_JUDGES}
+                  />
+                </section>
+              </>
+            ) : (
+              <div className="mt-6">
                 <JudgesFields
-                  judges={preliminaryBoard}
-                  chairKey={chairs.preliminary}
-                  onChange={updateJudge}
-                  onRemove={removeJudge}
-                  onChair={(key) => setChairs((c) => ({ ...c, preliminary: key }))}
-                  onAdd={() => addJudge("preliminary")}
-                  who="Preliminary judge"
-                  chairOf="the preliminary board"
-                  chairGroup="chair-preliminary"
-                  addTo="the preliminary board"
-                  full={judges.length >= MAX_JUDGES}
-                />
-              </section>
-              <section aria-labelledby="proper-board">
-                <h3 id="proper-board" className="title-sm mb-4 text-lg">
-                  Pageant proper board of judges
-                </h3>
-                <JudgesFields
-                  judges={properBoard}
+                  judges={judges}
                   chairKey={chairs.proper}
                   onChange={updateJudge}
                   onRemove={removeJudge}
-                  onChair={(key) => setChairs((c) => ({ ...c, proper: key }))}
-                  onAdd={() => addJudge("proper")}
-                  start={preliminaryBoard.length}
-                  who="Pageant proper judge"
-                  chairOf="the pageant proper board"
-                  chairGroup="chair-proper"
-                  addTo="the pageant proper board"
-                  full={judges.length >= MAX_JUDGES}
+                  onChair={(key) => setChairs({ preliminary: null, proper: key })}
+                  onAdd={() => addJudge("all")}
                 />
-              </section>
-            </>
-          ) : (
-            <JudgesFields
-              judges={judges}
-              chairKey={chairs.proper}
-              onChange={updateJudge}
-              onRemove={removeJudge}
-              onChair={(key) => setChairs({ preliminary: null, proper: key })}
-              onAdd={() => addJudge("all")}
-            />
-          )}
-        </section>
+              </div>
+            )}
+          </Section>
 
-        <section hidden={step !== 2} className="mt-5">
-          <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
-        </section>
+          {/* The program's sub-activities are cards of their own: these two sections have no card around them. */}
+          <Section bare id="preliminary-program" title="Preliminary" description={SEGMENT_DESCRIPTION.preliminary}>
+            <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
+          </Section>
 
-        <section hidden={step !== 3} className="mt-5">
-          <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={candidates.length} />
-        </section>
+          <Section bare id="proper-program" title="Pageant proper" description={SEGMENT_DESCRIPTION.proper}>
+            <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={candidates.length} />
+          </Section>
 
-        <section hidden={step !== 4} className="mt-5 space-y-5">
-          <PageantReview
-            name={name}
-            draft={draft}
-            candidates={candidates}
-            separate={separate}
-            preliminaryBoard={preliminaryBoard}
-            properBoard={properBoard}
-            chairs={chairs}
-            resultDecimals={resultDecimals}
-            onResultDecimals={setResultDecimals}
-            onEdit={go}
-          />
-          {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}
-          <div className="card p-5 sm:p-7">
-            <h3 className="label">Signatories</h3>
-            <p className="hint mb-4">At least one: who tabulated the results. They sign the results PDFs under “Tabulated by”.</p>
+          <Section id="results" title="Results" description="Who tabulated the results: they sign the results PDFs under “Tabulated by”, and you need at least one.">
             <SignatoryRows rows={signatories} setRows={setSignatories} idPrefix={SIGNATORY_ID} />
             {shownProblems.map((p) => p.field?.startsWith(`${SIGNATORY_ID}-`) && <FieldProblem key={p.field} fieldId={p.field} className="mt-3" />)}
-          </div>
-          <ConsentField checked={consent} onChange={setConsent} />
-        </section>
+            <div className="mt-6 border-t border-line pt-5">
+              <ResultDecimalsField value={resultDecimals} onChange={setResultDecimals} />
+            </div>
+          </Section>
 
-        <div className="mt-6 flex flex-wrap items-center gap-4">
-          {step > 0 && (
-            <button type="button" className="btn btn-quiet" onClick={() => go(step - 1)} disabled={pending}>
-              Back
+          {/* A last look, laid out like the score sheet it was set up from, to check it against the paper one at a glance. */}
+          <Section bare id="review" title="Review" description="The whole pageant as it will be created. Edit takes you to that section.">
+            <PageantReview
+              name={name}
+              draft={draft}
+              candidates={candidates}
+              separate={separate}
+              preliminaryBoard={preliminaryBoard}
+              properBoard={properBoard}
+              chairs={chairs}
+              resultDecimals={resultDecimals}
+              onEdit={editSection}
+            />
+          </Section>
+
+          <div className="mt-6">
+            <ConsentField checked={consent} onChange={setConsent} />
+          </div>
+
+          {shownProblems.length > 0 && <FormProblems problems={shownProblems} onPick={focusField} />}
+
+          <div className="mt-6 flex flex-wrap items-center gap-4">
+            <button type="submit" className="btn btn-primary" disabled={pending}>
+              {pending ? "Creating…" : "Create pageant"}
             </button>
-          )}
-          <button type="submit" className="btn btn-primary" disabled={pending}>
-            {step < STEPS.length - 1 ? `Continue to ${STEPS[step + 1].toLowerCase()}` : pending ? "Creating…" : "Create pageant"}
-          </button>
-          {progress && (
-            <p role="status" className="tabular text-sm text-regal">
-              {progress}
-            </p>
-          )}
-          <SaveDraftButton draft={saved} />
-          {error && (
-            <p role="alert" className="basis-full font-semibold text-danger">
-              {error}
-            </p>
-          )}
-        </div>
-      </form>
+            {progress && (
+              <p role="status" className="tabular text-sm text-regal">
+                {progress}
+              </p>
+            )}
+            <SaveDraftButton draft={saved} />
+            {serverError && (
+              <p role="alert" className="basis-full font-semibold text-danger">
+                {serverError}
+              </p>
+            )}
+          </div>
+        </form>
+      </div>
     </FieldProblemsProvider>
   );
 }

@@ -10,7 +10,7 @@ import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server"
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { atOwnPace, chairMovesEntries, eventTimer, scoreWindowOpen, showColumns } from "@/lib/judging";
-import { onPanel, segmentClosed, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
+import { onPanel, roundAtOwnPace, roundPool, segmentClosed, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
 import { listNames } from "@/lib/names";
@@ -207,8 +207,11 @@ export const submitScore = traced("submitScore", async function submitScore(entr
 
   // The organizer decides what is judged: only the entry on screen (or, for a few seconds, the one they just moved on
   // from, for a score confirmed before the move), and only while the session is live. The database checks the session too.
+  // A pageant sub-activity judged at its judges' own pace shows none: any of its candidates (checked below).
   if (activity.sessionState !== "live") return refuse("Judging isn't open right now. Wait for the organizer.");
-  if (!scoreWindowOpen(activity, entryId, Date.now())) return refuse("The organizer has moved to another entry. Score the one on your screen.");
+  const round = activity.kind === "pageant" ? (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId) : undefined;
+  const paced = round !== undefined && roundAtOwnPace(round);
+  if (!paced && !scoreWindowOpen(activity, entryId, Date.now())) return refuse("The organizer has moved to another entry. Score the one on your screen.");
 
   // An event with a timer scores only while it runs (and the few seconds a score can take to arrive).
   if (eventTimer(activity) && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
@@ -219,13 +222,18 @@ export const submitScore = traced("submitScore", async function submitScore(entr
   let rules = activity;
   let roundId: string | null = null;
   if (activity.kind === "pageant") {
-    const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
     if (!round) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
     // The preliminary can have its own judges: only the panel of the sub-activity on screen scores it.
     if (!onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant. Wait for your part." };
     // Only the segment running now scores (the database holds to it too).
     const closed = segmentClosed(activity, round);
     if (closed) return { ok: false, error: `${closed} Wait for the organizer.` };
+    // At their own pace, any candidate the sub-activity judges (those still in after its cuts), and no one else.
+    if (paced) {
+      const board = await getBoard(activity.id);
+      const pool = board ? roundPool(board, round.id) : null;
+      if (!pool || pool.blockedBy || !pool.entries.some((e) => e.id === entryId)) return { ok: false, error: `That candidate isn't in ${round.name}.` };
+    }
     if (round.timerSeconds && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
       return { ok: false, error: "Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it." };
     }
@@ -326,6 +334,8 @@ export const requestCorrection = traced("requestCorrection", async function requ
   // A pageant sub-activity that deliberates: its judges correct their own, as in an event, until they sign.
   let roundOwn = false;
   let roundDeliberating = false;
+  // At their own pace a judge corrects any candidate they've scored, as in an event judged so.
+  let roundPaced = false;
   if (activity.kind === "pageant") {
     const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
     if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
@@ -333,6 +343,7 @@ export const requestCorrection = traced("requestCorrection", async function requ
     roundId = round.id;
     roundOwn = !round.liveScoring;
     roundDeliberating = roundOwn && round.deliberationStartedAt !== null;
+    roundPaced = roundAtOwnPace(round);
     if (roundDeliberating) {
       const signed = await getRoundSignatures(round.id);
       if (signed?.signoff) return { ok: false, error: "This part of the pageant is signed off, so its scores are final." };
@@ -349,7 +360,7 @@ export const requestCorrection = traced("requestCorrection", async function requ
   const deliberating = activity.sessionState === "deliberation";
   if (activity.sessionState !== "live" && !deliberating) return { ok: false, error: "Corrections can only be asked for while judging is open." };
   // At their own pace, or in a deliberation, any entry they've scored; otherwise the one on screen.
-  if (!deliberating && !roundDeliberating && activity.currentEntryId !== entryId && !atOwnPace(activity)) {
+  if (!deliberating && !roundDeliberating && !roundPaced && activity.currentEntryId !== entryId && !atOwnPace(activity)) {
     return { ok: false, error: "The organizer has moved on. Ask them to bring the entry back on screen to correct it." };
   }
 

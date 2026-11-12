@@ -92,7 +92,11 @@ test.describe.serial("the chair", () => {
   test("in a pageant with separate boards, each board's chair is taken over by a judge on that board", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`/admin/${pageant.id}?tab=judges`);
-    await expect(page.getByText("Separate boards. Preliminary: 3 judges, chaired by Dan Reyes. Pageant proper: 3 judges, chaired by Fay Ramos.")).toBeVisible();
+    // Each board is its own section, in the order they judge, with its chair.
+    const section = (name: string) => page.getByRole("region", { name, exact: true });
+    await expect(section("Preliminary")).toContainText("Chair: Dan Reyes");
+    await expect(section("Both segments").getByRole("listitem")).toContainText(["Hal Uy"]);
+    await expect(section("Pageant proper")).toContainText("Chair: Fay Ramos");
     // Hal judges both segments, which no chair does: he's offered neither.
     await expect(row(page, "Hal Uy").getByRole("button", { name: /^Make/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Make pageant proper chair Eli Santos" })).toHaveCount(0);
@@ -102,7 +106,8 @@ test.describe.serial("the chair", () => {
     await expect(page.getByText("Eli Santos is now the preliminary chair", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Make pageant proper chair Gus Tan" }).click();
     await expect(page.getByText("Gus Tan is now the pageant proper chair", { exact: true })).toBeVisible();
-    await expect(page.getByText("Separate boards. Preliminary: 3 judges, chaired by Eli Santos. Pageant proper: 3 judges, chaired by Gus Tan.")).toBeVisible();
+    await expect(section("Preliminary")).toContainText("Chair: Eli Santos");
+    await expect(section("Pageant proper")).toContainText("Chair: Gus Tan");
     expect(await chairs(pageant.id)).toEqual(["Eli Santos", "Gus Tan"]);
     await snap(page, "pageant judges");
     await expectAccessible(page);

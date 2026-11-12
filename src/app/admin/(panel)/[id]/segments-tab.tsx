@@ -10,7 +10,7 @@ import type { ActionResult, Board, Round, Segment } from "@/lib/types";
 import { savePageant } from "../../actions";
 import { FormMessage } from "../form-message";
 import { toastSaved } from "../toaster";
-import { SegmentEditor } from "../program-editor";
+import { SEGMENT_DESCRIPTION, SegmentEditor } from "../program-editor";
 
 const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
 
@@ -55,7 +55,11 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
                   <p>
                     <span className="font-semibold">{r.name}</span> <span className="tabular hint">{share(r, r)}</span>
                   </p>
-                  {!r.liveScoring && <p className="hint">Results after a deliberation: its judges sign, then you sign it off.</p>}
+                  {!r.liveScoring && (
+                    <p className="hint">
+                      Results after a deliberation: its judges sign, then you sign it off.{r.independentScoring && " Judges score it at their own pace."}
+                    </p>
+                  )}
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
                       <p className="hint">{rulesSummary(r)}</p>
@@ -136,9 +140,12 @@ export function SegmentsTab({ board }: { board: Board }) {
       <h2 className="sr-only">Segments</h2>
       {preliminaryOpen ? (
         <section aria-labelledby="segment-preliminary" className="mt-6">
-          <h3 id="segment-preliminary" className="title-sm mb-3 text-lg">
-            Preliminary
-          </h3>
+          <header className="mb-4 max-w-2xl">
+            <h3 id="segment-preliminary" className="title-sm">
+              Preliminary
+            </h3>
+            <p className="hint mt-1.5 text-pretty">{SEGMENT_DESCRIPTION.preliminary}</p>
+          </header>
           <SegmentEditor segment="preliminary" draft={draft} onChange={setDraft} />
         </section>
       ) : (
@@ -150,9 +157,12 @@ export function SegmentsTab({ board }: { board: Board }) {
         </>
       )}
       <section aria-labelledby="segment-proper" className="mt-10">
-        <h3 id="segment-proper" className="title-sm mb-3 text-lg">
-          Pageant proper
-        </h3>
+        <header className="mb-4 max-w-2xl">
+          <h3 id="segment-proper" className="title-sm">
+            Pageant proper
+          </h3>
+          <p className="hint mt-1.5 text-pretty">{SEGMENT_DESCRIPTION.proper}</p>
+        </header>
         <SegmentEditor segment="proper" draft={draft} onChange={setDraft} candidates={board.entries.length} />
       </section>
       <div className="mt-6 flex flex-wrap items-center gap-4">
