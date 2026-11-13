@@ -512,8 +512,8 @@ export function SessionTab({
     ? "A tick for each score in; the scores show once the judges have signed"
     : !standing
       ? activity.showRank
-        ? "Every entry, ranked by average"
-        : "Every entry, in running order"
+        ? `Every ${noun}, ranked by average`
+        : `Every ${noun}, in running order`
       : standing.count === 0
         ? `${standing.entry.name}: no scores yet`
         : [
@@ -992,13 +992,12 @@ export function SessionTab({
               // pageant proper starts), pageant proper's judges pair (approved right here). Its start waits in the action
               // bar, where Next is during the show.
               <>
+                {/* The steps say what's left; starting pageant proper says what it closes. */}
                 <div role="region" aria-label="Before pageant proper" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto border-t border-oxford px-6 py-5">
-                  <p className="max-w-xl text-[15px] leading-relaxed text-powder">Judges who judge only the preliminary are done. Before pageant proper starts:</p>
                   <ol className="max-w-2xl space-y-6">
                     {activity.violations !== null && (
                       <BreakStep n={1} title="Record deductions" status={deductionCount ? `${deductionCount} given` : "None given"}>
-                        <p className="text-[15px] text-powder">Points off a candidate&apos;s preliminary score. They close when pageant proper starts.</p>
-                        <DeductionsButton board={board} className="btn btn-sm mt-3 border border-oxford text-mint hover:bg-oxford">
+                        <DeductionsButton board={board} className="btn btn-sm mt-1 border border-oxford text-mint hover:bg-oxford">
                           {deductionCount ? "Review or add deductions" : "Add a deduction"}
                         </DeductionsButton>
                       </BreakStep>
@@ -1018,10 +1017,9 @@ export function SessionTab({
                   </ol>
                 </div>
                 <div role="group" aria-label="Pageant proper's start" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
+                  {/* Only who's still missing: the pairing step shows when they're all in. */}
                   <p role="status" className="min-w-48 flex-1 leading-snug font-semibold">
-                    {unpairedProper.length
-                      ? `${listNames(unpairedProper)} ${unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet.`
-                      : "Pageant proper's judges are ready."}
+                    {unpairedProper.length > 0 && `${listNames(unpairedProper)} ${unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet.`}
                   </p>
                   <div className="ml-auto flex min-w-0 max-w-full items-center gap-3 max-sm:w-full max-sm:flex-col">
                     {reopenPreliminary("btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full")}
@@ -1038,7 +1036,6 @@ export function SessionTab({
                 </div>
                 {onAir}
                 <div role="group" aria-label="The pageant's end" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
-                  <p className="min-w-48 flex-1 leading-snug font-semibold">Every candidate is placed.</p>
                   <div className="ml-auto flex min-w-0 max-w-full items-center gap-3 max-sm:w-full max-sm:flex-col">
                     {finalCut && (
                       <PdfLink activityId={activity.id} query={`cut=${finalCut.id}`} className="btn border border-oxford text-mint hover:bg-oxford max-sm:order-2 max-sm:w-full">
@@ -1052,12 +1049,8 @@ export function SessionTab({
             ) : underReview ? (
               <RoundDeliberationDesk board={board} round={underReview} signatures={roundSignatures} />
             ) : between ? (
+              // The headline says where the pageant stands; the one button, what's next (the program offers the rest).
               <div className="flex min-h-0 flex-1 flex-col items-start gap-4 overflow-y-auto border-t border-oxford px-6 py-5">
-                {upNext && (
-                  <p className="max-w-xl text-[15px] leading-relaxed text-powder">
-                    Judges are waiting. Pick a sub-activity from the program to put its candidates on their screens.
-                  </p>
-                )}
                 {upNext?.kind === "deliberate" && (
                   <StartRoundDeliberation board={board} round={upNext.round} className="btn bg-mint text-prussian hover:bg-white" onDone={setResult} />
                 )}
@@ -1069,16 +1062,7 @@ export function SessionTab({
                     Review the {upNext.round.cutSize === null ? "" : `Top ${upNext.round.cutSize} `}cut after {upNext.round.name}
                   </button>
                 )}
-                {!upNext && (
-                  <>
-                    <p className="max-w-xl text-[15px] leading-relaxed text-powder">
-                      {judging === "preliminary"
-                        ? "End the preliminary when you're ready: its judges are done, and pageant proper can start."
-                        : "Every cut is confirmed. End pageant proper when you're ready."}
-                    </p>
-                    {endControl("btn bg-mint text-prussian hover:bg-white")}
-                  </>
-                )}
+                {!upNext && endControl("btn bg-mint text-prussian hover:bg-white")}
               </div>
             ) : (
               <>
@@ -1273,13 +1257,13 @@ export function SessionTab({
               </div>
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-oxford px-6 py-4">
                 <p className="min-w-56 flex-1 text-[15px] text-powder">
-                  {entries.length} {pageant ? (entries.length === 1 ? "candidate" : "candidates") : entries.length === 1 ? "entry" : "entries"} in the running
-                  order.{" "}
+                  {/* A pageant's candidates are listed below; an event's entries count here. */}
+                  {!pageant && `${entries.length} ${entries.length === 1 ? "entry" : "entries"} in the running order. `}
                   {judges.length === 0 ? (
                     <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
                       Add judges
                     </Link>
-                  ) : (
+                  ) : (pageant && unpaired.length === 0) ? null : (
                     <>
                       Judges&apos; codes and QR codes are on the{" "}
                       <Link href={`/admin/${activity.id}?tab=judges`} scroll={false} className="font-semibold text-mint underline underline-offset-2">
@@ -1510,13 +1494,12 @@ export function SessionTab({
 
         {pageant && <ProgramPanel board={board} live={false} onReviewCut={setCutOpen} />}
         {pageant && (
+          // Its "Scoring of" choice heads the card: a title above it would only say it twice.
           <section aria-labelledby="scoring-heading" className="card p-5 sm:px-6">
-            <h2 id="scoring-heading" className="title-sm">
+            <h2 id="scoring-heading" className="sr-only">
               Scoring
             </h2>
-            <div className="mt-4">
-              <PageantScoring key={scoringOf?.id ?? "none"} rounds={board.rounds} initialId={scoringOf?.id} />
-            </div>
+            <PageantScoring key={scoringOf?.id ?? "none"} rounds={board.rounds} initialId={scoringOf?.id} />
           </section>
         )}
         {runningOrder(false)}

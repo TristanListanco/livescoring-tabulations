@@ -33,7 +33,7 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 | end | live, deliberation | `setSessionState(…, "ended")`, and `endWhenEveryScoreIsIn` with live scoring | **S** needs the password; a deliberation also needs every signature, no unbroken tie and the organizer's signature; a pageant needs pageant proper running and its deliberated sub-activities signed off. **D** `check_deliberation` (signatures and sign-off) |
 | reopen | ended | `setSessionState(…, "live")` | **S** not when signed off, and not with live scoring once every score is in. **D** `clear_signatures_on_reopen` |
 | redeliberate | signed-off | `setSessionState(…, "deliberation")` → `redeliberate` | **S** needs the password; writes only if still ended |
-| reset | any but archived | `resetScores` | **S** needs the password; clears the scores, moves to draft and retries if a score lands in between. **D** `check_session_restart` (no scores when moving to draft) |
+| reset | any but archived | `resetScores` | **S** needs the password; clears the scores, moves to draft and retries if a score lands in between, then clears once more what a judge signed or noted meanwhile. **D** `check_session_restart` (no scores when moving to draft) |
 | archive | ended, signed-off | `archiveActivity` | **S** needs the password and no open correction; the dialog says when results can't be downloaded. **D** `activities_archived_ended_check`, `forbid_unarchive`, `sign_out_on_archive` |
 
 **Every write only happens from the state it was decided on** (`.eq("session_state", …)`), and it checks that a row changed, so a stale click or a second request changes nothing and says so.
@@ -112,7 +112,7 @@ Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant 
 
 **Gaps:**
 - Opening a correction while live or deliberating is checked by the server only.
-- A pageant cut can't be confirmed while a correction is open (**S**).
+- A pageant cut can't be confirmed while a correction is open (**S**), and once confirmed, the scores it ranks by can't be corrected until it's taken back (**S** `requestCorrection`).
 
 ## 7. Scoring window and timer
 
@@ -125,17 +125,21 @@ Pass the segment (`editable(activity, part, "proper")`) for a pageant's pageant 
 
 **Guards:**
 - **S** `submitScore` with `scoreWindowOpen`, `SUBMIT_GRACE_MS`; at a sub-activity's own pace, any candidate in its pool (`roundPool`), and no one else.
+- A pageant's score goes in the sub-activity the judge's screen sent (`pageantScoreRound`): the candidate on screen in the one on screen, or the one moved on from (for `LATE_SCORE_MS`) in the one it was given in, never one judges were moved to meanwhile. A screen switching sub-activity sends a score still in its undo window rather than dropping it.
 - **D** `check_score` (only while live).
-- A score sent again after it was saved counts as saved even if the window has closed since.
+- A score sent again after it was saved counts as saved even if the window has closed since, in a pageant too.
 
 ## 8. Pageant rounds and cuts
 
 **Lives in:** `current_round_id`, `rounds.cut_entry_ids` (null means the cut isn't confirmed).
 
 **Moves:**
-- `setCurrentRound`: only a sub-activity of the segment running now (`segmentClosed`), any of them, a judged one again too; not while another is being deliberated; written only while the segments stand as read;
-- `confirmCut`, which writes only while unconfirmed, not while a correction is open, and not before every deliberated sub-activity it counts is signed off (`CutPlan.awaiting`);
-- `undoCut`.
+- `setCurrentRound`: only a sub-activity of the segment running now (`segmentClosed`), any of them, a judged one again too; not while another is being deliberated; written only while the segments and the sub-activity on screen stand as read (pressed twice, it's done);
+- showing a candidate (`setCurrentEntry`, the chair's `moveToEntry`): written only over the sub-activity and candidate on screen as read (`asShown`), so a desk or chair that hasn't caught up can't show one in a sub-activity judges were moved on from;
+- `confirmCut`, which writes only while unconfirmed, not while a correction is open, and not before every deliberated sub-activity it counts is signed off (`CutPlan.awaiting`); confirmed already with the same candidates (pressed twice, sent again), it's done;
+- `undoCut`: only while nobody has scored after it; a later sub-activity on screen goes back to waiting first, then that's checked again.
+
+Neither cut changes once the pageant has ended: reopen it first.
 
 **Gap:** these have no database guards; the server's checks are the only ones.
 
@@ -200,6 +204,8 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Wall:** only where `hasLedWall`.
 
+**Out of 10:** a pageant sub-activity scored live by criteria shown as percentages can put its totals on the wall out of 10 (`rounds.led_out_of_ten`, migration 042; `wallBoard`). Nothing else changes: the live results, tally and PDFs keep the percentages.
+
 ## 14. Pageant segments
 
 **Lives in:** `session_started_at` (the preliminary's start), `activities.preliminary_ended_at`, `activities.proper_started_at` (migration 040), and `session_state` (pageant proper ends with the session). `segmentPhase()` names each segment's phase: setup, live, ended.
@@ -218,7 +224,7 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **The break on the desk:** two steps in order, record deductions and pair pageant proper's judges (approved on the desk, ticked once all are paired), with start pageant proper in the action bar. The desk offers **End preliminary** only once `preliminaryEndGap` is null, the same check `moveSegment` makes. Once the final cut is confirmed and nothing is left to judge, the desk shows the final placements, with ending pageant proper as its next step. Where the desk can't approve devices itself (between sub-activities, a sub-activity's deliberation, the final placements), the panel's approval dialog does (`data-device-approvals` only where it can). A judge tile shows a replacement device's request (a new phone while one is approved) beside the judge's state, so a device swapped mid-show is approved on the desk too.
 
-**Reset** (`resetScores`, `canReset`): both segments (back to not started as if new: `session_started_at` goes too, so its judges, candidates and program can change again; an event's reset keeps it, and its panel stays locked), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset.
+**Reset** (`resetScores`, `canReset`): both segments (back to not started as if new: `session_started_at` goes too, so its judges, candidates and program can change again; an event's reset keeps it, and its panel stays locked), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset. A segment's reset is written only while pageant proper stands as read: the preliminary's not once another desk has started pageant proper.
 
 ## 15. Deliberation per sub-activity
 

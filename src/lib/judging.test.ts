@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entryNeighbors, eventTimer, judgesLocked, judgeView, LATE_SCORE_MS, scoreWindowOpen, showColumns, showEntryColumns, startReady } from "./judging";
+import { entryNeighbors, eventTimer, judgesLocked, judgeView, LATE_SCORE_MS, pageantScoreRound, scoreWindowOpen, showColumns, showEntryColumns, startReady } from "./judging";
 import { activityFixture, roundFixture } from "./test-fixtures";
 
 const entries = [
@@ -95,10 +95,44 @@ describe("scoreWindowOpen", () => {
     expect(scoreWindowOpen({ ...event, currentEntryId: null }, "e1", movedAt + 3_000)).toBe(true);
   });
 
-  it("in a pageant, only the candidate on screen: its scores follow the sub-activity and its timer", () => {
-    const pageant = { ...event, kind: "pageant" as const };
-    expect(scoreWindowOpen(pageant, "e2", movedAt + 1_000)).toBe(true);
-    expect(scoreWindowOpen(pageant, "e1", movedAt + 1_000)).toBe(false);
+});
+
+describe("pageantScoreRound", () => {
+  const movedAt = Date.parse("2026-10-23T10:00:00Z");
+  const talent = roundFixture({ id: "talent", segment: "preliminary", name: "Talent", position: 0 });
+  const gown = roundFixture({ id: "gown", segment: "proper", name: "Gown", position: 1 });
+  const rounds = [talent, gown];
+  // Talent's Cora (e1) was on screen; the organizer has just shown Bea (e2).
+  const on = { currentRoundId: "talent", currentEntryId: "e2", previousEntryId: "e1", entryShownAt: new Date(movedAt).toISOString(), liveScoring: true, independentScoring: false };
+  const where = (r: ReturnType<typeof pageantScoreRound>) => ("error" in r ? r.error : r.round.id);
+
+  it("goes in the sub-activity it was given in: the candidate on screen, or the one just moved on from", () => {
+    expect(where(pageantScoreRound(on, rounds, "talent", "e2", movedAt + 1_000))).toBe("talent");
+    expect(where(pageantScoreRound(on, rounds, "talent", "e1", movedAt + 1_000))).toBe("talent");
+    expect(where(pageantScoreRound(on, rounds, "talent", "e1", movedAt + LATE_SCORE_MS + 1))).toMatch(/moved to another candidate/);
+  });
+
+  it("a score confirmed just before judges moved to the next sub-activity stays in the one it was given in", () => {
+    const switched = { ...on, currentRoundId: "gown", currentEntryId: null };
+    const late = pageantScoreRound(switched, rounds, "talent", "e1", movedAt + 3_000);
+    expect("error" in late ? late.error : [late.round.id, late.onScreen]).toEqual(["talent", false]);
+    // Once Gown shows its first candidate (Cora again), a late Talent score is turned away, never put in Gown; Gown's own goes in Gown.
+    const shown = { ...switched, currentEntryId: "e1", previousEntryId: null };
+    expect(where(pageantScoreRound(shown, rounds, "talent", "e1", movedAt + 3_000))).toMatch(/moved to another candidate/);
+    expect(where(pageantScoreRound(shown, rounds, "gown", "e1", movedAt + 3_000))).toBe("gown");
+  });
+
+  it("a screen that doesn't say: only the candidate on screen, in the sub-activity on screen", () => {
+    expect(where(pageantScoreRound(on, rounds, undefined, "e2", movedAt + 1_000))).toBe("talent");
+    expect(where(pageantScoreRound(on, rounds, undefined, "e1", movedAt + 1_000))).toMatch(/moved to another candidate/);
+    expect(where(pageantScoreRound({ ...on, currentRoundId: null }, rounds, undefined, "e2", movedAt))).toMatch(/isn't open/);
+  });
+
+  it("at its own pace, any candidate; never once its deliberation has started", () => {
+    const paced = [{ ...talent, liveScoring: false, independentScoring: true }, gown];
+    expect(where(pageantScoreRound({ ...on, currentEntryId: null }, paced, "talent", "e3", movedAt + 600_000))).toBe("talent");
+    const deliberating = [{ ...paced[0], deliberationStartedAt: new Date(movedAt).toISOString() }, gown];
+    expect(where(pageantScoreRound({ ...on, currentEntryId: null }, deliberating, "talent", "e3", movedAt))).toMatch(/deliberating Talent/);
   });
 });
 

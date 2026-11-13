@@ -197,7 +197,10 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
   const isCurrent = (r: Round) => !placed && r.id === activity.currentRoundId && activity.sessionState === "live";
   // One being deliberated keeps the judges' screens until it's signed off.
   const deliberating = deliberatingRound(board);
+  // Before the start every row would say "Not started", as the activity's status does once: nothing until then.
+  const started = activity.sessionState !== "draft";
   const status = (r: Round, judged: boolean) => {
+    if (!started) return null;
     const progress = roundProgress(board, r);
     // A sub-activity in parts is "judging now" while one of its parts is.
     const current = judged ? isCurrent(r) : partsOf(board.rounds, r.id).some(isCurrent);
@@ -323,19 +326,24 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                       <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-dashed border-line ${compact ? "py-1.5" : "px-3 py-2"}`}>
                         {scissors}
                         <span className="min-w-0 flex-1 font-semibold">{plan.final ? `Final cut: Top ${plan.size}` : `Cut: Top ${plan.size}`}</span>
-                        <span className={`text-xs ${round.cutEntryIds ? "font-semibold text-regal" : "text-prussian/70"}`}>
-                          {round.cutEntryIds
-                            ? "Confirmed"
-                            : plan.ready
-                              ? "Ready to confirm"
-                              : plan.rows.every((r) => r.complete) && plan.awaiting.length
-                                ? "Waiting for sign-off"
-                                : "Waiting for scores"}
-                        </span>
-                        <button type="button" className={action} onClick={() => onReviewCut(round.id)}>
-                          {round.cutEntryIds ? "View" : "Review"}
-                          <span className="sr-only"> {cutName(plan)} after {round.name}</span>
-                        </button>
+                        {/* Nothing to say or review before anyone has scored. */}
+                        {started && (
+                          <>
+                            <span className={`text-xs ${round.cutEntryIds ? "font-semibold text-regal" : "text-prussian/70"}`}>
+                              {round.cutEntryIds
+                                ? "Confirmed"
+                                : plan.ready
+                                  ? "Ready to confirm"
+                                  : plan.rows.every((r) => r.complete) && plan.awaiting.length
+                                    ? "Waiting for sign-off"
+                                    : "Waiting for scores"}
+                            </span>
+                            <button type="button" className={action} onClick={() => onReviewCut(round.id)}>
+                              {round.cutEntryIds ? "View" : "Review"}
+                              <span className="sr-only"> {cutName(plan)} after {round.name}</span>
+                            </button>
+                          </>
+                        )}
                         {round.cutEntryIds && (
                           <ExportMenu
                             activityId={activity.id}

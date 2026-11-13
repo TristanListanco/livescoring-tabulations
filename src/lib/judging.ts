@@ -1,6 +1,6 @@
 import { editable, segmentPhase } from "./lifecycle";
 import { roundAtOwnPace, roundDeliberating, roundPool, SCORE_UNDO_MS } from "./pageant";
-import type { Activity, Board, Entry, Judge, JudgeDevice } from "./types";
+import type { Activity, Board, Entry, Judge, JudgeDevice, Round } from "./types";
 
 /**
  * What a judge's screen shows. The organizer drives judging: judges never pick entries themselves.
@@ -50,21 +50,59 @@ export const chairMovesEntries = (activity: Pick<Activity, "kind" | "liveScoring
 export const LATE_SCORE_MS = SCORE_UNDO_MS + 10_000;
 
 /**
- * Whether a judge's score for this entry is accepted now: the entry on screen, or, in an event, the one judges were
- * moved on from in the last LATE_SCORE_MS. A judge confirms a score and has a few seconds to undo it before it's sent;
- * one confirmed just before the organizer (or the chair) moved on still counts. A pageant's scores belong to the
- * sub-activity on screen and its timer, so there only the candidate on screen.
+ * Whether a judge's score for this entry is accepted now: the entry on screen, or the one judges were moved on from in
+ * the last LATE_SCORE_MS. A judge confirms a score and has a few seconds to undo it before it's sent; one confirmed just
+ * before the organizer (or the chair) moved on still counts. In a pageant the caller checks the score is for the
+ * sub-activity it was given in (see submitScore): the candidate moved on from may have been in the one before.
  */
 export function scoreWindowOpen(
-  activity: Pick<Activity, "kind" | "currentEntryId" | "previousEntryId" | "entryShownAt" | "liveScoring" | "independentScoring">,
+  activity: Pick<Activity, "currentEntryId" | "previousEntryId" | "entryShownAt" | "liveScoring" | "independentScoring">,
   entryId: string,
   now: number,
 ): boolean {
   // At their own pace, any of the activity's entries (the caller has checked it's one).
   if (activity.currentEntryId === entryId || atOwnPace(activity)) return true;
-  if (activity.kind !== "event" || activity.previousEntryId !== entryId || !activity.entryShownAt) return false;
+  if (activity.previousEntryId !== entryId || !activity.entryShownAt) return false;
   const movedOn = Date.parse(activity.entryShownAt);
   return Number.isFinite(movedOn) && now - movedOn <= LATE_SCORE_MS;
+}
+
+/**
+ * The sub-activity (or part) a judge's pageant score goes in: the one it was given in, as their screen sends it
+ * (`sentRoundId`), or why it's turned away. In the one on screen, the candidate on screen; at its own pace, any candidate
+ * (the caller checks the pool). A score confirmed just before the organizer moved on, to the next candidate or to another
+ * sub-activity, still counts for the candidate moved on from (see scoreWindowOpen), in the sub-activity it was given in,
+ * never the one judges were moved to. A screen that doesn't send it: only the candidate on screen.
+ */
+export function pageantScoreRound(
+  activity: Pick<Activity, "currentRoundId" | "currentEntryId" | "previousEntryId" | "entryShownAt" | "liveScoring" | "independentScoring">,
+  rounds: Round[],
+  sentRoundId: string | null | undefined,
+  entryId: string,
+  now: number,
+): { round: Round; onScreen: boolean } | { error: string } {
+  const round = rounds.find((r) => r.id === (sentRoundId ?? activity.currentRoundId));
+  if (!round) return { error: "Judging isn't open right now. Wait for the organizer." };
+  const onScreen = round.id === activity.currentRoundId;
+  // Its judges are reviewing their scores: every one of them is in.
+  if (round.deliberationStartedAt) return { error: `The judges are deliberating ${round.name}, so its scores are in.` };
+  if (roundAtOwnPace(round)) return { round, onScreen };
+  const movedOn = { error: "The organizer has moved to another candidate. Score the one on your screen." };
+  if (!sentRoundId) return activity.currentEntryId === entryId ? { round, onScreen } : movedOn;
+  // The candidate on screen is the sub-activity on screen's: in another, only the one moved on from.
+  return scoreWindowOpen(onScreen ? activity : { ...activity, currentEntryId: null }, entryId, now) ? { round, onScreen } : movedOn;
+}
+
+/**
+ * A change to a pageant's activity row, held to what was on judges' screens when it was decided: the sub-activity and
+ * the candidate. If the chair or another desk moved judges on meanwhile, it changes nothing (count 0).
+ */
+export function asShown<Q extends { eq: (column: string, value: string) => Q; is: (column: string, value: null) => Q }>(
+  query: Q,
+  activity: Pick<Activity, "currentRoundId" | "currentEntryId">,
+): Q {
+  const round = activity.currentRoundId ? query.eq("current_round_id", activity.currentRoundId) : query.is("current_round_id", null);
+  return activity.currentEntryId ? round.eq("current_entry_id", activity.currentEntryId) : round.is("current_entry_id", null);
 }
 
 /** Where the running order stands: the entry on judges' screens, and the ones before and after it. */

@@ -475,3 +475,27 @@ describe("judging at the judges' own pace", () => {
     expect(paced.rounds[0].parts.map((p) => p.timerSeconds)).toEqual([null, null]);
   });
 });
+
+describe("scores out of 10 on the LED wall", () => {
+  const criteria = [
+    { key: 0, id: "", name: "Poise", max: "60", min: "", guide: "" },
+    { key: 1, id: "", name: "Beauty", max: "40", min: "", guide: "" },
+  ];
+  const percent = { ...blankScoring(), mode: "criteria" as const, criteria, display: "percent" as const };
+  const withWall = (extra: Partial<RoundDraft>) =>
+    draft([round("Interview", "preliminary", "30", { scoring: percent, ...extra }), round("Gown", "proper", "70", { scoring: blankScoring(), cutSize: "3" })]);
+
+  it("comes with live results by criteria shown as percentages, and round-trips through a draft", () => {
+    const wall = checkPageant(withWall({ ledOutOfTen: true }), 10, ids);
+    expect(wall.ok && wall.rounds.map((r) => r.ledOutOfTen)).toEqual([true, false]);
+    const saved = roundFixture({ id: "i", name: "Interview", segment: "preliminary", scoringMode: "criteria", ledOutOfTen: true });
+    expect(parsePageantDraft(JSON.stringify(draftFromRounds(30, [saved])))?.rounds[0].ledOutOfTen).toBe(true);
+  });
+
+  it("isn't kept after a deliberation, with simple scores, or with totals already scaled to 10", () => {
+    for (const extra of [{ deliberate: true }, { scoring: blankScoring() }, { scoring: { ...percent, display: "ten" as const } }]) {
+      const result = checkPageant(withWall({ ledOutOfTen: true, ...extra }), 10, ids);
+      expect(result.ok && result.rounds[0].ledOutOfTen).toBe(false);
+    }
+  });
+});

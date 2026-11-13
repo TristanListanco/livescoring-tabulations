@@ -75,6 +75,11 @@ export type Round = {
    * time, and with no timer (see roundAtOwnPace). A part follows its sub-activity. False before migration 041.
    */
   independentScoring: boolean;
+  /**
+   * Scored live by criteria shown as percentages: the LED wall alone shows its totals out of 10 (see wallBoard). The
+   * live results, tally and PDFs keep the percentages. A part follows its sub-activity. False before migration 042.
+   */
+  ledOutOfTen: boolean;
   /** When its deliberation started (ISO time), or null: the judges are reviewing it until it's signed off. */
   deliberationStartedAt: string | null;
   /** When the organizer signed off its deliberation (ISO time), or null: then its scores go out. Read with the board. */

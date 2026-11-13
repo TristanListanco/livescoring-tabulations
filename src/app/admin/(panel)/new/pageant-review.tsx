@@ -11,6 +11,7 @@ import {
   properStages,
   roundShare,
   shareText,
+  shownAsPercentages,
   type PageantDraft,
   type PartDraft,
   type RoundDraft,
@@ -113,8 +114,10 @@ const cell = "py-2.5 pr-3 align-top";
 /** A sub-activity's rows: itself, or its name with a row per part under it. `share`: what its share reads as. */
 function RoundRows({ round, share }: { round: RoundDraft; share: string }) {
   const name = round.name.trim() || "Untitled";
-  // Said under its scoring when its results wait for a deliberation; live is the usual.
-  const deliberated = round.deliberate && <p className="mt-0.5 text-sm text-prussian/75">Results after a deliberation</p>;
+  // Said under its scoring when its results wait for a deliberation (live is the usual), or the wall shows them out of 10.
+  const deliberated = (round.deliberate || (round.ledOutOfTen && shownAsPercentages(round))) && (
+    <p className="mt-0.5 text-sm text-prussian/75">{round.deliberate ? "Results after a deliberation" : "Out of 10 on the LED wall"}</p>
+  );
   if (!round.parts) {
     return (
       <tr>

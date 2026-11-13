@@ -56,7 +56,14 @@ export function PageantScoring({ rounds, initialId, compact = false }: { rounds:
     [criteria ? "Judges give points in" : "Judges score with", places(round.decimals)],
     ...(criteria ? ([["Totals shown", round.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"]] as [string, React.ReactNode][]) : []),
     ["Time limit", round.timerSeconds ? `${round.timerSeconds} seconds per candidate` : "None"],
-    ["Results", round.liveScoring ? "Live, as each score comes in" : round.independentScoring ? "After a deliberation; judges score at their own pace" : "After a deliberation"],
+    [
+      "Results",
+      round.liveScoring
+        ? `Live, as each score comes in${round.ledOutOfTen ? "; out of 10 on the LED wall" : ""}`
+        : round.independentScoring
+          ? "After a deliberation; judges score at their own pace"
+          : "After a deliberation",
+    ],
   ];
   return (
     <div>

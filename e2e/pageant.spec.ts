@@ -428,7 +428,8 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Deduct" })).toBeVisible();
     await page.getByRole("dialog", { name: "Deductions" }).getByRole("button", { name: "Close" }).click();
     await expect(page.getByRole("list", { name: "Pageant proper's judges" }).getByRole("listitem")).toHaveCount(3);
-    await expect(page.getByRole("group", { name: "Pageant proper's start" }).getByRole("status")).toHaveText("Pageant proper's judges are ready.");
+    // Everyone's paired, so the action bar has no one to name: the step's tick says it.
+    await expect(page.getByRole("group", { name: "Pageant proper's start" }).getByRole("status")).toHaveText("");
 
     await page.getByRole("button", { name: "Start pageant proper" }).click();
     await page.getByRole("dialog", { name: "Start pageant proper?" }).getByRole("button", { name: "Start pageant proper" }).click();

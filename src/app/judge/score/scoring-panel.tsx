@@ -56,7 +56,7 @@ type Props = {
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
   /** A pageant's sub-activity being judged now (its rules are already in `activity`). */
-  round: { name: string; timerSeconds: number | null } | null;
+  round: { id: string; name: string; timerSeconds: number | null } | null;
   /** When the server rendered this page, so the scoring timer counts down on the server's clock. */
   serverNow: number;
   /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
@@ -283,7 +283,7 @@ export function ScoringPanel({
     let result: ActionResult | null = null;
     for (let attempt = 0; !result; attempt++) {
       const started = Date.now();
-      result = await submitScore(score.entry.id, score.typed).catch(() => null);
+      result = await submitScore(score.entry.id, score.typed, round?.id ?? null).catch(() => null);
       if (result || attempt >= RESEND_DELAYS_MS.length || Date.now() - started >= ACTION_TIMEOUT_MS - 1_000) break;
       await new Promise((resolve) => setTimeout(resolve, RESEND_DELAYS_MS[attempt] * (0.8 + Math.random() * 0.4)));
     }
@@ -296,6 +296,20 @@ export function ScoringPanel({
     else setFailed({ entry: score.entry, error: result.error });
   });
   const undoMs = undoable(activity) ? SCORE_UNDO_MS : 0;
+  // A pageant's panel starts afresh for each sub-activity (see the judge page), so a score still waiting out its undo
+  // window as judges are moved to the next one is sent now, to the sub-activity it was given in, rather than dropped.
+  const waiting = useRef<PendingScore | null>(null);
+  useEffect(() => {
+    waiting.current = pending && !pending.sending ? pending : null;
+  }, [pending]);
+  const roundId = round?.id ?? null;
+  useEffect(
+    () => () => {
+      const score = waiting.current;
+      if (score && roundId) void submitScore(score.entry.id, score.typed, roundId).catch(() => reportProblem("score_unreachable"));
+    },
+    [roundId],
+  );
   useEffect(() => {
     if (!pending || pending.sending) return;
     const timer = setTimeout(() => send(pending), undoMs);
