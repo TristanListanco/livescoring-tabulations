@@ -1,8 +1,7 @@
 "use client";
 
-import { KEY_GREEN, ledScene, type LedScene, type TileState } from "@/lib/led";
+import { KEY_GREEN, ledScene, wallBoard, type LedScene, type TileState } from "@/lib/led";
 import { ledStyle } from "@/lib/led-style";
-import { showingBoard } from "@/lib/pageant";
 import { averageText, scoreText } from "@/lib/scoring";
 import type { Activity, Board, Judge } from "@/lib/types";
 import { Avatar } from "../avatar";
@@ -313,11 +312,11 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
 
 /**
  * The LED wall output in the mode chosen in the admin panel, sized to its container, in the look chosen there:
- * its font, colour theme and corners. A pageant shows the sub-activity being judged: its candidates, its scores,
- * and its name under the candidate's.
+ * its font, colour theme and corners. A pageant shows the sub-activity being judged: its candidates, its scores (out of
+ * 10, if it asks for that on the wall, see wallBoard), and its name under the candidate's.
  */
 export function LedOutput({ board: full, className = "" }: { board: Board; className?: string }) {
-  const { board, round } = showingBoard(full);
+  const { board, round } = wallBoard(full);
   const scene = ledScene(board);
   const { activity } = board;
   const look = { font: activity.ledFont, theme: activity.ledTheme };

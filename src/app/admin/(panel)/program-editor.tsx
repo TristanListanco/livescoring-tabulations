@@ -25,6 +25,7 @@ import {
   shareScope,
   sharesWithOneMore,
   shareText,
+  shownAsPercentages,
   typedShare,
   MAX_REASON,
   MAX_VIOLATIONS,
@@ -62,6 +63,7 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
       parentId: null,
       liveScoring: true,
       independentScoring: false,
+      ledOutOfTen: false,
       deliberationStartedAt: null,
       signedOffAt: null,
     }),
@@ -479,6 +481,8 @@ function RoundCard({
   const name = round.name.trim() || `Sub-activity ${index + 1}`;
   const proper = draft.rounds.filter((r) => r.segment === "proper");
   const final = round.segment === "proper" && proper[proper.length - 1]?.key === round.key;
+  // Criteria totals shown as percentages, in it or any of its parts: what the LED wall can show out of 10 instead.
+  const percentages = shownAsPercentages(round);
   const cut = hasCut(draft.rounds, round);
   const basis = basisOf(draft.rounds, round);
   const problems = useFieldProblems();
@@ -672,7 +676,7 @@ function RoundCard({
             Live
           </label>
           <label className="flex items-center gap-2.5">
-            <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true })} />
+            <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true, ledOutOfTen: false })} />
             After a deliberation
           </label>
         </div>
@@ -681,6 +685,16 @@ function RoundCard({
             ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
             : "Each score shows on the live results and the LED wall as it comes in."}
         </p>
+        {/* Live, by criteria shown as percentages: the wall can show them out of 10, and nothing else changes. */}
+        {!round.deliberate && percentages && (
+          <div className="mt-3">
+            <label className="flex items-center gap-2.5">
+              <input type="checkbox" className="size-5 shrink-0" checked={!!round.ledOutOfTen} onChange={(e) => onChange({ ledOutOfTen: e.target.checked })} />
+              Show scores out of 10 on the LED wall<span className="sr-only"> for {name}</span>
+            </label>
+            <p className="hint mt-1 ml-7.5">87.5% shows as 8.75 on the wall. The live results, tally and PDFs keep the percentages.</p>
+          </div>
+        )}
         {/* With a deliberation only, as for an event: nothing goes out until it's signed off, so the order doesn't show. */}
         {round.deliberate && (
           <div className="mt-3">

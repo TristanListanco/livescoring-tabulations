@@ -67,6 +67,7 @@ export function roundFixture(overrides: Partial<Round> & Pick<Round, "id" | "seg
     parentId: null,
     liveScoring: true,
     independentScoring: false,
+    ledOutOfTen: false,
     deliberationStartedAt: null,
     signedOffAt: null,
     ...overrides,

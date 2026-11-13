@@ -75,3 +75,53 @@ test.describe.serial("score window", () => {
     expect((await late.json()).code).toBe("55000");
   });
 });
+
+// In a pageant, a score belongs to the sub-activity it was given in. One confirmed just before the organizer switches
+// to the next sub-activity goes in the one the judge scored, never the one judges were moved to.
+test.describe.serial("a pageant's score window", () => {
+  const pageant = { id: randomUUID(), publicId: randomBytes(5).toString("hex") };
+  const round = { talent: randomUUID(), swimwear: randomUUID() };
+  const ana = randomUUID();
+  const ayla = randomUUID();
+  const ANA = `P${RUN.toUpperCase().replace(/[^A-Z2-9]/g, "X").slice(-5).padStart(5, "X")}`;
+
+  test.beforeAll(async () => {
+    await restOk("activities", { id: pageant.id, name: "E2E Pageant score window", public_id: pageant.publicId, min_score: 1, max_score: 10, decimals: 0, kind: "pageant", live_scoring: true, preliminary_weight: 40 });
+    const scoring = { scoring_mode: "simple", min_score: 1, max_score: 10, decimals: 0, criteria: [], criteria_display: "percent", timer_seconds: null, cut_size: null, cut_basis: [] };
+    // Talent's results come after a deliberation, so a confirmed score waits a few seconds to be undone.
+    await restOk("rounds", [
+      { id: round.talent, activity_id: pageant.id, segment: "preliminary", name: "Talent", position: 0, weight: 20, ...scoring, live_scoring: false },
+      { id: round.swimwear, activity_id: pageant.id, segment: "preliminary", name: "Swimwear", position: 1, weight: 20, ...scoring, live_scoring: true },
+    ]);
+    await restOk("judges", { id: ana, activity_id: pageant.id, name: "Ana Cruz", first_name: "Ana", last_name: "Cruz", position: 0, is_chair: true, panel: "all" });
+    await restOk("judge_access", { judge_id: ana, code: ANA });
+    await restOk("entries", { id: ayla, activity_id: pageant.id, name: "Ayla", position: 0 });
+    await restOk(`activities?id=eq.${pageant.id}`, { session_state: "live", session_started_at: new Date().toISOString(), current_round_id: round.talent, current_entry_id: ayla }, "PATCH");
+  });
+
+  test.afterAll(async () => {
+    await fetch(`${api.url}/rest/v1/activities?id=eq.${pageant.id}`, { method: "DELETE", headers: api.headers });
+  });
+
+  test("a score confirmed as the organizer switches sub-activity goes in the one it was given in", async ({ browser }) => {
+    const context = await browser.newContext({ ...devices["Pixel 7"] });
+    const phone = await context.newPage();
+    await openJudgeLink(phone, ANA);
+    await restOk(`judge_devices?judge_id=eq.${ana}`, { status: "approved" }, "PATCH");
+    await restOk(`judges?id=eq.${ana}`, { devices_updated_at: new Date().toISOString() }, "PATCH");
+    await expect(phone.getByRole("heading", { level: 1 })).toHaveText("Ayla", { timeout: 20_000 });
+
+    await tapScore(phone, "8");
+    await phone.getByRole("button", { name: "Submit score" }).click();
+    await phone.getByRole("dialog").getByRole("button", { name: "Submit", exact: true }).click();
+    // Inside Ana's few seconds to undo it, the organizer puts Swimwear on judges' screens.
+    await restOk(`activities?id=eq.${pageant.id}`, { current_round_id: round.swimwear, current_entry_id: null }, "PATCH");
+    await expect(phone.getByRole("heading", { level: 1 })).not.toHaveText("Ayla", { timeout: 20_000 });
+
+    // Her score is Talent's, not Swimwear's.
+    await expect
+      .poll(async () => (await fetch(`${api.url}/rest/v1/scores?select=round_id,value&judge_id=eq.${ana}`, { headers: api.headers })).json(), { timeout: 20_000 })
+      .toEqual([{ round_id: round.talent, value: 8 }]);
+    await context.close();
+  });
+});

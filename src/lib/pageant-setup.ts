@@ -56,6 +56,11 @@ export type RoundDraft = {
    * follow it. Missing in older drafts.
    */
   ownPace?: boolean;
+  /**
+   * Scored live only: the LED wall shows its criteria totals out of 10 rather than as percentages, and nothing else
+   * changes. Its parts follow it. Missing in older drafts.
+   */
+  ledOutOfTen?: boolean;
 };
 /** A violation the organizer can deduct points for, as typed: e.g. "Late for call time", "1". `id`: a saved one's, or "". */
 export type ViolationDraft = { key: string; id: string; reason: string; points: string };
@@ -79,8 +84,14 @@ export type CheckedRound = {
   liveScoring: boolean;
   /** Judges score it at their own pace (only when it deliberates); then it and its parts have no timer. */
   independentScoring: boolean;
+  /** The LED wall shows its criteria totals out of 10 (only when it scores live). */
+  ledOutOfTen: boolean;
 };
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
+
+/** Whether a sub-activity (or any of its parts) is scored by criteria with totals shown as percentages. */
+export const shownAsPercentages = (round: Pick<RoundDraft, "scoring" | "parts">) =>
+  (round.parts ? round.parts.map((p) => p.scoring) : [round.scoring]).some((sc) => sc.mode === "criteria" && sc.display !== "ten");
 
 export const MAX_ROUNDS = 20;
 export const MAX_VIOLATIONS = 20;
@@ -487,6 +498,7 @@ export function checkPageant(
         parts,
         liveScoring: !round.deliberate,
         independentScoring: paced,
+        ledOutOfTen: round.deliberate !== true && round.ledOutOfTen === true && shownAsPercentages(round),
       });
     }
     for (const [stage, rounds] of stages.entries()) {
@@ -608,6 +620,7 @@ export function parsePageantDraft(json: string): PageantDraft | null {
         : null,
       deliberate: r.deliberate === true,
       ownPace: r.ownPace === true,
+      ledOutOfTen: r.ledOutOfTen === true,
     };
   });
   const violations = Array.isArray(obj.violations)
@@ -663,6 +676,7 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
           : null,
         deliberate: !r.liveScoring,
         ownPace: r.independentScoring,
+        ledOutOfTen: r.ledOutOfTen,
       };
     }),
   });

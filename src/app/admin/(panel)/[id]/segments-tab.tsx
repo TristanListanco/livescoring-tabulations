@@ -60,6 +60,7 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
                       Results after a deliberation: its judges sign, then you sign it off.{r.independentScoring && " Judges score it at their own pace."}
                     </p>
                   )}
+                  {r.ledOutOfTen && <p className="hint">The LED wall shows its scores out of 10.</p>}
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
                       <p className="hint">{rulesSummary(r)}</p>

@@ -48,7 +48,7 @@ import { inUseMessage } from "@/lib/in-use";
 import { accountInUse } from "@/lib/in-use-server";
 import { testToolsAllowed } from "@/lib/environment";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
-import { eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
+import { asShown, eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
 import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
 import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
 import {
@@ -498,6 +498,7 @@ const PARTS_HINT =
 /** Segments run on their own, and sub-activities that deliberate (migration 040). */
 const SEGMENTS_HINT = "This needs a database update. Run supabase/migrations/040_pageant_segments_and_deliberation.sql in the Supabase SQL editor.";
 const ROUND_OWN_PACE_HINT = "Judging at their own pace needs a database update. Run supabase/migrations/041_round_own_pace.sql in the Supabase SQL editor.";
+const LED_OUT_OF_TEN_HINT = "Scores out of 10 on the LED wall need a database update. Run supabase/migrations/042_round_led_out_of_ten.sql in the Supabase SQL editor.";
 const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrations/015_deductions_and_themes.sql in the Supabase SQL editor.";
 
 /**
@@ -522,13 +523,16 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
   });
   // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012;
   // live_scoring only when a sub-activity deliberates (or did), so programs that score live save without migration 040;
-  // independent_scoring only when one is judged at its judges' own pace (or was), so others save without migration 041.
+  // independent_scoring only when one is judged at its judges' own pace (or was), so others save without migration 041;
+  // led_out_of_ten only when one shows out of 10 on the wall (or did), so others save without migration 042.
   const withParts = rounds.some((r) => r.parts.length > 0);
   const deliberated = saved.some((r) => !r.liveScoring) || rounds.some((x) => !x.liveScoring);
   const paced = saved.some((r) => r.independentScoring) || rounds.some((x) => x.independentScoring);
+  const outOfTen = saved.some((r) => r.ledOutOfTen) || rounds.some((x) => x.ledOutOfTen);
   const live = (r: CheckedRound) => ({
     ...(deliberated ? { live_scoring: r.liveScoring } : {}),
     ...(paced ? { independent_scoring: r.independentScoring } : {}),
+    ...(outOfTen ? { led_out_of_ten: r.ledOutOfTen } : {}),
   });
   const rows = rounds.flatMap((r) => [
     {
@@ -614,6 +618,7 @@ export const savePageant = traced("savePageant", async function savePageant(acti
     if (/parent_id/.test(message)) return needsMigration(PARTS_HINT);
     if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
     if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
+    if (/led_out_of_ten/.test(message)) return needsMigration(LED_OUT_OF_TEN_HINT);
     return dbErr({ message });
   }
   const kept = new Set(ids.values());
@@ -668,7 +673,9 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
       update = preliminaryEndedAt ? update.eq("preliminary_ended_at", preliminaryEndedAt) : update.is("preliminary_ended_at", null);
       update = properStartedAt ? update.eq("proper_started_at", properStartedAt) : update.is("proper_started_at", null);
     }
-    return update;
+    // Nor over a sub-activity another desk put on judges' screens meanwhile (its deliberation, say).
+    const { currentRoundId } = board.activity;
+    return currentRoundId ? update.eq("current_round_id", currentRoundId) : update.is("current_round_id", null);
   };
   let { error, count } = await write(true);
   // Before migration 040 there are no segments to hold to: the preliminary runs as it did.
@@ -676,6 +683,9 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
   if (error) return dbErr(error);
   if (!count) {
     changed();
+    // Pressed twice: the first already put it on.
+    const now = await getActivity(activityId);
+    if (now?.sessionState === "live" && now.currentRoundId === roundId) return ok();
     return err("The pageant moved on meanwhile, so nothing was changed. Check where it stands now.");
   }
   changed();
@@ -731,24 +741,36 @@ export const confirmCut = traced("confirmCut", async function confirmCut(activit
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
   if (board.activity.sessionState === "draft") return err("Start the session first.");
+  if (board.activity.sessionState === "ended") return CUTS_FINAL;
   const round = board.rounds.find((r) => r.id === roundId);
   if (!round || round.cutSize === null) return err("That cut isn't part of this pageant.");
-  if (round.cutEntryIds !== null) return err("That cut is already confirmed.");
+  const plan = cutPlan(board, round);
+  const cleanPicks = Array.isArray(picks) ? picks.map((p) => (Array.isArray(p) ? p.map(String) : [])) : [];
+  const result = cutResult(plan, cleanPicks);
+  const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
+  const done = (ids: string[]) =>
+    ok(plan.final ? "Final results confirmed." : `Top ${ids.length} confirmed.${next ? ` ${next.name} judges these ${ids.length} candidates.` : ""}`);
+  // Confirmed already: pressed twice, or sent again after its reply was lost, it's done; with other picks, it says so.
+  const same = (ids: string[] | null) => result.ok && ids !== null && ids.join() === result.entryIds.join();
+  if (round.cutEntryIds !== null) return same(round.cutEntryIds) ? done(round.cutEntryIds) : err("That cut is already confirmed.");
   // A correction still open could change the scores the cut ranks by: it's settled first.
   if ((await getCorrections(activityId))?.some((c) => c.status === "open")) {
     return err("A score correction is still waiting. Settle it before confirming the cut.");
   }
-  const plan = cutPlan(board, round);
-  const cleanPicks = Array.isArray(picks) ? picks.map((p) => (Array.isArray(p) ? p.map(String) : [])) : [];
-  const result = cutResult(plan, cleanPicks);
   if (!result.ok) return err(result.error);
-  const { error } = await db().from("rounds").update({ cut_entry_ids: result.entryIds }).eq("id", roundId).is("cut_entry_ids", null);
+  const { error, count } = await db().from("rounds").update({ cut_entry_ids: result.entryIds }, { count: "exact" }).eq("id", roundId).is("cut_entry_ids", null);
   if (error) return dbErr(error);
   changed();
-  if (plan.final) return ok("Final results confirmed.");
-  const next = programOrder(board.rounds)[programOrder(board.rounds).findIndex((r) => r.id === roundId) + 1];
-  return ok(`Top ${result.entryIds.length} confirmed.${next ? ` ${next.name} judges these ${result.entryIds.length} candidates.` : ""}`);
+  if (!count) {
+    // Confirmed from another screen meanwhile: the same candidates is done, others are its call.
+    const { data } = await db().from("rounds").select("cut_entry_ids").eq("id", roundId).maybeSingle();
+    const ids = (data as { cut_entry_ids: string[] | null } | null)?.cut_entry_ids ?? null;
+    return same(ids) ? done(result.entryIds) : err("That cut was confirmed meanwhile, from another screen. Check who went through.");
+  }
+  return done(result.entryIds);
 });
+
+const CUTS_FINAL = err("The pageant has ended, so its cuts are final. Reopen it to change them.");
 
 const MAX_DEDUCTIONS = 500;
 
@@ -825,19 +847,35 @@ export const undoCut = traced("undoCut", async function undoCut(activityId: stri
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { board } = found;
+  if (board.activity.sessionState === "ended") return CUTS_FINAL;
   const order = programOrder(board.rounds);
   const index = order.findIndex((r) => r.id === roundId);
-  if (index < 0 || order[index].cutEntryIds === null) return err("That cut isn't confirmed.");
-  const later = new Set(order.slice(index + 1).flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]));
-  if (board.scores.some((s) => s.roundId && later.has(s.roundId))) {
-    return err("Judges have already scored after this cut, so it can't be taken back.");
+  if (index < 0 || order[index].cutSize === null) return err("That cut isn't part of this pageant.");
+  // Pressed twice, or sent again: it's open.
+  if (order[index].cutEntryIds === null) return ok("The cut is open again.");
+  const later = [...new Set(order.slice(index + 1).flatMap((r) => [r.id, ...partsOf(board.rounds, r.id).map((p) => p.id)]))];
+  const scoredAfter = "Judges have already scored after this cut, so it can't be taken back.";
+  if (board.scores.some((s) => s.roundId && later.includes(s.roundId))) return err(scoredAfter);
+  if (later.length) {
+    // Nobody can be judged after an unconfirmed cut: a later sub-activity on screen goes back to waiting first, so no
+    // score lands in it as the cut opens. Then it's checked again, for one that came in meanwhile.
+    const { currentRoundId } = board.activity;
+    if (currentRoundId && later.includes(currentRoundId)) {
+      await db()
+        .from("activities")
+        .update({ current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null })
+        .eq("id", activityId)
+        .eq("current_round_id", currentRoundId);
+    }
+    const { count, error } = await db().from("scores").select("id", { count: "exact", head: true }).eq("activity_id", activityId).in("round_id", later);
+    if (error) return dbErr(error);
+    if (count) {
+      changed();
+      return err(scoredAfter);
+    }
   }
   const { error } = await db().from("rounds").update({ cut_entry_ids: null }).eq("id", roundId);
   if (error) return dbErr(error);
-  // Nobody can be judged after an unconfirmed cut, so a later sub-activity on screen goes back to waiting.
-  if (board.activity.currentRoundId && later.has(board.activity.currentRoundId)) {
-    await db().from("activities").update({ current_round_id: null, current_entry_id: null, scoring_closes_at: null }).eq("id", activityId);
-  }
   changed();
   return ok("The cut is open again.");
 });
@@ -1077,6 +1115,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
       // Before /rounds/: a missing column's message names the table.
       if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
+      if (/led_out_of_ten/.test(message)) return needsMigration(LED_OUT_OF_TEN_HINT);
       if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
       log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
       return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);
@@ -1692,14 +1731,19 @@ export const setCurrentEntry = traced("setCurrentEntry", async function setCurre
   if (entryId !== null && !entry?.data) return err("That entry isn't part of this activity.");
   const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };
   if ("error" in show) return err(show.error);
-  // Only while it's still live: a click from a desk that hasn't caught up mustn't move a session that has moved on.
-  const { error, count } = await db().from("activities").update(show.columns, { count: "exact" }).eq("id", activityId).eq("session_state", "live");
+  // Only while it's still live: a click from a desk that hasn't caught up mustn't move a session that has moved on. A
+  // pageant's, only over what it was decided on: not after the chair or another desk has moved judges on meanwhile.
+  const write = db().from("activities").update(show.columns, { count: "exact" }).eq("id", activityId).eq("session_state", "live");
+  const { error, count } = await (board?.activity.kind === "pageant" ? asShown(write, board.activity) : write);
   if (error) return /current_entry_id/.test(error.message) ? needsMigration(SESSION_HINT) : dbErr(error);
-  if (!count) {
-    changed(activity.publicId);
-    return err("The session isn't live any more. Check where it stands now.");
-  }
   changed(activity.publicId);
+  if (!count) {
+    if (board?.activity.kind !== "pageant") return err("The session isn't live any more. Check where it stands now.");
+    // Pressed twice: the first already showed it.
+    const now = await getActivity(activityId);
+    if (now?.sessionState === "live" && now.currentRoundId === board.activity.currentRoundId && now.currentEntryId === entryId) return ok();
+    return err("Judges were moved on meanwhile, so nothing changed. Check who's on their screens now.");
+  }
   return ok();
 });
 
@@ -2210,6 +2254,10 @@ export const resetScores = traced("resetScores", async function resetScores(acti
     else if (error.code !== "P0001" && !/can't go back to not started/.test(error.message)) return dbErr(error);
   }
   if (!moved) return err("Judges were still scoring, so the session didn't go back to not started. End the session, then reset the scores.");
+  // Once more, now nothing can land: a judge's signature or note that came in while the session was still open goes too,
+  // so it isn't counted next time.
+  const leftover = await clearScores();
+  if (leftover) return dbErr(leftover);
   // Each fails harmlessly on a database without its column.
   await db().from("activities").update({ signed_off_at: null }).eq("id", activityId);
   await db().from("activities").update({ scoring_closes_at: null }).eq("id", activityId);
@@ -2262,7 +2310,10 @@ async function resetSegment(activity: Activity, segment: "preliminary" | "proper
     segment === "preliminary"
       ? { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null, preliminary_ended_at: null }
       : { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null, proper_started_at: null, session_state: "live", session_ended_at: null };
-  const { error, count } = await db().from("activities").update(update, { count: "exact" }).eq("id", activity.id).eq("session_state", activity.sessionState);
+  // Only as it stood when decided: the preliminary not once another desk has started pageant proper meanwhile, which
+  // would leave both segments open.
+  const write = db().from("activities").update(update, { count: "exact" }).eq("id", activity.id).eq("session_state", activity.sessionState);
+  const { error, count } = await (segment === "preliminary" ? write.is("proper_started_at", null) : write.not("proper_started_at", "is", null));
   if (error) return /preliminary_ended_at|proper_started_at/.test(error.message) ? needsMigration(SEGMENTS_HINT) : dbErr(error);
   if (!count) {
     changed(activity.publicId);

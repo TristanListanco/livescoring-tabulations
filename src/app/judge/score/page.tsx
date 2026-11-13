@@ -239,7 +239,7 @@ export default async function ScorePage() {
       deliberationReady={deliberationReady}
       gate={gate}
       panel={panel}
-      round={round ? { name: round.name, timerSeconds: round.timerSeconds } : null}
+      round={round ? { id: round.id, name: round.name, timerSeconds: round.timerSeconds } : null}
       offPanel={offPanel}
       segmentFresh={segmentFresh}
       assistance={assistance}

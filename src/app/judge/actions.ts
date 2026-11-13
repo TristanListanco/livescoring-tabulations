@@ -4,13 +4,13 @@ import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { applyOwnCorrection, settleCorrection } from "@/lib/correction-settle";
 import { cleanReason, correctionVoters } from "@/lib/corrections";
-import { findJudgeIdByCode, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRoundSignatures, getRounds, getSignatures } from "@/lib/data";
+import { findJudgeIdByCode, getActivity, getBoard, getCorrections, getJudgeContext, getJudgeSeat, getRoundSignatures, getRounds, getSignatures } from "@/lib/data";
 import { cleanSignature } from "@/lib/deliberation";
 import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server";
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
-import { atOwnPace, chairMovesEntries, eventTimer, scoreWindowOpen, showColumns } from "@/lib/judging";
-import { onPanel, roundAtOwnPace, roundPool, segmentClosed, SUBMIT_GRACE_MS, withRoundRules } from "@/lib/pageant";
+import { asShown, atOwnPace, chairMovesEntries, eventTimer, pageantScoreRound, scoreWindowOpen, showColumns } from "@/lib/judging";
+import { onPanel, roundAtOwnPace, roundPool, segmentClosed, SUBMIT_GRACE_MS, unitOf, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
 import { listNames } from "@/lib/names";
@@ -141,14 +141,22 @@ export const moveToEntry = traced("moveToEntry", async function moveToEntry(entr
   const show = showColumns(board, entryId, Date.now());
   if ("error" in show) return { ok: false, error: show.error };
 
-  // Only while it's still live: a tap from a screen that hasn't caught up mustn't move a session that has moved on.
-  const { error, count } = await db().from("activities").update(show.columns, { count: "exact" }).eq("id", board.activity.id).eq("session_state", "live");
+  // Only while it's still live: a tap from a screen that hasn't caught up mustn't move a session that has moved on. A
+  // pageant's, only over what was on screen as the chair tapped: not after the organizer moved judges on meanwhile.
+  const write = db().from("activities").update(show.columns, { count: "exact" }).eq("id", board.activity.id).eq("session_state", "live");
+  const { error, count } = await (board.activity.kind === "pageant" ? asShown(write, board.activity) : write);
   if (error) {
     log("error", "entry_not_shown", { code: error.code, error: error.message });
     return { ok: false, error: "That didn't go through. Check your connection and try again." };
   }
   changed(context.activity.publicId);
-  if (!count) return { ok: false, error: "Judging isn't open right now." };
+  if (!count) {
+    if (board.activity.kind !== "pageant") return { ok: false, error: "Judging isn't open right now." };
+    // Tapped twice: the first already showed it.
+    const now = await getActivity(context.activityId);
+    if (now?.sessionState === "live" && now.currentRoundId === board.activity.currentRoundId && now.currentEntryId === entryId) return { ok: true };
+    return { ok: false, error: "The organizer moved judges on meanwhile. Check who's on screen now." };
+  }
   return { ok: true };
 });
 
@@ -181,24 +189,34 @@ export const saveNote = traced("saveNote", async function saveNote(entryId: stri
   return { ok: true };
 });
 
-/** A score: one value for simple activities, or points per criterion (keyed by criterion id) for criteria activities. */
-export const submitScore = traced("submitScore", async function submitScore(entryId: string, typed: string | Record<string, string>): Promise<ActionResult> {
+/**
+ * A score: one value for simple activities, or points per criterion (keyed by criterion id) for criteria activities. In
+ * a pageant, `roundId` is the sub-activity (or part) the judge's screen showed as they scored: the score goes there,
+ * never in one judges were moved to while it was on its way (see pageantScoreRound).
+ */
+export const submitScore = traced("submitScore", async function submitScore(entryId: string, typed: string | Record<string, string>, roundId?: string | null): Promise<ActionResult> {
   const context = await seat("This device isn't approved to score. Ask the organizer.");
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Pick an entry first." };
+  if (roundId !== undefined && roundId !== null && !isUuid(roundId)) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
 
   const { activity } = context;
+  const pageant = activity.kind === "pageant";
+  const rounds = pageant ? await getRounds(activity.id) : [];
 
   // A score sent again after it was saved (its reply lost, the screen retrying) is saved, whatever happened since: the
   // session ended with it in, the organizer moved on, the timer closed. Asked only when this score would be turned away.
   const savedAlready = async (): Promise<boolean> => {
-    if (activity.kind !== "event") return false;
+    const given = pageant ? rounds.find((r) => r.id === (roundId ?? activity.currentRoundId)) : undefined;
+    if (pageant && !given) return false;
+    const scoring = given ? withRoundRules(activity, given) : activity;
     const parsed =
-      activity.scoringMode === "criteria"
-        ? typeof typed === "object" ? parseBreakdown(typed, activity.criteria, activity.decimals) : null
-        : typeof typed === "string" ? parseScore(typed, activity) : null;
+      scoring.scoringMode === "criteria"
+        ? typeof typed === "object" ? parseBreakdown(typed, scoring.criteria, scoring.decimals) : null
+        : typeof typed === "string" ? parseScore(typed, scoring) : null;
     if (!parsed?.ok) return false;
-    const { data } = await db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId).is("round_id", null).maybeSingle();
+    const saved = db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId);
+    const { data } = await (given ? saved.eq("round_id", given.id) : saved.is("round_id", null)).maybeSingle();
     const row = data as { value: number | string; breakdown: Record<string, number> | null } | null;
     if (!row) return false;
     return "total" in parsed ? Number(row.value) === parsed.total && sameBreakdown(row.breakdown, parsed.breakdown) : Number(row.value) === parsed.value && !row.breakdown;
@@ -207,38 +225,39 @@ export const submitScore = traced("submitScore", async function submitScore(entr
 
   // The organizer decides what is judged: only the entry on screen (or, for a few seconds, the one they just moved on
   // from, for a score confirmed before the move), and only while the session is live. The database checks the session too.
-  // A pageant sub-activity judged at its judges' own pace shows none: any of its candidates (checked below).
   if (activity.sessionState !== "live") return refuse("Judging isn't open right now. Wait for the organizer.");
-  const round = activity.kind === "pageant" ? (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId) : undefined;
-  const paced = round !== undefined && roundAtOwnPace(round);
-  if (!paced && !scoreWindowOpen(activity, entryId, Date.now())) return refuse("The organizer has moved to another entry. Score the one on your screen.");
+  const now = Date.now();
+  if (!pageant && !scoreWindowOpen(activity, entryId, now)) return refuse("The organizer has moved to another entry. Score the one on your screen.");
 
   // An event with a timer scores only while it runs (and the few seconds a score can take to arrive).
-  if (eventTimer(activity) && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
+  if (eventTimer(activity) && activity.scoringClosesAt && now > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
     return refuse("Time's up, so scoring has closed for this entry. Ask the organizer to reopen it.");
   }
 
-  // A pageant scores in the sub-activity being judged, with its rules, and only while its timer runs.
+  // A pageant scores in the sub-activity it was given in, with its rules, and only while its timer runs.
   let rules = activity;
-  let roundId: string | null = null;
-  if (activity.kind === "pageant") {
-    if (!round) return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
-    // The preliminary can have its own judges: only the panel of the sub-activity on screen scores it.
+  let scoredIn: string | null = null;
+  if (pageant) {
+    const target = pageantScoreRound(activity, rounds, roundId, entryId, now);
+    if ("error" in target) return refuse(target.error);
+    const { round, onScreen } = target;
+    // The preliminary can have its own judges: only the sub-activity's panel scores it.
     if (!onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant. Wait for your part." };
     // Only the segment running now scores (the database holds to it too).
     const closed = segmentClosed(activity, round);
-    if (closed) return { ok: false, error: `${closed} Wait for the organizer.` };
+    if (closed) return refuse(`${closed} Wait for the organizer.`);
     // At their own pace, any candidate the sub-activity judges (those still in after its cuts), and no one else.
-    if (paced) {
+    if (roundAtOwnPace(round)) {
       const board = await getBoard(activity.id);
       const pool = board ? roundPool(board, round.id) : null;
       if (!pool || pool.blockedBy || !pool.entries.some((e) => e.id === entryId)) return { ok: false, error: `That candidate isn't in ${round.name}.` };
     }
-    if (round.timerSeconds && activity.scoringClosesAt && Date.now() > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
-      return { ok: false, error: "Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it." };
+    // The timer on screen is the candidate on screen's; a score confirmed before judges were moved on was in time.
+    if (onScreen && activity.currentEntryId === entryId && round.timerSeconds && activity.scoringClosesAt && now > Date.parse(activity.scoringClosesAt) + SUBMIT_GRACE_MS) {
+      return refuse("Time's up, so scoring has closed for this candidate. Ask the organizer to reopen it.");
     }
     rules = withRoundRules(activity, round);
-    roundId = round.id;
+    scoredIn = round.id;
   }
 
   let value: number;
@@ -264,17 +283,17 @@ export const submitScore = traced("submitScore", async function submitScore(entr
       judge_id: context.judge.id,
       value,
       ...(breakdown ? { breakdown } : {}),
-      ...(roundId ? { round_id: roundId } : {}),
+      ...(scoredIn ? { round_id: scoredIn } : {}),
     });
 
   if (error) {
     if (error.code === "23505") {
       // Already in. The same score is this one sent again (its reply was lost on the way, say): it's saved.
       const saved = db().from("scores").select("value, breakdown").eq("judge_id", context.judge.id).eq("entry_id", entryId);
-      const { data } = await (roundId ? saved.eq("round_id", roundId) : saved.is("round_id", null)).maybeSingle();
+      const { data } = await (scoredIn ? saved.eq("round_id", scoredIn) : saved.is("round_id", null)).maybeSingle();
       const row = data as { value: number | string; breakdown: Record<string, number> | null } | null;
       if (row && Number(row.value) === value && sameBreakdown(row.breakdown, breakdown)) return { ok: true };
-      return { ok: false, error: `You already scored this ${roundId ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
+      return { ok: false, error: `You already scored this ${scoredIn ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
     }
     if (error.code === "23503") return { ok: false, error: "This entry was removed by the organizer." };
     // The session ended (or the deliberation started) as the score arrived: the database turns it away (migration 028).
@@ -337,8 +356,13 @@ export const requestCorrection = traced("requestCorrection", async function requ
   // At their own pace a judge corrects any candidate they've scored, as in an event judged so.
   let roundPaced = false;
   if (activity.kind === "pageant") {
-    const round = (await getRounds(activity.id)).find((r) => r.id === activity.currentRoundId);
+    const rounds = await getRounds(activity.id);
+    const round = rounds.find((r) => r.id === activity.currentRoundId);
     if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
+    // A confirmed cut ranked by these scores went by them: they stay as they were (taking the cut back opens them again).
+    const unit = unitOf(rounds, round);
+    const cut = rounds.find((r) => r.cutEntryIds !== null && r.cutBasis.includes(unit.id));
+    if (cut) return { ok: false, error: `The Top ${cut.cutEntryIds!.length} cut counts these scores and is confirmed, so they're final.` };
     rules = withRoundRules(activity, round);
     roundId = round.id;
     roundOwn = !round.liveScoring;

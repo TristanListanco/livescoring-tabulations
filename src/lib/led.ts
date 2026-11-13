@@ -1,6 +1,7 @@
 import { firstNames } from "./names";
+import { showingBoard } from "./pageant";
 import { rankEntries } from "./scoring";
-import type { Board, Entry, Judge } from "./types";
+import type { Board, Entry, Judge, Round } from "./types";
 
 /** The green screen overlay is drawn on a fixed 1920×1080 stage and scaled to fit the screen. */
 export const STAGE_W = 1920;
@@ -63,4 +64,15 @@ export function ledScene(board: Board): LedScene {
     tiles,
     average: { state, value: state === "final" || state === "running" ? row.average : null, count, total: judges.length },
   };
+}
+
+/**
+ * What the LED wall shows: the sub-activity being judged, as the judges and the live results do (see showingBoard), with
+ * its criteria totals out of 10 when it asks for that on the wall alone (Round.ledOutOfTen): 87.5% shows as 8.75. The
+ * live results, the tally and the PDFs keep the percentages.
+ */
+export function wallBoard(full: Board): { board: Board; round: Round | null } {
+  const { board, round } = showingBoard(full);
+  if (!round?.ledOutOfTen || board.activity.scoringMode !== "criteria") return { board, round };
+  return { board: { ...board, activity: { ...board.activity, criteriaDisplay: "ten" } }, round };
 }
