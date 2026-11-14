@@ -16,7 +16,7 @@ const askForPermission = () =>
  * until it's turned back, or the judge carries on where it is (see createTiltGuard). The device's orientation is read
  * on the device only: nothing about it is sent. Where the browser asks first (iOS), a banner offers to turn it on.
  */
-export function PrivacyScreen({ active }: { active: boolean }) {
+export function PrivacyScreen({ active, offer = "full" }: { active: boolean; offer?: "full" | "chip" | "none" }) {
   // Phones and tablets, a tablet in a keyboard case on its kickstand included (its trackpad makes the main pointer fine,
   // but it still has a touchscreen and the sensor): a laptop on the judges' table has no sensor to read.
   const touch = useMediaQuery("(any-pointer: coarse)");
@@ -64,7 +64,19 @@ export function PrivacyScreen({ active }: { active: boolean }) {
 
   return (
     <>
-      {on && asks && allowed === null && (
+      {on && asks && allowed === null && offer === "chip" && (
+        // While the judge scores: one line, out of the score's way.
+        <div className="mx-4 mt-2 flex shrink-0 sm:mx-6">
+          <button
+            type="button"
+            onClick={ask}
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-powder/50 px-4 text-sm font-semibold text-mint hover:bg-oxford"
+          >
+            Turn on the privacy screen
+          </button>
+        </div>
+      )}
+      {on && asks && allowed === null && offer === "full" && (
         // In the page, under the header, so it never covers the keypad or a signature box.
         <div className="mx-4 mt-3 flex shrink-0 items-center gap-3 rounded-xl bg-mint px-4 py-3 text-prussian sm:mx-6">
           <p className="min-w-0 flex-1 text-sm">Turn on the privacy screen: it hides your screen when your device is turned away from you.</p>

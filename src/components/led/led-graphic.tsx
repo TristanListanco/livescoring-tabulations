@@ -87,10 +87,10 @@ function TileValue({
  * `photo` is a judge's square photo; the entry's round one stays the same.
  */
 function photoSizes(judgeCount: number) {
-  if (judgeCount <= 5) return { photo: 104, name: 20, score: 60, nameBlock: 520, average: 240 };
-  if (judgeCount <= 8) return { photo: 88, name: 18, score: 54, nameBlock: 440, average: 220 };
-  if (judgeCount <= 12) return { photo: 70, name: 16, score: 46, nameBlock: 360, average: 200 };
-  return { photo: 54, name: 14, score: 40, nameBlock: 300, average: 180 };
+  if (judgeCount <= 5) return { photo: 104, name: 20, score: 52, nameBlock: 520, average: 320 };
+  if (judgeCount <= 8) return { photo: 88, name: 18, score: 46, nameBlock: 440, average: 290 };
+  if (judgeCount <= 12) return { photo: 70, name: 16, score: 40, nameBlock: 360, average: 260 };
+  return { photo: 54, name: 14, score: 34, nameBlock: 300, average: 230 };
 }
 
 /** The bar's height, and the entry's round photo above its left end, on the 1920×1080 stage. */
@@ -195,22 +195,31 @@ function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; s
         ))}
       </div>
 
-      {/* The average: its mark on the bar's edge, the word, and the number in the theme's highlight once it's final. */}
-      <div className="relative flex shrink-0 flex-col items-center justify-center px-5 pt-3 text-center" style={{ width: size.average }}>
+      {/*
+        The average: its mark on the bar's edge, the word, and the number. Final, it's the largest figure on the bar, in the
+        theme's highlight; while judges are still scoring it's quieter than their scores, with how many are in.
+      */}
+      {/* More room on the right, where the capsule's end curves in. */}
+      <div className="relative flex shrink-0 flex-col items-center justify-center pt-3 pr-9 pl-5 text-center" style={{ width: size.average }}>
         <AverageMark />
         <span className="text-[17px] leading-none font-semibold tracking-[0.12em] text-mint/85 uppercase">Average</span>
         {scene.average.state === "hidden" ? (
           <p className="mt-2 text-[52px] leading-[0.9]">
             <WaitingDots label="Average appears when every judge has scored" />
           </p>
-        ) : (
-          <FitText
-            key={final ? "final" : "running"}
-            className={`tabular mt-1.5 w-full text-[64px] leading-[0.95] font-bold ${final ? "led-fade text-powder" : ""}`}
-            align="center"
-          >
+        ) : final ? (
+          <FitText key="final" className="led-fade tabular mt-1 w-full text-[76px] leading-[0.95] font-bold text-powder" align="center">
             {averageText(scene.average.value, activity)}
           </FitText>
+        ) : (
+          <>
+            <FitText key="running" className="tabular mt-1.5 w-full text-[44px] leading-[0.95] font-bold text-mint/80" align="center">
+              {averageText(scene.average.value, activity)}
+            </FitText>
+            <span className="tabular mt-1 text-[16px] leading-none font-semibold tracking-[0.06em] text-mint/70 uppercase">
+              {scene.average.count} of {scene.average.total} judges
+            </span>
+          </>
         )}
       </div>
     </div>
@@ -300,9 +309,17 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
               <WaitingDots label="Average appears when every judge has scored" />
             </span>
           ) : (
-            <FitText className="tabular w-full text-[length:min(32cqi,20cqh)] leading-none font-bold" align="center">
-              {averageText(scene.average.value, activity)}
-            </FitText>
+            <>
+              <FitText className="tabular w-full text-[length:min(32cqi,20cqh)] leading-none font-bold" align="center">
+                {averageText(scene.average.value, activity)}
+              </FitText>
+              {/* Still waiting on judges: it can move, so it says how many are in. */}
+              {!final && (
+                <span className="tabular text-[length:min(9cqi,3.6cqh)] font-semibold text-mint/80">
+                  {scene.average.count} of {scene.average.total} judges
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>

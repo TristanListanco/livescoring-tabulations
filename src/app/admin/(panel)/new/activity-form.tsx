@@ -221,10 +221,10 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
   const sections = [
     { id: "details", title: "Details", done: name.trim() !== "" },
     { id: "scoring", title: "Scoring", done: chosen.mode && chosen.decimals && scoringOk },
-    { id: "judging", title: "Judging", done: liveScoring !== null },
+    { id: "judging", title: "When results go out", done: liveScoring !== null },
     { id: "judges", title: "Judges", done: judgesNamed && (liveScoring === true || chairIndex >= 0) },
     { id: "entries", title: "Entries", done: entryCount > 0 },
-    { id: "results", title: "Results", done: !signatoryGap },
+    { id: "results", title: "Signatories", done: !signatoryGap },
   ];
 
   return (
@@ -280,8 +280,8 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
 
       <Section
         id="judging"
-        title="Judging"
-        description="When the results go out: as each score comes in, or once the judges have deliberated and signed."
+        title="When results go out"
+        description="As each score comes in, or once the judges have deliberated and signed."
       >
         <input type="hidden" name="live_scoring" value={liveScoring ? "on" : "off"} />
         <JudgingChoice value={liveScoring} onChange={setLiveScoring} />
@@ -354,7 +354,7 @@ export function ActivityForm({ draft: openedDraft, onDirty, formRef, saveRef }: 
       </Section>
 
       {/* Who signs the results on paper (the Board of Tabulators and the like), added now so they're on the first PDF. */}
-      <Section id="results" title="Results" description="Who tabulated the results. They sign the results PDF under “Tabulated by”, and you need at least one.">
+      <Section id="results" title="Signatories" description="Who tabulated the results. They sign the results PDF under “Tabulated by”, and you need at least one.">
         <input type="hidden" name="signatories" value={JSON.stringify(filledSignatories(signatories))} />
         <SignatoryRows rows={signatories} setRows={setSignatories} idPrefix={SIGNATORY_ID} />
         {signatoryGap && <FieldProblem fieldId={signatoryGap.field} className="mt-3" />}

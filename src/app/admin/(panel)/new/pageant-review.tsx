@@ -11,6 +11,7 @@ import {
   properStages,
   roundShare,
   shareText,
+  roundName,
   shownAsPercentages,
   type PageantDraft,
   type PartDraft,
@@ -29,7 +30,7 @@ const JUDGE_DECIMALS = ["Whole numbers", "1 decimal place", "2 decimal places", 
 
 /** What a cut counts, as weights: "Interview 40%, Swimsuit 60%". */
 function basisSummary(draft: PageantDraft, round: RoundDraft): string {
-  const rounds = draft.rounds.map((r, position) => ({ id: r.key, segment: r.segment, name: r.name.trim() || "Untitled", position, weight: Number(r.weight) || 0, parentId: null }) as Round);
+  const rounds = draft.rounds.map((r, position) => ({ id: r.key, segment: r.segment, name: roundName(draft.rounds, r), position, weight: Number(r.weight) || 0, parentId: null }) as Round);
   return basisWeights(rounds, Number(draft.preliminaryWeight) || 0, basisOf(draft.rounds, round))
     .map((w) => `${w.round.name} ${percent(w.weight)}`)
     .join(", ");
@@ -112,8 +113,7 @@ function Block({ title, meta, onEdit, editLabel, children }: { title: string; me
 const cell = "py-2.5 pr-3 align-top";
 
 /** A sub-activity's rows: itself, or its name with a row per part under it. `share`: what its share reads as. */
-function RoundRows({ round, share }: { round: RoundDraft; share: string }) {
-  const name = round.name.trim() || "Untitled";
+function RoundRows({ round, name, share }: { round: RoundDraft; name: string; share: string }) {
   // Said under its scoring when its results wait for a deliberation (live is the usual), or the wall shows them out of 10.
   const deliberated = (round.deliberate || (round.ledOutOfTen && shownAsPercentages(round))) && (
     <p className="mt-0.5 text-sm text-prussian/75">{round.deliberate ? "Results after a deliberation" : "Out of 10 on the LED wall"}</p>
@@ -226,7 +226,7 @@ function SegmentTable({ draft, segment }: { draft: PageantDraft; segment: Segmen
                 const final = round.key === last?.key;
                 return (
                   <Fragment key={round.key}>
-                    <RoundRows round={round} share={share} />
+                    <RoundRows round={round} name={roundName(draft.rounds, round)} share={share} />
                     {cutHere && (
                       <tr className="bg-wash/70">
                         <td colSpan={3} className="px-3 py-2.5 text-[15px]">

@@ -251,6 +251,7 @@ function LiveScoring({ activity }: { activity: Activity }) {
         <p id="live-scoring-label" className="font-semibold">
           Show scores live
         </p>
+        {!changeable && <span className="ml-auto shrink-0 text-sm text-prussian/70">Locked</span>}
       </div>
       {/* Whether it can still change, said where it's switched: until the session starts, either way. */}
       <p className="hint pl-16">
@@ -306,6 +307,8 @@ function OptionSwitch({
         <p id={id} className="font-semibold">
           {label}
         </p>
+        {/* Said in words: a locked switch looks much like one that's off. */}
+        {!editable && <span className="ml-auto shrink-0 text-sm text-prussian/70">Locked</span>}
       </div>
       {hint && <p className="hint pl-16">{hint}</p>}
       <FormMessage state={result?.ok ? null : result} small className="pl-16" />
@@ -405,7 +408,7 @@ export function SettingsTab({
   return (
     <div className="max-w-4xl">
       <form action={action}>
-        <Section quiet title="Details">
+        <Section title="Details">
           <label htmlFor="name" className="label">
             {activity.kind === "pageant" ? "Pageant name" : "Event name"}
           </label>
@@ -428,7 +431,7 @@ export function SettingsTab({
         </Section>
       </form>
 
-      <Section quiet title="Scoring">
+      <Section title="Scoring">
         <ScoringSummary activity={activity} />
         {activity.kind === "pageant" && (
           <div className="mt-6 max-w-2xl border-t border-line pt-5">
@@ -440,11 +443,8 @@ export function SettingsTab({
       </Section>
 
       {/* How judging runs, in one list: each a switch, locked (and left showing which way it's set) once it can't change. */}
-      <section aria-labelledby="judging-options" className="card mt-4 p-5 sm:p-7">
-        <h2 id="judging-options" className="title-sm">
-          {activity.kind === "pageant" ? "Pageant settings" : "Event settings"}
-        </h2>
-        <div className="mt-5 space-y-5">
+      <Section title={activity.kind === "pageant" ? "Pageant settings" : "Event settings"}>
+        <div className="space-y-5">
           {activity.kind === "event" && <LiveScoring activity={activity} />}
           {/* How the live results page lists them: on unless turned off, and changeable through the show. */}
           <RankingSwitch activity={activity} editable={!activity.archivedAt} />
@@ -473,38 +473,47 @@ export function SettingsTab({
                 activity={activity}
                 option="independentScoring"
                 label="Judges score at their own pace"
+                hint="No entry is shown: each judge scores the entries in any order. The deliberation starts once every score is in."
                 editable={editable(activity, "rules")}
               />
               <OptionSwitch
                 activity={activity}
                 option="correctionReasons"
                 label="Judges pick a reason from a list when they correct a score"
+                hint="Such as “I typed the wrong number”, or their own words under Other. The results PDF lists each one."
                 editable={activity.sessionState !== "ended"}
               />
               <OptionSwitch
                 activity={activity}
                 option="judgesSeeRanking"
                 label="Judges see the overall ranking while they deliberate"
+                hint="Each entry's rank and average, never another judge's scores."
                 editable={activity.sessionState !== "ended"}
               />
             </>
           )}
-          <OptionSwitch activity={activity} option="privacyScreen" label="Privacy screen on judges' phones and tablets" editable={!activity.archivedAt} />
+          <OptionSwitch
+            activity={activity}
+            option="privacyScreen"
+            label="Privacy screen on judges' phones and tablets"
+            hint="Turning a phone or tablet away from its judge hides the screen until it's turned back."
+            editable={!activity.archivedAt}
+          />
         </div>
-      </section>
+      </Section>
 
       {activity.kind === "event" && activity.scoringMode === "criteria" && (
-        <Section quiet title="Guides for judges">
+        <Section title="Guides for judges">
           <CriterionGuides activity={activity} />
         </Section>
       )}
 
-      <Section quiet id="signatories" title="Results PDF signatories">
+      <Section id="signatories" title="Results PDF signatories">
         <SignatoriesEditor activityId={activity.id} initial={signatories} />
       </Section>
 
       {organizers && (
-        <Section quiet title="Organizer">
+        <Section title="Organizer">
           <OwnerPicker activity={activity} organizers={organizers} />
         </Section>
       )}

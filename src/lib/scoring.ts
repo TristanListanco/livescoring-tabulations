@@ -155,6 +155,22 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
   return rows;
 }
 
+/**
+ * The live results' standings: averages every judge is in on first, ranked among themselves (ties share a rank, and the
+ * order of `ranking`, tie breaks included, holds), then averages still waiting on judges, then entries with none. Only
+ * a complete average has a rank: one on one judge of three can still fall, so it isn't shown as a place.
+ */
+export function liveStandings(ranking: RankedRow[], judgeCount: number): RankedRow[] {
+  const complete = (r: RankedRow) => judgeCount > 0 && r.average !== null && r.count >= judgeCount;
+  const done = ranking.filter(complete);
+  let rank = 0;
+  const ranked = done.map((row, i) => {
+    if (i === 0 || done[i - 1].rank !== row.rank) rank = i + 1;
+    return { ...row, rank };
+  });
+  return [...ranked, ...ranking.filter((r) => !complete(r) && r.average !== null).map((r) => ({ ...r, rank: null })), ...ranking.filter((r) => r.average === null)];
+}
+
 /** One row of a judge's score sheet: an entry in running order and what the judge gave it. */
 export type JudgeSheetRow = {
   entry: Entry;

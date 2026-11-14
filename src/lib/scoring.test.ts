@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activityFixture } from "./test-fixtures";
-import { applyKey, averageText, judgeSheet, overMax, parseBreakdown, parseScore, rankEntries, scoreProgress, typedTotal, type Key, type ScoreRules } from "./scoring";
+import { applyKey, averageText, judgeSheet, liveStandings, overMax, parseBreakdown, parseScore, rankEntries, scoreProgress, typedTotal, type Key, type ScoreRules } from "./scoring";
 
 const press = (keys: Key[], rules: ScoreRules) => keys.reduce((buf, k) => applyKey(buf, k, rules), "");
 
@@ -287,5 +287,29 @@ describe("three decimal places", () => {
     ];
     expect(parseBreakdown({ a: "33.125", b: "50.375" }, criteria, 3)).toEqual({ ok: true, total: 83.5, breakdown: { a: 33.125, b: 50.375 } });
     expect(typedTotal({ a: "33.125", b: "" }, criteria, 3)).toBe(33.125);
+  });
+});
+
+describe("liveStandings", () => {
+  const rules = activityFixture();
+  const judges = ["j1", "j2", "j3"].map((id, position) => ({ id, name: id, photoUrl: null, position, firstName: null, lastName: null, isChair: false, panel: "all" as const }));
+  const entries = ["Ayla", "Bea", "Cora", "Dina", "Ella"].map((name, position) => ({ id: name, name, photoUrl: null, position }));
+  const score = (entryId: string, values: number[]) => values.map((value, k) => ({ entryId, judgeId: `j${k + 1}`, value }));
+  // Bea leads on one judge of three; Ayla, Cora and Dina are complete (Cora and Dina level); Ella has none.
+  const scores = [...score("Ayla", [8, 9, 8.5]), ...score("Bea", [9.5]), ...score("Cora", [8, 8, 8]), ...score("Dina", [9, 7, 8])];
+  const rows = liveStandings(rankEntries(entries, judges, scores, rules), judges.length);
+
+  it("ranks only complete averages, ties sharing a place, then the rest without one", () => {
+    expect(rows.map((r) => [r.entry.name, r.rank])).toEqual([
+      ["Ayla", 1],
+      ["Cora", 2],
+      ["Dina", 2],
+      ["Bea", null],
+      ["Ella", null],
+    ]);
+  });
+
+  it("with no judges, nothing has a place", () => {
+    expect(liveStandings(rankEntries(entries, [], [], rules), 0).every((r) => r.rank === null)).toBe(true);
   });
 });
