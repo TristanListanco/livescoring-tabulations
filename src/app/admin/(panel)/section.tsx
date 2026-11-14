@@ -3,7 +3,6 @@
  * - `description` given: the title and a line saying what the section decides, above its fields (the create forms,
  *   where each section needs a heading to find it by). `bare`: the same heading without the card, for content that is
  *   cards already (a pageant's sub-activities), so cards don't nest.
- * - `quiet`: the title is for screen readers only (the fields' own labels say enough), and the fields take the card.
  * - otherwise: the title on the left, fields on the right (Settings).
  * Below 1280px the create forms keep a bar of their sections at the top of the window (see SectionIndex), so a jump to
  * a section stops below it.
@@ -11,13 +10,11 @@
 export function Section({
   title,
   id,
-  quiet = false,
   bare = false,
   description,
   children,
 }: {
   title: string;
-  quiet?: boolean;
   bare?: boolean;
   /** What the section decides, in a line under its title. */
   description?: React.ReactNode;
@@ -44,8 +41,8 @@ export function Section({
     );
   }
   return (
-    <section id={id} className={`card mt-4 grid scroll-mt-20 gap-4 p-5 sm:p-7 xl:scroll-mt-6 ${quiet ? "" : "md:grid-cols-[14rem_1fr] md:gap-10"}`}>
-      <h2 className={quiet ? "sr-only" : "title-sm"}>{title}</h2>
+    <section id={id} className="card mt-4 grid scroll-mt-20 gap-4 p-5 sm:p-7 md:grid-cols-[14rem_1fr] md:gap-10 xl:scroll-mt-6">
+      <h2 className="title-sm">{title}</h2>
       <div className="min-w-0">{children}</div>
     </section>
   );

@@ -51,8 +51,8 @@ test("Space scrolls a focused list on the desk rather than moving the show on", 
   await page.goto(`/admin/${activity.id}?tab=session`);
   await expect(page.getByText("Now judging: No. 1")).toBeVisible();
 
-  // The running order has focus, to scroll it: Space is for the list.
-  await page.getByRole("list", { name: "Running order" }).focus();
+  // The column with the running order has focus, to scroll it: Space is for the column.
+  await page.getByRole("complementary", { name: "Running order and screens" }).focus();
   await page.keyboard.press("Space");
   await expect(page.getByText("Now judging: No. 1")).toBeVisible();
   await page.waitForTimeout(1000);

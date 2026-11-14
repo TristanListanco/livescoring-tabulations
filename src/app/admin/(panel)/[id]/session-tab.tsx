@@ -13,7 +13,7 @@ import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { finalCutRound, judgesFor, placeTitle, preliminaryEndGap, roundDeliberating, roundLabel, roundProgress, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
-import { averageText, rankEntries } from "@/lib/scoring";
+import { averageText, liveStandings, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
 import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
@@ -57,7 +57,7 @@ function useNow(active: boolean, everyMs = 5000): number | null {
  * Whether this desk keeps itself current: it's about the desk's own connection, not the judges' (the desk lists who's
  * paired), so it says what the desk does rather than "Connected", which read as the judges being in.
  */
-const CONNECTION_LABELS = { live: "Updating live", polling: "Updating every 15 seconds" };
+const CONNECTION_LABELS = { polling: "Updating every 15 seconds" };
 
 /**
  * The desk's connection badge. It owns the "updated N seconds ago" clock, so each tick re-renders just this badge
@@ -159,7 +159,7 @@ function JudgeTile({
           Device approved
         </span>
       ) : (
-        <span className="text-sm font-bold text-mint">Waiting</span>
+        <span className="text-sm font-bold text-mint">Still scoring</span>
       );
   } else if (requests.length > 0) {
     state = null;
@@ -318,11 +318,12 @@ export function SessionTab({
    * results downloads). Before and after the show it's liveResultsCard, under the desk.
    */
   const screens = (extra?: React.ReactNode) => (
-    <section aria-labelledby="screens" className="card shrink-0 px-5 py-4 text-sm">
-      <h2 id="screens" className="sr-only">
-        Screens
-      </h2>
-      <div className="space-y-2">
+    // Folded, as Scoring is: mid-show it's wanted now and then, and the running order needs the room.
+    <details className="card shrink-0 px-5 py-3 text-sm" open={!!extra || undefined}>
+      <summary className="flex cursor-pointer items-center gap-2 font-semibold pointer-coarse:min-h-11">
+        Live results{(pageant || !activity.liveScoring) && " and private tally"}
+      </summary>
+      <div className="mt-3 space-y-2 border-t border-line pt-3">
         {/* Each row says what it is, and each button what it does; screen readers also hear which screen it's for. */}
         <div className="flex flex-wrap items-center gap-x-1">
           <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
@@ -350,7 +351,7 @@ export function SessionTab({
         )}
         {extra}
       </div>
-    </section>
+    </details>
   );
 
   /*
@@ -485,6 +486,16 @@ export function SessionTab({
       : null;
   const missing = progress.possible - progress.submitted;
   const missingLine = `${missing} ${missing === 1 ? "score is" : "scores are"} missing`;
+  // Ending with scores missing: said in the end's own dialog, with who hasn't scored every entry (an event's).
+  const behind = pageant ? [] : judges.filter((j) => scores.filter((s) => s.judgeId === j.id).length < entries.length);
+  const missingWarning = missing > 0 && state === "live" && (
+    <span className="mb-3 block font-semibold text-prussian">
+      {missingLine}
+      {behind.length > 0 &&
+        `: ${behind.length <= 3 ? listNames(behind) : `${behind.length} judges`} ${behind.length === 1 ? "hasn't" : "haven't"} scored every entry`}
+      .
+    </span>
+  );
   // An event with live scoring that ended with every score in: by itself, and for good (see setSessionState).
   const endedForGood = state === "ended" && activity.kind === "event" && activity.liveScoring && progress.complete;
   /** Once judging has ended, every download in one menu; a pageant's are in its program instead. */
@@ -507,7 +518,8 @@ export function SessionTab({
    * shown, in its display, with its scores as its settings let them through.
    */
   const heldBack = !activity.liveScoring && !activity.signedOffAt;
-  const standing = entry && !heldBack ? rankEntries(entries, judges, scores, activity).find((r) => r.entry.id === entry.id) : undefined;
+  // As the live results show it: a rank only once every judge is in (see liveStandings).
+  const standing = entry && !heldBack ? liveStandings(rankEntries(entries, judges, scores, activity), judges.length).find((r) => r.entry.id === entry.id) : undefined;
   const liveNow = heldBack
     ? "A tick for each score in; the scores show once the judges have signed"
     : !standing
@@ -698,6 +710,7 @@ export function SessionTab({
         passwordLabel="Your password"
         onConfirm={(password) => changeState("ended", password)}
       >
+        {!done && missingWarning}
         {done ? "Every candidate is placed. " : ""}Ending pageant proper ends the pageant: judges can&apos;t submit any more scores, and candidates
         can&apos;t be changed. Enter your admin password to confirm. You can reopen it if you need to.
       </ConfirmDialog>
@@ -711,6 +724,7 @@ export function SessionTab({
         passwordLabel="Your password"
         onConfirm={(password) => changeState("ended", password)}
       >
+        {missingWarning}
         Judges won&apos;t be able to submit any more scores, and entries can&apos;t be changed. Enter your admin password to confirm. You can reopen the
         session if you need to.
       </ConfirmDialog>
@@ -774,13 +788,18 @@ export function SessionTab({
         ? null
         : endSession(triggerClassName);
 
-  // The rundown keeps the entry on air in view when it scrolls inside the desk. Instant, never animated.
+  // The side column keeps the entry on air in view when it scrolls beside the desk. Instant, never animated.
   const orderRef = useRef<HTMLOListElement>(null);
+  const sideRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const list = orderRef.current;
-    const row = list?.querySelector<HTMLElement>('[data-on-air="true"]');
-    if (!list || !row || list.scrollHeight <= list.clientHeight) return;
-    list.scrollTop = row.offsetTop - list.clientHeight / 2 + row.offsetHeight / 2;
+    const side = sideRef.current;
+    const row = orderRef.current?.querySelector<HTMLElement>('[data-on-air="true"]');
+    if (!side || !row || side.scrollHeight <= side.clientHeight) return;
+    // Only as far as it takes to show it, so the program above stays in view when it can.
+    const top = row.getBoundingClientRect().top - side.getBoundingClientRect().top + side.scrollTop;
+    const bottom = top + row.offsetHeight;
+    if (top < side.scrollTop) side.scrollTop = top - 16;
+    else if (bottom > side.scrollTop + side.clientHeight) side.scrollTop = bottom - side.clientHeight + 16;
   }, [current, live]);
 
   /*
@@ -832,17 +851,11 @@ export function SessionTab({
   /** The running order. `compact` is the live desk's rundown: it scrolls inside its column and keeps the entry on air in view. */
   const runningOrder = (compact: boolean) =>
     entries.length > 0 && (
-      <section aria-labelledby="running-order" className={compact ? "flex min-h-0 flex-1 flex-col" : undefined}>
+      <section aria-labelledby="running-order">
         <h2 id="running-order" className="sr-only">
           {round ? `Running order: ${round.name}` : "Running order"}
         </h2>
-        <ol
-          ref={compact ? orderRef : undefined}
-          // Scrolls on its own in the live desk, so it has to be reachable by keyboard.
-          tabIndex={compact ? 0 : undefined}
-          aria-labelledby={compact ? "running-order" : undefined}
-          className={`card mt-3 divide-y divide-line overflow-hidden ${compact ? "relative min-h-0 flex-1 overflow-y-auto" : ""}`}
-        >
+        <ol ref={compact ? orderRef : undefined} aria-labelledby={compact ? "running-order" : undefined} className="card mt-3 divide-y divide-line overflow-hidden">
           {entries.map((e, i) => {
             const onAir = e.id === current;
             return (
@@ -978,7 +991,8 @@ export function SessionTab({
                     // In the final placements the desk's own button ends the pageant (and between sub-activities with
                     // nothing left, the desk's body offers the end). This one stays, hidden, in the final placements, so a
                     // dialog opened from it just before the desk turned over (the cut confirmed a moment ago) isn't lost.
-                    endControl(finale ? "hidden" : "btn btn-sm border border-oxford text-mint hover:bg-oxford")}
+                    // Ending is a control, not the connection's status beside it: the danger tone its dialog has.
+                    endControl(finale ? "hidden" : "btn btn-sm border border-danger-soft/60 text-danger-soft hover:bg-oxford")}
               </div>
             </div>
             {/* A pageant's timer is its sub-activity's; an event's, its own (an entry at a time). */}
@@ -1090,14 +1104,16 @@ export function SessionTab({
                 ) : (
                 /* The action bar: the status on the left, Previous and Next on the right, in the same place all show. */
                 <div role="group" aria-label="Show controls" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-oxford px-6 py-3">
-                  {/* Two lines at most so the bar keeps its height; screen readers still get the whole sentence. */}
-                  <p role="status" className="min-w-48 flex-1 leading-snug font-semibold xl:line-clamp-2">
+                  {/* Wraps rather than losing its end: it names at most three judges (the tiles show the rest). */}
+                  <p role="status" className="min-w-48 flex-1 leading-snug font-semibold">
                     {entry &&
                       (allIn
                         ? next
                           ? `Every judge has scored ${entry.name}.`
                           : `Every judge has scored ${entry.name}. That was the last entry.`
-                        : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${listNames(stillScoring)}.`)}
+                        : `${scoredBy.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} scored. Waiting on ${
+                            stillScoring.length <= 3 ? listNames(stillScoring) : `${stillScoring.length} judges`
+                          }.`)}
                   </p>
                   {/*
                     Previous and Next stay together on the right: when the status needs the room they move under it as a
@@ -1162,15 +1178,12 @@ export function SessionTab({
             )}
           </section>
 
-          <aside aria-label="Running order and screens" className="flex min-h-0 flex-col gap-4">
-            {pageant && (
-              <div className="max-h-[45%] min-h-0 shrink-0 overflow-y-auto">
-                <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />
-              </div>
-            )}
+          {/* One column that scrolls as a whole beside the desk (so it's one stop for the keyboard), not a scroller in each part. */}
+          <aside ref={sideRef} tabIndex={0} aria-label="Running order and screens" className="flex min-h-0 flex-col gap-4 xl:overflow-y-auto">
+            {pageant && <ProgramPanel board={board} live compact onReviewCut={setCutOpen} />}
             {/* Each sub-activity's scoring, starting on the one on judges' screens: folded away until it's wanted. */}
             {pageant && (
-              <details className="card max-h-[40%] min-h-0 shrink-0 overflow-y-auto px-5 py-3 text-sm">
+              <details className="card shrink-0 px-5 py-3 text-sm">
                 <summary className="flex cursor-pointer items-center gap-2 font-semibold pointer-coarse:min-h-11">
                   Scoring
                   {scoringOf && <span className="min-w-0 truncate font-normal text-prussian/75">· {roundLabel(board.rounds, scoringOf)}</span>}

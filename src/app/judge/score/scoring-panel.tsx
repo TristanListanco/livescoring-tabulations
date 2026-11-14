@@ -421,10 +421,11 @@ export function ScoringPanel({
 
   return (
     <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
-      <header className="flex items-center gap-3 border-b border-oxford px-4 py-3 sm:px-6">
-        {/* On a phone the judge's own photo gives way to their name, which the header has little room for. */}
+      {/* On a phone, two lines: who and what (the judge's name, the activity and where) in full, then the count and controls. */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-oxford px-4 py-3 sm:flex-nowrap sm:px-6">
+        {/* On a phone the judge's own photo gives way to their name. */}
         <Avatar name={judge.name} src={judge.photoUrl} size={44} className="max-sm:hidden" />
-        <div className="min-w-0">
+        <div className="min-w-0 max-sm:basis-full">
           <p className="truncate font-semibold">{judge.name}</p>
           <p className="truncate text-sm text-powder">
             {activity.name}
@@ -433,7 +434,7 @@ export function ScoringPanel({
             {activity.location && ` · ${activity.location}`}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2.5 sm:gap-6">
+        <div className="ml-auto flex items-center gap-2.5 max-sm:w-full sm:gap-6">
           {approved && !offPanel && !deliberating && (
             <>
               <p className="tabular hidden text-powder md:block">
@@ -445,7 +446,7 @@ export function ScoringPanel({
               </ScoresSheet>
             </>
           )}
-          <LiveStatusBadge status={status} className="text-mint" compact />
+          <LiveStatusBadge status={status} className="text-mint max-sm:ml-auto" compact />
           {assistance && gate.status !== "revoked" && <AssistButton current={assistance.current} />}
           {approved ? (
             // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
@@ -471,7 +472,12 @@ export function ScoringPanel({
       </header>
       {assistance && <AssistStatus current={assistance.current} />}
       {/* While judging, turning a phone or tablet away from its judge hides the screen (unless turned off in Settings). */}
-      <PrivacyScreen active={activity.privacyScreen && approved && (activity.sessionState === "live" || activity.sessionState === "deliberation")} />
+      <PrivacyScreen
+        active={activity.privacyScreen && approved && (activity.sessionState === "live" || activity.sessionState === "deliberation")}
+        // Offered in full while the judge waits, as a one-line chip once they've scored, and not at all on the keypad,
+        // which needs the room.
+        offer={view.kind === "scoring" ? "none" : view.kind === "scored" || deliberating ? "chip" : "full"}
+      />
 
       <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
         {/* A short message (a score saved, a vote cast), just under the header so the judge's name and count stay in view. */}
@@ -1612,7 +1618,7 @@ function EntryControls({
                   Scored
                 </span>
               ) : (
-                <span className="text-sm text-powder">Waiting</span>
+                <span className="text-sm text-powder">Still scoring</span>
               )}
             </li>
           ))}
@@ -2187,15 +2193,16 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
                     {c.name}
                     {c.guide && <span className="sr-only">, has a guide</span>}
                   </span>
-                  {c.guide && <GuideIcon className={isActive ? "text-mint/80" : "text-powder"} />}
+                  {c.guide && <GuideIcon className={isActive ? "text-mint/90" : "text-powder"} />}
                   {over && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too high</span>}
                   {low && <span className={`text-sm font-semibold ${ERROR_TEXT}`}>Too low</span>}
-                  {given && !unchanged(c.id) && <span className={`tabular text-sm ${isActive ? "text-mint/80" : "text-powder"}`}>was {givenText(c.id) || "–"}</span>}
+                  {/* Small text on the selected row's lighter fill: near-full mint, so it stays above 4.5:1 on every timer shade. */}
+                  {given && !unchanged(c.id) && <span className={`tabular text-sm ${isActive ? "text-mint/90" : "text-powder"}`}>was {givenText(c.id) || "–"}</span>}
                   {/* Light blue reads on the unselected rows; on the selected (brighter) one, the text colour does. */}
                   <span className={`tabular text-lg font-bold ${over || low ? ERROR_TEXT : ""}`}>
                     {value || <span className={isActive ? "text-mint/70" : "text-powder"}>–</span>}
                   </span>
-                  <span className={`tabular w-12 text-right text-sm ${isActive ? "text-mint/80" : "text-powder"}`}>/ {formatBound(c.max)}</span>
+                  <span className={`tabular w-12 text-right text-sm ${isActive ? "text-mint/90" : "text-powder"}`}>/ {formatBound(c.max)}</span>
                 </button>
               </li>
             );
@@ -2281,7 +2288,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
           disabled={busy || (all.ok && closed && !correcting) || (!all.ok && !isValid(active?.id ?? ""))}
           className={PRIMARY}
         >
-          {all.ok ? (correcting ? "Review correction" : "Submit score") : nextMissing ? `Next: ${nextMissing.name}` : "Submit score"}
+          {all.ok || !nextMissing ? (correcting ? "Review correction" : "Submit score") : `Next: ${nextMissing.name}`}
         </button>
       </div>
 

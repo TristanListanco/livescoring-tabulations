@@ -89,6 +89,13 @@ export type CheckedRound = {
 };
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
 
+/**
+ * A sub-activity's name wherever the setup shows it: its own, or until it has one, its place in its segment
+ * ("Sub-activity 2"), the same in its card, the review and a cut's ranking.
+ */
+export const roundName = (rounds: Pick<RoundDraft, "key" | "segment">[], round: Pick<RoundDraft, "key" | "segment" | "name">) =>
+  round.name.trim() || `Sub-activity ${rounds.filter((r) => r.segment === round.segment).findIndex((r) => r.key === round.key) + 1}`;
+
 /** Whether a sub-activity (or any of its parts) is scored by criteria with totals shown as percentages. */
 export const shownAsPercentages = (round: Pick<RoundDraft, "scoring" | "parts">) =>
   (round.parts ? round.parts.map((p) => p.scoring) : [round.scoring]).some((sc) => sc.mode === "criteria" && sc.display !== "ten");

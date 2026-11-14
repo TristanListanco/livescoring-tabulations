@@ -269,6 +269,8 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await expect(page.getByText("Preliminary done · Waiting for pageant proper")).toBeVisible();
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
     const program = page.getByRole("region", { name: "Program" });
+    // Beside the desk the preliminary folds to its heading once it has ended; it opens on request.
+    await program.getByRole("button", { name: "Show Preliminary" }).click();
     await expect(program.getByRole("listitem").filter({ hasText: "Talent" })).toContainText("Done");
     await expect(program.getByRole("listitem").filter({ hasText: "Gown" })).not.toContainText("Done");
 

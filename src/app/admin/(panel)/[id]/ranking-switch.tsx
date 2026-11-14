@@ -34,8 +34,12 @@ export function RankingSwitch({ activity, editable = true }: { activity: Activit
         <p id="rank-label" className="font-semibold">
           Show ranks on the live results page
         </p>
+        {!editable && <span className="ml-auto shrink-0 text-sm text-prussian/70">Locked</span>}
       </div>
-      <p className="hint pl-16">Sorted by average, the top three standing out. Off, the entries stay in running order.</p>
+      <p className="hint pl-16">
+        Ranked by average once every judge has scored, the top three standing out; those still being scored follow. Off, the entries stay
+        in running order.
+      </p>
       <FormMessage state={result?.ok ? null : result} small className="pl-16" />
     </div>
   );

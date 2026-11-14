@@ -57,8 +57,9 @@ test.afterAll(async () => {
 
 test("the private tally opens with the admin's password, for that browser alone", async ({ page, browser }) => {
   await signInAsSuperAdmin(page);
-  // The desk links to it.
+  // The desk links to it, folded beside the running order with the live results.
   await page.goto(`/admin/${activity.id}?tab=session`);
+  await page.getByText("Live results and private tally").click();
   await expect(page.getByRole("link", { name: "Open the private tally" })).toHaveAttribute("href", tally);
 
   // Signed in isn't enough: it asks for the password, and shows nothing until then.

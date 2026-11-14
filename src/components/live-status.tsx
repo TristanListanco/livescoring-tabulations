@@ -1,7 +1,8 @@
 import type { LiveStatus } from "@/lib/use-live-refresh";
 
 const COPY: Record<LiveStatus, string> = {
-  live: "Live",
+  // Not "Live": that's the session's state, in the admin panel and on the live results.
+  live: "Updating live",
   connecting: "Connecting",
   polling: "Updating automatically",
   offline: "Offline",
@@ -14,7 +15,7 @@ const COPY: Record<LiveStatus, string> = {
  *
  * `compact` shows nothing on small screens while all is well (a dot alone means nothing to someone who hasn't seen the
  * product before), and "Offline" in words, as everywhere. Screen readers still hear every change. `labels`
- * renames states where "Live" would mean something else, like the admin's desk, where the session itself is live.
+ * renames states where a screen needs its own words (the LED wall's operator: "Connected").
  */
 export function LiveStatusBadge({
   status,

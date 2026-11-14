@@ -25,6 +25,7 @@ import {
   shareScope,
   sharesWithOneMore,
   shareText,
+  roundName,
   shownAsPercentages,
   typedShare,
   MAX_REASON,
@@ -47,7 +48,7 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
     (r, position): Round => ({
       id: r.key,
       segment: r.segment,
-      name: r.name.trim() || "Untitled",
+      name: roundName(draft.rounds, r),
       position,
       weight: Number(r.weight) || 0,
       scoringMode: "simple",
@@ -478,7 +479,7 @@ function RoundCard({
   onRemove: () => void;
 }) {
   const id = `round-${round.key}-`;
-  const name = round.name.trim() || `Sub-activity ${index + 1}`;
+  const name = roundName(draft.rounds, round);
   const proper = draft.rounds.filter((r) => r.segment === "proper");
   const final = round.segment === "proper" && proper[proper.length - 1]?.key === round.key;
   // Criteria totals shown as percentages, in it or any of its parts: what the LED wall can show out of 10 instead.

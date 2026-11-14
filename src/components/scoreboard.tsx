@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { firstNames } from "@/lib/names";
-import { averageText, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
+import { averageText, liveStandings, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
 import { applyTieBreaks } from "@/lib/ties";
 import type { Board, ScoredMark } from "@/lib/types";
 import { Avatar } from "./avatar";
@@ -74,8 +74,8 @@ function Tick() {
 }
 
 /**
- * Live results. With `ranked`, rows are sorted by average, show their rank, and the top three
- * stand apart as a podium once every judge has scored them. Without it, rows keep entry order and placements stay
+ * Live results. With `ranked`, rows every judge has scored are sorted by average and show their rank, the top three
+ * standing apart as a podium; rows still waiting on judges follow, unranked, with how many are in. Without it, rows keep entry order and placements stay
  * hidden. An average that's still waiting on judges is quieter than a finished one, and the entry being judged is marked.
  * With `scored` (the scores held back until the judges sign), each judge's cell shows only whether they've scored, and
  * the last column how many have.
@@ -103,7 +103,8 @@ export function Scoreboard({
   const { rows, done, firstRestIndex } = useMemo(() => {
     // Ties the judges broke in the deliberation place in the chair's order (the public board has them once the results are out).
     const ranking = applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, board.activity), board.tieBreaks ?? []);
-    const sorted = ranked ? ranking : [...ranking].sort((a, b) => a.number - b.number);
+    // Ranked, a place goes only to an average every judge is in on (see liveStandings): one on a single judge can still fall.
+    const sorted = ranked ? liveStandings(ranking, board.judges.length) : [...ranking].sort((a, b) => a.number - b.number);
     const marks = new Set((scored ?? []).map((m) => `${m.entryId}:${m.judgeId}`));
     // Every score that's in (while they're held back, every one marked as in), as "entry:judge".
     const inSet = new Set<string>();
@@ -269,7 +270,7 @@ export function Scoreboard({
         style={stage ? { fontSize: "max(0.875rem, min(1.25vw, 2.3vh))" } : undefined}
       >
         {ranked && <span>Rank</span>}
-        <span>Entry</span>
+        <span>{activity.kind === "pageant" ? "Candidate" : "Entry"}</span>
         {judges.map((j) => (
           <span key={j.id} className={`flex min-w-0 items-center text-center ${stage ? "@container justify-center gap-[0.5em]" : "flex-col gap-2"}`}>
             <Avatar name={j.name || nameOf(j.id)} src={j.photoUrl} size={stage ? "min(2.6vw, 4.6vh)" : 88} className={stage ? "@max-[7.5rem]:hidden" : ""} />

@@ -199,6 +199,11 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
   const deliberating = deliberatingRound(board);
   // Before the start every row would say "Not started", as the activity's status does once: nothing until then.
   const started = activity.sessionState !== "draft";
+  // Beside the live desk, only the segment in hand is listed: the running one (pageant proper's, in the break). The
+  // other folds to its heading, with how it stands, and opens on request.
+  const inHand = running ?? (activity.preliminaryEndedAt ? "proper" : "preliminary");
+  const [opened, setOpened] = useState<"preliminary" | "proper" | null>(null);
+  const folds = (segment: "preliminary" | "proper") => compact && live && segment !== inHand;
   const status = (r: Round, judged: boolean) => {
     if (!started) return null;
     const progress = roundProgress(board, r);
@@ -266,6 +271,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
       {(["preliminary", "proper"] as const).map((segment) => {
         const rounds = order.filter((r) => r.segment === segment);
         const share = segment === "preliminary" ? activity.preliminaryWeight : 100 - activity.preliminaryWeight;
+        const folded = folds(segment) && opened !== segment;
         return (
           <div key={segment} className={compact ? "mt-2" : "mt-4"}>
             <div className="flex flex-wrap items-center gap-x-2">
@@ -273,6 +279,17 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                 {segmentLabel(segment)}
                 <span className="tabular">{percent(share)}</span>
               </h3>
+              {folds(segment) && (
+                <>
+                  <span className={`text-xs ${segment === "preliminary" && prelimDone ? "flex items-center gap-1 font-semibold text-regal" : "text-prussian/70"}`}>
+                    {segment === "proper" ? "After the preliminary" : prelimDone ? <>{check}Done</> : "Ended"}
+                  </span>
+                  <button type="button" aria-expanded={!folded} className={action} onClick={() => setOpened(folded ? segment : null)}>
+                    {folded ? "Show" : "Hide"}
+                    <span className="sr-only"> {segmentLabel(segment)}</span>
+                  </button>
+                </>
+              )}
               {segment === "preliminary" && (
                 <div className="ml-auto flex items-center gap-1">
                   {activity.violations !== null && !inBreak && (
@@ -287,6 +304,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                 </div>
               )}
             </div>
+            {!folded && (
             <ol className={`mt-1 divide-y divide-line ${compact ? "border-y border-line" : "card overflow-hidden"}`}>
               {rounds.map((round) => {
                 const parts = partsOf(board.rounds, round.id);
@@ -359,6 +377,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                 );
               })}
             </ol>
+            )}
           </div>
         );
       })}
@@ -983,14 +1002,14 @@ export function DeskTimer({ activity, timerSeconds, renderedAt }: { activity: Ac
       const r = await reach(() => extendScoring(activity.id, how));
       setError(r.ok ? null : r.error);
     });
-  const button = "btn btn-sm border border-oxford text-mint hover:bg-oxford";
   return (
     <div className="flex flex-wrap items-center gap-2 px-6 pt-3">
       <div className="min-w-48 flex-1">{timer && <TimerBar state={timer} timerSeconds={timerSeconds} compact quiet />}</div>
-      <button type="button" className={button} onClick={() => run("more")} disabled={pending}>
+      <button type="button" className="btn btn-sm border border-oxford text-mint hover:bg-oxford" onClick={() => run("more")} disabled={pending}>
         {timer?.phase === "closed" ? "Reopen for 15 s" : "+15 s"}
       </button>
-      <button type="button" className={button} onClick={() => run("restart")} disabled={pending}>
+      {/* The bigger change (a whole new time limit) is the quieter of the two, so it isn't pressed for +15 s. */}
+      <button type="button" className="btn btn-sm text-powder hover:bg-oxford hover:text-mint" onClick={() => run("restart")} disabled={pending}>
         Restart timer
       </button>
       {error && (
