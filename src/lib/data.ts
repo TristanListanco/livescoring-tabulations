@@ -101,7 +101,7 @@ type JudgeRow = {
   is_chair?: boolean;
   panel?: string;
 };
-type EntryRow = { id: string; name: string; photo_path?: string | null; position: number };
+type EntryRow = { id: string; name: string; photo_path?: string | null; position: number; withdrawn_at?: string | null; withdrawn_reason?: string | null };
 type ScoreRow = { entry_id: string; judge_id: string; value: number | string; round_id?: string | null };
 type DeductionRow = { id: string; entry_id: string; points: number | string; reason: string; created_at: string };
 
@@ -236,7 +236,15 @@ const toJudge = (row: JudgeRow): Judge => ({
   // "all" on databases without migration 013.
   panel: row.panel === "preliminary" || row.panel === "proper" ? row.panel : "all",
 });
-const toEntry = (row: EntryRow): Entry => ({ id: row.id, name: row.name, photoUrl: photoUrl(row.photo_path ?? null), position: row.position });
+const toEntry = (row: EntryRow): Entry => ({
+  id: row.id,
+  name: row.name,
+  photoUrl: photoUrl(row.photo_path ?? null),
+  position: row.position,
+  // Null on databases without migration 043.
+  withdrawnAt: row.withdrawn_at ?? null,
+  withdrawnReason: row.withdrawn_reason ?? null,
+});
 const toScore = (row: ScoreRow): Score => ({ entryId: row.entry_id, judgeId: row.judge_id, value: Number(row.value), roundId: row.round_id ?? null });
 
 const toAdmin = (row: AdminRow): AdminAccount => ({
@@ -839,7 +847,9 @@ async function loadPublicBoard(publicId: string): Promise<Board | null> {
   fail(error);
   if (!data) return null;
   const row = data as ActivityRow & { owner: { name: string; photo_path: string | null } | null };
-  const board = await loadBoard(toActivity(row));
+  const loaded = await loadBoard(toActivity(row));
+  // That an entry withdrew shows; why is the organizer's to know.
+  const board = { ...loaded, entries: loaded.entries.map((e) => (e.withdrawnReason ? { ...e, withdrawnReason: null } : e)) };
   const judges = publicJudges(board.judges, board.activity.ledAnonymous);
   // A pageant's list of violations is the organizer's business, never on screen for the audience; of the organizer,
   // only the logo heads their activity's results.

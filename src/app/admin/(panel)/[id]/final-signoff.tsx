@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { SignaturePad } from "@/components/signature-pad";
 import { cleanSignature } from "@/lib/deliberation";
 import { listNames } from "@/lib/names";
-import { averageText, type RankedRow } from "@/lib/scoring";
+import { rowAverageText, type RankedRow } from "@/lib/scoring";
 import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Judge } from "@/lib/types";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -89,7 +89,7 @@ export function FinalSignOff({
                 <td className="py-2 pr-3">
                   <span className="text-prussian/70">No. {row.number}</span> <span className="font-semibold">{row.entry.name}</span>
                 </td>
-                <td className="py-2 text-right font-semibold">{averageText(row.average, activity)}</td>
+                <td className="py-2 text-right font-semibold">{rowAverageText(row, activity)}</td>
               </tr>
             ))}
           </tbody>

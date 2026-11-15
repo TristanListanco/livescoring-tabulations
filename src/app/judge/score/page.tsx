@@ -8,7 +8,7 @@ import { runningSegment } from "@/lib/lifecycle";
 import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
-import { averageText, formatScore, rankEntries } from "@/lib/scoring";
+import { averageText, formatScore, isWithdrawn, rankEntries } from "@/lib/scoring";
 import { applyTieBreaks, breakFor, tieStep, tiesIn } from "@/lib/ties";
 import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
@@ -172,13 +172,15 @@ export default async function ScorePage() {
           chairName: board.judges.find((j) => j.isChair)?.name ?? null,
           // With the organizer's say-so, where each entry stands overall: rank and average, never another judge's score.
           ranking: activity.judgesSeeRanking
-            ? applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, activity), board.tieBreaks ?? []).map((row) => ({
-                id: row.entry.id,
-                rank: row.rank,
-                number: row.number,
-                name: row.entry.name,
-                average: averageText(row.average, activity),
-              }))
+            ? applyTieBreaks(rankEntries(board.entries, board.judges, board.scores, activity), board.tieBreaks ?? [])
+                .filter((row) => !isWithdrawn(row.entry))
+                .map((row) => ({
+                  id: row.entry.id,
+                  rank: row.rank,
+                  number: row.number,
+                  name: row.entry.name,
+                  average: averageText(row.average, activity),
+                }))
             : null,
         }
       : null;
@@ -230,7 +232,8 @@ export default async function ScorePage() {
       // Under review, the sub-activity's screen is a deliberation's.
       activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
       judge={context.judge}
-      entries={showing.entries}
+      // A withdrawn entry isn't scored any more: judges don't see it.
+      entries={showing.entries.filter((e) => !isWithdrawn(e))}
       myScores={mine}
       notes={notes}
       breakdown={breakdown}

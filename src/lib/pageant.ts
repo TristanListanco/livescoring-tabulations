@@ -1,4 +1,5 @@
 import { segmentPhase } from "./lifecycle";
+import { isWithdrawn } from "./scoring";
 import { ordinal } from "./ties";
 import { PRELIMINARY, type Activity, type Board, type Deduction, type Entry, type Judge, type Round, type Score } from "./types";
 
@@ -193,7 +194,8 @@ export function roundProgress(board: Board, round: Round): { submitted: number; 
   }
   const { entries, blockedBy } = roundPool(board, round.id);
   const judgeIds = new Set(judgesFor(board, round).map((j) => j.id));
-  const entryIds = new Set(entries.map((e) => e.id));
+  // A withdrawn candidate isn't waited for (the scores they had are still on record).
+  const entryIds = new Set(entries.filter((e) => !isWithdrawn(e)).map((e) => e.id));
   const submitted = board.scores.filter((s) => s.roundId === round.id && judgeIds.has(s.judgeId) && entryIds.has(s.entryId)).length;
   const possible = judgeIds.size * entryIds.size;
   return { submitted, possible, complete: possible > 0 && submitted === possible, blockedBy };
@@ -253,71 +255,117 @@ export function expectedScores(board: Board, judge: Judge): number {
     .filter((r) => onPanel(judge, r))
     .reduce((n, r) => {
       const { entries, blockedBy } = roundPool(board, r.id);
-      return n + (blockedBy ? Math.min(blockedBy.cutSize ?? 0, entries.length) : entries.length);
+      const still = entries.filter((e) => !isWithdrawn(e)).length;
+      return n + (blockedBy ? Math.min(blockedBy.cutSize ?? 0, still) : still);
     }, 0);
 }
 
 // Cuts and standings ---------------------------------------------------------------------
+
+// Exact fractions ----------------------------------------------------------------------------
+
+/**
+ * A standings total is a sum of averages as percentages, weighted by shares like 13.33 of 40: in floating point a total
+ * that should round up at the last place can round down, and two candidates on exactly the same total can come out
+ * 0.01 apart, one ranked above the other with no tie for the organizer to break. So standings work in exact fractions
+ * (n / d, d > 0) and round once, half up, as events do with whole thousandths.
+ */
+export type Fraction = { n: bigint; d: bigint };
+const gcd = (a: bigint, b: bigint): bigint => (b === BigInt(0) ? (a < BigInt(0) ? -a : a) : gcd(b, a % b));
+function fraction(n: bigint, d: bigint = BigInt(1)): Fraction {
+  const g = gcd(n, d) || BigInt(1);
+  return d < BigInt(0) ? { n: -n / g, d: -d / g } : { n: n / g, d: d / g };
+}
+const ZERO = fraction(BigInt(0));
+const plus = (a: Fraction, b: Fraction) => fraction(a.n * b.d + b.n * a.d, a.d * b.d);
+const minus = (a: Fraction, b: Fraction) => fraction(a.n * b.d - b.n * a.d, a.d * b.d);
+const times = (a: Fraction, b: Fraction) => fraction(a.n * b.n, a.d * b.d);
+const over = (a: Fraction, b: Fraction) => fraction(a.n * b.d, a.d * b.n);
+/** A stored number (a score, a share, a maximum, a deduction: at most three decimal places), exactly. */
+const exact = (value: number) => fraction(BigInt(Math.round(value * 1000)), BigInt(1000));
+/** Rounded half up to `places` decimals (standings values are never negative). */
+const roundHalfUp = (value: Fraction, places: number) => {
+  const scale = BigInt(10) ** BigInt(places);
+  return Number((BigInt(2) * value.n * scale + value.d) / (BigInt(2) * value.d)) / 10 ** places;
+};
+/** For showing a share ("18%"), never for adding up: see `exact` on a weight. */
+const approximately = (value: Fraction) => Number((value.n * BigInt(1_000_000)) / value.d) / 1_000_000;
+
+// Cuts and standings ---------------------------------------------------------------------
+
+/** What a sub-activity (or part) counts for in standings, in percent: `weight` to show, `exact` to add up with. */
+export type Weight = { round: Round; weight: number; exact: Fraction };
 
 /**
  * What each sub-activity in a cut's basis counts for, in percent, adding up to 100. When the preliminary segment
  * is counted with pageant proper sub-activities, it keeps its share of the overall score and the pageant proper
  * ones share the rest in proportion to their weights. Counted alone, either side makes up the whole 100.
  */
-export function basisWeights(rounds: Round[], preliminaryWeight: number, basis: string[]): { round: Round; weight: number }[] {
+export function basisWeights(rounds: Round[], preliminaryWeight: number, basis: string[]): Weight[] {
   const prelim = basis.includes(PRELIMINARY) ? programOrder(rounds).filter((r) => r.segment === "preliminary") : [];
   const proper = programOrder(rounds).filter((r) => r.segment === "proper" && basis.includes(r.id));
-  const prelimShare = prelim.length === 0 ? 0 : proper.length === 0 ? 100 : preliminaryWeight;
-  const properShare = proper.length === 0 ? 0 : 100 - prelimShare;
-  const share = (list: Round[], total: number) => {
-    const sum = list.reduce((s, r) => s + r.weight, 0);
-    return list.map((round) => ({ round, weight: sum > 0 ? (total * round.weight) / sum : 0 }));
-  };
-  return [...share(prelim, prelimShare), ...share(proper, properShare)];
+  const prelimShare = prelim.length === 0 ? ZERO : proper.length === 0 ? fraction(BigInt(100)) : exact(preliminaryWeight);
+  const properShare = proper.length === 0 ? ZERO : minus(fraction(BigInt(100)), prelimShare);
+  return [...shared(prelim, prelimShare), ...shared(proper, properShare)];
+}
+
+/** `total` shared among `list` in proportion to their weights. */
+function shared(list: Round[], total: Fraction): Weight[] {
+  const sum = list.reduce((s, r) => plus(s, exact(r.weight)), ZERO);
+  return list.map((round) => {
+    const weight = sum.n > BigInt(0) ? over(times(total, exact(round.weight)), sum) : ZERO;
+    return { round, weight: approximately(weight), exact: weight };
+  });
 }
 
 export type StandingRow = {
   entry: Entry;
   /**
-   * Points taken off the total for the candidate's deductions: their points off the preliminary score, counting as
-   * much as the preliminary does here (2 points, with the preliminary at 40%, take 0.8 off). 0 for none.
+   * Points taken off the total for the candidate's deductions, as shown (to the results' decimal places): their points
+   * off the preliminary score, counting as much as the preliminary does here (2 points, with the preliminary at 40%,
+   * take 0.8 off). 0 for none.
    */
   deducted: number;
+  /** They have deductions this total takes off (even ones too small to show at the results' decimal places). */
+  hasDeduction: boolean;
   /** The candidate's number in the full running order. */
   number: number;
-  /** Per sub-activity in the basis: the candidate's average as a percentage of its maximum, or null before any score. */
+  /**
+   * Per sub-activity in the basis: the candidate's average as a percentage of its maximum, as shown (to the results'
+   * decimal places, half up), or null before any score. The total adds up the exact percentages, not these.
+   */
   parts: Map<string, number | null>;
-  /** The weighted total out of 100, rounded to the results' decimal places, once every part has a score. */
+  /** The weighted total out of 100, rounded half up to the results' decimal places, once every part has a score. */
   total: number | null;
   rank: number | null;
-  /** Every judge has scored this candidate in every sub-activity of the basis. */
+  /** Every judge has scored this candidate in every sub-activity of the basis (or they've withdrawn: not waited for). */
   complete: boolean;
 };
-
-const roundTo = (value: number, places: number) => Math.round((value + Number.EPSILON) * 10 ** places) / 10 ** places;
 
 /**
  * A candidate's average in a sub-activity as a percentage of its maximum (9.5 of 10 → 95), from the scores in so far.
  * A sub-activity with parts: its parts' percentages weighted by their shares, once each part has a score; `count` is
  * then the fewest judges who have scored any one part.
  */
-function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set<string>, rounds: Round[]): { percent: number | null; count: number } {
+function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set<string>, rounds: Round[]): { percent: Fraction | null; count: number } {
   const parts = partsOf(rounds, round.id);
   if (parts.length) {
-    const each = parts.map((p) => ({ weight: p.weight, ...percentOf(p, entryId, scores, judgeIds, rounds) }));
-    const total = each.reduce((n, p) => n + p.weight, 0);
+    const each = parts.map((p) => ({ weight: exact(p.weight), ...percentOf(p, entryId, scores, judgeIds, rounds) }));
+    const total = each.reduce((n, p) => plus(n, p.weight), ZERO);
     const count = Math.min(...each.map((p) => p.count));
-    if (total <= 0 || each.some((p) => p.percent === null)) return { percent: null, count };
-    return { percent: each.reduce((n, p) => n + (p.weight * p.percent!) / total, 0), count };
+    if (total.n <= BigInt(0) || each.some((p) => p.percent === null)) return { percent: null, count };
+    return { percent: over(each.reduce((n, p) => plus(n, times(p.weight, p.percent!)), ZERO), total), count };
   }
-  let hundredths = 0;
+  let thousandths = BigInt(0);
   let count = 0;
   for (const s of scores) {
     if (s.roundId !== round.id || s.entryId !== entryId || !judgeIds.has(s.judgeId)) continue;
-    hundredths += Math.round(s.value * 100);
+    thousandths += BigInt(Math.round(s.value * 1000));
     count++;
   }
-  return { percent: count ? (hundredths / 100 / count / round.max) * 100 : null, count };
+  // A maximum of 0 can't be saved (the setup refuses it); from anywhere else it gives no percentage, not a division by 0.
+  const max = BigInt(Math.round(round.max * 1000));
+  return { percent: count && max > BigInt(0) ? fraction(BigInt(100) * thousandths, BigInt(count) * max) : null, count };
 }
 
 /**
@@ -325,12 +373,12 @@ function percentOf(round: Round, entryId: string, scores: Score[], judgeIds: Set
  * averages as percentages, rounded to the results' decimal places; equal totals share a rank. Candidates without a
  * score in every part go last, unranked, in running order.
  */
-export function standings(board: Board, entries: Entry[], basis: string[]): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
+export function standings(board: Board, entries: Entry[], basis: string[]): { weights: Weight[]; rows: StandingRow[]; complete: boolean } {
   const weights = basisWeights(board.rounds, board.activity.preliminaryWeight, basis);
   // Deductions come off the preliminary score, so they count for as much as the preliminary does here: all of it
   // on the preliminary's own standings, its share in a cut that counts it with pageant proper, nothing in one that doesn't.
-  const prelimShare = weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => n + w.weight, 0);
-  const deduct = new Map([...deductionTotals(board.deductions)].map(([id, points]) => [id, (points * prelimShare) / 100]));
+  const prelimShare = weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => plus(n, w.exact), ZERO);
+  const deduct = new Map([...deductionTotals(board.deductions)].map(([id, points]) => [id, over(times(exact(points), prelimShare), fraction(BigInt(100)))]));
   return standingsBy(board, entries, weights, deduct);
 }
 
@@ -350,45 +398,57 @@ export function deductionsOpen(board: Board): boolean {
 }
 
 /** A sub-activity's parts as weights adding up to 100, for its own standings sheet. */
-export function partWeights(rounds: Round[], round: Round): { round: Round; weight: number }[] {
-  const parts = partsOf(rounds, round.id);
-  const total = parts.reduce((n, p) => n + p.weight, 0);
-  return parts.map((p) => ({ round: p, weight: total > 0 ? (100 * p.weight) / total : 0 }));
+export function partWeights(rounds: Round[], round: Round): Weight[] {
+  return shared(partsOf(rounds, round.id), fraction(BigInt(100)));
 }
 
 /**
  * Candidates ranked by sub-activities (or parts) with the given weights, in percent. See standings. `deduct`: points
- * to take off each candidate's total (by entry id); a total never goes below 0.
+ * to take off each candidate's total (by entry id); a total never goes below 0. Withdrawn candidates come last, with no
+ * total, and aren't waited for. `complete`: every candidate still in has every score, and the basis counts something.
  */
 export function standingsBy(
   board: Board,
   entries: Entry[],
-  weights: { round: Round; weight: number }[],
-  deduct: Map<string, number> = new Map(),
-): { weights: { round: Round; weight: number }[]; rows: StandingRow[]; complete: boolean } {
+  weights: Weight[],
+  deduct: Map<string, Fraction> = new Map(),
+): { weights: Weight[]; rows: StandingRow[]; complete: boolean } {
   // Each sub-activity counts its own panel's judges: the preliminary can have its own set.
   const panels = new Map(weights.map(({ round }) => [round.id, new Set(judgesFor(board, round).map((j) => j.id))]));
   const places = board.activity.resultDecimals;
+  const hundred = fraction(BigInt(100));
 
   const rows: StandingRow[] = entries.map((entry, i) => {
     const parts = new Map<string, number | null>();
-    let sum = 0;
+    const withdrawn = isWithdrawn(entry);
+    let sum = ZERO;
     let scored = true;
     let complete = true;
-    for (const { round, weight } of weights) {
+    for (const { round, exact: weight } of weights) {
       const judgeIds = panels.get(round.id)!;
       const { percent, count } = percentOf(round, entry.id, board.scores, judgeIds, board.rounds);
-      parts.set(round.id, percent);
+      parts.set(round.id, percent === null ? null : roundHalfUp(percent, places));
       if (percent === null) scored = false;
-      else sum += (weight * percent) / 100;
+      else sum = plus(sum, over(times(weight, percent), hundred));
       if (judgeIds.size === 0 || count < judgeIds.size) complete = false;
     }
-    const deducted = deduct.get(entry.id) ?? 0;
-    const total = scored && weights.length ? roundTo(Math.max(0, sum - deducted), places) : null;
-    return { entry, deducted, number: entry.number ?? i + 1, parts, total, rank: null, complete };
+    const off = deduct.get(entry.id) ?? ZERO;
+    const left = minus(sum, off);
+    const total = scored && weights.length && !withdrawn ? roundHalfUp(left.n < BigInt(0) ? ZERO : left, places) : null;
+    return {
+      entry,
+      deducted: roundHalfUp(off, places),
+      hasDeduction: off.n > BigInt(0),
+      number: entry.number ?? i + 1,
+      parts,
+      total,
+      rank: null,
+      complete: complete || withdrawn,
+    };
   });
 
   rows.sort((a, b) => {
+    if (isWithdrawn(a.entry) !== isWithdrawn(b.entry)) return isWithdrawn(a.entry) ? 1 : -1;
     if (a.total === null || b.total === null) return a.total === b.total ? a.number - b.number : a.total === null ? 1 : -1;
     return b.total - a.total || a.number - b.number;
   });
@@ -397,7 +457,9 @@ export function standingsBy(
     const prev = rows[i - 1];
     row.rank = prev && prev.total === row.total ? prev.rank : i + 1;
   });
-  return { weights, rows, complete: rows.length > 0 && rows.every((r) => r.complete) };
+  // A basis that counts nothing ranks nobody, so it's never complete (the setup refuses one; this holds for any other way in).
+  const complete = weights.length > 0 && rows.some((r) => !isWithdrawn(r.entry)) && rows.every((r) => r.complete);
+  return { weights, rows, complete };
 }
 
 /** A final placement's title: the winner, then the runners-up in order ("1st Runner-up", "2nd Runner-up", …). */
@@ -424,7 +486,7 @@ export type CutPlan = {
   /** How many go through: the cut's size, or everyone when fewer are left. */
   size: number;
   final: boolean;
-  weights: { round: Round; weight: number }[];
+  weights: Weight[];
   rows: StandingRow[];
   /** Every score in the basis is in for every candidate in the cut, and every deliberated one is signed off. */
   ready: boolean;
@@ -437,7 +499,8 @@ export type CutPlan = {
 export function cutPlan(board: Board, round: Round): CutPlan {
   const pool = roundPool(board, round.id).entries;
   const { weights, rows, complete } = standings(board, pool, round.cutBasis);
-  const size = Math.min(round.cutSize ?? 0, pool.length);
+  // A withdrawn candidate can't go through: the cut takes the next best instead.
+  const size = Math.min(round.cutSize ?? 0, pool.filter((e) => !isWithdrawn(e)).length);
   const final = finalCutRound(board.rounds)?.id === round.id;
 
   const ties: TieGroup[] = [];

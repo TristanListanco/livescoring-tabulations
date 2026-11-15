@@ -44,7 +44,7 @@ const notYet = (message: string) => new Response(message, { status: 409 });
 
 /** The deductions a standings sheet counts: its candidates', when its totals take any off. */
 const countedDeductions = (board: Board, rows: StandingRow[]): Deduction[] | undefined => {
-  if (!rows.some((r) => r.deducted > 0)) return undefined;
+  if (!rows.some((r) => r.hasDeduction)) return undefined;
   const ids = new Set(rows.map((r) => r.entry.id));
   return board.deductions?.filter((d) => ids.has(d.entryId));
 };

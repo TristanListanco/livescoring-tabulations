@@ -125,6 +125,20 @@ create index if not exists entries_activity_idx on public.entries (activity_id, 
 alter table public.entries add column if not exists details jsonb not null default '{}'::jsonb;
 -- An optional photo per entry, shown on the LED wall.
 alter table public.entries add column if not exists photo_path text;
+-- An entry the organizer marked withdrawn, and why (migration 043): it isn't ranked or waited for, and gets no new scores
+-- (check_score); the scores it had stay on record.
+alter table public.entries add column if not exists withdrawn_at timestamptz;
+alter table public.entries add column if not exists withdrawn_reason text;
+do $withdrawn$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'entries_withdrawn_reason') then
+    alter table public.entries add constraint entries_withdrawn_reason check (
+      (withdrawn_at is null and withdrawn_reason is null)
+      or (withdrawn_at is not null and char_length(btrim(withdrawn_reason)) between 1 and 120)
+    );
+  end if;
+end;
+$withdrawn$;
 
 -- Settings added after the first release (also in supabase/migrations/).
 alter table public.activities add column if not exists show_rank boolean not null default true;
@@ -212,10 +226,12 @@ begin
      and (new.live_scoring or new.kind <> 'event') then
     raise exception 'Only an event without live scoring has a deliberation.';
   end if;
-  -- It starts (or starts again) only once every judge has scored every entry: no one can score during it.
+  -- It starts (or starts again) only once every judge has scored every entry still in (not withdrawn): no one can
+  -- score during it.
   if new.session_state = 'deliberation' and old.session_state is distinct from 'deliberation' and exists (
     select 1 from public.entries e join public.judges j on j.activity_id = e.activity_id
     where e.activity_id = new.id
+      and e.withdrawn_at is null
       and not exists (select 1 from public.scores s where s.entry_id = e.id and s.judge_id = j.id and s.round_id is null)
   ) then
     raise exception 'Every judge scores every entry before the deliberation.' using errcode = '55000';
@@ -388,6 +404,7 @@ language plpgsql
 as $$
 declare
   a public.activities%rowtype;
+  e public.entries%rowtype;
   r public.rounds%rowtype;
   lo numeric;
   hi numeric;
@@ -402,8 +419,13 @@ begin
   if tg_op = 'INSERT' and a.session_state is distinct from 'live' then
     raise exception 'Judging is not open' using errcode = '55000';
   end if;
-  if not exists (select 1 from public.entries where id = new.entry_id and activity_id = new.activity_id) then
+  select * into e from public.entries where id = new.entry_id and activity_id = new.activity_id;
+  if not found then
     raise exception 'Entry does not belong to this activity';
+  end if;
+  -- A withdrawn entry gets no new scores (a correction to one it had still goes through).
+  if tg_op = 'INSERT' and e.withdrawn_at is not null then
+    raise exception 'This entry has withdrawn' using errcode = '55000';
   end if;
   if not exists (select 1 from public.judges where id = new.judge_id and activity_id = new.activity_id) then
     raise exception 'Judge does not belong to this activity';

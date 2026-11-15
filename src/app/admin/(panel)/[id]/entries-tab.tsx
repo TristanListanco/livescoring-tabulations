@@ -7,7 +7,8 @@ import { PhotoPicker } from "@/components/photo-picker";
 import { SubmitButton } from "@/components/submit-button";
 import { detailsLine, GENERAL_DETAILS, MAX_DETAIL, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, type EntryDetails, type EntryField } from "@/lib/entry-details";
 import type { ActionResult, Entry } from "@/lib/types";
-import { addEntries, moveEntry, removeEntry, renameEntry, setEntryFields, setEntryPhoto, shuffleEntries, type FormResult } from "../../actions";
+import { addEntries, moveEntry, reinstateEntry, removeEntry, renameEntry, setEntryFields, setEntryPhoto, shuffleEntries, withdrawEntry, type FormResult } from "../../actions";
+import { MAX_WITHDRAWN_REASON } from "@/lib/withdrawn";
 import { blankEntry, entryLines, EntryRows, type EntryRow as NewEntry } from "../entry-rows";
 import { FormMessage } from "../form-message";
 import { toastSaved } from "../toaster";
@@ -30,6 +31,8 @@ function EntryRow({
   isLast,
   scored,
   started,
+  live,
+  pageant,
   onReorder,
   fields,
   details,
@@ -40,6 +43,9 @@ function EntryRow({
   isLast: boolean;
   scored: number;
   started: boolean;
+  /** Judging is live: a scored entry that can't go on can be withdrawn (and put back). */
+  live: boolean;
+  pageant: boolean;
   /** Moving or removing it changes the running order. */
   onReorder: () => void;
   /** The event's entry fields, and this entry's values (see entry-details.ts). */
@@ -60,6 +66,8 @@ function EntryRow({
       onReorder();
       await moveEntry(entry.id, direction);
     });
+  const [reason, setReason] = useState("");
+  const what = pageant ? "candidate" : "entry";
   const [photoPending, startPhoto] = useTransition();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -129,6 +137,12 @@ function EntryRow({
           </div>
         </form>
         <FormMessage state={photoError ? { ok: false, error: photoError } : null} small />
+        {entry.withdrawnAt && (
+          <p className="text-sm">
+            <span className="font-semibold text-danger">Withdrawn</span>
+            {entry.withdrawnReason && <span className="text-prussian/75">: {entry.withdrawnReason}</span>}
+          </p>
+        )}
       </div>
       {/*
         Once the session has started (the note above says so), the order is fixed: no arrows to fade out. An entry that
@@ -157,11 +171,57 @@ function EntryRow({
             </button>
           </>
         )}
-        {started && scored > 0 ? (
+        {started && scored > 0 && (
           <span className="tabular hint px-2">
             {scored} {scored === 1 ? "score" : "scores"}
           </span>
-        ) : (
+        )}
+        {entry.withdrawnAt ? (
+          live && (
+            <ConfirmDialog
+              triggerLabel={
+                <>
+                  Reinstate<span className="sr-only"> {entry.name}</span>
+                </>
+              }
+              triggerClassName="btn btn-quiet btn-sm"
+              title={`Reinstate ${entry.name}?`}
+              confirmLabel="Reinstate"
+              onConfirm={async () => toastSaved(await reinstateEntry(entry.id))}
+            >
+              They&apos;re ranked and judged again, and every judge has to score them wherever they haven&apos;t yet.
+            </ConfirmDialog>
+          )
+        ) : live && scored > 0 ? (
+          <ConfirmDialog
+            triggerLabel={
+              <>
+                Withdraw<span className="sr-only"> {entry.name}</span>
+              </>
+            }
+            triggerClassName="btn btn-sm text-danger hover:bg-danger/10"
+            title={`Withdraw ${entry.name}?`}
+            tone="danger"
+            confirmLabel={`Withdraw ${what}`}
+            onConfirm={async () => toastSaved(await withdrawEntry(entry.id, reason))}
+          >
+            <p>
+              For a {what} who can&apos;t go on. They&apos;re no longer ranked, waited for or judged; their {scored} {scored === 1 ? "score stays" : "scores stay"} on
+              record. The live results show them as withdrawn.
+            </p>
+            <label className="mt-4 block">
+              <span className="label text-prussian">Why</span>
+              <input
+                className="field"
+                value={reason}
+                maxLength={MAX_WITHDRAWN_REASON}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Fell ill, withdrew, disqualified"
+              />
+            </label>
+            <span className="hint mt-1.5 block">Only you see the reason.</span>
+          </ConfirmDialog>
+        ) : started && scored > 0 ? null : (
           <ConfirmDialog
             triggerLabel={
               <>
@@ -304,6 +364,12 @@ export function EntriesTab({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{e.name}</span>
                     {detailsLine(fields, details?.byEntry[e.id]) && <span className="hint block truncate">{detailsLine(fields, details?.byEntry[e.id])}</span>}
+                    {e.withdrawnAt && (
+                      <span className="block truncate text-sm">
+                        <span className="font-semibold text-danger">Withdrawn</span>
+                        {e.withdrawnReason && <span className="text-prussian/75">: {e.withdrawnReason}</span>}
+                      </span>
+                    )}
                   </span>
                   <span className="tabular hint shrink-0">
                     {scored} {scored === 1 ? "score" : "scores"}
@@ -339,6 +405,8 @@ export function EntriesTab({
                   isLast={i === entries.length - 1}
                   scored={scoredFor[e.id] ?? 0}
                   started={started}
+                  live={started && !deliberating}
+                  pageant={pageant}
                   // The shuffle's "is now first" no longer holds.
                   onReorder={() => setShuffled(null)}
                   // Each entry (or candidate) has a line of details: an older event's own named fields, or the general one.

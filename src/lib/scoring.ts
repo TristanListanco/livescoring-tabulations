@@ -111,9 +111,13 @@ function roundShown(numerator: number, denominator: number, places: number): num
   return Math.round((numerator * 10 ** places) / denominator) / 10 ** places;
 }
 
+/** An entry the organizer marked withdrawn: not ranked, not waited for, not scored (see Entry.withdrawnAt). */
+export const isWithdrawn = (entry: Pick<Entry, "withdrawnAt">) => !!entry.withdrawnAt;
+
 /**
  * Rank entries by the average of the scores submitted so far.
- * Ties share a rank (1, 1, 3). Unscored entries go last, unranked, in entry order.
+ * Ties share a rank (1, 1, 3). Unscored entries go last, unranked, in entry order; withdrawn ones after them, with no
+ * average, though their scores stay in `scores`.
  */
 export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], rules: DisplayRules): RankedRow[] {
   const divisor = shownDivisor(rules);
@@ -134,12 +138,13 @@ export function rankEntries(entries: Entry[], judges: Judge[], scores: Score[], 
       number: entry.number ?? index + 1,
       scores: mine,
       count,
-      average: count ? roundShown(sum, THOUSANDTHS * count * divisor, rules.resultDecimals) : null,
+      average: count && !isWithdrawn(entry) ? roundShown(sum, THOUSANDTHS * count * divisor, rules.resultDecimals) : null,
       rank: null,
     };
   });
 
   rows.sort((a, b) => {
+    if (isWithdrawn(a.entry) !== isWithdrawn(b.entry)) return isWithdrawn(a.entry) ? 1 : -1;
     if (a.average === null || b.average === null) {
       if (a.average !== b.average) return a.average === null ? 1 : -1;
       return a.number - b.number;
@@ -203,10 +208,10 @@ export function withheldScores(board: Board): Board {
   return { ...board, scores: [], scored: board.scores.map((s) => ({ entryId: s.entryId, judgeId: s.judgeId, roundId: s.roundId ?? null })) };
 }
 
-/** How many of the expected scores (every judge × every entry) are in. */
+/** How many of the expected scores (every judge × every entry still in, not withdrawn) are in. */
 export function scoreProgress(board: Board): { submitted: number; possible: number; complete: boolean } {
   const judgeIds = new Set(board.judges.map((j) => j.id));
-  const entryIds = new Set(board.entries.map((e) => e.id));
+  const entryIds = new Set(board.entries.filter((e) => !isWithdrawn(e)).map((e) => e.id));
   const submitted = board.scores.filter((s) => judgeIds.has(s.judgeId) && entryIds.has(s.entryId)).length;
   const possible = judgeIds.size * entryIds.size;
   return { submitted, possible, complete: possible > 0 && submitted === possible };
@@ -231,6 +236,10 @@ export function scoreText(value: number, rules: DisplayRules): string {
 export function averageText(average: number | null, rules: DisplayRules): string {
   return average === null ? "—" : `${average.toFixed(rules.resultDecimals)}${percentSign(rules)}`;
 }
+
+/** A ranking row's average as shown: "Withdrawn" for an entry that withdrew (it has none), otherwise as averageText. */
+export const rowAverageText = (row: Pick<RankedRow, "entry" | "average">, rules: DisplayRules) =>
+  isWithdrawn(row.entry) ? "Withdrawn" : averageText(row.average, rules);
 
 /** One line describing how the activity is scored, for headers and the PDF. */
 export function rulesSummary(activity: Pick<Activity, "scoringMode" | "criteria" | "criteriaDisplay" | "min" | "max" | "decimals">): string {

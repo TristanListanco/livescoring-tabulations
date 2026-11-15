@@ -3,7 +3,7 @@ import { Document, Font, Image, Page, Path, StyleSheet, Svg, Text, View, renderT
 import type { CorrectionView } from "./corrections";
 import type { EntryDetails, EntryField } from "./entry-details";
 import { placeTitle, type StandingRow } from "./pageant";
-import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreText, type JudgeSheetRow } from "./scoring";
+import { formatBound, formatScore, isWithdrawn, judgeSheet, rankEntries, rowAverageText, scoreText, type JudgeSheetRow } from "./scoring";
 import type { JudgeNote } from "./data";
 import { SIGNATURE_BOX } from "./deliberation";
 import { listNames } from "./names";
@@ -363,7 +363,7 @@ function ResultsDocument({
                   </Text>
                 );
               })}
-              <Text style={[s.cell, s.average]}>{averageText(row.average, activity)}</Text>
+              <Text style={[s.cell, s.average]}>{rowAverageText(row, activity)}</Text>
             </View>
           ))}
         </View>
@@ -519,7 +519,7 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
   };
   const statusHead = sheet.kind === "final" ? "Place" : sheet.kind === "cut" ? "Result" : null;
   // Deductions come off the preliminary score: all of it on the preliminary's sheet, its share on a cut that counts it.
-  const deducting = sheet.rows.some((r) => r.deducted > 0);
+  const deducting = sheet.rows.some((r) => r.hasDeduction);
   const prelimShare = sheet.weights.filter((w) => w.round.segment === "preliminary").reduce((n, w) => n + w.weight, 0);
   // A cut counts only a share of the preliminary, so a deduction there takes less off the total than its points.
   const deductionNote =
@@ -528,7 +528,10 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
       : "";
   const numberOf = new Map(sheet.rows.map((r) => [r.entry.id, r]));
   const listed = [...sheet.deductions].sort((a, b) => (numberOf.get(a.entryId)?.number ?? 0) - (numberOf.get(b.entryId)?.number ?? 0));
-  const meta = [deductionNote, tieBroken.size ? "Candidates marked * were tied; the organizer decided their order." : ""].filter(Boolean).join(" ");
+  // Each column is rounded for the sheet; the total adds up the exact values and is rounded once, half up.
+  const roundingNote =
+    sheet.weights.length > 1 || deducting ? "Totals are worked out from unrounded averages, so a row's columns may not add up to its total in the last decimal place." : "";
+  const meta = [deductionNote, roundingNote, tieBroken.size ? "Candidates marked * were tied; the organizer decided their order." : ""].filter(Boolean).join(" ");
 
   return (
     <Document title={`${activity.name}, ${sheet.title}`} author="Tabulous" creator="Tabulous">
@@ -562,8 +565,8 @@ function StandingsDocument({ board, info, sheet }: { board: Board; info: ReportI
                     {pct(row.parts.get(w.round.id))}
                   </Text>
                 ))}
-                {deducting && <Text style={[s.cell, s.deducted]}>{row.deducted > 0 ? `\u2212${row.deducted.toFixed(places)}` : "—"}</Text>}
-                <Text style={[s.cell, s.average]}>{pct(row.total)}</Text>
+                {deducting && <Text style={[s.cell, s.deducted]}>{row.hasDeduction ? `\u2212${row.deducted.toFixed(places)}` : "—"}</Text>}
+                <Text style={[s.cell, s.average]}>{isWithdrawn(row.entry) ? "Withdrawn" : pct(row.total)}</Text>
               </View>
             );
           })}

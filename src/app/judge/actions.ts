@@ -296,6 +296,10 @@ export const submitScore = traced("submitScore", async function submitScore(entr
       return { ok: false, error: `You already scored this ${scoredIn ? "candidate here" : "entry"}. Submitted scores can't be changed.` };
     }
     if (error.code === "23503") return { ok: false, error: "This entry was removed by the organizer." };
+    // The organizer marked it withdrawn as the score arrived (migration 043): it isn't scored any more.
+    if (error.code === "55000" && /withdrawn/.test(error.message)) {
+      return { ok: false, error: `This ${pageant ? "candidate" : "entry"} has withdrawn, so it isn't scored any more.` };
+    }
     // The session ended (or the deliberation started) as the score arrived: the database turns it away (migration 028).
     if (error.code === "55000") return { ok: false, error: "Judging isn't open right now. Wait for the organizer." };
     // The one write that matters most: why it failed goes to the log, beside the judge's own message.
@@ -318,11 +322,15 @@ export const submitScore = traced("submitScore", async function submitScore(entr
 async function endWhenEveryScoreIsIn(activityId: string): Promise<void> {
   const [judges, entries, scores] = await Promise.all([
     db().from("judges").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
-    db().from("entries").select("id", { count: "exact", head: true }).eq("activity_id", activityId),
-    db().from("scores").select("id", { count: "exact", head: true }).eq("activity_id", activityId).is("round_id", null),
+    // "*" so this works on databases without migration 043's withdrawn_at.
+    db().from("entries").select("*").eq("activity_id", activityId),
+    db().from("scores").select("entry_id").eq("activity_id", activityId).is("round_id", null),
   ]);
-  const expected = (judges.count ?? 0) * (entries.count ?? 0);
-  if (!expected || scores.count !== expected) return;
+  // Entries still in: a withdrawn one isn't waited for, and the scores it had don't count towards the rest.
+  const still = new Set(((entries.data ?? []) as { id: string; withdrawn_at?: string | null }[]).filter((e) => !e.withdrawn_at).map((e) => e.id));
+  const expected = (judges.count ?? 0) * still.size;
+  const counted = ((scores.data ?? []) as { entry_id: string }[]).filter((s) => still.has(s.entry_id)).length;
+  if (!expected || counted !== expected) return;
   const { error } = await db()
     .from("activities")
     .update({ session_state: "ended", session_ended_at: new Date().toISOString() })

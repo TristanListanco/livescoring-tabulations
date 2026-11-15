@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { firstNames } from "@/lib/names";
-import { averageText, liveStandings, rankEntries, scoreText, type RankedRow } from "@/lib/scoring";
+import { isWithdrawn, liveStandings, rankEntries, rowAverageText, scoreText, type RankedRow } from "@/lib/scoring";
 import { applyTieBreaks } from "@/lib/ties";
 import type { Board, ScoredMark } from "@/lib/types";
 import { Avatar } from "./avatar";
@@ -285,7 +285,8 @@ export function Scoreboard({
           {rows.map((row, i) => {
             const place = placeOf(row, ranked, judges.length);
             const top = place !== "rest";
-            const partial = row.count > 0 && row.count < judges.length;
+            const withdrawn = isWithdrawn(row.entry);
+            const partial = !withdrawn && row.count > 0 && row.count < judges.length;
             const secondary = top ? "text-mint/80" : "text-powder";
             // On a stage, a row on another page is there for screen readers only. One on this page has a set height,
             // and its type is a share of that height (never wider than its column allows).
@@ -319,7 +320,7 @@ export function Scoreboard({
                     }`}
                     style={size(0.5, 4.2)}
                   >
-                    <span className="sr-only">{row.rank ? "Rank " : "Not ranked yet"}</span>
+                    <span className="sr-only">{row.rank ? "Rank " : withdrawn ? "" : "Not ranked yet"}</span>
                     {row.rank ?? ""}
                   </span>
                 )}
@@ -363,7 +364,12 @@ export function Scoreboard({
                 })}
 
                 <div className={`text-right ${container}`}>
-                  {held ? (
+                  {withdrawn ? (
+                    // No average, nor a place: it can't go on. Why is the organizer's to know.
+                    <p className="text-[clamp(1.05rem,1.5vw,1.75rem)] leading-none font-semibold text-powder" style={size(0.24, 1.8)}>
+                      Withdrawn
+                    </p>
+                  ) : held ? (
                     <HeldCount
                       count={judges.filter((j) => done.has(`${row.entry.id}:${j.id}`)).length}
                       of={judges.length}
@@ -382,7 +388,7 @@ export function Scoreboard({
                       }`}
                       style={size(0.44, 4.2)}
                     >
-                      <span style={fit(averageText(row.average, activity))}>{averageText(row.average, activity)}</span>
+                      <span style={fit(rowAverageText(row, activity))}>{rowAverageText(row, activity)}</span>
                     </p>
                   )}
                   {partial && !held && (

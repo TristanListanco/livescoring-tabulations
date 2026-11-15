@@ -429,3 +429,87 @@ describe("a sub-activity at its judges' own pace", () => {
     expect(atOwnPace(started)).toBe(false);
   });
 });
+
+describe("exact standings", () => {
+  // An independent reference: each total as a fraction (sum of scores in hundredths × weight in hundredths over their
+  // denominators), rounded half up with BigInt.
+  const big = (n: number) => BigInt(Math.round(n * 100));
+  const halfUp = (n: bigint, d: bigint, places: number) => Number((BigInt(2) * n * BigInt(10) ** BigInt(places) + d) / (BigInt(2) * d)) / 10 ** places;
+
+  it("rounds a total that's exactly halfway up, as events do", () => {
+    // 6.17 and 6.18 of 10: an average of 6.175, so 61.75%, which shows as 61.8 to one place (61.7 in floating point).
+    const talent = roundFixture({ id: "talent", segment: "preliminary", position: 0, weight: 40, min: 0 });
+    const board: Board = {
+      activity: activityFixture({ kind: "pageant", preliminaryWeight: 40, resultDecimals: 1 }),
+      judges: [judge("j1"), judge("j2")],
+      entries: [entry("A", 0)],
+      scores: [
+        { entryId: "A", judgeId: "j1", value: 6.17, roundId: "talent" },
+        { entryId: "A", judgeId: "j2", value: 6.18, roundId: "talent" },
+      ],
+      rounds: [talent],
+    };
+    const [row] = standings(board, board.entries, [PRELIMINARY]).rows;
+    expect(row.total).toBe(61.8);
+    expect(row.parts.get("talent")).toBe(61.8);
+  });
+
+  it("matches exact arithmetic for any scores and shares, so equal totals always tie", () => {
+    let seed = 11;
+    const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const pick = <T,>(list: T[]) => list[Math.floor(random() * list.length)];
+    for (let run = 0; run < 1500; run++) {
+      const places = pick([1, 2, 3] as const);
+      const rounds = [0, 1, 2].map((i) =>
+        roundFixture({ id: `r${i}`, segment: "preliminary", position: i, weight: pick([13.33, 13.34, 20, 15]), max: pick([10, 100, 5]), min: 0 }),
+      );
+      const judges = ["j1", "j2", "j3", "j4"].slice(0, pick([2, 3, 4])).map(judge);
+      const entries = ["A", "B", "C", "D"].map(entry);
+      const scores: Score[] = rounds.flatMap((r) =>
+        entries.flatMap((e) => judges.map((j) => ({ entryId: e.id, judgeId: j.id, roundId: r.id, value: Math.round(random() * r.max * 100) / 100 }))),
+      );
+      const board: Board = { activity: activityFixture({ kind: "pageant", preliminaryWeight: 40, resultDecimals: places }), judges, entries, scores, rounds };
+      const sumWeights = rounds.reduce((n, r) => n + big(r.weight), BigInt(0));
+      for (const row of standings(board, entries, [PRELIMINARY]).rows) {
+        // Σ weight × (sum of the scores ÷ (judges × max)) × 100 ÷ Σ weights, over one common denominator.
+        let n = BigInt(0);
+        let d = BigInt(1);
+        for (const r of rounds) {
+          const sum = scores.filter((s) => s.entryId === row.entry.id && s.roundId === r.id).reduce((t, s) => t + big(s.value), BigInt(0));
+          const termN = big(r.weight) * sum * BigInt(100);
+          const termD = sumWeights * BigInt(judges.length) * big(r.max);
+          n = n * termD + termN * d;
+          d = d * termD;
+        }
+        expect(row.total).toBe(halfUp(n, d, places));
+      }
+    }
+  });
+
+  it("keeps a deduction too small to show at the results' places on the sheet", () => {
+    // 1 point off a 40% preliminary takes 0.4 off a cut's total: shown as 0 at whole numbers, but it's still there.
+    const talent = roundFixture({ id: "talent", segment: "preliminary", position: 0, weight: 40 });
+    const swim = roundFixture({ id: "swim", segment: "proper", position: 1, weight: 60, cutSize: 1, cutBasis: [PRELIMINARY, "swim"] });
+    const board: Board = {
+      activity: activityFixture({ kind: "pageant", preliminaryWeight: 40, resultDecimals: 0 }),
+      judges: [judge("j1")],
+      entries: [entry("A", 0)],
+      scores: [
+        { entryId: "A", judgeId: "j1", value: 10, roundId: "talent" },
+        { entryId: "A", judgeId: "j1", value: 10, roundId: "swim" },
+      ],
+      rounds: [talent, swim],
+      deductions: [{ id: "d1", entryId: "A", points: 1, reason: "Late", createdAt: "" }],
+    };
+    const [row] = standings(board, board.entries, [PRELIMINARY, "swim"]).rows;
+    expect(row).toMatchObject({ deducted: 0, hasDeduction: true, total: 100 });
+    // 99.6, half up to a whole number.
+  });
+
+  it("never treats a cut that counts nothing as ready", () => {
+    const swim = roundFixture({ id: "swim", segment: "proper", position: 1, cutSize: 2, cutBasis: [] });
+    const board: Board = { activity: activityFixture({ kind: "pageant", preliminaryWeight: 40 }), judges: [judge("j1")], entries: ["A", "B", "C"].map(entry), scores: [], rounds: [swim] };
+    expect(standings(board, board.entries, []).complete).toBe(false);
+    expect(cutPlan(board, swim).ready).toBe(false);
+  });
+});
