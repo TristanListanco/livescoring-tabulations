@@ -34,7 +34,7 @@ import { useMediaQuery } from "@/lib/use-media-query";
 import { MAX_REASON, segmentLabel } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { newRequestId } from "@/lib/request-id";
-import { formatBound } from "@/lib/scoring";
+import { formatBound, isWithdrawn } from "@/lib/scoring";
 import { ordinal } from "@/lib/ties";
 import type { ActionResult, Activity, Board, JudgeSignature, Round } from "@/lib/types";
 import { addDeduction, confirmCut, extendScoring, removeDeduction, setCurrentRound, signOffRound, startRoundDeliberation, undoCut } from "../../actions";
@@ -809,7 +809,7 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
   const tied = new Set(plan?.ties.flatMap((t) => t.rows.map((r) => r.entry.id)) ?? []);
   const incomplete = plan ? plan.rows.filter((r) => !r.complete).length : 0;
   // Deductions come off the preliminary score, so a cut that counts it shows what they took off.
-  const deducting = plan ? plan.rows.some((r) => r.deducted > 0) : false;
+  const deducting = plan ? plan.rows.some((r) => r.hasDeduction) : false;
   const picksReady = plan ? plan.ties.every((t, i) => (picks[i] ?? []).length === t.places) : false;
   const order = programOrder(board.rounds);
   const nextUnit = round ? order[order.findIndex((r) => r.id === round.id) + 1] : undefined;
@@ -917,9 +917,9 @@ export function CutDialog({ board, roundId, onClose }: { board: Board; roundId: 
                           );
                         })}
                         {deducting && (
-                          <td className="tabular px-2 py-1.5 text-right">{row.deducted > 0 ? `\u2212${row.deducted.toFixed(activity.resultDecimals)}` : "—"}</td>
+                          <td className="tabular px-2 py-1.5 text-right">{row.hasDeduction ? `\u2212${row.deducted.toFixed(activity.resultDecimals)}` : "—"}</td>
                         )}
-                        <td className="tabular px-3 py-1.5 text-right">{row.total === null ? "—" : `${row.total.toFixed(activity.resultDecimals)}%`}</td>
+                        <td className="tabular px-3 py-1.5 text-right">{isWithdrawn(row.entry) ? "Withdrawn" : row.total === null ? "—" : `${row.total.toFixed(activity.resultDecimals)}%`}</td>
                       </tr>
                     );
                   })}

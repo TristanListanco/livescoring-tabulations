@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ShowStatus } from "@/components/show-status";
 import { cutPlan, finalCutRound, judgingOrder, partsOf, programOrder, programProgress, roundBoard, roundLabel, roundPool, roundProgress, roundReleased, standings, type StandingRow } from "@/lib/pageant";
 import { segmentLabel } from "@/lib/pageant-setup";
-import { averageText, formatBound, formatScore, judgeSheet, rankEntries, scoreProgress, scoreText } from "@/lib/scoring";
+import { formatBound, formatScore, isWithdrawn, judgeSheet, rankEntries, rowAverageText, scoreProgress, scoreText } from "@/lib/scoring";
 import { PRELIMINARY, type Board, type Round } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 
@@ -148,7 +148,7 @@ function EntryTally({ board, official, noun }: { board: Board; official: boolean
                     </td>
                   );
                 })}
-                <td className="px-3 py-2.5 text-right font-bold">{row.average === null ? empty : averageText(row.average, activity)}</td>
+                <td className="px-3 py-2.5 text-right font-bold">{row.average === null && !isWithdrawn(row.entry) ? empty : rowAverageText(row, activity)}</td>
                 <td className="py-2.5 pl-3 text-right text-prussian/70">
                   {row.count} of {judges.length}
                 </td>
@@ -212,7 +212,7 @@ const percent = (n: number) => `${formatBound(Math.round(n * 100) / 100)}%`;
  * of its maximum, at its share), any deductions, and the total, with the cut's line when there is one.
  */
 function StandingsTable({ weights, rows, places, line, label }: { weights: { round: Round; weight: number }[]; rows: StandingRow[]; places: number; line?: number; label: string }) {
-  const deducting = rows.some((r) => r.deducted > 0);
+  const deducting = rows.some((r) => r.hasDeduction);
   const pct = (v: number | null | undefined) => (v === null || v === undefined ? empty : `${v.toFixed(places)}%`);
   return (
     <div tabIndex={0} role="region" aria-label={label} className="mt-3 overflow-x-auto">
@@ -242,8 +242,8 @@ function StandingsTable({ weights, rows, places, line, label }: { weights: { rou
                   {pct(row.parts.get(w.round.id))}
                 </td>
               ))}
-              {deducting && <td className="px-3 py-2.5 text-right">{row.deducted > 0 ? `−${row.deducted.toFixed(places)}` : empty}</td>}
-              <td className="py-2.5 pl-3 text-right font-bold">{pct(row.total)}</td>
+              {deducting && <td className="px-3 py-2.5 text-right">{row.hasDeduction ? `−${row.deducted.toFixed(places)}` : empty}</td>}
+              <td className="py-2.5 pl-3 text-right font-bold">{isWithdrawn(row.entry) ? "Withdrawn" : pct(row.total)}</td>
             </tr>
           ))}
         </tbody>

@@ -231,6 +231,13 @@ export type Entry = {
    * Only the wall's pages add them (see withEntryDetails): judges' screens and the live results never carry them.
    */
   details?: string;
+  /**
+   * When the organizer marked it withdrawn (it can't go on: withdrew, fell ill, was disqualified), or null. A withdrawn
+   * entry isn't ranked, isn't waited for and can't be scored; the scores it had stay on record (migration 043).
+   */
+  withdrawnAt?: string | null;
+  /** Why, as the organizer gave it. Only the organizer's pages carry it, never the audience's. */
+  withdrawnReason?: string | null;
 };
 
 /** A pageant violation set up in advance, e.g. "Late for call time", 1 point. */

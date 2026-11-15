@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { BOM, csvBlock, csvRow, FINGERPRINT, LINE } from "./csv";
 import type { EntryDetailsSheet, StandingsSheet } from "./results-pdf";
-import { averageText, formatScore, judgeSheet, rankEntries, scoreText } from "./scoring";
+import { averageText, formatScore, isWithdrawn, judgeSheet, rankEntries, scoreText } from "./scoring";
 import { placeTitle } from "./pageant";
 import { applyTieBreaks } from "./ties";
 import type { Board } from "./types";
@@ -53,7 +53,7 @@ export function resultsTable(board: Board, noun: "Entry" | "Candidate" = "Entry"
         const value = row.scores.get(j.id);
         return value === undefined ? null : scoreText(value, activity);
       }),
-      row.average === null ? null : averageText(row.average, activity),
+      isWithdrawn(row.entry) ? "Withdrawn" : row.average === null ? null : averageText(row.average, activity),
     ]),
   };
 }
@@ -85,7 +85,7 @@ export function standingsTable(board: Board, sheet: StandingsSheet): CsvTable {
   const rows = sheet.placed ? [...sheet.rows].sort((a, b) => (placeOf.get(a.entry.id) ?? Infinity) - (placeOf.get(b.entry.id) ?? Infinity)) : sheet.rows;
   const tieBroken = new Set(sheet.placed ? sheet.tieBroken : []);
   const status = sheet.kind === "final" ? "Place" : sheet.kind === "cut" ? "Result" : null;
-  const deducting = sheet.rows.some((r) => r.deducted > 0);
+  const deducting = sheet.rows.some((r) => r.hasDeduction);
   const share = (weight: number) => `${Math.round(weight * 100) / 100}%`;
   return {
     columns: [
@@ -104,8 +104,8 @@ export function standingsTable(board: Board, sheet: StandingsSheet): CsvTable {
       row.number,
       row.entry.name,
       ...sheet.weights.map((w) => pct(row.parts.get(w.round.id))),
-      ...(deducting ? [row.deducted > 0 ? `-${row.deducted.toFixed(places)}` : null] : []),
-      pct(row.total),
+      ...(deducting ? [row.hasDeduction ? `-${row.deducted.toFixed(places)}` : null] : []),
+      isWithdrawn(row.entry) ? "Withdrawn" : pct(row.total),
       ...(tieBroken.size ? [tieBroken.has(row.entry.id) ? "Yes" : null] : []),
     ]),
   };

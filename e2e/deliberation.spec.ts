@@ -63,10 +63,11 @@ test.describe.serial("deliberation", () => {
     await places.getByRole("radio", { name: /^2 decimal places/ }).check();
     await page.getByRole("button", { name: "Save decimal places" }).click();
     await expect(page.getByText("Decimal places saved", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save decimal places" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^(Save decimal places|Saving…)$/ })).toHaveCount(0);
     await places.getByRole("radio", { name: /^3 decimal places/ }).check();
     await page.getByRole("button", { name: "Save decimal places" }).click();
-    await expect(page.getByRole("button", { name: "Save decimal places" })).toHaveCount(0);
+    // Gone under either name: saved and the page refreshed, not just "Saving…" (leaving then could cancel the save).
+    await expect(page.getByRole("button", { name: /^(Save decimal places|Saving…)$/ })).toHaveCount(0);
     await page.goto(`${adminPath}?tab=session`);
     await expect(page.getByText(/Live scoring is off, so the judges deliberate and sign before the results show/)).toBeVisible();
     livePath = await screenPath(page, "Open live results");

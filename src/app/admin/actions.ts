@@ -66,6 +66,7 @@ import {
   roundPool,
   segmentClosed,
 } from "@/lib/pageant";
+import { MAX_WITHDRAWN_REASON, reinstateGap, withdrawGap } from "@/lib/withdrawn";
 import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
 import { unbrokenTies } from "@/lib/ties";
@@ -1725,10 +1726,13 @@ export const setCurrentEntry = traced("setCurrentEntry", async function setCurre
   if (entryId !== null && !isUuid(entryId)) return err("Entry not found.");
   // A pageant shows only candidates in the sub-activity being judged, and starts its timer; an event with a timer starts its own.
   const [entry, board] = await Promise.all([
-    entryId === null ? null : db().from("entries").select("id").eq("id", entryId).eq("activity_id", activityId).maybeSingle(),
+    // "*" so this works on databases without migration 043's withdrawn_at.
+    entryId === null ? null : db().from("entries").select("*").eq("id", entryId).eq("activity_id", activityId).maybeSingle(),
     activity.kind === "pageant" || eventTimer(activity) ? getBoard(activityId) : null,
   ]);
   if (entryId !== null && !entry?.data) return err("That entry isn't part of this activity.");
+  const shown = entry?.data as { name: string; withdrawn_at?: string | null } | undefined;
+  if (shown?.withdrawn_at) return err(`${shown.name} has withdrawn, so they can't be judged.`);
   const show = board ? showColumns(board, entryId, Date.now()) : { columns: showEntryColumns(entryId) };
   if ("error" in show) return err(show.error);
   // Only while it's still live: a click from a desk that hasn't caught up mustn't move a session that has moved on. A
@@ -2129,6 +2133,46 @@ export const removeEntry = traced("removeEntry", async function removeEntry(entr
   removeFiles([(entry as { photo_path?: string | null } | null)?.photo_path]);
   changed();
   return ok();
+});
+
+const WITHDRAWN_HINT = "Withdrawing needs a database update. Run supabase/migrations/043_entry_withdrawn.sql in the Supabase SQL editor.";
+
+/**
+ * Mark an entry withdrawn mid-session, with the organizer's reason (see withdrawn.ts): from then on it isn't ranked,
+ * waited for or scored, and the scores it had stay on record. Sent again, it changes nothing.
+ */
+export const withdrawEntry = traced("withdrawEntry", async function withdrawEntry(entryId: string, reason: string): Promise<ActionResult> {
+  const activityId = isUuid(entryId) ? await parentActivity("entries", entryId) : null;
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  const why = String(reason ?? "").replace(/\s+/g, " ").trim();
+  if (!why) return err("Say why, in a few words.");
+  if (why.length > MAX_WITHDRAWN_REASON) return err(`Keep the reason to ${MAX_WITHDRAWN_REASON} characters.`);
+  const board = await getBoard(activityId);
+  const entry = board?.entries.find((e) => e.id === entryId);
+  if (!board || !entry) return err("Entry not found.");
+  if (entry.withdrawnAt) return ok(`${entry.name} is withdrawn.`);
+  const gap = withdrawGap(board, entry);
+  if (gap) return err(gap);
+  const { error } = await db().from("entries").update({ withdrawn_at: new Date().toISOString(), withdrawn_reason: why }).eq("id", entryId).is("withdrawn_at", null);
+  if (error) return /withdrawn/.test(error.message) ? needsMigration(WITHDRAWN_HINT) : dbErr(error);
+  changed();
+  return ok(`${entry.name} is withdrawn.`);
+});
+
+/** Put a withdrawn entry back, while nothing already decided went ahead without it (see reinstateGap). */
+export const reinstateEntry = traced("reinstateEntry", async function reinstateEntry(entryId: string): Promise<ActionResult> {
+  const activityId = isUuid(entryId) ? await parentActivity("entries", entryId) : null;
+  if (!activityId || !(await manage(activityId))) return err("Entry not found.");
+  const board = await getBoard(activityId);
+  const entry = board?.entries.find((e) => e.id === entryId);
+  if (!board || !entry) return err("Entry not found.");
+  if (!entry.withdrawnAt) return ok(`${entry.name} is back in.`);
+  const gap = reinstateGap(board, entry);
+  if (gap) return err(gap);
+  const { error } = await db().from("entries").update({ withdrawn_at: null, withdrawn_reason: null }).eq("id", entryId);
+  if (error) return /withdrawn/.test(error.message) ? needsMigration(WITHDRAWN_HINT) : dbErr(error);
+  changed();
+  return ok(`${entry.name} is back in.`);
 });
 
 const ORDER_LOCKED = err("The running order is locked once the session has started.");

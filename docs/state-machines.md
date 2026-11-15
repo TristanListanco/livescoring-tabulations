@@ -241,3 +241,20 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 | Its results PDF waits for its sign-off and prints its judges' signatures | **S** `exports.ts` |
 
 **Gap:** no tie-break step: a cut has the organizer break ties at the line.
+
+## 16. Withdrawn entry
+
+**Lives in:** `entries.withdrawn_at`, `entries.withdrawn_reason` (migration 043; set and cleared together, a reason of 1 to 120 characters). The rules are in `withdrawn.ts`.
+
+**Moves:**
+- `withdrawEntry`: an entry (or candidate) that can't go on, with the organizer's reason. Only while judging is live, not while it's on judges' screens, and in a pageant not while a sub-activity is being deliberated nor once the final placements are confirmed (`withdrawGap`). Before the session starts an entry is removed instead. Sent again, it changes nothing.
+- `reinstateEntry`: only while judging is live and, in a pageant, while nothing went ahead without them: a confirmed cut they were up for, a sub-activity signed off or under deliberation without their scores, the end of the preliminary without them (`reinstateGap`).
+
+From then on it isn't ranked anywhere (`rankEntries`, `standingsBy`: last, no average or total), waited for (`scoreProgress`, `roundProgress`: so a cut, a segment's end, a deliberation and the results go ahead without it) or judged (`showColumns`, `entryNeighbors` pass it over; judges' screens leave it out). A cut takes the next best instead (`cutPlan`). The scores it had stay on record. The audience sees it as withdrawn, never the reason.
+
+| Guard | Where |
+|-------|-------|
+| No new score for a withdrawn entry (a correction to one it had still goes through) | **D** `check_score`; **S** `showColumns`, `setCurrentEntry` |
+| An event's deliberation doesn't wait for a withdrawn entry's scores | **D** `check_deliberation`; **S** `scoreProgress` |
+| Withdrawn or reinstated only when it can't undo what's decided | **S** `withdrawGap`, `reinstateGap` |
+| The reason stays the organizer's | **S** `loadPublicBoard` |

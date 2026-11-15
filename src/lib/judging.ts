@@ -1,4 +1,5 @@
 import { editable, segmentPhase } from "./lifecycle";
+import { isWithdrawn } from "./scoring";
 import { roundAtOwnPace, roundDeliberating, roundPool, SCORE_UNDO_MS } from "./pageant";
 import type { Activity, Board, Entry, Judge, JudgeDevice, Round } from "./types";
 
@@ -105,15 +106,19 @@ export function asShown<Q extends { eq: (column: string, value: string) => Q; is
   return activity.currentEntryId ? round.eq("current_entry_id", activity.currentEntryId) : round.is("current_entry_id", null);
 }
 
-/** Where the running order stands: the entry on judges' screens, and the ones before and after it. */
+/**
+ * Where the running order stands: the entry on judges' screens, and the ones before and after it that can still be
+ * judged (a withdrawn entry is passed over).
+ */
 export function entryNeighbors(entries: Entry[], currentEntryId: string | null) {
   const index = entries.findIndex((e) => e.id === currentEntryId);
+  const still = (e: Entry) => !isWithdrawn(e);
   return {
     index,
     entry: index >= 0 ? entries[index] : null,
-    previous: index > 0 ? entries[index - 1] : null,
+    previous: entries.slice(0, Math.max(index, 0)).reverse().find(still) ?? null,
     // Nothing on screen yet: the first entry is next.
-    next: index < 0 ? (entries[0] ?? null) : (entries[index + 1] ?? null),
+    next: entries.slice(index + 1).find(still) ?? null,
   };
 }
 
@@ -138,6 +143,8 @@ export const eventTimer = (activity: Pick<Activity, "kind" | "liveScoring" | "in
  * event with a timer (see eventTimer), showing an entry starts it.
  */
 export function showColumns(board: Board, entryId: string | null, now: number): { columns: Record<string, string | null> } | { error: string } {
+  const withdrawn = entryId ? board.entries.find((e) => e.id === entryId && isWithdrawn(e)) : undefined;
+  if (withdrawn) return { error: `${withdrawn.name} has withdrawn, so they can't be judged.` };
   if (board.activity.kind !== "pageant") {
     const seconds = eventTimer(board.activity);
     // Only an event with a timer writes it, so the rest show entries as they always have.

@@ -13,7 +13,7 @@ import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
 import { finalCutRound, judgesFor, placeTitle, preliminaryEndGap, roundDeliberating, roundLabel, roundProgress, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
-import { averageText, liveStandings, rankEntries } from "@/lib/scoring";
+import { averageText, isWithdrawn, liveStandings, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
 import { breakFor, ordinal } from "@/lib/ties";
 import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } from "@/lib/types";
@@ -624,13 +624,14 @@ export function SessionTab({
       );
     }
     if (kind === "jump") {
-      const expected = entry ? next : entries[0];
+      // Nothing on screen yet: the first entry still in (see entryNeighbors).
+      const expected = next;
       const position = entries.findIndex((e) => e.id === target.id);
       if (fullyScored(target)) warnings.push(`Every judge has already scored ${target.name}.`);
       else if (target.id !== expected?.id) {
         warnings.push(
           !entry
-            ? `${target.name} isn't first in the running order. ${entries[0]?.name} is.`
+            ? `${target.name} isn't first in the running order. ${next?.name} is.`
             : position < index
               ? `${target.name} comes earlier in the running order.`
               : `${target.name} isn't next in the running order.${next ? ` ${next.name} is.` : ""}`,
@@ -862,7 +863,7 @@ export function SessionTab({
               <li
                 key={e.id}
                 data-on-air={onAir && live && !finale ? "true" : undefined}
-                className={`flex items-center ${compact ? "gap-3 px-3 py-2" : "gap-4 px-4 py-3"} ${onAir && live && !finale ? "bg-wash" : ""}`}
+                className={`flex items-center ${compact ? "gap-3 px-3 py-2" : "gap-4 px-4 py-3"} ${onAir && live && !finale ? "bg-wash" : ""} ${isWithdrawn(e) ? "text-prussian/60" : ""}`}
               >
                 <span className={`tabular text-right font-semibold text-prussian/70 ${compact ? "w-6" : "w-8"}`}>{e.number ?? i + 1}</span>
                 <span className="min-w-0 flex-1 truncate font-semibold" title={e.name}>
@@ -891,6 +892,9 @@ export function SessionTab({
                       {placeTitle(placedAt.get(e.id)!)}
                     </span>
                   )
+                ) : isWithdrawn(e) ? (
+                  // Not judged any more: nothing to put on screens.
+                  <span className="inline-flex h-9 items-center px-1 text-sm font-semibold text-danger">Withdrawn</span>
                 ) : state === "draft" || between || underReview || (ownPace && state === "live") ? null : state === "ended" || state === "deliberation" ? (
                   // Judging is over: no "now judging" or "judge now" to suggest otherwise.
                   <span className="inline-flex h-9 items-center px-3 text-sm font-semibold text-prussian/80">
