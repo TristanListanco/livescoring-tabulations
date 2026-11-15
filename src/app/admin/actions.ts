@@ -5,6 +5,8 @@ import { cleanSignatories } from "@/lib/signatories";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { isUuid, newAccessCode, newFileTag, newPublicId } from "@/lib/codes";
+import { codeLookup, sealCode, vaultReady } from "@/lib/code-vault";
+import { BOT_REFUSED, signInByBot } from "@/lib/bot-check";
 import { randomUUID } from "node:crypto";
 import {
   getActivity,
@@ -27,7 +29,7 @@ import { detailsFor, GENERAL_DETAILS, MAX_ENTRY_FIELDS, MAX_FIELD_NAME, parseEnt
 import { getAlertActivityIds, getOpenAssistance, getWaitingDevices, type AssistanceRequest, type WaitingDevice } from "@/lib/assistance";
 import { settleCorrection } from "@/lib/correction-settle";
 import { correctionVoters } from "@/lib/corrections";
-import { hashPassword, verifyPassword } from "@/lib/password";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 import { MAX_PASSWORD_LENGTH } from "@/lib/password-rules";
 import { checkScoring, cleanGuide, type Scoring, type ScoringInput } from "@/lib/scoring-rules";
 import {
@@ -393,12 +395,24 @@ async function judgeLocked(activityId: string, judgeId: string): Promise<boolean
   return panelLocked(activityId, readPanel((data as { panel?: string } | null)?.panel ?? null));
 }
 
-/** Insert judges' access codes, regenerating on the (rare) collision. */
+/**
+ * Insert judges' access codes, regenerating on the (rare) collision. Sealed when DATA_KEY is set (see code-vault.ts),
+ * kept in the clear otherwise, and on databases without migration 044.
+ */
 async function assignCodes(judgeIds: string[]) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const { error } = await db()
-      .from("judge_access")
-      .insert(judgeIds.map((judge_id) => ({ judge_id, code: newAccessCode() })));
+    const codes = judgeIds.map((judge_id) => ({ judge_id, code: newAccessCode() }));
+    const sealed = vaultReady()
+      ? codes.map(({ judge_id, code }) => ({ judge_id, code_lookup: codeLookup(code), code_sealed: sealCode(code, judge_id) }))
+      : null;
+    if (sealed) {
+      // Sealed codes and those still kept in the clear are looked up apart: a new one mustn't match an old one.
+      const { data: taken } = await db().from("judge_access").select("judge_id").in("code", codes.map((c) => c.code)).limit(1);
+      if (taken?.length) continue;
+    }
+    let { error } = await db().from("judge_access").insert((sealed ?? codes) as Record<string, string | null>[]);
+    // Before migration 044 there's nowhere to keep a sealed code.
+    if (sealed && error && /code_lookup|code_sealed/.test(error.message)) ({ error } = await db().from("judge_access").insert(codes));
     if (!error) return;
     if (error.code !== "23505") throw new Error(error.message);
   }
@@ -436,6 +450,7 @@ async function nextPosition(table: "judges" | "entries", activityId: string): Pr
 let decoyHash: Promise<string> | undefined;
 
 export const login = traced("login", async function login(_prev: FormResult, formData: FormData): Promise<FormResult> {
+  if (await signInByBot("admin")) return err(BOT_REFUSED);
   const password = String(formData.get("password") ?? "");
   // Guessing is limited per network address and per account (see sign-in-limits).
   const address = `admin-ip:${await clientAddress()}`;
@@ -466,9 +481,24 @@ export const login = traced("login", async function login(_prev: FormResult, for
     await recordFailure([address, accountKey]);
     return err("That email and password don't match an organizer account.");
   }
-  await startOrganizerSession(account.admin.id, account.passwordHash);
+  await startOrganizerSession(account.admin.id, await rehashed(account.admin.id, account.passwordHash, password));
   redirect("/admin");
 });
+
+/**
+ * The organizer's stored hash, made again at today's cost when it was made with less (see needsRehash), now that their
+ * password is at hand. Only if it's still the one read, so a password changed meanwhile stays. Their other devices are
+ * signed out once, as a new hash means a new session version; this sign-in starts with it. On any failure the old hash
+ * stands, and sign-in goes on.
+ */
+async function rehashed(adminId: string, stored: string, password: string): Promise<string> {
+  if (!needsRehash(stored)) return stored;
+  const fresh = await hashPassword(password);
+  const { error, count } = await db().from("admins").update({ password_hash: fresh }, { count: "exact" }).eq("id", adminId).eq("password_hash", stored);
+  if (error || !count) return stored;
+  log("info", "password_rehashed", { admin: adminId });
+  return fresh;
+}
 
 /**
  * Signing out, unless judges are on one of this account's activities: the show (or the judges waiting for it) would be

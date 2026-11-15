@@ -1,5 +1,6 @@
 "use server";
 
+import { BOT_REFUSED, signInByBot } from "@/lib/bot-check";
 import { changed } from "@/lib/live-cache";
 import { redirect } from "next/navigation";
 import { applyOwnCorrection, settleCorrection } from "@/lib/correction-settle";
@@ -42,6 +43,7 @@ async function seat(notApproved = NOT_APPROVED): Promise<{ judge: Judge; activit
 
 export const enterCode = traced("enterCode", async function enterCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
   const code = String(formData.get("code") ?? "").slice(0, 32);
+  if (await signInByBot("judge")) return { error: BOT_REFUSED, code };
   // Guessing codes is limited per network address (see sign-in-limits).
   const address = `judge-ip:${await clientAddress()}`;
   if (await tooManyFailures([[address, LIMITS.judgeAddress]])) return { error: TOO_MANY, code };
