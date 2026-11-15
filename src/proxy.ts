@@ -61,10 +61,11 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Pages, not the files they load (which need no policy) or link prefetches (which aren't pages a nonce is read from).
+  // Pages, not the files they load (which need no policy), link prefetches (which aren't pages a nonce is read from) or
+  // Vercel BotID's check, which next.config.ts routes through this site with headers of its own.
   matcher: [
     {
-      source: "/((?!_next/static|_next/image|favicon.ico).*)",
+      source: "/((?!_next/static|_next/image|favicon.ico|149e9513-01fa-4fb0-aad4-566afd725d1b/).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

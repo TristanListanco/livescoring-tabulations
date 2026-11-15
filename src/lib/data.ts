@@ -4,6 +4,8 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { LIVE_BOARD_TAG, liveBoardTag } from "./live-cache";
 import { isUuid, normalizeCode } from "./codes";
+import { codeLookup, openCode, sealCode, vaultReady } from "./code-vault";
+import { log } from "./log";
 import { nameParts } from "./names";
 import { readAll } from "./read-all";
 import { roundReleased } from "./pageant";
@@ -938,20 +940,55 @@ export async function getRounds(activityId: string): Promise<Round[]> {
   return (data as RoundRow[]).map(toRound);
 }
 
-/** judgeId → access code for an activity's judges, found through the activity so they're read alongside its board. */
+type AccessRow = { judge_id: string; code: string | null; code_lookup?: string | null; code_sealed?: string | null };
+
+/**
+ * judgeId → access code for an activity's judges, found through the activity so they're read alongside its board.
+ * Sealed codes are opened (see code-vault.ts); one still kept in the clear is sealed now, while it's at hand.
+ */
 export async function getActivityAccessCodes(activityId: string): Promise<Map<string, string>> {
   if (!isUuid(activityId)) return new Map();
-  const { data, error } = await db().from("judge_access").select("judge_id, code, judges!inner(activity_id)").eq("judges.activity_id", activityId);
+  // "*" so this works on databases without migration 044's code_lookup and code_sealed.
+  const { data, error } = await db().from("judge_access").select("*, judges!inner(activity_id)").eq("judges.activity_id", activityId);
   if (error) return new Map();
-  return new Map((data as unknown as { judge_id: string; code: string }[]).map((r) => [r.judge_id, r.code]));
+  const rows = data as unknown as AccessRow[];
+  const codes = new Map<string, string>();
+  for (const r of rows) {
+    const code = r.code ?? (r.code_sealed ? openCode(r.code_sealed, r.judge_id) : null);
+    if (code) codes.set(r.judge_id, code);
+  }
+  const clear = rows.filter((r) => r.code && "code_sealed" in r);
+  if (clear.length && vaultReady()) {
+    const sealed = await Promise.all(
+      clear.map((r) =>
+        db()
+          .from("judge_access")
+          .update({ code_lookup: codeLookup(r.code!), code_sealed: sealCode(r.code!, r.judge_id), code: null })
+          .eq("judge_id", r.judge_id)
+          .eq("code", r.code!),
+      ),
+    );
+    const failed = sealed.find((r) => r.error);
+    if (failed?.error) log("warn", "codes_not_sealed", { activity: activityId, code: failed.error.code, error: failed.error.message });
+  }
+  return codes;
 }
 
+/** The judge a typed code is for: by its keyed hash (a sealed code), or as typed (one still kept in the clear). */
 export async function findJudgeIdByCode(input: string): Promise<string | null> {
   const code = normalizeCode(input);
   if (code.length !== 6) return null;
-  const { data, error } = await db().from("judge_access").select("judge_id").eq("code", code).maybeSingle();
-  fail(error);
-  return (data as { judge_id: string } | null)?.judge_id ?? null;
+  const lookup = codeLookup(code);
+  const [sealed, clear] = await Promise.all([
+    lookup ? db().from("judge_access").select("judge_id").eq("code_lookup", lookup).maybeSingle() : null,
+    db().from("judge_access").select("judge_id").eq("code", code).maybeSingle(),
+  ]);
+  // Before migration 044 there's no code_lookup to look in: only codes kept in the clear.
+  if (sealed?.error && sealed.error.code !== "42703") fail(sealed.error);
+  const found = (sealed?.data as { judge_id: string } | null | undefined) ?? null;
+  if (found) return found.judge_id;
+  fail(clear.error);
+  return (clear.data as { judge_id: string } | null)?.judge_id ?? null;
 }
 
 /** The judge and the activity they belong to, or null if either was deleted. */

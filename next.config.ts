@@ -1,4 +1,5 @@
 import { hostname, networkInterfaces } from "node:os";
+import { withBotId } from "botid/next/config";
 import type { NextConfig } from "next";
 
 /**
@@ -19,8 +20,9 @@ function lanAddresses(): string[] {
  * Sent with every response. No page may be framed by another site (so nobody can overlay the panel and trick a
  * click); browsers don't guess file types; other sites only learn which site a visitor came from, never the page
  * (judge links carry codes); the browser features Tabulous never uses stay off; and a window another site opened (or
- * that Tabulous opened) can't reach into this one. HTTPS-only (HSTS) is left to the host: Vercel sends it, and a
- * server on the venue Wi-Fi is plain http.
+ * that Tabulous opened) can't reach into this one. And HTTPS only (HSTS), for two years, on this host alone: a browser
+ * that has opened the site over HTTPS won't be talked down to plain HTTP. Browsers ignore it over plain HTTP, so a
+ * server on the venue Wi-Fi (http://192.168.x.x) works as before.
  */
 const securityHeaders = [
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" },
@@ -30,10 +32,18 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
   // A page another site opens in a new tab can't reach back into Tabulous through window.opener, nor the other way.
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000" },
 ];
+
+/**
+ * Vercel BotID on the sign-ins (see src/lib/bot-check.ts) only in a build made on Vercel, which serves its check. A
+ * build anywhere else (a laptop for the venue Wi-Fi, which may have no internet at all) leaves it out entirely.
+ */
+const botProtection = process.env.VERCEL === "1";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: lanAddresses(),
+  env: { NEXT_PUBLIC_BOT_PROTECTION: botProtection ? "on" : "off" },
   poweredByHeader: false,
   // Every page's title (and description) goes in its <head>, sent with the page, rather than streamed into the body
   // after it: streamed, it was dropped and added again each time a page refreshed itself (the live results do, as scores
@@ -58,4 +68,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// withBotId routes its check through this site, and lets its own frame be framed by this site alone.
+export default botProtection ? withBotId(nextConfig) : nextConfig;

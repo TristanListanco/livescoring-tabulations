@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hashPassword, oneOfFew, passwordVersion, verifyPassword } from "./password";
+import { scryptSync } from "node:crypto";
+import { hashPassword, needsRehash, oneOfFew, passwordVersion, verifyPassword } from "./password";
 import { passwordProblem } from "./password-rules";
 
 describe("password rules", () => {
@@ -43,6 +44,17 @@ describe("passwords", () => {
 
   it("rejects malformed stored values", async () => {
     expect(await verifyPassword("anything", "not-a-hash")).toBe(false);
+  });
+
+  it("hashes at OWASP's scrypt cost, and still verifies hashes made at the old one, which are made again", async () => {
+    const stored = await hashPassword("correct horse battery");
+    expect(stored.split("$").slice(1, 4)).toEqual(["131072", "8", "1"]);
+    expect(needsRehash(stored)).toBe(false);
+    // As hashed before: N = 2^14.
+    const salt = Buffer.from("0123456789abcdef");
+    const old = ["scrypt", 16384, 8, 1, salt.toString("base64url"), scryptSync("old password", salt, 64, { N: 16384, r: 8, p: 1 }).toString("base64url")].join("$");
+    expect(await verifyPassword("old password", old)).toBe(true);
+    expect(needsRehash(old)).toBe(true);
   });
 });
 

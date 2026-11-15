@@ -84,6 +84,21 @@ create table if not exists public.judge_access (
   judge_id  uuid primary key references public.judges (id) on delete cascade,
   code      text not null unique
 );
+-- A code kept sealed (migration 044): a keyed hash to find it by and the code encrypted, both with keys from DATA_KEY
+-- that the database never sees (see src/lib/code-vault.ts). `code` holds one kept in the clear: from before DATA_KEY
+-- was set, until it's next read and sealed.
+alter table public.judge_access add column if not exists code_lookup text;
+alter table public.judge_access add column if not exists code_sealed text;
+alter table public.judge_access alter column code drop not null;
+create unique index if not exists judge_access_code_lookup_idx on public.judge_access (code_lookup);
+do $sealed$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'judge_access_code_kept') then
+    alter table public.judge_access add constraint judge_access_code_kept
+      check (code is not null or (code_lookup is not null and code_sealed is not null));
+  end if;
+end;
+$sealed$;
 
 -- Every device that signs in with a judge's code waits for the organizer's approval; one per judge
 -- is approved. Server only, like judge_access.
