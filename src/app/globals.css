@@ -568,7 +568,7 @@ dialog[open]:not(.sidebar-drawer)::backdrop {
   place-content: center;
   flex-shrink: 0;
   border: 2px solid var(--color-field);
-  border-radius: 0.3rem;
+  border-radius: 0.375rem;
   background: var(--color-white);
 }
 [data-admin-theme] input[type="checkbox"]::before,
@@ -682,11 +682,11 @@ html:has(.share-ledger) {
   }
   /* Page titles, large and light: the weight is in the size, not the stroke. Bold is for what's acted on. */
   .title {
-    @apply text-[2rem] leading-[1.15] font-light tracking-[-0.025em] text-balance wrap-anywhere sm:text-[2.375rem];
+    @apply text-[2rem] leading-[1.15] font-light tracking-[-0.01em] text-balance wrap-anywhere sm:text-[2.375rem];
   }
   /* A card's or a section's title, in the same voice. */
   .title-sm {
-    @apply text-xl leading-snug font-light tracking-[-0.015em] text-balance;
+    @apply text-xl leading-snug font-light tracking-[-0.01em] text-balance;
   }
   /* A table inside a card: small quiet headings, hairline rows, the card's padding at either end. */
   .table {
@@ -721,7 +721,7 @@ html:has(.share-ledger) {
    * it. Light on navy, so the line under the title gets a little more leading than usual.
    */
   .judge-title {
-    @apply text-[1.75rem] leading-[1.15] font-light tracking-[-0.025em] text-balance md:text-4xl;
+    @apply text-[1.75rem] leading-[1.15] font-light tracking-[-0.01em] text-balance md:text-4xl;
   }
   /* A panel on the judges' navy screens: a hairline lighter than the page, as the session desk's cards. */
   .judge-card {
@@ -736,16 +736,16 @@ html:has(.share-ledger) {
   }
   /* The privacy policy and the terms of service: long reading, so a comfortable measure and open leading. */
   .legal h2 {
-    @apply mt-12 text-2xl font-light tracking-[-0.02em] text-balance;
+    @apply mt-12 text-2xl font-light tracking-[-0.01em] text-balance;
   }
   .legal h3 {
     @apply mt-6 font-bold;
   }
   .legal p {
-    @apply mt-3 leading-relaxed;
+    @apply mt-3 leading-relaxed text-pretty;
   }
   .legal ul {
-    @apply mt-3 list-disc space-y-1.5 pl-5 leading-relaxed;
+    @apply mt-3 list-disc space-y-1.5 pl-5 leading-relaxed text-pretty;
   }
   .legal a {
     @apply font-semibold text-regal underline underline-offset-2;
@@ -845,6 +845,109 @@ html:has(.share-ledger) {
   }
 }
 
+/*
+ * A judge's phone held sideways: wide enough for two columns, too short for the keypad under the entry (it would sit
+ * below the screen). The entry and its criteria on the left; the readout, keypad and main button on the right, held in
+ * view while the left scrolls; the keypad in two rows of six, its keys still 44px; a slimmer header, and the scores list
+ * behind the count, as on a phone held upright. Outside the layers, so it overrides the utilities for this shape alone.
+ */
+@media (orientation: landscape) and (max-height: 32rem) {
+  .judge-header {
+    padding-block: 0.375rem;
+  }
+  .judge-header-photo,
+  .judge-count,
+  .judge-scores-aside {
+    display: none;
+  }
+  .judge-count-button {
+    display: flex;
+  }
+  .judge-main {
+    padding-top: 0.75rem;
+  }
+  .keypad-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 1.5rem;
+    align-items: start;
+    max-width: 56rem;
+  }
+  .keypad-layout > .timer-dock {
+    grid-column: 1 / -1;
+    position: static;
+    padding-bottom: 0.75rem;
+  }
+  .keypad-layout > .keypad-dock {
+    position: sticky;
+    top: 0;
+    margin-top: 0;
+    padding-top: 0;
+    padding-bottom: 0.75rem;
+    background: none;
+  }
+  .keypad-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .keypad-readout {
+    padding-block: 0.375rem;
+  }
+  .keypad-readout output {
+    font-size: 2.25rem;
+  }
+  .judge-primary {
+    height: 2.75rem;
+    margin-top: 0.5rem;
+    font-size: 1.125rem;
+  }
+}
+/*
+ * A small phone held upright (an older four-inch one): the same column, tightened, so the main button stays on the
+ * screen without scrolling. The keys keep their 44px.
+ */
+@media (orientation: portrait) and (max-height: 40rem) and (max-width: 30rem) {
+  .judge-header {
+    padding-block: 0.5rem;
+  }
+  .judge-main {
+    padding-top: 0.75rem;
+  }
+  .keypad-dock {
+    padding-top: 0.5rem;
+    padding-bottom: 0.75rem;
+  }
+  .keypad-grid {
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .keypad-readout {
+    padding-block: 0.375rem;
+  }
+  .keypad-readout output {
+    font-size: 2.25rem;
+  }
+  .judge-primary {
+    height: 3rem;
+    margin-top: 0.5rem;
+  }
+  /*
+   * Held at the bottom from a shorter column than elsewhere (25rem, not 34rem): the readout names the criterion being
+   * scored and the main button steps through them, so a judge scores everything from the dock while the criteria
+   * above scroll for a look. The entry's name still fits over it at the top.
+   */
+  @container judge-main (min-height: 25rem) {
+    .keypad-dock {
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
+      margin-inline: -0.25rem;
+      padding-inline: 0.25rem;
+      background: linear-gradient(to bottom, transparent, var(--judge-screen, var(--color-prussian)) 0.75rem);
+    }
+  }
+}
 dialog::backdrop {
   background: rgb(11 37 69 / 0.6);
   backdrop-filter: blur(2px);

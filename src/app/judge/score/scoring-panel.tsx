@@ -422,9 +422,9 @@ export function ScoringPanel({
   return (
     <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
       {/* On a phone, two lines: who and what (the judge's name, the activity and where) in full, then the count and controls. */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-oxford px-4 py-3 sm:flex-nowrap sm:px-6">
+      <header className="judge-header flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-oxford px-4 py-3 sm:flex-nowrap sm:px-6">
         {/* On a phone the judge's own photo gives way to their name. */}
-        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="max-sm:hidden" />
+        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="judge-header-photo max-sm:hidden" />
         <div className="min-w-0 max-sm:basis-full">
           <p className="truncate font-semibold">{judge.name}</p>
           <p className="truncate text-sm text-powder">
@@ -437,7 +437,7 @@ export function ScoringPanel({
         <div className="ml-auto flex items-center gap-2.5 max-sm:w-full sm:gap-6">
           {approved && !offPanel && !deliberating && (
             <>
-              <p className="tabular hidden text-powder md:block">
+              <p className="judge-count tabular hidden text-powder md:block">
                 <span className="font-bold text-mint">{scores.size}</span> of {entries.length} scored
               </p>
               {/* Narrower, the list isn't beside the keypad: the count opens it. */}
@@ -446,7 +446,7 @@ export function ScoringPanel({
               </ScoresSheet>
             </>
           )}
-          <LiveStatusBadge status={status} className="text-mint max-sm:ml-auto" compact />
+          <LiveStatusBadge status={status} className="whitespace-nowrap text-mint max-sm:ml-auto" compact />
           {assistance && gate.status !== "revoked" && <AssistButton current={assistance.current} />}
           {approved ? (
             // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
@@ -497,7 +497,7 @@ export function ScoringPanel({
           </p>
         )}
         {approved && !offPanel && !deliberating && (
-          <aside aria-label="Your scores" className="hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
+          <aside aria-label="Your scores" className="judge-scores-aside hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
             <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
             <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} onPick={ownPace ? setChosen : undefined} />
           </aside>
@@ -725,7 +725,7 @@ function ScoresSheet({ title, scored, total, children }: { title: string; scored
         type="button"
         onClick={() => ref.current?.showModal()}
         aria-haspopup="dialog"
-        className="tabular flex h-11 shrink-0 items-center rounded-full border border-oxford px-3.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
+        className="judge-count-button tabular flex h-11 shrink-0 items-center rounded-full border border-oxford px-3.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
       >
         <span>
           <span className="font-bold text-mint">{scored}</span> of {total} scored
@@ -800,7 +800,7 @@ function CorrectionVote({ view, onVoted }: { view: CorrectionView; onVoted: (agr
       className="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto rounded-3xl bg-mint p-0 text-prussian shadow-2xl"
     >
       <div className="px-6 pt-6 pb-5">
-        <h2 id="vote-title" ref={titleRef} tabIndex={-1} className="text-xl leading-snug font-bold text-balance focus:outline-none">
+        <h2 id="vote-title" ref={titleRef} tabIndex={-1} className="title-sm focus:outline-none">
           {view.judgeName} asks to change their score for No. {view.entryNumber} {view.entryName}
           {where}
         </h2>
@@ -1300,7 +1300,7 @@ function DeliberationView({
 function OverallRanking({ ranking }: { ranking: DeliberationRank[] }) {
   return (
     <section aria-labelledby="overall-ranking" className="mt-6 judge-card px-5 py-4">
-      <h2 id="overall-ranking" className="text-lg font-bold">
+      <h2 id="overall-ranking" className="title-sm">
         Overall ranking
       </h2>
       <p className="mt-1 text-sm text-powder">Every judge&apos;s scores together, as they stand now. Your own scores are below.</p>
@@ -1349,7 +1349,7 @@ function TieCard({ tie, canCorrect, onCorrect }: { tie: DeliberationTie; canCorr
   if (tie.broken) {
     return (
       <div className="rounded-[1.25rem] border border-powder/20 bg-oxford/40 px-5 py-4 text-left">
-        <h3 className="text-lg font-bold">Tie for {ordinal(tie.place)}, broken</h3>
+        <h3 className="title-sm">Tie for {ordinal(tie.place)}, broken</h3>
         <ol className="mt-2 space-y-1">
           {tie.broken.order.map((id, i) => (
             <li key={id} className="flex gap-3">
@@ -1366,7 +1366,7 @@ function TieCard({ tie, canCorrect, onCorrect }: { tie: DeliberationTie; canCorr
   }
   return (
     <div className="rounded-[1.25rem] border-2 border-caution bg-caution/10 px-5 py-4 text-left">
-      <h3 className="flex items-center gap-2 text-lg font-bold text-caution">
+      <h3 className="title-sm flex items-center gap-2 text-caution">
         <svg viewBox="0 0 20 20" className="size-5 shrink-0" aria-hidden>
           <path d="M3 7.5h14M3 12.5h14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
         </svg>
@@ -1415,7 +1415,7 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
 
   return (
     <section aria-labelledby="sign-off" className="judge-card mt-8 px-5 py-5">
-      <h2 id="sign-off" className="text-lg font-bold">
+      <h2 id="sign-off" className="title-sm">
         Your signature
       </h2>
       {signature ? (
@@ -1480,7 +1480,7 @@ function SignOffPanel({ deliberation }: { deliberation: Deliberation }) {
 function ChairStartsDeliberation({ ready }: { ready: boolean }) {
   return (
     <section aria-labelledby="chair-deliberation" className="mt-5 w-full judge-card p-5 text-left">
-      <h2 id="chair-deliberation" className="text-lg font-bold">
+      <h2 id="chair-deliberation" className="title-sm">
         Chair of the board of judges
       </h2>
       {ready ? (
@@ -1536,7 +1536,7 @@ function EntryControls({
 
   return (
     <section aria-labelledby="move-entries" className="mt-5 w-full judge-card p-5 text-left">
-      <h2 id="move-entries" className="text-lg font-bold">
+      <h2 id="move-entries" className="title-sm">
         Chair of the board of judges
       </h2>
       <p role="status" className="mt-1 text-powder">
@@ -1633,7 +1633,7 @@ function EntryControls({
 /** Digits, decimal point and backspace, sized for thumbs. Dimmed and still while a score waits out its undo window. */
 function KeypadGrid({ decimals, onPress, disabled = false }: { decimals: number; onPress: (key: Key) => void; disabled?: boolean }) {
   return (
-    <div className="mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
+    <div className="keypad-grid mt-3 grid grid-cols-3 gap-2.5 sm:gap-3 md:mt-4">
       {DIGITS.map((d) => (
         <KeypadKey key={d} onPress={() => onPress(d)} label={d} disabled={disabled} />
       ))}
@@ -1725,7 +1725,7 @@ function ConfirmScore({
       className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-3xl bg-mint p-0 text-prussian shadow-2xl"
     >
       <div className="px-6 pt-7 pb-6 text-center">
-        <h2 id="confirm-title" className="text-xl leading-snug font-bold text-balance">
+        <h2 id="confirm-title" className="title-sm">
           {title}
         </h2>
         {children}
@@ -1954,7 +1954,7 @@ const signOutLabel = (
 
 /** The keypad's main button: Submit score, Next criterion, Review correction. */
 const PRIMARY =
-  "btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)] lg:h-[clamp(3.25rem,7vh,4.5rem)]";
+  "judge-primary btn mt-3 h-[clamp(3.25rem,7vh,4.5rem)] w-full bg-mint text-xl text-prussian hover:bg-white disabled:bg-oxford disabled:text-powder disabled:opacity-100 md:mt-4 md:h-[clamp(3.5rem,8vh,4.5rem)] lg:h-[clamp(3.25rem,7vh,4.5rem)]";
 
 const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen it.";
 /** The confirmation, if time runs out while it's open: it says so, and can't submit until the organizer reopens scoring. */
@@ -2007,7 +2007,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
 
   return (
     // One column, its keypad held at the bottom; from 1024px, the entry beside the keypad, as with criteria.
-    <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
+    <div className="keypad-layout flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
       {timer}
       <div className="min-w-0">
         {correcting && <CorrectingBar correcting={correcting} />}
@@ -2016,7 +2016,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
       </div>
 
       <div className={`${DOCK} ${DOCK_BESIDE}`}>
-        <div className={`flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
+        <div className={`keypad-readout flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
           <output
             aria-label="Score"
             aria-describedby="score-hint"
@@ -2162,7 +2162,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
 
   return (
     // One column, its keypad held at the bottom; from 1024px, the entry and its criteria beside the keypad instead.
-    <div className="flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
+    <div className="keypad-layout flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
       {timer}
       <div className="min-w-0">
         {correcting && <CorrectingBar correcting={correcting} />}
@@ -2241,7 +2241,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
         )}
 
         {active && (
-          <div className={`flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
+          <div className={`keypad-readout flex items-center rounded-2xl bg-oxford px-5 py-2.5 ${active.guide ? "mt-3" : ""} ${activeTooHigh ? ERROR_RING : ""}`} aria-live="polite">
             <span className="mr-3 max-w-[40%] truncate text-sm text-powder">{active.name}</span>
             <output
               aria-label={`${active.name} score`}

@@ -57,7 +57,7 @@ export default async function ProfilePage() {
           <div className="flex items-center gap-4">
             <Avatar name={admin.name} src={admin.photoUrl} size={72} />
             <div className="min-w-0">
-              <p className="text-lg font-bold">{admin.name}</p>
+              <p className="text-lg font-semibold">{admin.name}</p>
               <p className="hint">{admin.email}</p>
             </div>
           </div>

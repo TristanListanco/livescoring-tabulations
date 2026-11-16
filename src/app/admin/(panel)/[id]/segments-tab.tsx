@@ -44,7 +44,7 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
       )}
       {segments.map((segment) => (
         <section key={segment} className="mt-6">
-          <h3 className="font-bold">
+          <h3 className="font-semibold">
             {segmentLabel(segment)}, {percent(segment === "preliminary" ? activity.preliminaryWeight : 100 - activity.preliminaryWeight)} of the overall score
           </h3>
           <ol className="card mt-2 divide-y divide-line">

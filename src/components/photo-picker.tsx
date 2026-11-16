@@ -19,7 +19,10 @@ export function PhotoPicker({
   pixels,
   label,
   onRemove,
+  lazy = false,
 }: {
+  /** In a long list: the photo is fetched only as it nears the screen (see Avatar). */
+  lazy?: boolean;
   /** Takes the photo away, from the photo's dialog. Left out, the dialog offers only Change photo. */
   onRemove?: () => void;
   name: string;
@@ -96,7 +99,7 @@ export function PhotoPicker({
             title="View photo"
           >
             <span className="sr-only">View photo of {subject}</span>
-            <Avatar name={name} src={currentUrl} size={size} square={square} />
+            <Avatar name={name} src={currentUrl} size={size} square={square} lazy={lazy} />
             <span
               aria-hidden
               // Hover says what a click does; keyboard focus does too, and a touchscreen (no hover) always shows it as a band.

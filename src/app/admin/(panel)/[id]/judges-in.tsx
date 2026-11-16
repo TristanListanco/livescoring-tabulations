@@ -49,7 +49,7 @@ export function JudgesIn({ activityId, ready }: { activityId: string; ready: Rea
     >
       <TallyGate className="size-11 shrink-0" strokes="text-powder" slash="text-mint" />
       <div className="min-w-0 flex-1 basis-60">
-        <h2 id="judges-in" className="text-xl leading-snug font-light tracking-[-0.015em]">
+        <h2 id="judges-in" className="title-sm">
           {heading}
         </h2>
         <p className="mt-0.5 text-[15px] text-powder">{line}</p>

@@ -98,7 +98,7 @@ function Block({ title, meta, onEdit, editLabel, children }: { title: string; me
       {/* Edit stays on the heading's line; the note under it wraps on its own. */}
       <div className="mb-4 flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <h4 className="text-lg font-bold">{title}</h4>
+          <h4 className="title-sm">{title}</h4>
           {meta && <p className="tabular text-sm text-prussian/75">{meta}</p>}
         </div>
         <button type="button" className="btn btn-sm -mt-0.5 shrink-0 px-2.5 font-semibold text-regal hover:bg-wash" onClick={onEdit}>

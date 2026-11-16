@@ -966,7 +966,7 @@ export function SessionTab({
                         : "Between sub-activities"
                       : "On judges' screens"}
                 </h2>
-                <p title={entry?.name} className="col-span-2 mt-0.5 line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
+                <p title={entry?.name} className="col-span-2 mt-0.5 line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.01em] text-balance wrap-anywhere">
                   {finale
                     ? `${board.entries.find((e) => e.id === finalCut?.cutEntryIds?.[0])?.name ?? "The winner"} wins`
                     : underReview
@@ -1229,7 +1229,7 @@ export function SessionTab({
                     <h2 id="desk-heading" className="text-powder">
                       Before you start
                     </h2>
-                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.02em] text-balance">
+                    <p className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.01em] text-balance">
                       {judges.length === 0
                         ? "Add judges to get started"
                         : boardGroups
@@ -1333,7 +1333,7 @@ export function SessionTab({
                         <h2 id="desk-heading" className="text-powder">
                           Deliberation
                         </h2>
-                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.02em] text-balance">
+                        <p role="status" className="mt-1 text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-light tracking-[-0.01em] text-balance">
                           {allSigned ? "Every judge has signed" : `${signedIds.size} of ${judges.length} ${judges.length === 1 ? "judge has" : "judges have"} signed`}
                         </p>
                       </div>

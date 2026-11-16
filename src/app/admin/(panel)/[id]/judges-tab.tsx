@@ -126,6 +126,7 @@ export function JudgeEditor({
     <div className="flex items-start gap-4">
       <div className={photoPending ? "opacity-60" : undefined}>
         <PhotoPicker
+          lazy
           name={judge.name}
           currentUrl={photoPending ? preview : judge.photoUrl}
           size={48}

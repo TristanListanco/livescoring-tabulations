@@ -309,7 +309,7 @@ export function AssistanceAlerts() {
             </span>
           </span>
           <div className="min-w-0">
-            <h2 id="assist-title" className="text-[1.75rem] leading-tight font-light tracking-[-0.02em] text-balance wrap-anywhere">
+            <h2 id="assist-title" className="text-[1.75rem] leading-tight font-light tracking-[-0.01em] text-balance wrap-anywhere">
               {count === 1 ? `${requests[0].judgeName} needs help` : `${count} judges need help`}
             </h2>
             <p className="mt-1 text-[15px] text-powder">{count === 1 ? "They've asked you to come over." : "They've asked you to come over, oldest first."}</p>

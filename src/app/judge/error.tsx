@@ -11,7 +11,7 @@ export default function JudgeError({ error, retry }: { error: Error & { digest?:
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center bg-prussian px-6 text-center text-mint">
       <div role="status" aria-live="polite" className="max-w-sm">
-        <h1 className="text-2xl font-bold">Reconnecting…</h1>
+        <h1 className="judge-title">Reconnecting…</h1>
         <p className="mt-2 text-[15px] leading-relaxed text-mint/80">
           Scores you&apos;ve submitted are saved. This screen comes back by itself as soon as the connection does.
         </p>

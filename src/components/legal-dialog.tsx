@@ -42,7 +42,10 @@ export function LegalDialog({ label, children }: { label: string; children: Reac
             </svg>
           </button>
         </div>
-        <div className="legal overflow-y-auto px-6 pt-6 pb-10 sm:px-10">{children}</div>
+        <div className="legal overflow-y-auto px-6 pt-6 pb-10 sm:px-10">
+          {/* The page's measure (see the legal layout): about 72 characters a line, however wide the dialog. */}
+          <div className="max-w-[60ch]">{children}</div>
+        </div>
       </div>
     </dialog>
   );

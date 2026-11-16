@@ -533,7 +533,7 @@ function RoundCard({
   return (
     <li className="card p-4 sm:p-5">
       <div className="flex items-start gap-2">
-        <h4 className="min-w-0 flex-1 pt-1.5 font-bold">
+        <h4 className="min-w-0 flex-1 pt-1.5 font-semibold">
           <span className="tabular text-prussian/75">{index + 1}.</span> {name}
         </h4>
         <IconButton label={`Move ${name} up`} onClick={() => onMove(-1)} disabled={index === 0} move={{ item: round.key, direction: -1 }}>

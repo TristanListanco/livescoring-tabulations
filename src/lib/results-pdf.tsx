@@ -9,16 +9,17 @@ import { SIGNATURE_BOX } from "./deliberation";
 import { listNames } from "./names";
 import { applyTieBreaks, breakFor, ordinal, tiesIn } from "./ties";
 import type { Board, Deduction, Judge, JudgeSignature, Round, Signatory } from "./types";
-import { INTER_ITALIC, INTER_LIGHT, INTER_REGULAR, INTER_SEMIBOLD } from "./pdf-fonts";
+import { INTER_DISPLAY_LIGHT, INTER_ITALIC, INTER_REGULAR, INTER_SEMIBOLD } from "./pdf-fonts";
 
 // Names wrap at spaces only; the default splits them mid-word ("Vil-lanueva").
 Font.registerHyphenationCallback((word) => [word]);
 
-// The panel's typeface, in the weights its pages use: light titles, regular text, semibold for what stands out.
+// The panel's typeface, in the weights its pages use: light titles (in the display cut, as on screen), regular text,
+// semibold for what stands out.
 Font.register({
   family: "Inter",
   fonts: [
-    { src: INTER_LIGHT, fontWeight: 300 },
+    { src: INTER_DISPLAY_LIGHT, fontWeight: 300 },
     { src: INTER_REGULAR, fontWeight: 400 },
     { src: INTER_SEMIBOLD, fontWeight: 600 },
     { src: INTER_ITALIC, fontWeight: 400, fontStyle: "italic" },
@@ -45,7 +46,7 @@ const s = StyleSheet.create({
   reportId: { fontWeight: 600, fontSize: 9, letterSpacing: 0.4 },
   reportLabel: { fontWeight: 400, color: C.muted },
   // As the panel's page titles: large and light, set a little tight.
-  title: { fontWeight: 300, fontSize: 26, lineHeight: 1.15, letterSpacing: -0.5, marginTop: 6 },
+  title: { fontWeight: 300, fontSize: 26, lineHeight: 1.15, letterSpacing: -0.26, marginTop: 6 },
   subtitle: { fontWeight: 400, fontSize: 14, marginTop: 3, color: C.regal },
   place: { marginTop: 3, color: C.muted },
   byline: { fontWeight: 600, fontSize: 12, marginTop: 8 },
