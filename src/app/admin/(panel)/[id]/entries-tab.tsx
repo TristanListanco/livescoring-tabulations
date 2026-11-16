@@ -87,6 +87,7 @@ function EntryRow({
       <span className="tabular w-8 text-right font-semibold text-prussian/60">{number}</span>
       <div className={photoPending ? "opacity-60" : undefined}>
         <PhotoPicker
+          lazy
           name={entry.name}
           currentUrl={photoPending ? preview : entry.photoUrl}
           size={48}
@@ -127,7 +128,7 @@ function EntryRow({
                   maxLength={MAX_DETAIL}
                   value={values[f.id] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
-                  className="field h-10 min-w-32 flex-1 py-0 text-sm"
+                  className="field h-10 min-w-32 flex-1 py-0 text-sm pointer-coarse:h-11"
                 />
               ))}
             </div>

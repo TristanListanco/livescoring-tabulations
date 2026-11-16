@@ -11,8 +11,14 @@ export function Avatar({
   size = 40,
   square = false,
   radius,
+  lazy = false,
   className = "",
 }: {
+  /**
+   * Fetched only as it nears the screen: for long lists (an activity's entries or judges), where most rows start out of
+   * view. Never for what's on screen from the start or on air (a judge's entry, the LED wall).
+   */
+  lazy?: boolean;
   /** Corners as a CSS length, in place of the circle or the square's: the LED wall's, as chosen on its tab. */
   radius?: string;
   name: string;
@@ -30,7 +36,14 @@ export function Avatar({
     return (
       // Photos are already resized to small squares on upload, so the optimizer adds nothing here.
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={src} alt="" style={style} className={`shrink-0 ${shape} object-cover ${className}`} />
+      <img
+        src={src}
+        alt=""
+        loading={lazy ? "lazy" : undefined}
+        decoding="async"
+        style={style}
+        className={`shrink-0 ${shape} object-cover ${className}`}
+      />
     );
   }
   return (

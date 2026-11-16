@@ -4,9 +4,12 @@ import { connection } from "next/server";
 import { RequestGuard } from "@/components/request-guard";
 import "./globals.css";
 
+// With its optical sizes: from about 20px up, the browser draws the display cut, with finer light strokes and closer
+// spacing, the cut the light titles were made for. Body text stays the text cut.
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+  axes: ["opsz"],
 });
 
 export const metadata: Metadata = {

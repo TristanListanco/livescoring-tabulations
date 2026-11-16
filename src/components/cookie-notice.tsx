@@ -47,7 +47,7 @@ export function CookieNotice({ dark = false, linked = true, className = "" }: { 
         dark ? "border-oxford bg-oxford/50 text-powder" : "border-line bg-white text-prussian/80"
       } ${className}`}
     >
-      <p className="min-w-0 flex-1 basis-60">
+      <p className="min-w-0 flex-1 basis-60 text-pretty">
         Tabulous uses only essential cookies, to keep you signed in and remember your settings.{" "}
         {linked ? (
           <Link href="/cookies" className={`font-semibold underline underline-offset-2 ${dark ? "text-mint" : "text-regal"}`}>

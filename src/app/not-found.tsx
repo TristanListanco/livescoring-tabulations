@@ -4,7 +4,7 @@ export default function NotFound() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-prussian px-4 text-center text-mint">
       <div className="max-w-md">
-        <h1 className="text-3xl font-bold">This page doesn&apos;t exist</h1>
+        <h1 className="judge-title">This page doesn&apos;t exist</h1>
         <p className="mt-3 text-powder">
           The link may be mistyped, or its activity archived or deleted. If you&apos;re watching the scores, ask the organizer for the live results link.
         </p>

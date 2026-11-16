@@ -84,7 +84,7 @@ export function LiveBoard({ board: full }: { board: Board }) {
               </p>
             )}
             <h1
-              className="text-[clamp(2rem,5vw,5rem)] leading-[1.04] font-light tracking-[-0.03em] text-balance"
+              className="text-[clamp(2rem,5vw,5rem)] leading-[1.04] font-light tracking-[-0.015em] text-balance"
               style={stage ? { fontSize: "min(3.6vw, 6.5vh)" } : undefined}
             >
               {activity.name}

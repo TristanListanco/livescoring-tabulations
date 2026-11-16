@@ -139,7 +139,7 @@ export function EntryRows({
                       onKeyDown={(e) => enterToNext(e, list.current, addAfterLast)}
                       maxLength={MAX_DETAIL}
                       placeholder={`${detailsLabel} (optional), e.g. Grade 10, St. Mary's`}
-                      className="field h-10 text-sm"
+                      className="field h-10 text-sm pointer-coarse:h-11"
                     />
                   </>
                 )}
