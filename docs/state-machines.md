@@ -230,12 +230,13 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 **Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
 
-**Steps:** judged a candidate at a time, or at its judges' own pace (`rounds.independent_scoring`, migration 041: no candidate shown, no timer, any candidate in its pool in any order); the audience sees a tick per score (`loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
+**Steps:** judged a candidate at a time, or at its judges' own pace (`rounds.independent_scoring`, migration 041: no candidate shown, no timer, any candidate in its pool in any order); a preliminary one in parts can be judged candidate by candidate (`rounds.candidate_order`, migration 045: the sub-activity itself goes on judges' screens, `current_round_id` pointing at it; each judge's screen goes through the parts for the candidate shown on its own (`partFor`), the desk counts a judge as scored once they've scored every part (`candidateMarks`), no timer; its parts then deliberate one after another); the audience sees a tick per score (`loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
 
 | Guard | Where |
 |-------|-------|
 | One deliberation at a time; the desk can't switch sub-activity or show a candidate meanwhile | **S** `roundDeliberationGap`, `setCurrentRound`, `showColumns` |
 | At its judges' own pace no candidate is shown, and a score only for a candidate in its pool | **S** `showColumns`, `submitScore` |
+| Candidate by candidate: the sub-activity goes on whole, never one of its parts alone, and a score goes in a part of it for the candidate shown, never in the sub-activity itself | **S** `setCurrentRound`, `pageantScoreRound`, `requestCorrection` |
 | Signatures and sign-off voided by any score change in it | **D** `void_round_signatures` |
 | Cuts, the preliminary's end and the pageant's end wait for its sign-off | **S** `awaitingSignoff` |
 | Its results PDF waits for its sign-off and prints its judges' signatures | **S** `exports.ts` |

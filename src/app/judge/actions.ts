@@ -11,7 +11,7 @@ import { beginDeliberation, DELIBERATION_HINT } from "@/lib/deliberation-server"
 import { isUuid } from "@/lib/codes";
 import { signInJudgeDevice, touchJudge } from "@/lib/devices";
 import { asShown, atOwnPace, chairMovesEntries, eventTimer, pageantScoreRound, scoreWindowOpen, showColumns } from "@/lib/judging";
-import { onPanel, roundAtOwnPace, roundPool, segmentClosed, SUBMIT_GRACE_MS, unitOf, withRoundRules } from "@/lib/pageant";
+import { byCandidate, onPanel, roundAtOwnPace, roundPool, segmentClosed, SUBMIT_GRACE_MS, unitOf, withRoundRules } from "@/lib/pageant";
 import { cleanNote } from "@/lib/notes";
 import { formatScore, parseBreakdown, parseScore, rankEntries } from "@/lib/scoring";
 import { listNames } from "@/lib/names";
@@ -353,10 +353,16 @@ const sameBreakdown = (a: Record<string, number> | null, b: Record<string, numbe
  * judge asks instead, in the sub-activity being judged: it changes only if every other judge on their panel agrees (a
  * judge alone on their panel waits for the organizer).
  */
-export const requestCorrection = traced("requestCorrection", async function requestCorrection(entryId: string, typed: string | Record<string, string>, reason: string): Promise<ActionResult> {
+export const requestCorrection = traced("requestCorrection", async function requestCorrection(
+  entryId: string,
+  typed: string | Record<string, string>,
+  reason: string,
+  sentRoundId?: string | null,
+): Promise<ActionResult> {
   const context = await seat("This device isn't approved to score. Ask the organizer.");
   if ("error" in context) return context;
   if (!isUuid(entryId)) return { ok: false, error: "Entry not found." };
+  if (sentRoundId !== undefined && sentRoundId !== null && !isUuid(sentRoundId)) return { ok: false, error: "You aren't judging this part of the pageant." };
   const { activity } = context;
   let rules = activity;
   let roundId: string | null = null;
@@ -367,7 +373,12 @@ export const requestCorrection = traced("requestCorrection", async function requ
   let roundPaced = false;
   if (activity.kind === "pageant") {
     const rounds = await getRounds(activity.id);
-    const round = rounds.find((r) => r.id === activity.currentRoundId);
+    // The one on screen, or (candidate by candidate) the part of it the judge's screen sent.
+    const onScreen = rounds.find((r) => r.id === activity.currentRoundId);
+    const sent = sentRoundId ? rounds.find((r) => r.id === sentRoundId && onScreen && r.parentId === onScreen.id && byCandidate(rounds, onScreen)) : undefined;
+    // Its scores are its parts': a screen that doesn't send which is out of date.
+    if (onScreen && !sent && byCandidate(rounds, onScreen)) return { ok: false, error: "Your screen is out of date. Reload it and try again." };
+    const round = sent ?? onScreen;
     if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
     // A confirmed cut ranked by these scores went by them: they stay as they were (taking the cut back opens them again).
     const unit = unitOf(rounds, round);

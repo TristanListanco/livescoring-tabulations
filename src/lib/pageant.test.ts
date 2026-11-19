@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   basisWeights,
+  byCandidate,
+  candidateMarks,
+  nextUp,
+  partFor,
+  screenOrder,
   clock,
   cutPlan,
   cutResult,
@@ -511,5 +516,65 @@ describe("exact standings", () => {
     const board: Board = { activity: activityFixture({ kind: "pageant", preliminaryWeight: 40 }), judges: [judge("j1")], entries: ["A", "B", "C"].map(entry), scores: [], rounds: [swim] };
     expect(standings(board, board.entries, []).complete).toBe(false);
     expect(cutPlan(board, swim).ready).toBe(false);
+  });
+});
+
+describe("a sub-activity judged candidate by candidate", () => {
+  const talent = roundFixture({ id: "talent", name: "Talent", segment: "preliminary", position: 0, weight: 30, candidateOrder: true, liveScoring: false });
+  const perf = roundFixture({ id: "perf", name: "Performance", segment: "preliminary", position: 0, weight: 15, parentId: "talent", liveScoring: false });
+  const dress = roundFixture({ id: "dress", name: "Costume", segment: "preliminary", position: 1, weight: 15, parentId: "talent", liveScoring: false });
+  const gown = roundFixture({ id: "gown", name: "Gown", segment: "proper", position: 1, weight: 70 });
+  const rounds = [talent, perf, dress, gown];
+  const one = (roundId: string, judgeId: string, entryId = "A"): Score => ({ entryId, judgeId, value: 8, roundId });
+  const board = (scores: Score[], over: Partial<Board["activity"]> = {}, list = rounds): Board => ({
+    ...pageant(list, scores, "talent"),
+    activity: activityFixture({ kind: "pageant", preliminaryWeight: 30, currentRoundId: "talent", currentEntryId: "A", sessionState: "live", ...over }),
+  });
+
+  it("goes on judges' screens as a whole", () => {
+    expect(byCandidate(rounds, talent)).toBe(true);
+    expect(byCandidate(rounds, perf)).toBe(false);
+    expect(screenOrder(rounds).map((r) => r.id)).toEqual(["talent", "gown"]);
+    expect(screenOrder(rounds.map((r) => (r.id === "talent" ? { ...r, candidateOrder: false } : r))).map((r) => r.id)).toEqual(["perf", "dress", "gown"]);
+  });
+
+  it("shows each judge the next part they haven't scored the candidate in, and everyone else the part in hand", () => {
+    expect(partFor(board([]), talent, "j1").id).toBe("perf");
+    const j1Performed = board([one("perf", "j1")]);
+    expect(partFor(j1Performed, talent, "j1").id).toBe("dress");
+    expect(partFor(j1Performed, talent, "j2").id).toBe("perf");
+    // The wall waits for every judge before moving on.
+    expect(partFor(j1Performed, talent, null).id).toBe("perf");
+    const allPerformed = board([one("perf", "j1"), one("perf", "j2")]);
+    expect(partFor(allPerformed, talent, null).id).toBe("dress");
+    // Every part scored: the last stays. No candidate shown: the first.
+    expect(partFor(board([one("perf", "j1"), one("dress", "j1")]), talent, "j1").id).toBe("dress");
+    expect(partFor(board([one("perf", "j1")], { currentEntryId: null }), talent, "j1").id).toBe("perf");
+  });
+
+  it("is shown as its part in hand, or the part a judge went back to", () => {
+    const shown = showingBoard(board([one("perf", "j1")]), "j1");
+    expect([shown.round?.id, shown.round?.name, shown.onScreen?.id]).toEqual(["dress", "Talent · Costume", "talent"]);
+    expect(shown.board.activity.criteria).toEqual(dress.criteria);
+    expect(showingBoard(board([one("perf", "j1")]), "j1", "perf").round?.id).toBe("perf");
+    // A pin that isn't one of its parts is ignored.
+    expect(showingBoard(board([one("perf", "j1")]), "j1", "gown").round?.id).toBe("dress");
+  });
+
+  it("counts a candidate scored by a judge once they've scored every part", () => {
+    expect(candidateMarks(board([one("perf", "j1"), one("dress", "j1"), one("perf", "j2")]), talent)).toEqual([{ entryId: "A", judgeId: "j1" }]);
+  });
+
+  it("is one step on the desk, then each part's deliberation in turn", () => {
+    const all = ["A", "B", "C", "D", "E"].flatMap((e) => ["perf", "dress"].flatMap((r) => ["j1", "j2"].map((j) => one(r, j, e))));
+    expect(nextUp(board([]), null)).toMatchObject({ kind: "round", round: { id: "talent" } });
+    // Not all scored: on to whatever's next in the segment (nothing else in the preliminary).
+    expect(nextUp(board([one("perf", "j1")]), talent)).toBeNull();
+    expect(nextUp(board(all), talent)).toMatchObject({ kind: "deliberate", round: { id: "perf", name: "Talent · Performance" } });
+    const performing = rounds.map((r) => (r.id === "perf" ? { ...r, deliberationStartedAt: "2026-11-19T10:00:00Z" } : r));
+    // While Performance is deliberated, Costume's waits.
+    expect(nextUp(board(all, { currentRoundId: "perf" }, performing), performing[1])).toBeNull();
+    const signed = rounds.map((r) => (r.id === "perf" ? { ...r, deliberationStartedAt: "2026-11-19T10:00:00Z", signedOffAt: "2026-11-19T10:10:00Z" } : r));
+    expect(nextUp(board(all, { currentRoundId: null }, signed), null)).toMatchObject({ kind: "deliberate", round: { id: "dress" } });
   });
 });

@@ -80,6 +80,12 @@ export type Round = {
    * live results, tally and PDFs keep the percentages. A part follows its sub-activity. False before migration 042.
    */
   ledOutOfTen: boolean;
+  /**
+   * A preliminary sub-activity with parts judged candidate by candidate: it goes on judges' screens as a whole, and each
+   * judge scores the candidate shown on every part before the next is shown (see partFor). No timer. Set on the
+   * sub-activity only, never its parts. False before migration 045.
+   */
+  candidateOrder: boolean;
   /** When its deliberation started (ISO time), or null: the judges are reviewing it until it's signed off. */
   deliberationStartedAt: string | null;
   /** When the organizer signed off its deliberation (ISO time), or null: then its scores go out. Read with the board. */

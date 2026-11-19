@@ -1,15 +1,18 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { supabaseAdmin } from "./helpers";
+import { expectAccessible, openJudgeLink, SAVED, signInAsSuperAdmin, supabaseAdmin, tapScore } from "./helpers";
 
 // A pageant sub-activity scored live by criteria shown as percentages, put on the LED wall out of 10: Evening Gown's
-// 87.5% and 90% show as 8.75 and 9.00 there, with an average of 8.88, while the live results keep 88.75%.
+// 87.5% and 90% show as 8.75 and 9.00 there, with an average of 8.88, while the live results keep 88.75%. A judge
+// scoring it is told what their total shows as on the wall.
 
 const api = supabaseAdmin()!;
 const pageant = { id: randomUUID(), publicId: randomBytes(5).toString("hex") };
 const gown = randomUUID();
 const judges = [randomUUID(), randomUUID()];
 const ayla = randomUUID();
+const bea = randomUUID();
+const CODE = `L${Date.now().toString(36).toUpperCase().replace(/[^A-Z2-9]/g, "X").slice(-5).padStart(5, "X")}`;
 // Before migration 042 there's nowhere to keep the choice: the file skips.
 let missing042 = false;
 
@@ -59,7 +62,11 @@ test.beforeAll(async () => {
     "judges",
     judges.map((id, position) => ({ id, activity_id: pageant.id, name: ["Ana Cruz", "Ben Torres"][position], position, is_chair: position === 0, panel: "all" })),
   );
-  await restOk("entries", { id: ayla, activity_id: pageant.id, name: "Ayla Mendoza", position: 0 });
+  await restOk("entries", [
+    { id: ayla, activity_id: pageant.id, name: "Ayla Mendoza", position: 0 },
+    { id: bea, activity_id: pageant.id, name: "Bea Santos", position: 1 },
+  ]);
+  await restOk("judge_access", { judge_id: judges[0], code: CODE });
   await restOk(`activities?id=eq.${pageant.id}`, { session_state: "live", session_started_at: new Date().toISOString(), current_round_id: gown, current_entry_id: ayla, led_entry_id: ayla }, "PATCH");
   await restOk("scores", [
     { activity_id: pageant.id, round_id: gown, entry_id: ayla, judge_id: judges[0], value: 87.5, breakdown: { poise: 87.5 } },
@@ -81,4 +88,28 @@ test("the LED wall shows the scores out of 10, the live results keep the percent
 
   await page.goto(`/live/${pageant.publicId}`);
   await expect(page.getByText("88.75%").first()).toBeVisible();
+});
+
+test("a judge scoring it sees what their total shows as on the wall", async ({ page, browser }) => {
+  test.skip(missing042, "This database doesn't have migration 042 yet.");
+  await restOk(`activities?id=eq.${pageant.id}`, { current_entry_id: bea }, "PATCH");
+  const ana = await (await browser.newContext({ viewport: { width: 1180, height: 820 } })).newPage();
+  await openJudgeLink(ana, CODE);
+  const pairing = (await ana.locator("p").filter({ hasText: /^Pairing code [A-Z0-9]{4}$/ }).textContent())!.replace("Pairing code ", "");
+  await signInAsSuperAdmin(page);
+  await page.goto(`/admin/${pageant.id}?tab=judges`);
+  await page.getByRole("button", { name: `Approve Ana Cruz's device ${pairing}` }).click();
+  await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Bea Santos", { timeout: 20_000 });
+
+  // Over the button that submits it, the total, and what it shows as on the wall.
+  await tapScore(ana, "86");
+  await expect(ana.getByText("8.60 out of 10 on the LED wall", { exact: true })).toBeVisible();
+  await expectAccessible(ana);
+  await ana.getByRole("button", { name: "Submit score" }).click();
+  const dialog = ana.getByRole("dialog");
+  await expect(dialog).toContainText("Shows as 8.60 out of 10 on the LED wall.");
+  await dialog.getByRole("button", { name: "Submit", exact: true }).click();
+  await expect(ana.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 86.00 / 100 for Bea Santos", SAVED);
+  await expect(ana.getByText("8.60 out of 10 on the LED wall", { exact: true })).toBeVisible();
+  await ana.context().close();
 });

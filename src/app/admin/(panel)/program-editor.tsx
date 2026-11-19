@@ -65,6 +65,7 @@ function previewWeights(draft: PageantDraft, basis: string[]): { key: string; na
       liveScoring: true,
       independentScoring: false,
       ledOutOfTen: false,
+      candidateOrder: false,
       deliberationStartedAt: null,
       signedOffAt: null,
     }),
@@ -159,6 +160,14 @@ function Removed({ id, name, what, onUndo, className }: { id: string; name: stri
   );
 }
 
+/** Why a sub-activity and its parts have no timer, or null when they can have one. */
+const untimedWhy = (round: RoundDraft) =>
+  round.ownPace
+    ? "No timer: judges score at their own pace."
+    : round.byCandidate && round.parts && round.segment === "preliminary"
+      ? "No timer: judged candidate by candidate."
+      : null;
+
 /**
  * How a sub-activity (or one of its parts) is scored and timed, folded to one line until it's opened: most keep the
  * defaults, and the line says what they are. `name` is what screen readers hear it called.
@@ -168,7 +177,7 @@ function ScoredFields({
   name,
   scoring,
   timer,
-  untimed = false,
+  untimed = null,
   onScoring,
   onTimer,
 }: {
@@ -176,8 +185,8 @@ function ScoredFields({
   name: string;
   scoring: ScoringDraft;
   timer: string;
-  /** Judged at the judges' own pace: no timer, said in place of its choice. */
-  untimed?: boolean;
+  /** Why it has no timer (judged at the judges' own pace, or candidate by candidate), said in place of its choice. */
+  untimed?: string | null;
   onScoring: (scoring: ScoringDraft) => void;
   onTimer: (timer: string) => void;
 }) {
@@ -201,7 +210,7 @@ function ScoredFields({
         <div className="space-y-6 border-t border-line px-4 py-4">
           <ScoringEditor value={scoring} onChange={onScoring} idPrefix={id} label={name} />
           {untimed ? (
-            <p className="hint">No timer: judges score at their own pace.</p>
+            <p className="hint">{untimed}</p>
           ) : (
             <div>
               <label className="flex items-center gap-2.5 text-sm font-semibold">
@@ -439,7 +448,7 @@ function PartsEditor({
                   name={full}
                   scoring={part.scoring}
                   timer={part.timer}
-                  untimed={!!round.ownPace}
+                  untimed={untimedWhy(round)}
                   onScoring={(scoring) => patch(part.key, { scoring })}
                   onTimer={(timer) => patch(part.key, { timer })}
                 />
@@ -515,7 +524,7 @@ function RoundCard({
       const [a, b] = parseShare(round.weight) > 0 ? evenShares(parseShare(round.weight), 2) : ["", ""];
       onChange({ parts: [newPart(a, round.scoring, round.timer), newPart(b)] });
     } else {
-      onChange({ parts: null, weight: shareText(roundShare(round)), scoring: round.parts?.[0]?.scoring ?? round.scoring });
+      onChange({ parts: null, weight: shareText(roundShare(round)), scoring: round.parts?.[0]?.scoring ?? round.scoring, byCandidate: false });
     }
   };
   // How many candidates are left when this cut comes: everyone, or the size of the cut before it.
@@ -652,7 +661,7 @@ function RoundCard({
           name={name}
           scoring={round.scoring}
           timer={round.timer}
-          untimed={!!round.ownPace}
+          untimed={untimedWhy(round)}
           onScoring={(scoring) => onChange({ scoring })}
           onTimer={(timer) => onChange({ timer })}
         />
@@ -664,6 +673,37 @@ function RoundCard({
           scope={scope}
           onChange={(parts) => onChange({ parts, weight: shareText(roundShare({ weight: "", parts })) })}
         />
+      )}
+
+      {/* A preliminary one in parts: each part through every candidate, or each candidate through every part. At their
+          own pace there's no order to choose. */}
+      {round.parts && round.segment === "preliminary" && !round.ownPace && (
+        <fieldset className="mt-4">
+          <legend className="font-semibold">
+            Judging order<span className="sr-only"> of {name}</span>
+          </legend>
+          <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
+            <label className="flex items-center gap-2.5">
+              <input type="radio" name={`${id}order`} className="size-5" checked={!round.byCandidate} onChange={() => onChange({ byCandidate: false })} />
+              Part by part
+            </label>
+            <label className="flex items-center gap-2.5">
+              <input
+                type="radio"
+                name={`${id}order`}
+                className="size-5"
+                checked={!!round.byCandidate}
+                onChange={() => onChange({ byCandidate: true, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null })}
+              />
+              Candidate by candidate
+            </label>
+          </div>
+          <p className="hint mt-1">
+            {round.byCandidate
+              ? "Each candidate is scored on every part before the next one is shown. Judges move through the parts themselves, with no timer."
+              : "Each part goes through every candidate before the next part starts."}
+          </p>
+        </fieldset>
       )}
 
       {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow it. */}
@@ -707,7 +747,7 @@ function RoundCard({
                 onChange={(e) =>
                   onChange(
                     e.target.checked
-                      ? { ownPace: true, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null }
+                      ? { ownPace: true, byCandidate: false, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null }
                       : { ownPace: false },
                   )
                 }

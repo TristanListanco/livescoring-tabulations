@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { Fragment, useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
 import { ACTION_TIMEOUT_MS } from "@/components/request-guard";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -15,7 +16,7 @@ import { listNames } from "@/lib/names";
 import { clock, SCORE_UNDO_MS } from "@/lib/pageant";
 import { reportProblem } from "@/lib/report-problem";
 import { SURVEY_URL } from "@/lib/survey";
-import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, typedTotal, type Key } from "@/lib/scoring";
+import { applyKey, criterionRules, formatBound, formatScore, overMax, overMaxMessage, parseBreakdown, parseScore, rangeLabel, scoreText, typedTotal, type Key } from "@/lib/scoring";
 import { cleanSignature } from "@/lib/deliberation";
 import type { ActionResult, Activity, Criterion, Entry, Judge, JudgeSignature } from "@/lib/types";
 import { useDeviceSetting } from "@/lib/use-device-setting";
@@ -55,8 +56,11 @@ type Props = {
   gate: DeviceGate;
   /** Only for the chair, who can move entries. */
   panel: PanelJudge[] | null;
-  /** A pageant's sub-activity being judged now (its rules are already in `activity`). */
-  round: { id: string; name: string; timerSeconds: number | null } | null;
+  /**
+   * A pageant's sub-activity being judged now (its rules are already in `activity`). `ledOutOfTen`: the LED wall shows
+   * its criteria totals out of 10 (see wallBoard), so the judge is told what theirs will show as.
+   */
+  round: { id: string; name: string; timerSeconds: number | null; ledOutOfTen?: boolean } | null;
   /** When the server rendered this page, so the scoring timer counts down on the server's clock. */
   serverNow: number;
   /** A pageant sub-activity is on that this judge doesn't judge (the preliminary can have its own judges). */
@@ -67,7 +71,46 @@ type Props = {
   assistance: { current: JudgeAssistance | null } | null;
   /** At their own pace (see atOwnPace), with criteria: the points behind each of their scores. Null otherwise. */
   ownBreakdowns: Record<string, Record<string, number>> | null;
+  /**
+   * A sub-activity judged candidate by candidate, with a candidate shown (`entryId`): its parts, and which this judge
+   * has scored them in. `round` is the part in hand. Null otherwise.
+   */
+  parts?: { list: { id: string; name: string; scored: boolean }[]; entryId: string } | null;
 };
+
+/** The parts of a sub-activity judged candidate by candidate: the one in hand, the ones scored, and a way back to each. */
+function PartsStrip({ parts, current }: { parts: NonNullable<Props["parts"]>; current: string | null }) {
+  const at = parts.list.findIndex((p) => p.id === current);
+  return (
+    <nav aria-label="Parts" className="mb-4 w-full max-w-md lg:max-w-lg">
+      <p className="text-sm text-powder">
+        Part <span className="tabular">{at + 1}</span> of <span className="tabular">{parts.list.length}</span>
+      </p>
+      <ul className="mt-1.5 flex gap-2 overflow-x-auto">
+        {parts.list.map((p) => (
+          <li key={p.id} className="shrink-0">
+            <Link
+              href={`?part=${p.id}&for=${parts.entryId}`}
+              replace
+              scroll={false}
+              aria-current={p.id === current ? "step" : undefined}
+              className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold pointer-coarse:h-11 ${
+                p.id === current ? "border-mint bg-mint text-prussian" : "border-oxford text-powder hover:bg-oxford"
+              }`}
+            >
+              {p.name}
+              {p.scored && (
+                <svg viewBox="0 0 16 16" className="size-4 shrink-0" aria-label="scored">
+                  <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
 
 /**
  * The deliberation on this judge's screen: their points per criterion and latest correction for each entry, whether
@@ -227,8 +270,14 @@ export function ScoringPanel({
   segmentFresh = null,
   assistance,
   ownBreakdowns,
+  parts = null,
 }: Props) {
   const pageant = activity.kind === "pageant";
+  // A sub-activity whose LED wall shows its criteria totals out of 10 (see wallBoard): what a total shows as there.
+  const wall: WallText =
+    round?.ledOutOfTen && activity.scoringMode === "criteria" && activity.criteriaDisplay !== "ten"
+      ? (total) => scoreText(total, { ...activity, criteriaDisplay: "ten" })
+      : null;
   // Still over realtime once judging has ended: deliberating again, or reopening, brings the judges straight back.
   // Judges score at about the same moment, and each score is a change: at most one refresh every 1.5 seconds turns a
   // panel's burst of scores into one page render per screen rather than one per score.
@@ -247,6 +296,8 @@ export function ScoringPanel({
   const pick = chosen && entries.some((e) => e.id === chosen) ? chosen : (nextUnscored?.id ?? null);
   // Off the panel of the sub-activity on screen: nothing to score until their part comes up.
   const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(ownPace ? { ...activity, currentEntryId: pick } : activity, entries, scores);
+  // Candidate by candidate: the parts still to score the candidate shown in, besides the one in hand.
+  const partsLeft = parts ? parts.list.filter((p) => !p.scored && p.id !== round?.id) : null;
   // A short message at the top: a score saved (`entryId`), a vote cast.
   const [toast, setToast] = useState<{ content: React.ReactNode; entryId?: string } | null>(null);
   const approved = gate.status === "approved";
@@ -340,6 +391,8 @@ export function ScoringPanel({
   // deliberation, any entry they choose.
   const [correctingFor, setCorrectingFor] = useState<string | null>(null);
   const deliberating = view.kind === "deliberation" && !!deliberation;
+  // Judging, with scores to count (and list): not waiting for approval, off the panel, or deliberating.
+  const counting = approved && !offPanel && !deliberating;
   const correctingEntry = (() => {
     if (!corrections || !correctingFor) return null;
     if (view.kind === "scored" && correctingFor === view.entry.id) return { entry: view.entry, number: view.number, value: view.value, points: pointsOnScreen };
@@ -421,21 +474,61 @@ export function ScoringPanel({
 
   return (
     <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
-      {/* On a phone, two lines: who and what (the judge's name, the activity and where) in full, then the count and controls. */}
-      <header className="judge-header flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-oxford px-4 py-3 sm:flex-nowrap sm:px-6">
-        {/* On a phone the judge's own photo gives way to their name. */}
-        <Avatar name={judge.name} src={judge.photoUrl} size={44} className="judge-header-photo max-sm:hidden" />
-        <div className="min-w-0 max-sm:basis-full">
-          <p className="truncate font-semibold">{judge.name}</p>
-          <p className="truncate text-sm text-powder">
-            {activity.name}
-            {round && ` · ${round.name}`}
-            {/* Where it happens, so a judge in a breakout room knows they're in the right one. */}
-            {activity.location && ` · ${activity.location}`}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-2.5 max-sm:w-full sm:gap-6">
-          {approved && !offPanel && !deliberating && (
+      {/*
+        On a phone, two lines: who and what (the judge's name, the activity and where) in full, then the count and controls.
+        A pageant's is one thin line at any size, so the candidate and the keypad have the screen: what's being judged
+        and how many of its candidates this judge has scored, which opens their scores (there's no list beside the keypad).
+      */}
+      <header
+        className={`judge-header flex items-center gap-x-3 border-b border-oxford px-4 sm:px-6 ${pageant ? "py-2" : "flex-wrap gap-y-2 py-3 sm:flex-nowrap"}`}
+      >
+        {pageant ? (
+          counting ? (
+            <ScoresSheet
+              title={`Your scores${round ? ` in ${round.name}` : ""}`}
+              scored={scores.size}
+              total={entries.length}
+              className="-ml-2 flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-2 py-0.5 text-left hover:bg-oxford"
+              label={
+                <>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{round?.name ?? activity.name}</span>
+                    <span className="tabular block truncate text-sm text-powder">
+                      <span className="font-bold text-mint">{scores.size}</span> of {entries.length} scored
+                      <span className="sr-only">. Show your scores</span>
+                    </span>
+                  </span>
+                  <svg viewBox="0 0 16 16" className="size-4 shrink-0 text-powder" aria-hidden>
+                    <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </>
+              }
+            >
+              <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} onPick={ownPace ? setChosen : undefined} />
+            </ScoresSheet>
+          ) : (
+            <div className="min-w-0">
+              <p className="truncate font-semibold">{round?.name ?? activity.name}</p>
+              <p className="truncate text-sm text-powder">{judge.name}</p>
+            </div>
+          )
+        ) : (
+          <>
+            {/* On a phone the judge's own photo gives way to their name. */}
+            <Avatar name={judge.name} src={judge.photoUrl} size={44} className="judge-header-photo max-sm:hidden" />
+            <div className="min-w-0 max-sm:basis-full">
+              <p className="truncate font-semibold">{judge.name}</p>
+              <p className="truncate text-sm text-powder">
+                {activity.name}
+                {round && ` · ${round.name}`}
+                {/* Where it happens, so a judge in a breakout room knows they're in the right one. */}
+                {activity.location && ` · ${activity.location}`}
+              </p>
+            </div>
+          </>
+        )}
+        <div className={`ml-auto flex items-center gap-2.5 ${pageant ? "shrink-0 sm:gap-4" : "max-sm:w-full sm:gap-6"}`}>
+          {counting && !pageant && (
             <>
               <p className="judge-count tabular hidden text-powder md:block">
                 <span className="font-bold text-mint">{scores.size}</span> of {entries.length} scored
@@ -446,7 +539,7 @@ export function ScoringPanel({
               </ScoresSheet>
             </>
           )}
-          <LiveStatusBadge status={status} className="whitespace-nowrap text-mint max-sm:ml-auto" compact />
+          <LiveStatusBadge status={status} className={`whitespace-nowrap text-mint ${pageant ? "" : "max-sm:ml-auto"}`} compact />
           {assistance && gate.status !== "revoked" && <AssistButton current={assistance.current} />}
           {approved ? (
             // Signing out revokes this device, so judging can't carry on here without the organizer: asked first, as a
@@ -496,7 +589,7 @@ export function ScoringPanel({
             <span className="min-w-0 text-balance">{toast.content}</span>
           </p>
         )}
-        {approved && !offPanel && !deliberating && (
+        {counting && !pageant && (
           <aside aria-label="Your scores" className="judge-scores-aside hidden shrink-0 border-oxford md:block md:w-72 md:overflow-y-auto md:border-r lg:w-80">
             <h2 className="px-6 pt-5 pb-2 text-sm font-semibold text-powder">Your scores{round && ` in ${round.name}`}</h2>
             <ScoreList entries={entries} scores={scores} currentId={currentId} decimals={activity.decimals} onPick={ownPace ? setChosen : undefined} />
@@ -523,6 +616,10 @@ export function ScoringPanel({
             </p>
           )}
 
+          {approved && parts && (view.kind === "scoring" || view.kind === "scored") && view.entry.id === parts.entryId && (
+            <PartsStrip parts={parts} current={round?.id ?? null} />
+          )}
+
           {!approved ? (
             <DeviceGateCard gate={gate} />
           ) : correctingEntry && corrections ? (
@@ -533,6 +630,7 @@ export function ScoringPanel({
                 from: correctingEntry.value,
                 fromBreakdown: correctingEntry.points,
                 decides: corrections.decides,
+                roundId: round?.id ?? null,
                 reasons: deliberating || activity.correctionReasons ? (tied ? [TIE_REASON, ...CORRECTION_REASONS] : CORRECTION_REASONS) : undefined,
                 onDone: (message) => {
                   setCorrectingFor(null);
@@ -540,9 +638,9 @@ export function ScoringPanel({
                 },
               };
               return activity.scoringMode === "criteria" ? (
-                <CriteriaKeypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} />
+                <CriteriaKeypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} showcase={pageant} wall={wall} />
               ) : (
-                <Keypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} />
+                <Keypad key={`${entry.id}-fix`} activity={activity} entry={entry} number={number} submission={idle} correcting={fix} showcase={pageant} />
               );
             })()
           ) : deliberating ? (
@@ -567,6 +665,8 @@ export function ScoringPanel({
                 submission={submission(view.entry)}
                 timer={timerBar}
                 closed={timer?.phase === "closed"}
+                showcase={pageant}
+                wall={wall}
               />
             ) : (
               <Keypad
@@ -578,6 +678,7 @@ export function ScoringPanel({
                 submission={submission(view.entry)}
                 timer={timerBar}
                 closed={timer?.phase === "closed"}
+                showcase={pageant}
               />
             )
           ) : (
@@ -599,6 +700,8 @@ export function ScoringPanel({
                 ownPace={ownPace}
                 offPanel={offPanel}
                 segmentFresh={segmentFresh}
+                partsLeft={partsLeft}
+                wall={wall}
                 correction={
                   corrections && view.kind === "scored" ? (
                     <CorrectionStatus
@@ -609,6 +712,17 @@ export function ScoringPanel({
                   ) : null
                 }
               />
+              {/* Candidate by candidate: on to the next part they haven't scored this candidate in. */}
+              {parts && view.kind === "scored" && partsLeft?.[0] && (
+                <Link
+                  href={`?part=${partsLeft[0].id}&for=${parts.entryId}`}
+                  replace
+                  scroll={false}
+                  className="btn mt-6 h-14 w-full bg-mint text-lg text-prussian hover:bg-white"
+                >
+                  <span className="truncate">Next: {partsLeft[0].name}</span>
+                </Link>
+              )}
               {/* At their own pace: on to the next entry they haven't scored, from one they came back to. */}
               {ownPace && view.kind === "scored" && nextUnscored && (
                 <button type="button" onClick={() => setChosen(null)} className="btn mt-6 h-14 w-full bg-mint text-lg text-prussian hover:bg-white">
@@ -622,7 +736,8 @@ export function ScoringPanel({
                   entries={entries}
                   deliberationReady={deliberationReady}
                   // The chair's own score counts as soon as it's saved here, before the refreshed page has it.
-                  panel={view.kind === "scored" ? panel.map((j) => (j.id === judge.id ? { ...j, scored: true } : j)) : panel}
+                  // Candidate by candidate, once it's their last part.
+                  panel={view.kind === "scored" && !partsLeft?.length ? panel.map((j) => (j.id === judge.id ? { ...j, scored: true } : j)) : panel}
                 />
               )}
               {view.kind === "scored" && inlineNotes && <div className="mt-6 w-full">{inlineNotes}</div>}
@@ -716,7 +831,25 @@ function ScoreList({
  * they can compare as they go, as the list beside the keypad lets them on a wider screen. Said in words: "1/3" beside
  * "No. 3" reads like a place in the running order.
  */
-function ScoresSheet({ title, scored, total, children }: { title: string; scored: number; total: number; children: React.ReactNode }) {
+function ScoresSheet({
+  title,
+  scored,
+  total,
+  label,
+  className = "judge-count-button tabular flex h-11 shrink-0 items-center rounded-full border border-oxford px-3.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden",
+  children,
+}: {
+  title: string;
+  scored: number;
+  total: number;
+  /**
+   * What opens it, in place of the count (a pageant's header: what's being judged, over the count), with its look. It
+   * ends its name with ". Show your scores", as the count does.
+   */
+  label?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   return (
@@ -725,19 +858,22 @@ function ScoresSheet({ title, scored, total, children }: { title: string; scored
         type="button"
         onClick={() => ref.current?.showModal()}
         aria-haspopup="dialog"
-        className="judge-count-button tabular flex h-11 shrink-0 items-center rounded-full border border-oxford px-3.5 text-sm whitespace-nowrap text-powder hover:bg-oxford hover:text-mint md:hidden"
+        className={className}
       >
-        <span>
-          <span className="font-bold text-mint">{scored}</span> of {total} scored
-          <span className="sr-only">. Show your scores</span>
-        </span>
+        {label ?? (
+          <span>
+            <span className="font-bold text-mint">{scored}</span> of {total} scored
+            <span className="sr-only">. Show your scores</span>
+          </span>
+        )}
       </button>
       <dialog
         ref={ref}
         aria-labelledby={titleId}
         // A tap on the dimmed page around the sheet closes it.
         onClick={(e) => e.target === ref.current && ref.current.close()}
-        className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-full overflow-y-auto rounded-t-3xl bg-prussian p-0 text-mint shadow-2xl"
+        // A sheet from the bottom on a phone; a card in the middle of a tablet (a pageant's header opens it at any size).
+        className="mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-full overflow-y-auto rounded-t-3xl bg-prussian p-0 pb-2 text-mint shadow-2xl md:m-auto md:max-h-[80dvh] md:max-w-md md:rounded-3xl"
       >
         <div className="sticky top-0 flex items-center justify-between gap-3 bg-prussian px-6 pt-5 pb-3">
           <h2 id={titleId} className="font-semibold">
@@ -1054,9 +1190,13 @@ function WaitingCard({
   ownPace = false,
   offPanel,
   segmentFresh,
+  partsLeft = null,
+  wall = null,
   correction,
   points,
 }: {
+  /** The LED wall shows this sub-activity's totals out of 10: what the submitted score shows as there. */
+  wall?: WallText;
   view: Exclude<JudgeView, { kind: "scoring" }>;
   /** Seconds judges get to score each entry once it's shown, or null with no timer: said while they wait. */
   timerSeconds: number | null;
@@ -1073,6 +1213,8 @@ function WaitingCard({
   offPanel: boolean;
   /** See Props. */
   segmentFresh: "preliminary" | "proper" | null;
+  /** Candidate by candidate: the parts still to score the candidate shown in (none: every part is scored). */
+  partsLeft?: { name: string }[] | null;
   scoredCount: number;
   entryCount: number;
   /** The chair shows the next entry themselves, so they aren't told to wait. */
@@ -1131,7 +1273,11 @@ function WaitingCard({
                 : "Waiting for the next part of the pageant",
               body: "It appears here when the organizer starts it.",
             }
-          : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
+          : view.kind === "scored" && partsLeft
+            ? partsLeft.length
+              ? { title: "Your score is in", body: `Next, score ${view.entry.name} in ${partsLeft[0].name}.` }
+              : { title: "You've scored every part", body: "Wait for the next candidate. The organizer shows them once every judge has scored." }
+            : ((ownPace ? ownPaceCopy[view.kind] : undefined) ?? (movesEntries ? tabulatorCopy[view.kind] : undefined) ?? copy[view.kind]);
 
   const submitted = correction ?? (
     <p className="mt-2 text-sm text-powder">Your score is in, and it&apos;s final.{live && " It's on the live results now."}</p>
@@ -1151,6 +1297,7 @@ function WaitingCard({
             </p>
             <ScoreFigure value={view.value} activity={activity} className="ml-auto text-4xl" />
           </div>
+          {wall && <WallLine className="mt-1 text-right">{wall(view.value)}</WallLine>}
           {points && <PointsList points={points} decimals={activity.decimals} />}
           {submitted}
         </div>
@@ -1168,6 +1315,7 @@ function WaitingCard({
             </p>
           </div>
           <ScoreFigure value={view.value} activity={activity} className="mt-2 block text-6xl" />
+          {wall && <WallLine className="mt-1">{wall(view.value)}</WallLine>}
           {points && <PointsList points={points} decimals={activity.decimals} centered />}
           {submitted}
         </div>
@@ -1195,6 +1343,27 @@ function WaitingCard({
         </div>
       )}
     </div>
+  );
+}
+
+/** What a criteria total (out of 100) shows as on the LED wall, when it shows them out of 10; null when it doesn't. */
+type WallText = ((total: number) => string) | null;
+
+/** The same total as the LED wall shows it, out of 10, so the judge isn't surprised by a different number up there. */
+function WallLine({ children, className = "" }: { children: string; className?: string }) {
+  return (
+    <p className={`text-sm text-powder ${className}`}>
+      <span className="tabular font-semibold text-mint">{children}</span> out of 10 on the LED wall
+    </p>
+  );
+}
+
+/** WallLine in a confirmation, on its light card. */
+function DialogWallLine({ children }: { children: string }) {
+  return (
+    <p className="mt-2 text-sm text-prussian/75">
+      Shows as <span className="tabular font-bold text-prussian">{children}</span> out of 10 on the LED wall.
+    </p>
   );
 }
 
@@ -1756,6 +1925,8 @@ type Correcting = {
   from: number;
   fromBreakdown: Record<string, number> | null;
   decides: CorrectionDecider;
+  /** In a pageant, the sub-activity (or part) the score was given in, as for a score (see submitScore). */
+  roundId?: string | null;
   reasons?: readonly string[];
   onDone: (message?: string) => void;
 };
@@ -1769,7 +1940,7 @@ function useCorrectionRequest(entry: Entry, correcting: Correcting | undefined, 
     if (!correcting || asking) return;
     setAsking(true);
     setError(null);
-    const result = await requestCorrection(entry.id, typed, reason).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
+    const result = await requestCorrection(entry.id, typed, reason, correcting.roundId).catch(() => ({ ok: false as const, error: "That didn't go through. Check your connection and try again." }));
     setAsking(false);
     if (!result.ok) {
       setError(result.error);
@@ -1897,17 +2068,58 @@ function FromTo({ from, to }: { from: string; to: string }) {
  * Above the keypad: the entry being judged, its number leading its name in the same line of type, and its photo when it
  * has one: the judge sees who's on stage, as the LED wall does. The name runs on from the number, so a long one in a
  * narrow column wraps at full width.
+ *
+ * A pageant's candidate photo is the stage instead (`stage`): as large as the column's room allows, the name under it,
+ * as the judges' screens at the big pageants have it. Everywhere ("all"), or from 768px only ("tablet": with criteria,
+ * a phone keeps its height for them, and the photo stays beside the name).
  */
-function EntryTitle({ entry, number, large = false }: { entry: Entry; number: number; /** Beside the keypad from 1024px, with the column to itself. */ large?: boolean }) {
-  return (
-    // Keyed by the entry: the next one's name rises into place when the organizer shows it, so the change is noticed.
-    <div key={entry.id} className="judge-arrive flex items-center gap-3 sm:gap-4">
-      {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl" />}
-      {/* A div, not a p: a heading can't sit inside a paragraph. */}
-      <div className={`judge-title min-w-0 flex-1 wrap-anywhere ${large ? "lg:text-5xl" : ""}`}>
-        <span className="tabular font-semibold text-powder">No. {number}</span> <h1 className="inline">{entry.name}</h1>
-      </div>
+function EntryTitle({
+  entry,
+  number,
+  large = false,
+  stage = null,
+}: {
+  entry: Entry;
+  number: number;
+  /** Beside the keypad from 1024px, with the column to itself. */
+  large?: boolean;
+  stage?: "all" | "tablet" | null;
+}) {
+  const big = entry.photoUrl ? stage : null;
+  const name = (
+    // A div, not a p: a heading can't sit inside a paragraph.
+    <div className={`judge-title min-w-0 wrap-anywhere ${big ? "" : "flex-1"} ${large ? "lg:text-5xl" : ""}`}>
+      <span className="tabular font-semibold text-powder">No. {number}</span> <h1 className="inline">{entry.name}</h1>
     </div>
+  );
+  if (!big) {
+    return (
+      // Keyed by the entry: the next one's name rises into place when the organizer shows it, so the change is noticed.
+      <div key={entry.id} className="judge-arrive flex items-center gap-3 sm:gap-4">
+        {entry.photoUrl && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl" />}
+        {name}
+      </div>
+    );
+  }
+  // The photo and the name are rows of the column itself, not wrapped together, so beside the keypad the column can
+  // centre them with the criteria under them when the photo can't grow any taller.
+  return (
+    <Fragment key={entry.id}>
+      {/*
+        The photo fills the room left over (see .entry-stage). It grows from a set height, not from nothing: sized by a
+        minimum alone (a phone on its side), Chrome measures it as empty and the photo inside comes out at 0.
+      */}
+      <div className={`entry-stage judge-arrive h-28 min-h-28 flex-auto lg:h-48 lg:min-h-48 ${big === "tablet" ? "max-md:hidden" : ""}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- already resized on upload, and on screen at once */}
+        <img src={entry.photoUrl!} alt="" decoding="async" className="entry-stage-photo rounded-[1.25rem] object-cover ring-1 ring-powder/20" />
+      </div>
+      <div
+        className={`judge-arrive mt-3 flex items-center gap-3 sm:gap-4 lg:mt-4 ${big === "all" ? "justify-center text-center" : "max-md:mt-0 md:justify-center md:text-center"}`}
+      >
+        {big === "tablet" && <Avatar name={entry.name} src={entry.photoUrl} size={64} square className="rounded-xl md:hidden" />}
+        {name}
+      </div>
+    </Fragment>
   );
 }
 
@@ -1936,7 +2148,30 @@ type KeypadProps = {
   timer?: React.ReactNode;
   /** The timer has run out: no submitting until the organizer reopens scoring. */
   closed?: boolean;
+  /** A pageant: the candidate's photo is the stage, beside the keypad (see EntryTitle). */
+  showcase?: boolean;
+  /** With criteria: what the total shows as on the LED wall, when it shows them out of 10. */
+  wall?: WallText;
 };
+
+/**
+ * The keypad's layout: one column, its keypad held at the bottom; from 1024px, the entry (and its criteria) beside the
+ * keypad. With a pageant candidate's photo on stage, the columns fill the screen's height so the photo can take it,
+ * the keypad centred beside it.
+ */
+function keypadLayout(stage: boolean, timer: boolean) {
+  return stage
+    ? {
+        layout: `keypad-layout flex w-full max-w-md flex-1 flex-col lg:grid lg:max-w-5xl lg:grid-cols-2 lg:gap-x-12 ${timer ? "lg:grid-rows-[auto_1fr]" : "lg:grid-rows-[1fr]"}`,
+        entry: `flex min-w-0 flex-1 flex-col lg:justify-center lg:pb-5 ${timer ? "lg:row-start-2" : ""}`,
+        dock: `lg:self-center ${timer ? "lg:row-start-2" : ""}`,
+      }
+    : {
+        layout: "keypad-layout flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10",
+        entry: "min-w-0",
+        dock: "",
+      };
+}
 
 /**
  * Sign out, in the judge's header: on a phone just its icon, leaving room for the judge's name and Assist me (signing
@@ -1961,7 +2196,7 @@ const TIME_UP = "Time's up, so scoring has closed. Ask the organizer to reopen i
 const TIME_UP_DIALOG = { note: TIME_UP, confirmDisabled: true };
 
 /** Simple scoring: one score between min and max. */
-function Keypad({ activity, entry, number, notes, submission, timer, closed = false, correcting }: KeypadProps) {
+function Keypad({ activity, entry, number, notes, submission, timer, closed = false, correcting, showcase = false }: KeypadProps) {
   const [buffer, setBuffer] = useState("");
   const [error, setError] = useState<string | null>(null);
   // While the score waits out its undo window (or is on its way), the keypad holds still; Undo brings it back as it was.
@@ -2005,17 +2240,19 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
   const tooHigh = overMax(buffer, activity);
   const message = error ?? submission.error ?? (tooHigh ? overMaxMessage(buffer, activity) : null);
 
+  const stage = showcase && !!entry.photoUrl;
+  const css = keypadLayout(stage, !!timer);
+
   return (
-    // One column, its keypad held at the bottom; from 1024px, the entry beside the keypad, as with criteria.
-    <div className="keypad-layout flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
+    <div className={css.layout}>
       {timer}
-      <div className="min-w-0">
+      <div className={css.entry}>
         {correcting && <CorrectingBar correcting={correcting} />}
-        <EntryTitle entry={entry} number={number} large />
+        <EntryTitle entry={entry} number={number} large stage={stage ? "all" : null} />
         {notes}
       </div>
 
-      <div className={`${DOCK} ${DOCK_BESIDE}`}>
+      <div className={`${DOCK} ${DOCK_BESIDE} ${css.dock}`}>
         <div className={`keypad-readout flex items-center rounded-2xl bg-oxford px-5 py-3 ${tooHigh ? ERROR_RING : ""}`} aria-live="polite">
           <output
             aria-label="Score"
@@ -2082,7 +2319,7 @@ function Keypad({ activity, entry, number, notes, submission, timer, closed = fa
 }
 
 /** Criteria scoring: points for each criterion on the same keypad, totalling up to 100. */
-function CriteriaKeypad({ activity, entry, number, notes, submission, timer, closed = false, correcting }: KeypadProps) {
+function CriteriaKeypad({ activity, entry, number, notes, submission, timer, closed = false, correcting, showcase = false, wall = null }: KeypadProps) {
   const { criteria, decimals } = activity;
   const given = correcting?.fromBreakdown ?? null;
   // The points given, as the judge would type them ("33", "24.5"), so they read the same as anything typed over them.
@@ -2160,13 +2397,15 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
   const tooLow = (c: Criterion) => !!c.min && /^\d+(\.\d*)?$/.test(values[c.id] ?? "") && Number(values[c.id]) < c.min;
   const belowLowest = !!active && tooLow(active);
 
+  const stage = showcase && !!entry.photoUrl;
+  const css = keypadLayout(stage, !!timer);
+
   return (
-    // One column, its keypad held at the bottom; from 1024px, the entry and its criteria beside the keypad instead.
-    <div className="keypad-layout flex w-full max-w-md flex-col max-md:flex-1 lg:grid lg:max-w-4xl lg:grid-cols-2 lg:items-start lg:gap-x-10">
+    <div className={css.layout}>
       {timer}
-      <div className="min-w-0">
+      <div className={css.entry}>
         {correcting && <CorrectingBar correcting={correcting} />}
-        <EntryTitle entry={entry} number={number} />
+        <EntryTitle entry={entry} number={number} stage={stage ? "tablet" : null} />
         {notes}
 
         <ul className="mt-3 space-y-1.5" aria-label="Criteria">
@@ -2208,15 +2447,9 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
             );
           })}
         </ul>
-        <p className="tabular mt-2 flex justify-between text-sm text-powder">
-          <span>Total</span>
-          <span>
-            <span className="font-bold text-mint">{formatScore(runningTotal, decimals)}</span> / 100
-          </span>
-        </p>
       </div>
 
-      <div className={`${DOCK} ${DOCK_BESIDE}`}>
+      <div className={`${DOCK} ${DOCK_BESIDE} ${css.dock}`}>
         {active?.guide && (
           <div className="rounded-xl border border-oxford">
             <button
@@ -2282,6 +2515,21 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
 
         <KeypadGrid decimals={decimals} onPress={press} disabled={busy} />
 
+        {/*
+          The total, large, right over the button that submits it: "so far" until every criterion has its points, then
+          ringed in mint, the score about to go in. With the LED wall out of 10, what it will show there too.
+        */}
+        <div className={`keypad-total mt-3 flex items-center gap-3 rounded-2xl border px-5 py-2 md:mt-4 ${all.ok ? "border-mint/70" : "border-powder/25"}`}>
+          <div className="min-w-0">
+            <p className="font-semibold">{all.ok ? "Total" : <>Total <span className="font-normal text-powder">so far</span></>}</p>
+            {wall && <WallLine className="leading-snug">{wall(runningTotal)}</WallLine>}
+          </div>
+          <p className="tabular ml-auto leading-none whitespace-nowrap">
+            <span className="keypad-total-figure text-[clamp(1.75rem,4.5vh,2.5rem)] font-bold">{formatScore(runningTotal, decimals)}</span>
+            <span className="ml-1.5 text-lg text-powder">/ 100</span>
+          </p>
+        </div>
+
         <button
           type="button"
           onClick={primary}
@@ -2297,6 +2545,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
           <>
             <FromTo from={formatScore(correcting.from, decimals)} to={formatScore(all.total, decimals)} />
             <p className="text-sm text-prussian/75">out of 100</p>
+            {wall && <DialogWallLine>{wall(all.total)}</DialogWallLine>}
             <ol aria-label="Points for each criterion, before and after" className="mt-3 max-h-[min(16rem,35dvh)] space-y-1 overflow-y-auto text-left">
               {criteria.map((c) => {
                 const now = formatScore(all.breakdown[c.id], decimals);
@@ -2341,6 +2590,7 @@ function CriteriaKeypad({ activity, entry, number, notes, submission, timer, clo
             </ul>
             <p className="tabular mt-3 text-6xl font-bold text-regal">{formatScore(all.total, decimals)}</p>
             <p className="text-sm text-prussian/75">out of 100</p>
+            {wall && <DialogWallLine>{wall(all.total)}</DialogWallLine>}
           </>
         )}
       </ConfirmScore>

@@ -141,6 +141,9 @@ function RoundRows({ round, name, share }: { round: RoundDraft; name: string; sh
         <td className={`${cell} tabular text-right font-semibold`}>{share}</td>
         <td className={`${cell} pr-0 text-prussian/75`}>
           In {round.parts.length} parts, each scored on its own
+          {round.byCandidate && round.segment === "preliminary" && !round.ownPace && (
+            <p className="mt-0.5 text-sm text-prussian/75">Candidate by candidate</p>
+          )}
           {deliberated}
         </td>
       </tr>

@@ -775,6 +775,32 @@ html:has(.share-ledger) {
     padding-bottom: 1rem;
   }
   /*
+   * A pageant candidate's photo on a judge's screen: it fills the room left in the column over the name (and criteria).
+   * The photo is square; here it may lose a little at the sides or top and bottom to fill the room (no more than 4:5 or
+   * 5:4), and is centred when the room is narrower or wider than that.
+   */
+  .entry-stage {
+    container-type: size;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .entry-stage-photo {
+    width: min(100cqw, 125cqh);
+    height: min(100cqh, 125cqw);
+    object-position: 50% 40%;
+  }
+  /*
+   * Beside the keypad (from 1024px), no taller than 5:4 of its column: a screen taller than the photo needs keeps the
+   * photo and the name together, centred, rather than the name falling to the bottom. The column is half of the keypad
+   * layout (max 64rem, 3rem apart) inside .judge-main's 2rem padding; cqw here is .judge-main's.
+   */
+  @media (min-width: 64rem) {
+    .entry-stage {
+      max-height: calc((min(100cqw - 4rem, 64rem) - 3rem) / 2 * 1.25);
+    }
+  }
+  /*
    * Sticky only where the judge's column is tall enough for the entry's name above it: measured on the column itself
    * (.judge-main), not the window, so a bar under the header (the organizer's on the way, the privacy screen's offer)
    * can't leave the keypad sitting over the name. Shorter, everything scrolls as one.
@@ -902,6 +928,13 @@ html:has(.share-ledger) {
     margin-top: 0.5rem;
     font-size: 1.125rem;
   }
+  .keypad-total {
+    margin-top: 0.5rem;
+    padding-block: 0.25rem;
+  }
+  .keypad-total-figure {
+    font-size: 1.5rem;
+  }
 }
 /*
  * A small phone held upright (an older four-inch one): the same column, tightened, so the main button stays on the
@@ -931,6 +964,13 @@ html:has(.share-ledger) {
   .judge-primary {
     height: 3rem;
     margin-top: 0.5rem;
+  }
+  .keypad-total {
+    margin-top: 0.5rem;
+    padding-block: 0.25rem;
+  }
+  .keypad-total-figure {
+    font-size: 1.5rem;
   }
   /*
    * Held at the bottom from a shorter column than elsewhere (25rem, not 34rem): the readout names the criterion being

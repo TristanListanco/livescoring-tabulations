@@ -98,6 +98,22 @@ describe("scoreWindowOpen", () => {
 });
 
 describe("pageantScoreRound", () => {
+  it("candidate by candidate: any part of the sub-activity on screen, for the candidate shown, never the sub-activity itself", () => {
+    const at = Date.parse("2026-10-23T10:00:00Z");
+    const talent = roundFixture({ id: "talent", segment: "preliminary", name: "Talent", position: 0, candidateOrder: true });
+    const parts = [roundFixture({ id: "perf", segment: "preliminary", parentId: "talent" }), roundFixture({ id: "dress", segment: "preliminary", parentId: "talent", position: 1 })];
+    const gown = roundFixture({ id: "gown", segment: "proper", name: "Gown", position: 1 });
+    const list = [talent, ...parts, gown];
+    const shown = { currentRoundId: "talent", currentEntryId: "e1", previousEntryId: null, entryShownAt: null, liveScoring: true, independentScoring: false };
+    const got = (r: ReturnType<typeof pageantScoreRound>) => ("error" in r ? r.error : [r.round.id, r.onScreen]);
+    expect(got(pageantScoreRound(shown, list, "perf", "e1", at))).toEqual(["perf", true]);
+    expect(got(pageantScoreRound(shown, list, "dress", "e1", at))).toEqual(["dress", true]);
+    expect(got(pageantScoreRound(shown, list, "dress", "e2", at))).toMatch(/moved to another candidate/);
+    expect(got(pageantScoreRound(shown, list, "talent", "e1", at))).toMatch(/out of date/);
+    expect(got(pageantScoreRound(shown, list, undefined, "e1", at))).toMatch(/out of date/);
+    expect(got(pageantScoreRound(shown, list, "gown", "e1", at))).toMatch(/moved to another candidate/);
+  });
+
   const movedAt = Date.parse("2026-10-23T10:00:00Z");
   const talent = roundFixture({ id: "talent", segment: "preliminary", name: "Talent", position: 0 });
   const gown = roundFixture({ id: "gown", segment: "proper", name: "Gown", position: 1 });

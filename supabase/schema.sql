@@ -351,6 +351,9 @@ alter table public.rounds add column if not exists independent_scoring boolean n
 -- A sub-activity scored live by criteria shown as percentages can show its totals out of 10 on the LED wall alone
 -- (migration 042). Its parts follow it.
 alter table public.rounds add column if not exists led_out_of_ten boolean not null default false;
+-- A preliminary sub-activity in parts can be judged candidate by candidate: each candidate scored on every part before
+-- the next one is shown, with no timer (migration 045). Set on the sub-activity, never on its parts.
+alter table public.rounds add column if not exists candidate_order boolean not null default false;
 -- The sub-activity being judged now.
 alter table public.activities add column if not exists current_round_id uuid references public.rounds (id) on delete set null;
 -- A pageant's segments as sessions of their own (migration 040): the session runs from the preliminary's start
