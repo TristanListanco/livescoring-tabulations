@@ -5,7 +5,7 @@ import { expectAccessible, openJudgeLink, signInAsSuperAdmin, submitScore, supab
 // A preliminary sub-activity in parts judged candidate by candidate: Talent, scored on Performance and Costume, goes on
 // judges' screens as a whole. The organizer shows Ayla once; each judge scores her Performance, their screen moves on to
 // her Costume by itself, and only then is she "scored" on the desk. Then Bea. Once both are scored on every part, the
-// desk deliberates Performance, then Costume. Two judges, Ana and Ben.
+// desk deliberates Performance, then Costume. Two judges, Ana and Ben (chair).
 
 const api = supabaseAdmin()!;
 const RUN = Date.now().toString(36);
@@ -93,7 +93,8 @@ test.describe.serial("a preliminary sub-activity judged candidate by candidate",
     await restOk("rounds", [
       row(round.perf, "Performance", 0, 20, { parent_id: round.talent }),
       row(round.dress, "Costume", 1, 20, { parent_id: round.talent }),
-      { ...row(round.gown, "Gown", 1, 60, { live_scoring: true }), segment: "proper", cut_size: 1, cut_basis: ["preliminary", round.gown] },
+      // Every row in one insert needs the same keys, so parent_id too.
+      { ...row(round.gown, "Gown", 1, 60, { live_scoring: true, parent_id: null }), segment: "proper", cut_size: 1, cut_basis: ["preliminary", round.gown] },
     ]);
     const person = (id: string, first: string, last: string, position: number) => ({
       id,
@@ -105,7 +106,8 @@ test.describe.serial("a preliminary sub-activity judged candidate by candidate",
       is_chair: false,
       panel: "all",
     });
-    await restOk("judges", [person(judge.ana, "Ana", "Cruz", 0), person(judge.ben, "Ben", "Torres", 1)]);
+    // Talent is deliberated, so the board needs a chair to start.
+    await restOk("judges", [person(judge.ana, "Ana", "Cruz", 0), { ...person(judge.ben, "Ben", "Torres", 1), is_chair: true }]);
     await restOk("judge_access", [
       { judge_id: judge.ana, code: CODES.ana },
       { judge_id: judge.ben, code: CODES.ben },
@@ -131,12 +133,12 @@ test.describe.serial("a preliminary sub-activity judged candidate by candidate",
     // Saved part by part and back again: the choice is kept with the program.
     await order.getByRole("radio", { name: "Part by part" }).check();
     await page.getByRole("button", { name: "Save program" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Program saved." })).toBeVisible(REALTIME);
+    await expect(page.getByText("Program saved", { exact: true })).toBeVisible(REALTIME);
     await page.reload();
     await expect(order.getByRole("radio", { name: "Part by part" })).toBeChecked();
     await order.getByRole("radio", { name: "Candidate by candidate" }).check();
     await page.getByRole("button", { name: "Save program" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Program saved." })).toBeVisible(REALTIME);
+    await expect(page.getByText("Program saved", { exact: true })).toBeVisible(REALTIME);
     await page.reload();
     await expect(order.getByRole("radio", { name: "Candidate by candidate" })).toBeChecked();
 
