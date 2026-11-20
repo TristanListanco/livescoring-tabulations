@@ -73,7 +73,8 @@ export function scoreWindowOpen(
  * (`sentRoundId`), or why it's turned away. In the one on screen, the candidate on screen; at its own pace, any candidate
  * (the caller checks the pool). A score confirmed just before the organizer moved on, to the next candidate or to another
  * sub-activity, still counts for the candidate moved on from (see scoreWindowOpen), in the sub-activity it was given in,
- * never the one judges were moved to. A screen that doesn't send it: only the candidate on screen.
+ * never the one judges were moved to. A screen that doesn't send it: only the candidate on screen. A sub-activity judged
+ * candidate by candidate is on screen with each of its parts, so a judge scores the candidate shown in any of them.
  */
 export function pageantScoreRound(
   activity: Pick<Activity, "currentRoundId" | "currentEntryId" | "previousEntryId" | "entryShownAt" | "liveScoring" | "independentScoring">,
@@ -84,7 +85,11 @@ export function pageantScoreRound(
 ): { round: Round; onScreen: boolean } | { error: string } {
   const round = rounds.find((r) => r.id === (sentRoundId ?? activity.currentRoundId));
   if (!round) return { error: "Judging isn't open right now. Wait for the organizer." };
-  const onScreen = round.id === activity.currentRoundId;
+  // A sub-activity with parts is scored in its parts: one judged candidate by candidate is on screens as a whole, and
+  // its judges' screens send the part.
+  if (rounds.some((r) => r.parentId === round.id)) return { error: "Your screen is out of date. Reload it and score again." };
+  // Candidate by candidate, any of its parts is on screen with it.
+  const onScreen = round.id === activity.currentRoundId || (round.parentId !== null && round.parentId === activity.currentRoundId);
   // Its judges are reviewing their scores: every one of them is in.
   if (round.deliberationStartedAt) return { error: `The judges are deliberating ${round.name}, so its scores are in.` };
   if (roundAtOwnPace(round)) return { round, onScreen };

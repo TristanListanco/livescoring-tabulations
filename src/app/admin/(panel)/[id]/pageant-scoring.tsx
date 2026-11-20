@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { judgingOrder, roundLabel } from "@/lib/pageant";
+import { judgingOrder, roundLabel, unitOf } from "@/lib/pageant";
 import { segmentLabel } from "@/lib/pageant-setup";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import type { Criterion, Round } from "@/lib/types";
@@ -46,7 +46,8 @@ export function PageantScoring({ rounds, initialId, compact = false }: { rounds:
   const id = useId();
   const judged = judgingOrder(rounds);
   const [chosen, setChosen] = useState(initialId ?? judged[0]?.id ?? "");
-  const round = judged.find((r) => r.id === chosen) ?? judged[0];
+  // A sub-activity judged candidate by candidate is on screens as a whole: its first part.
+  const round = judged.find((r) => r.id === chosen) ?? judged.find((r) => r.parentId === chosen) ?? judged[0];
   if (!round) return null;
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   const criteria = round.scoringMode === "criteria";
@@ -56,6 +57,7 @@ export function PageantScoring({ rounds, initialId, compact = false }: { rounds:
     [criteria ? "Judges give points in" : "Judges score with", places(round.decimals)],
     ...(criteria ? ([["Totals shown", round.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"]] as [string, React.ReactNode][]) : []),
     ["Time limit", round.timerSeconds ? `${round.timerSeconds} seconds per candidate` : "None"],
+    ...(unitOf(rounds, round).candidateOrder ? ([["Judging order", "Candidate by candidate, each scored on every part"]] as [string, React.ReactNode][]) : []),
     [
       "Results",
       round.liveScoring

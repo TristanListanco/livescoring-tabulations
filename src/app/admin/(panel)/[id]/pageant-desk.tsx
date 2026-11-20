@@ -12,13 +12,12 @@ import {
   judgesFor,
   roundDeliberating,
   roundReleased,
-  judgingOrder,
+  byCandidate,
   partsOf,
   placeTitle,
   preliminaryComplete,
   programOrder,
   roundLabel,
-  roundPool,
   roundProgress,
   segmentClosed,
   unitOf,
@@ -71,49 +70,6 @@ export function PdfLink({ activityId, query, className, children }: { activityId
       {children}
     </a>
   );
-}
-
-/**
- * What comes after the sub-activity (or part) being judged, in the segment running now: its cut, once its last part
- * is judged and the cut is still to confirm, or the next thing to judge. Null once the segment is all judged (the
- * desk then offers its end). A part comes back with its full name ("Interview · Q&A").
- */
-export function nextUp(board: Board, round: Round | null): { kind: "cut" | "round" | "deliberate"; round: Round } | null {
-  const segment = runningSegment(board.activity);
-  const order = judgingOrder(board.rounds).filter((r) => r.segment === segment);
-  const labelled = (r: Round) => ({ ...r, name: roundLabel(board.rounds, r) });
-  // A fully scored one whose results wait for a deliberation not started yet: that comes first.
-  const toDeliberate = (r: Round) => !roundReleased(r) && !r.deliberationStartedAt && roundProgress(board, r).complete;
-  // The cut that comes right after this part (or sub-activity), if it's still to confirm.
-  const cutAfter = (r: Round) => {
-    const unit = unitOf(board.rounds, r);
-    const parts = partsOf(board.rounds, unit.id);
-    const last = parts.length ? parts[parts.length - 1] : unit;
-    return last.id === r.id && unit.cutSize !== null && unit.cutEntryIds === null ? unit : null;
-  };
-  if (!round) {
-    // Between sub-activities: the first one not done yet, or the cut holding it back.
-    for (const r of order) {
-      if (roundProgress(board, r).complete) {
-        if (toDeliberate(r)) return { kind: "deliberate", round: labelled(r) };
-        const cut = cutAfter(r);
-        if (cut) return { kind: "cut", round: cut };
-        continue;
-      }
-      const { blockedBy } = roundPool(board, r.id);
-      return blockedBy ? { kind: "cut", round: blockedBy } : { kind: "round", round: labelled(r) };
-    }
-    return null;
-  }
-  const now = board.rounds.find((r) => r.id === round.id) ?? round;
-  if (toDeliberate(now)) return { kind: "deliberate", round: labelled(now) };
-  const cut = cutAfter(now);
-  if (cut) return { kind: "cut", round: cut };
-  const next = order[order.findIndex((r) => r.id === round.id) + 1];
-  if (next) return { kind: "round", round: labelled(next) };
-  // The segment's last: whatever of it was skipped and still has scores to come.
-  const open = order.find((r) => r.id !== round.id && !roundProgress(board, r).complete && !roundPool(board, r.id).blockedBy);
-  return open ? { kind: "round", round: labelled(open) } : null;
 }
 
 /** Switch judging to a sub-activity, asking first when the one being judged still has scores to come. */
@@ -207,8 +163,8 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
   const status = (r: Round, judged: boolean) => {
     if (!started) return null;
     const progress = roundProgress(board, r);
-    // A sub-activity in parts is "judging now" while one of its parts is.
-    const current = judged ? isCurrent(r) : partsOf(board.rounds, r.id).some(isCurrent);
+    // A sub-activity in parts is "judging now" while one of its parts is, or while it's on as a whole (candidate by candidate).
+    const current = judged ? isCurrent(r) : isCurrent(r) || partsOf(board.rounds, r.id).some(isCurrent);
     // What judges score here, for a deliberation's state: the sub-activity, or each of its parts.
     const judgedHere = judged ? [r] : partsOf(board.rounds, r.id);
     return judged && roundDeliberating(r) ? (
@@ -231,9 +187,36 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
    * A sub-activity or part that judges score: how far it has got, judging it, its results PDF and the judges' score
    * sheets that go with it. `label`: its full name.
    */
+  /** Putting it on judges' screens: a sub-activity or part, or a sub-activity judged candidate by candidate as a whole. */
+  const judgeButton = (r: Round, label: string) => {
+    const progress = roundProgress(board, r);
+    return (
+      live &&
+      !placed &&
+      !isCurrent(r) &&
+      !progress.blockedBy &&
+      !segmentClosed(activity, r) &&
+      !deliberating && (
+        <JudgeRoundButton
+          board={board}
+          round={{ ...r, name: label }}
+          className={action}
+          onDone={setResult}
+          label={
+            <>
+              {progress.complete ? "Show again" : progress.submitted > 0 ? "Resume" : "Judge now"}
+              <span className="sr-only"> {label}</span>
+            </>
+          }
+        />
+      )
+    );
+  };
   const row = (r: Round, label: string, part: boolean) => {
     const progress = roundProgress(board, r);
     const current = isCurrent(r);
+    // Candidate by candidate, its parts go on judges' screens together, from the sub-activity's own line.
+    const whole = part && byCandidate(board.rounds, unitOf(board.rounds, r));
     return (
       <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "py-1.5" : "px-5 py-2.5"} ${current ? "bg-wash" : ""}`}>
         <span className={`min-w-0 flex-1 truncate ${part ? "" : "font-semibold"}`} title={label}>
@@ -241,20 +224,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
           <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(r.weight)}</span>
         </span>
         {status(r, true)}
-        {live && !placed && !current && !progress.blockedBy && !segmentClosed(activity, r) && !deliberating && (
-          <JudgeRoundButton
-            board={board}
-            round={{ ...r, name: label }}
-            className={action}
-            onDone={setResult}
-            label={
-              <>
-                {progress.complete ? "Show again" : progress.submitted > 0 ? "Resume" : "Judge now"}
-                <span className="sr-only"> {label}</span>
-              </>
-            }
-          />
-        )}
+        {!whole && judgeButton(r, label)}
         {progress.complete && roundReleased(r) && (
           <ExportMenu activityId={activity.id} options={sheetOptions(`round=${r.id}`, { judges: true })} className={action} context={label} align="right" />
         )}
@@ -322,6 +292,7 @@ export function ProgramPanel({ board, live, compact = false, onReviewCut }: { bo
                             <span className="tabular ml-1.5 font-normal text-prussian/75">{percent(round.weight)}</span>
                           </span>
                           {status(round, false)}
+                          {byCandidate(board.rounds, round) && judgeButton(round, round.name)}
                           {roundProgress(board, round).complete && parts.every(roundReleased) && (
                             <ExportMenu
                               activityId={activity.id}

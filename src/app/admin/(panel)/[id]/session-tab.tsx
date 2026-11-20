@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { CorrectionView } from "@/lib/corrections";
 import { atOwnPace, entryNeighbors, eventTimer } from "@/lib/judging";
 import { listNames } from "@/lib/names";
-import { finalCutRound, judgesFor, placeTitle, preliminaryEndGap, roundDeliberating, roundLabel, roundProgress, showingBoard, unitOf } from "@/lib/pageant";
+import { byCandidate, candidateMarks, finalCutRound, judgesFor, nextUp, placeTitle, preliminaryEndGap, roundDeliberating, roundLabel, roundProgress, showingBoard, unitOf } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
 import { averageText, isWithdrawn, liveStandings, rankEntries } from "@/lib/scoring";
 import { unsignedJudges, type DeliberationResults } from "@/lib/deliberation";
@@ -28,7 +28,7 @@ import { FinalSignOff } from "./final-signoff";
 import { ApproveDeviceButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { PageantScoring } from "./pageant-scoring";
-import { CutDialog, DeductionsButton, DeskTimer, FinalPlacements, JudgeRoundButton, nextUp, PdfLink, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
+import { CutDialog, DeductionsButton, DeskTimer, FinalPlacements, JudgeRoundButton, PdfLink, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
 
 type Progress = { submitted: number; possible: number; complete: boolean };
 
@@ -272,7 +272,11 @@ export function SessionTab({
   const held = corrections.some((c) => c.status === "open") ? "Waits until the score correction is settled" : null;
   // A pageant's desk runs the sub-activity being judged: its candidates and its scores. Between sub-activities it
   // lists every candidate, and the program says what to judge next.
-  const { board: shown, round } = showingBoard(board);
+  const { board: shown, round: inHand, onScreen } = showingBoard(board);
+  // Candidate by candidate, the desk runs the sub-activity as a whole: its candidates, and who has scored each on every
+  // part (see candidateMarks). The LED wall and live results follow the part in hand.
+  const whole = onScreen && byCandidate(board.rounds, onScreen) ? onScreen : null;
+  const round = whole ?? inHand;
   const between = pageant && !round;
   // A pageant sub-activity (or part) whose judges are deliberating it: the desk shows who has signed, then its sign-off.
   const underReview = round && roundDeliberating(round) ? round : null;
@@ -456,7 +460,7 @@ export function SessionTab({
 
   const { index, entry, previous, next } = entryNeighbors(entries, current);
   // Who has scored what, from the scores, or while they're withheld from which judge has scored which entry.
-  const marks: { entryId: string; judgeId: string }[] = between ? [] : (shown.scored ?? scores);
+  const marks: { entryId: string; judgeId: string }[] = between ? [] : whole ? candidateMarks(board, whole) : (shown.scored ?? scores);
   const scoredBy = new Set(marks.filter((s) => s.entryId === entry?.id).map((s) => s.judgeId));
   const stillScoring = judges.filter((j) => !scoredBy.has(j.id));
   const allIn = entry !== null && judges.length > 0 && stillScoring.length === 0;
@@ -964,7 +968,9 @@ export function SessionTab({
                       ? pageant && judging === null
                         ? "Waiting for pageant proper"
                         : "Between sub-activities"
-                      : "On judges' screens"}
+                      : whole
+                        ? "Judged candidate by candidate"
+                        : "On judges' screens"}
                 </h2>
                 <p title={entry?.name} className="col-span-2 mt-0.5 line-clamp-2 text-[clamp(1.375rem,2vw,1.75rem)] leading-tight font-light tracking-[-0.01em] text-balance wrap-anywhere">
                   {finale

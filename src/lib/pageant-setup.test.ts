@@ -499,3 +499,43 @@ describe("scores out of 10 on the LED wall", () => {
     }
   });
 });
+
+describe("judging candidate by candidate", () => {
+  const timed = blankScoring();
+  const part = (key: string, weight: string): PartDraft => ({ key, name: key, weight, scoring: timed, timer: "30" });
+  const parts = [part("Performance", "15"), part("Costume", "15")];
+  const withOrder = (extra: Partial<RoundDraft>, segment: RoundDraft["segment"] = "preliminary") =>
+    draft(
+      segment === "preliminary"
+        ? [round("Talent", "preliminary", "30", { scoring: timed, timer: "45", ...extra }), round("Gown", "proper", "70", { scoring: timed, cutSize: "3" })]
+        : [round("Interview", "preliminary", "30", { scoring: timed }), round("Talent", "proper", "70", { scoring: timed, cutSize: "3", ...extra })],
+    );
+
+  it("comes with parts in the preliminary, and then nothing in it is timed", () => {
+    const ordered = checkPageant(withOrder({ parts, byCandidate: true }), 10, ids);
+    expect(ordered.ok).toBe(true);
+    if (!ordered.ok) return;
+    expect(ordered.rounds[0]).toMatchObject({ candidateOrder: true, timerSeconds: null });
+    expect(ordered.rounds[0].parts.map((p) => p.timerSeconds)).toEqual([null, null]);
+    // Part by part, the parts keep their timers.
+    const byPart = checkPageant(withOrder({ parts }), 10, ids);
+    expect(byPart.ok && byPart.rounds[0].parts.map((p) => p.timerSeconds)).toEqual([30, 30]);
+    expect(byPart.ok && byPart.rounds[0].candidateOrder).toBe(false);
+  });
+
+  it("isn't kept without parts, in pageant proper, or at the judges' own pace", () => {
+    const whole = checkPageant(withOrder({ byCandidate: true }), 10, ids);
+    expect(whole.ok && whole.rounds[0]).toMatchObject({ candidateOrder: false, timerSeconds: 45 });
+    const proper = checkPageant(withOrder({ parts, byCandidate: true }, "proper"), 10, ids);
+    expect(proper.ok && proper.rounds[1].candidateOrder).toBe(false);
+    const paced = checkPageant(withOrder({ parts, byCandidate: true, deliberate: true, ownPace: true }), 10, ids);
+    expect(paced.ok && paced.rounds[0]).toMatchObject({ candidateOrder: false, independentScoring: true });
+  });
+
+  it("round-trips through a draft and a saved program", () => {
+    expect(parsePageantDraft(JSON.stringify(withOrder({ parts, byCandidate: true })))?.rounds[0].byCandidate).toBe(true);
+    const saved = roundFixture({ id: "t", name: "Talent", segment: "preliminary", candidateOrder: true });
+    const kept = [saved, roundFixture({ id: "p1", name: "Performance", segment: "preliminary", parentId: "t" }), roundFixture({ id: "p2", name: "Costume", segment: "preliminary", parentId: "t", position: 1 })];
+    expect(draftFromRounds(30, kept).rounds[0].byCandidate).toBe(true);
+  });
+});

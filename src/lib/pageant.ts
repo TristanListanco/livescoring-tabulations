@@ -1,4 +1,4 @@
-import { segmentPhase } from "./lifecycle";
+import { runningSegment, segmentPhase } from "./lifecycle";
 import { isWithdrawn } from "./scoring";
 import { ordinal } from "./ties";
 import { PRELIMINARY, type Activity, type Board, type Deduction, type Entry, type Judge, type Round, type Score } from "./types";
@@ -29,6 +29,23 @@ export function judgingOrder(rounds: Round[]): Round[] {
   return programOrder(rounds).flatMap((r) => {
     const parts = partsOf(rounds, r.id);
     return parts.length ? parts : [r];
+  });
+}
+
+/**
+ * A preliminary sub-activity judged candidate by candidate: it goes on judges' screens as a whole, and each candidate is
+ * scored on every part before the next is shown, each judge going through the parts on their own (see partFor).
+ */
+export const byCandidate = (rounds: Round[], round: Round) => round.candidateOrder && partsOf(rounds, round.id).length > 0;
+
+/**
+ * What goes on judges' screens, in program order: each sub-activity, or its parts in its place, except one judged
+ * candidate by candidate, which goes on as a whole.
+ */
+export function screenOrder(rounds: Round[]): Round[] {
+  return programOrder(rounds).flatMap((r) => {
+    const parts = partsOf(rounds, r.id);
+    return parts.length && !r.candidateOrder ? parts : [r];
   });
 }
 
@@ -162,12 +179,51 @@ export function roundDeliberationGap(board: Board, round: Round): string | null 
 }
 
 /**
- * What the judges, the LED wall and the live results follow. An event as it is; a pageant, the sub-activity
- * being judged, or no candidates at all between sub-activities.
+ * The part of a sub-activity judged candidate by candidate that is in hand for the candidate on screen. A judge's
+ * (`judgeId`): the first part they haven't scored them in, or the last once they've scored them all. Everyone else's
+ * (null): the first part some judge on its panel hasn't scored them in, or the last. With no candidate shown, the first.
  */
-export function showingBoard(board: Board): { board: Board; round: Round | null } {
-  if (board.activity.kind !== "pageant") return { board, round: null };
-  const round = board.rounds.find((r) => r.id === board.activity.currentRoundId) ?? null;
+export function partFor(board: Board, unit: Round, judgeId: string | null): Round {
+  const parts = partsOf(board.rounds, unit.id);
+  const entryId = board.activity.currentEntryId;
+  if (!entryId) return parts[0];
+  // While scores are held back, which judge has scored which candidate is still known (see loadPublicBoard).
+  const marks = board.scored ?? board.scores;
+  const judges = judgeId ? [judgeId] : judgesFor(board, unit).map((j) => j.id);
+  const done = (part: Round) => judges.every((j) => marks.some((s) => s.roundId === part.id && s.entryId === entryId && s.judgeId === j));
+  return parts.find((p) => !done(p)) ?? parts[parts.length - 1];
+}
+
+/**
+ * In a sub-activity judged candidate by candidate: a mark for each judge and candidate once that judge has scored
+ * them on every part. What the desk counts as "scored".
+ */
+export function candidateMarks(board: Board, unit: Round): { entryId: string; judgeId: string }[] {
+  const parts = new Set(partsOf(board.rounds, unit.id).map((p) => p.id));
+  const counts = new Map<string, { entryId: string; judgeId: string; n: number }>();
+  for (const s of board.scored ?? board.scores) {
+    if (!s.roundId || !parts.has(s.roundId)) continue;
+    const key = `${s.judgeId}:${s.entryId}`;
+    const mark = counts.get(key) ?? { entryId: s.entryId, judgeId: s.judgeId, n: 0 };
+    mark.n++;
+    counts.set(key, mark);
+  }
+  return [...counts.values()].filter((m) => m.n === parts.size).map(({ entryId, judgeId }) => ({ entryId, judgeId }));
+}
+
+/**
+ * What the judges, the LED wall and the live results follow. An event as it is; a pageant, the sub-activity
+ * being judged, or no candidates at all between sub-activities. One judged candidate by candidate shows the part in
+ * hand (see partFor): a judge's own (`judgeId`), or `pinned`, one of its parts the judge went back to. `onScreen`: the
+ * row judges' screens are on, the sub-activity itself in that case.
+ */
+export function showingBoard(board: Board, judgeId: string | null = null, pinned: string | null = null): { board: Board; round: Round | null; onScreen: Round | null } {
+  if (board.activity.kind !== "pageant") return { board, round: null, onScreen: null };
+  const onScreen = board.rounds.find((r) => r.id === board.activity.currentRoundId) ?? null;
+  const round =
+    onScreen && byCandidate(board.rounds, onScreen)
+      ? (partsOf(board.rounds, onScreen.id).find((p) => p.id === pinned) ?? partFor(board, onScreen, judgeId))
+      : onScreen;
   // A part goes by its full name ("Closed-door interview · Q&A") wherever it's shown. One that deliberates holds its
   // scores back like an event without live scoring (see roundReleased): a tick for each, until it's signed off.
   if (round) {
@@ -175,9 +231,63 @@ export function showingBoard(board: Board): { board: Board; round: Round | null 
     return {
       board: { ...shown, activity: { ...shown.activity, liveScoring: roundReleased(round), independentScoring: roundAtOwnPace(round) } },
       round: { ...round, name: roundLabel(board.rounds, round) },
+      onScreen,
     };
   }
-  return { board: { ...board, activity: { ...board.activity, currentEntryId: null, ledEntryId: null }, entries: [], scores: [] }, round: null };
+  return { board: { ...board, activity: { ...board.activity, currentEntryId: null, ledEntryId: null }, entries: [], scores: [] }, round: null, onScreen: null };
+}
+
+/**
+ * What comes after the sub-activity (or part) being judged, in the segment running now: its cut, once its last part
+ * is judged and the cut is still to confirm, or the next thing to judge. Null once the segment is all judged (the
+ * desk then offers its end). A part comes back with its full name ("Interview · Q&A"). One judged candidate by
+ * candidate is a single step (see screenOrder) whose parts are deliberated one after another once it's all scored.
+ */
+export function nextUp(board: Board, round: Round | null): { kind: "cut" | "round" | "deliberate"; round: Round } | null {
+  const segment = runningSegment(board.activity);
+  const order = screenOrder(board.rounds).filter((r) => r.segment === segment);
+  const labelled = (r: Round) => ({ ...r, name: roundLabel(board.rounds, r) });
+  // A fully scored one whose results wait for a deliberation not started yet: that comes first. Its first such part,
+  // for one judged candidate by candidate, once the part before is signed off.
+  const toDeliberate = (r: Round) => {
+    const judged = byCandidate(board.rounds, r) ? partsOf(board.rounds, r.id) : [r];
+    if (!roundProgress(board, r).complete || judged.some(roundDeliberating)) return null;
+    return judged.find((p) => !roundReleased(p) && !p.deliberationStartedAt) ?? null;
+  };
+  // The cut that comes right after this step, if it's still to confirm: after a sub-activity's last part, or after it.
+  const cutAfter = (r: Round) => {
+    const unit = unitOf(board.rounds, r);
+    const parts = partsOf(board.rounds, unit.id);
+    const last = parts.length && !byCandidate(board.rounds, unit) ? parts[parts.length - 1] : unit;
+    return last.id === r.id && unit.cutSize !== null && unit.cutEntryIds === null ? unit : null;
+  };
+  if (!round) {
+    // Between sub-activities: the first one not done yet, or the cut holding it back.
+    for (const r of order) {
+      if (roundProgress(board, r).complete) {
+        const deliberate = toDeliberate(r);
+        if (deliberate) return { kind: "deliberate", round: labelled(deliberate) };
+        const cut = cutAfter(r);
+        if (cut) return { kind: "cut", round: cut };
+        continue;
+      }
+      const { blockedBy } = roundPool(board, r.id);
+      return blockedBy ? { kind: "cut", round: blockedBy } : { kind: "round", round: labelled(r) };
+    }
+    return null;
+  }
+  const now = board.rounds.find((r) => r.id === round.id) ?? round;
+  // The step it's part of: itself, or (a part being deliberated) the sub-activity judged candidate by candidate.
+  const step = order.find((r) => r.id === now.id || r.id === now.parentId) ?? now;
+  const deliberate = toDeliberate(step);
+  if (deliberate) return { kind: "deliberate", round: labelled(deliberate) };
+  const cut = cutAfter(step);
+  if (cut) return { kind: "cut", round: cut };
+  const next = order[order.indexOf(step) + 1];
+  if (next) return { kind: "round", round: labelled(next) };
+  // The segment's last: whatever of it was skipped and still has scores to come.
+  const open = order.find((r) => r.id !== step.id && !roundProgress(board, r).complete && !roundPool(board, r.id).blockedBy);
+  return open ? { kind: "round", round: labelled(open) } : null;
 }
 
 /**

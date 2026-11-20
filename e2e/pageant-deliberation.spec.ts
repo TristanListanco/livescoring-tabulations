@@ -175,7 +175,7 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await expect(page.getByRole("heading", { name: "Talent · Deliberation" })).toBeVisible(REALTIME);
     await expect(page.getByRole("status").filter({ hasText: "Waiting for Ana Cruz, Ben Torres, and Cara Diaz to sign." })).toBeVisible();
     for (const j of board()) await expect(j.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
-    await expect(ben.getByText("Talent", { exact: true })).toBeVisible();
+    await expect(ben.getByRole("main").getByText("Talent", { exact: true })).toBeVisible();
     await snap(ben, "judge deliberating a sub-activity");
     await expectAccessible(ben);
 

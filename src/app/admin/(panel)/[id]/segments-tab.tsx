@@ -61,6 +61,7 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
                     </p>
                   )}
                   {r.ledOutOfTen && <p className="hint">The LED wall shows its scores out of 10.</p>}
+                  {r.candidateOrder && <p className="hint">Judged candidate by candidate: each is scored on every part before the next, with no timer.</p>}
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
                       <p className="hint">{rulesSummary(r)}</p>

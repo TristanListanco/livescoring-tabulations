@@ -372,7 +372,8 @@ test.describe.serial("a pageant", () => {
     await openDesk(page);
     await page.getByRole("button", { name: "Judge Interview · Questions", exact: true }).click();
     await expect(page.getByRole("heading", { name: /^Interview · Questions · / })).toBeVisible();
-    await expect(dina.getByText(`${NAME} · Interview · Questions`)).toBeVisible(REALTIME);
+    // A pageant judge's header names what's being judged, over their count.
+    await expect(dina.getByRole("banner").getByRole("button", { name: /^Interview · Questions 0 of 3 scored/ })).toBeVisible(REALTIME);
     // The preliminary has its own board, so pageant proper's judges wait for theirs to start.
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Pageant proper starts soon", REALTIME);
 

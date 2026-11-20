@@ -3,18 +3,18 @@ import { redirect } from "next/navigation";
 import { correctionView, correctionVoters, withoutValues } from "@/lib/corrections";
 import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getRoundSignatures, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
-import { onPanel, roundDeliberating, showingBoard } from "@/lib/pageant";
+import { byCandidate, candidateMarks, onPanel, partsOf, roundDeliberating, showingBoard } from "@/lib/pageant";
 import { runningSegment } from "@/lib/lifecycle";
 import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
 import { averageText, formatScore, isWithdrawn, rankEntries } from "@/lib/scoring";
 import { applyTieBreaks, breakFor, tieStep, tiesIn } from "@/lib/ties";
-import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
+import { ScoringPanel, ToastKeeper, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring", description: "A judge's screen: the entry on stage, and the keypad to score it." };
 
-export default async function ScorePage() {
+export default async function ScorePage({ searchParams }: PageProps<"/judge/score">) {
   // Two trips to the database for the whole screen, not four in a row: every judge's screen in every activity running
   // at once reloads it after each change. First the judge, their activity and this device (and the judge's notes);
   // then the board, corrections, and (with criteria) the points behind the score on screen, all together. The notes
@@ -50,8 +50,17 @@ export default async function ScorePage() {
         : { status: "pending", pairingCode: device.pairingCode, label: device.label }
       : { status: "revoked" };
 
-  // A pageant's judges see the sub-activity being judged: its rules, its candidates, and their scores in it.
-  const { board: showing, round } = showingBoard(board);
+  // A pageant's judges see the sub-activity being judged: its rules, its candidates, and their scores in it. One judged
+  // candidate by candidate shows the part in hand: this judge's next to score the candidate shown in, or one they went
+  // back to (?part=), while that candidate is still shown (&for=).
+  const asked = await searchParams;
+  const pin = typeof asked.part === "string" && typeof asked.for === "string" && asked.for === onScreen ? asked.part : null;
+  const { board: showing, round: inHand, onScreen: onScreenRound } = showingBoard(board, context.judge.id, pin);
+  const wholeUnit = onScreenRound && byCandidate(board.rounds, onScreenRound) ? onScreenRound : null;
+  // Waiting for a candidate, a judge is told the sub-activity rather than its first part.
+  const round = inHand && wholeUnit && !onScreen ? { ...inHand, name: wholeUnit.name } : inHand;
+  // The points behind the score on screen are the part's: read once the part is known.
+  const partGiven = wholeUnit && inHand && onScreen ? await getOwnBreakdown(context.judge.id, onScreen, inHand.id) : null;
   // The preliminary can have its own judges: a judge not on this sub-activity's panel waits for their part.
   const offPanel = round !== null && !onPanel(context.judge, round);
   // A segment just started, nothing judged in it yet: its judges wait for its first sub-activity rather than "the next".
@@ -86,7 +95,9 @@ export default async function ScorePage() {
     showing.activity.scoringMode === "criteria" &&
     board.activity.currentEntryId === onScreen &&
     mine.some((s) => s.entryId === onScreen)
-      ? givenOnScreen
+      ? wholeUnit
+        ? partGiven
+        : givenOnScreen
       : null;
 
   // Score corrections (null before migration 019): the ones waiting for this judge's vote, and this judge's own latest
@@ -211,6 +222,20 @@ export default async function ScorePage() {
   // The chair can open the deliberation once every judge has scored every entry (an event without live scoring).
   const deliberationReady = gate.status === "approved" && context.judge.isChair && deliberationGap(board) === null;
 
+  const chairMarks = wholeUnit ? candidateMarks(board, wholeUnit) : [];
+  // Candidate by candidate, with a candidate shown: the parts, and which this judge has scored them in.
+  const parts =
+    wholeUnit && onScreen && gate.status === "approved" && !offPanel
+      ? {
+          entryId: onScreen,
+          list: partsOf(board.rounds, wholeUnit.id).map((p) => ({
+            id: p.id,
+            name: p.name,
+            scored: board.scores.some((s) => s.roundId === p.id && s.judgeId === context.judge.id && s.entryId === onScreen),
+          })),
+        }
+      : null;
+
   // The chair of the board of judges sees who has scored the entry on screen (never the scores themselves), to know when to move on.
   // With live scoring only the organizer moves on, so the chair judges as the others do.
   const panel =
@@ -220,36 +245,43 @@ export default async function ScorePage() {
           id: j.id,
           name: j.name,
           photoUrl: j.photoUrl,
-          scored: showing.scores.some((s) => s.judgeId === j.id && s.entryId === showing.activity.currentEntryId),
+          // Candidate by candidate, scored on every part.
+          scored: wholeUnit
+            ? chairMarks.some((m) => m.judgeId === j.id && m.entryId === showing.activity.currentEntryId)
+            : showing.scores.some((s) => s.judgeId === j.id && s.entryId === showing.activity.currentEntryId),
         }))
       : null;
 
+  // The panel's short message is kept outside it, so it outlives the panel's fresh start (see ToastKeeper).
   return (
-    <ScoringPanel
-      // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
-      // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
-      key={round?.id ?? "activity"}
-      // Under review, the sub-activity's screen is a deliberation's.
-      activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
-      judge={context.judge}
-      // A withdrawn entry isn't scored any more: judges don't see it.
-      entries={showing.entries.filter((e) => !isWithdrawn(e))}
-      myScores={mine}
-      notes={notes}
-      breakdown={breakdown}
-      corrections={corrections}
-      deliberation={reviewing ?? deliberation}
-      deliberationReady={deliberationReady}
-      gate={gate}
-      panel={panel}
-      round={round ? { id: round.id, name: round.name, timerSeconds: round.timerSeconds } : null}
-      offPanel={offPanel}
-      segmentFresh={segmentFresh}
-      assistance={assistance}
-      ownBreakdowns={ownPace ? ((round ? roundBreakdowns : breakdowns) ?? {}) : null}
-      // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
-      // eslint-disable-next-line react-hooks/purity
-      serverNow={Date.now()}
-    />
+    <ToastKeeper>
+      <ScoringPanel
+        // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
+        // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
+        key={round?.id ?? "activity"}
+        // Under review, the sub-activity's screen is a deliberation's.
+        activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
+        judge={context.judge}
+        // A withdrawn entry isn't scored any more: judges don't see it.
+        entries={showing.entries.filter((e) => !isWithdrawn(e))}
+        myScores={mine}
+        notes={notes}
+        breakdown={breakdown}
+        corrections={corrections}
+        deliberation={reviewing ?? deliberation}
+        deliberationReady={deliberationReady}
+        gate={gate}
+        panel={panel}
+        round={round ? { id: round.id, name: round.name, timerSeconds: round.timerSeconds, ledOutOfTen: round.ledOutOfTen } : null}
+        offPanel={offPanel}
+        segmentFresh={segmentFresh}
+        assistance={assistance}
+        ownBreakdowns={ownPace ? ((round ? roundBreakdowns : breakdowns) ?? {}) : null}
+        parts={parts}
+        // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
+        // eslint-disable-next-line react-hooks/purity
+        serverNow={Date.now()}
+      />
+    </ToastKeeper>
   );
 }

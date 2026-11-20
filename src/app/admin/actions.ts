@@ -55,6 +55,7 @@ import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segme
 import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
 import {
   awaitingSignoff,
+  byCandidate,
   cutPlan,
   cutResult,
   deductionsOpen,
@@ -67,6 +68,7 @@ import {
   roundLabel,
   roundPool,
   segmentClosed,
+  unitOf,
 } from "@/lib/pageant";
 import { MAX_WITHDRAWN_REASON, reinstateGap, withdrawGap } from "@/lib/withdrawn";
 import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
@@ -529,6 +531,7 @@ const PARTS_HINT =
 /** Segments run on their own, and sub-activities that deliberate (migration 040). */
 const SEGMENTS_HINT = "This needs a database update. Run supabase/migrations/040_pageant_segments_and_deliberation.sql in the Supabase SQL editor.";
 const ROUND_OWN_PACE_HINT = "Judging at their own pace needs a database update. Run supabase/migrations/041_round_own_pace.sql in the Supabase SQL editor.";
+const ROUND_ORDER_HINT = "Judging candidate by candidate needs a database update. Run supabase/migrations/045_round_candidate_order.sql in the Supabase SQL editor.";
 const LED_OUT_OF_TEN_HINT = "Scores out of 10 on the LED wall need a database update. Run supabase/migrations/042_round_led_out_of_ten.sql in the Supabase SQL editor.";
 const DEDUCTIONS_HINT = "Deductions need a database update. Run supabase/migrations/015_deductions_and_themes.sql in the Supabase SQL editor.";
 
@@ -555,11 +558,13 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
   // parent_id is only sent when there are parts, so pageants without parts save on databases without migration 012;
   // live_scoring only when a sub-activity deliberates (or did), so programs that score live save without migration 040;
   // independent_scoring only when one is judged at its judges' own pace (or was), so others save without migration 041;
-  // led_out_of_ten only when one shows out of 10 on the wall (or did), so others save without migration 042.
+  // led_out_of_ten only when one shows out of 10 on the wall (or did), so others save without migration 042;
+  // candidate_order only when one is judged candidate by candidate (or was), so others save without migration 045.
   const withParts = rounds.some((r) => r.parts.length > 0);
   const deliberated = saved.some((r) => !r.liveScoring) || rounds.some((x) => !x.liveScoring);
   const paced = saved.some((r) => r.independentScoring) || rounds.some((x) => x.independentScoring);
   const outOfTen = saved.some((r) => r.ledOutOfTen) || rounds.some((x) => x.ledOutOfTen);
+  const byCandidate = saved.some((r) => r.candidateOrder) || rounds.some((x) => x.candidateOrder);
   const live = (r: CheckedRound) => ({
     ...(deliberated ? { live_scoring: r.liveScoring } : {}),
     ...(paced ? { independent_scoring: r.independentScoring } : {}),
@@ -578,6 +583,7 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
       cut_basis: r.cutBasis.map((k) => (k === PRELIMINARY ? k : ids.get(k))).filter(Boolean),
       ...(withParts ? { parent_id: null } : {}),
       ...live(r),
+      ...(byCandidate ? { candidate_order: r.candidateOrder } : {}),
     },
     ...r.parts.map((p) => ({
       id: ids.get(p.key)!,
@@ -590,8 +596,9 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
       cut_size: null,
       cut_basis: [],
       parent_id: ids.get(r.key)!,
-      // A part follows its sub-activity.
+      // A part follows its sub-activity (but the order is the sub-activity's alone).
       ...live(r),
+      ...(byCandidate ? { candidate_order: false } : {}),
     })),
   ]);
   check((await db().from("rounds").upsert(rows)).error);
@@ -650,6 +657,7 @@ export const savePageant = traced("savePageant", async function savePageant(acti
     if (/live_scoring/.test(message)) return needsMigration(SEGMENTS_HINT);
     if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
     if (/led_out_of_ten/.test(message)) return needsMigration(LED_OUT_OF_TEN_HINT);
+    if (/candidate_order/.test(message)) return needsMigration(ROUND_ORDER_HINT);
     return dbErr({ message });
   }
   const kept = new Set(ids.values());
@@ -684,8 +692,10 @@ export const setCurrentRound = traced("setCurrentRound", async function setCurre
   if (roundId !== null) {
     const round = board.rounds.find((r) => r.id === roundId);
     if (!round) return err("Sub-activity not found.");
-    // A sub-activity with parts is judged part by part.
-    if (partsOf(board.rounds, round.id).length) return err(`Choose which part of ${round.name} to judge.`);
+    // A sub-activity with parts is judged part by part, unless it's judged candidate by candidate: then as a whole.
+    if (partsOf(board.rounds, round.id).length && !byCandidate(board.rounds, round)) return err(`Choose which part of ${round.name} to judge.`);
+    const unit = unitOf(board.rounds, round);
+    if (unit !== round && byCandidate(board.rounds, unit)) return err(`${unit.name} is judged candidate by candidate. Put ${unit.name} on judges' screens.`);
     const { blockedBy } = roundPool(board, round.id);
     if (blockedBy) return err(`Confirm the ${blockedBy.name} cut first. It decides who is judged in ${round.name}.`);
     // Only the segment running now: the preliminary until it ends, then pageant proper once it has started.
@@ -1147,6 +1157,7 @@ async function createFromForm(formData: FormData): Promise<ActionResult | Create
       // Before /rounds/: a missing column's message names the table.
       if (/independent_scoring/.test(message)) return needsMigration(ROUND_OWN_PACE_HINT);
       if (/led_out_of_ten/.test(message)) return needsMigration(LED_OUT_OF_TEN_HINT);
+      if (/candidate_order/.test(message)) return needsMigration(ROUND_ORDER_HINT);
       if (/rounds/.test(message)) return needsMigration(PAGEANT_HINT);
       log("error", "create_failed", { kind: pageant ? "pageant" : "event", error: message });
       return err(`The ${pageant ? "pageant" : "activity"} couldn't be created, and nothing was saved. Check the connection and try again.`);

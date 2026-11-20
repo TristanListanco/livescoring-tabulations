@@ -91,6 +91,7 @@ type RoundRow = {
   deliberation_started_at?: string | null;
   independent_scoring?: boolean;
   led_out_of_ten?: boolean;
+  candidate_order?: boolean;
 };
 type AdminRow = { id: string; email: string; name: string; photo_path: string | null };
 type JudgeRow = {
@@ -222,6 +223,7 @@ function toRound(row: RoundRow): Round {
     liveScoring: row.live_scoring ?? true,
     independentScoring: row.independent_scoring ?? false,
     ledOutOfTen: row.led_out_of_ten ?? false,
+    candidateOrder: row.candidate_order ?? false,
     deliberationStartedAt: row.deliberation_started_at ?? null,
     signedOffAt: null,
   };

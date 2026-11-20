@@ -61,6 +61,11 @@ export type RoundDraft = {
    * changes. Its parts follow it. Missing in older drafts.
    */
   ledOutOfTen?: boolean;
+  /**
+   * A preliminary sub-activity with parts: each candidate is scored on every part before the next one is shown, rather
+   * than each part going through every candidate. No timer. Not with `ownPace`. Missing in older drafts.
+   */
+  byCandidate?: boolean;
 };
 /** A violation the organizer can deduct points for, as typed: e.g. "Late for call time", "1". `id`: a saved one's, or "". */
 export type ViolationDraft = { key: string; id: string; reason: string; points: string };
@@ -86,6 +91,8 @@ export type CheckedRound = {
   independentScoring: boolean;
   /** The LED wall shows its criteria totals out of 10 (only when it scores live). */
   ledOutOfTen: boolean;
+  /** Judged candidate by candidate (a preliminary one with parts, not at own pace); then it and its parts have no timer. */
+  candidateOrder: boolean;
 };
 export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
 
@@ -466,8 +473,11 @@ export function checkPageant(
 
       // At their own pace, judges have no timer: none is kept, whatever was typed before it was chosen.
       const paced = round.deliberate === true && round.ownPace === true;
+      // Candidate by candidate, each judge goes through the parts on their own, so there's no timer either.
+      const byCandidate = segment === "preliminary" && !!round.parts && !paced && round.byCandidate === true;
+      const untimed = paced || byCandidate;
       // Judges score the sub-activity itself, or each of its parts.
-      const own = checkScored(name, round.scoring, paced ? "" : round.timer, newId);
+      const own = checkScored(name, round.scoring, untimed ? "" : round.timer, newId);
       if ("error" in own && !round.parts) return fail(own.error, segment, at(own.input));
       const parts: CheckedPart[] = [];
       let partTotal = 0;
@@ -484,7 +494,7 @@ export function checkPageant(
           const partWeight = parseShare(part.weight);
           if (!(partWeight > 0 && partWeight <= 100)) return fail(`Give ${name} · ${partName} its share ${scope}, e.g. 10.`, segment, at("share", part.key));
           partTotal += partWeight;
-          const scored = checkScored(`${name} · ${partName}`, part.scoring, paced ? "" : part.timer, newId);
+          const scored = checkScored(`${name} · ${partName}`, part.scoring, untimed ? "" : part.timer, newId);
           if ("error" in scored) return fail(scored.error, segment, at(scored.input, part.key));
           parts.push({ key: part.key, name: partName, position: parts.length, weight: partWeight, ...scored });
         }
@@ -506,6 +516,7 @@ export function checkPageant(
         liveScoring: !round.deliberate,
         independentScoring: paced,
         ledOutOfTen: round.deliberate !== true && round.ledOutOfTen === true && shownAsPercentages(round),
+        candidateOrder: byCandidate,
       });
     }
     for (const [stage, rounds] of stages.entries()) {
@@ -628,6 +639,7 @@ export function parsePageantDraft(json: string): PageantDraft | null {
       deliberate: r.deliberate === true,
       ownPace: r.ownPace === true,
       ledOutOfTen: r.ledOutOfTen === true,
+      byCandidate: r.byCandidate === true,
     };
   });
   const violations = Array.isArray(obj.violations)
@@ -684,6 +696,7 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
         deliberate: !r.liveScoring,
         ownPace: r.independentScoring,
         ledOutOfTen: r.ledOutOfTen,
+        byCandidate: r.candidateOrder,
       };
     }),
   });

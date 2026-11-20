@@ -281,7 +281,9 @@ function PageantTally({ board, official }: { board: Board; official: boolean }) 
     }
   }
   const scored = judgingOrder(board.rounds).find((r) => board.scores.some((s) => s.roundId === r.id));
-  const start = views.find((v) => v.value === board.activity.currentRoundId)?.value ?? scored?.id ?? views[0]?.value;
+  // On judges' screens: the sub-activity (or part), or the first part of one judged candidate by candidate.
+  const onScreen = (v: { value: string }) => v.value === board.activity.currentRoundId || board.rounds.find((r) => r.id === v.value)?.parentId === board.activity.currentRoundId;
+  const start = (board.activity.currentRoundId ? views.find(onScreen)?.value : undefined) ?? scored?.id ?? views[0]?.value;
   const chosen = views.find((v) => v.value === asked)?.value ?? start;
   const places = board.activity.resultDecimals;
   if (!chosen) return <p className="hint">This pageant has no program yet.</p>;
