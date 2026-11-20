@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
+import { createContext, Fragment, use, useEffect, useEffectEvent, useId, useRef, useState, useTransition } from "react";
 import { ACTION_TIMEOUT_MS } from "@/components/request-guard";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -243,6 +243,25 @@ type Submission = {
   error: string | null;
 };
 
+type PanelToast = { content: React.ReactNode; entryId?: string };
+const ToastContext = createContext<[PanelToast | null, (toast: PanelToast | null) => void]>([null, () => {}]);
+
+/**
+ * Holds the judge's short message (a score saved, a vote cast) above the panel. The panel starts afresh for each
+ * sub-activity and part (see the judge page), so a score saved as the screen moves on to a candidate's next part
+ * still says so there.
+ */
+export function ToastKeeper({ children }: { children: React.ReactNode }) {
+  const [toast, setToast] = useState<PanelToast | null>(null);
+  // Each message stays a few seconds from when it's shown; a newer one starts the time again.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  return <ToastContext value={[toast, setToast]}>{children}</ToastContext>;
+}
+
 /**
  * The judge's screen. Nothing opens until the organizer approves this device. After that the organizer
  * decides which entry is judged and when: judges only ever see the entry on screen, and wait in between.
@@ -298,17 +317,11 @@ export function ScoringPanel({
   const view: JudgeView = offPanel ? { kind: "waiting" } : judgeView(ownPace ? { ...activity, currentEntryId: pick } : activity, entries, scores);
   // Candidate by candidate: the parts still to score the candidate shown in, besides the one in hand.
   const partsLeft = parts ? parts.list.filter((p) => !p.scored && p.id !== round?.id) : null;
-  // A short message at the top: a score saved (`entryId`), a vote cast.
-  const [toast, setToast] = useState<{ content: React.ReactNode; entryId?: string } | null>(null);
+  // A short message at the top: a score saved (`entryId`), a vote cast. ToastKeeper holds it, above the panel.
+  const [toast, setToast] = use(ToastContext);
   const approved = gate.status === "approved";
 
   const showToast = (content: React.ReactNode, entryId?: string) => setToast({ content, entryId });
-  // Each message stays a few seconds from when it's shown; a newer one starts the time again.
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 3500);
-    return () => clearTimeout(timer);
-  }, [toast]);
   const onSaved = (entry: Entry, value: number, typed: PendingScore["typed"]) => {
     setJustSaved((m) => new Map(m).set(entry.id, value));
     // At their own pace, on to the next entry they haven't scored.

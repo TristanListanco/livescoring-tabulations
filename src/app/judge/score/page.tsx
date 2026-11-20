@@ -10,7 +10,7 @@ import { judgeSession } from "@/lib/session";
 import { getJudgeAssistance } from "@/lib/assistance";
 import { averageText, formatScore, isWithdrawn, rankEntries } from "@/lib/scoring";
 import { applyTieBreaks, breakFor, tieStep, tiesIn } from "@/lib/ties";
-import { ScoringPanel, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
+import { ScoringPanel, ToastKeeper, type CorrectionDecider, type DeviceGate } from "./scoring-panel";
 
 export const metadata: Metadata = { title: "Scoring", description: "A judge's screen: the entry on stage, and the keypad to score it." };
 
@@ -252,33 +252,36 @@ export default async function ScorePage({ searchParams }: PageProps<"/judge/scor
         }))
       : null;
 
+  // The panel's short message is kept outside it, so it outlives the panel's fresh start (see ToastKeeper).
   return (
-    <ScoringPanel
-      // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
-      // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
-      key={round?.id ?? "activity"}
-      // Under review, the sub-activity's screen is a deliberation's.
-      activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
-      judge={context.judge}
-      // A withdrawn entry isn't scored any more: judges don't see it.
-      entries={showing.entries.filter((e) => !isWithdrawn(e))}
-      myScores={mine}
-      notes={notes}
-      breakdown={breakdown}
-      corrections={corrections}
-      deliberation={reviewing ?? deliberation}
-      deliberationReady={deliberationReady}
-      gate={gate}
-      panel={panel}
-      round={round ? { id: round.id, name: round.name, timerSeconds: round.timerSeconds, ledOutOfTen: round.ledOutOfTen } : null}
-      offPanel={offPanel}
-      segmentFresh={segmentFresh}
-      assistance={assistance}
-      ownBreakdowns={ownPace ? ((round ? roundBreakdowns : breakdowns) ?? {}) : null}
-      parts={parts}
-      // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
-      // eslint-disable-next-line react-hooks/purity
-      serverNow={Date.now()}
-    />
+    <ToastKeeper>
+      <ScoringPanel
+        // A fresh panel for each pageant sub-activity: the scores it remembers saving (until the refreshed page
+        // has them) belong to the sub-activity they were given in, and must not mark a candidate scored in the next one.
+        key={round?.id ?? "activity"}
+        // Under review, the sub-activity's screen is a deliberation's.
+        activity={reviewing ? { ...showing.activity, sessionState: "deliberation" } : showing.activity}
+        judge={context.judge}
+        // A withdrawn entry isn't scored any more: judges don't see it.
+        entries={showing.entries.filter((e) => !isWithdrawn(e))}
+        myScores={mine}
+        notes={notes}
+        breakdown={breakdown}
+        corrections={corrections}
+        deliberation={reviewing ?? deliberation}
+        deliberationReady={deliberationReady}
+        gate={gate}
+        panel={panel}
+        round={round ? { id: round.id, name: round.name, timerSeconds: round.timerSeconds, ledOutOfTen: round.ledOutOfTen } : null}
+        offPanel={offPanel}
+        segmentFresh={segmentFresh}
+        assistance={assistance}
+        ownBreakdowns={ownPace ? ((round ? roundBreakdowns : breakdowns) ?? {}) : null}
+        parts={parts}
+        // The timer counts down on the server's clock. A Server Component renders once per request, so this is the request time.
+        // eslint-disable-next-line react-hooks/purity
+        serverNow={Date.now()}
+      />
+    </ToastKeeper>
   );
 }
