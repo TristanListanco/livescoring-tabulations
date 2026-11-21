@@ -379,6 +379,8 @@ export const requestCorrection = traced("requestCorrection", async function requ
     // Its scores are its parts': a screen that doesn't send which is out of date.
     if (onScreen && !sent && byCandidate(rounds, onScreen)) return { ok: false, error: "Your screen is out of date. Reload it and try again." };
     const round = sent ?? onScreen;
+    // A screen still on another sub-activity than the one on screen: its correction mustn't land on a score in this one.
+    if (sentRoundId && round && round.id !== sentRoundId) return { ok: false, error: "Your screen is out of date. Reload it and try again." };
     if (!round || !onPanel(context.judge, round)) return { ok: false, error: "You aren't judging this part of the pageant." };
     // A confirmed cut ranked by these scores went by them: they stay as they were (taking the cut back opens them again).
     const unit = unitOf(rounds, round);

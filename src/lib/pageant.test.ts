@@ -543,10 +543,12 @@ describe("a sub-activity judged candidate by candidate", () => {
     const j1Performed = board([one("perf", "j1")]);
     expect(partFor(j1Performed, talent, "j1").id).toBe("dress");
     expect(partFor(j1Performed, talent, "j2").id).toBe("perf");
-    // The wall waits for every judge before moving on.
+    // The wall waits for every judge before moving on, and holds a finished part up while they score the next.
     expect(partFor(j1Performed, talent, null).id).toBe("perf");
     const allPerformed = board([one("perf", "j1"), one("perf", "j2")]);
-    expect(partFor(allPerformed, talent, null).id).toBe("dress");
+    expect(partFor(allPerformed, talent, null).id).toBe("perf");
+    expect(partFor(board([one("perf", "j1"), one("perf", "j2"), one("dress", "j1")]), talent, null).id).toBe("perf");
+    expect(partFor(board([one("perf", "j1"), one("perf", "j2"), one("dress", "j1"), one("dress", "j2")]), talent, null).id).toBe("dress");
     // Every part scored: the last stays. No candidate shown: the first.
     expect(partFor(board([one("perf", "j1"), one("dress", "j1")]), talent, "j1").id).toBe("dress");
     expect(partFor(board([one("perf", "j1")], { currentEntryId: null }), talent, "j1").id).toBe("perf");
@@ -559,6 +561,21 @@ describe("a sub-activity judged candidate by candidate", () => {
     expect(showingBoard(board([one("perf", "j1")]), "j1", "perf").round?.id).toBe("perf");
     // A pin that isn't one of its parts is ignored.
     expect(showingBoard(board([one("perf", "j1")]), "j1", "gown").round?.id).toBe("dress");
+  });
+
+  it("holds each finished part up for the audience, through three parts", () => {
+    const video = roundFixture({ id: "video", name: "Video", segment: "preliminary", position: 2, weight: 10, parentId: "talent", liveScoring: false });
+    const three = [talent, perf, dress, video, gown];
+    const both = (roundId: string) => [one(roundId, "j1"), one(roundId, "j2")];
+    expect(partFor(board([...both("perf"), ...both("dress"), one("video", "j1")], {}, three), talent, null).id).toBe("dress");
+    expect(partFor(board([...both("perf"), ...both("dress"), ...both("video")], {}, three), talent, null).id).toBe("video");
+  });
+
+  it("follows the scores released on the public pages while another sub-activity's are held back", () => {
+    // The public board: Talent's scores (live) in scores, another sub-activity's held back as marks in scored.
+    const released = { ...board([one("perf", "j1"), one("perf", "j2"), one("dress", "j1"), one("dress", "j2")]), scored: [{ entryId: "A", judgeId: "j1", roundId: "gown" }] };
+    expect(partFor(released, talent, null).id).toBe("dress");
+    expect(candidateMarks(released, talent)).toHaveLength(2);
   });
 
   it("counts a candidate scored by a judge once they've scored every part", () => {

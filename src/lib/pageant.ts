@@ -179,19 +179,27 @@ export function roundDeliberationGap(board: Board, round: Round): string | null 
 }
 
 /**
+ * Which judge has scored which candidate in what. On the public pages the scores of a sub-activity held back are
+ * marks in `scored`, and the released ones are still in `scores` (see loadPublicBoard): both count.
+ */
+const scoreMarks = (board: Board) => [...(board.scored ?? []), ...board.scores];
+
+/**
  * The part of a sub-activity judged candidate by candidate that is in hand for the candidate on screen. A judge's
  * (`judgeId`): the first part they haven't scored them in, or the last once they've scored them all. Everyone else's
- * (null): the first part some judge on its panel hasn't scored them in, or the last. With no candidate shown, the first.
+ * (null), the LED wall's and the live results': the last part every judge on its panel has finished, held up while
+ * they score the next, or the first while none is finished. With no candidate shown, the first.
  */
 export function partFor(board: Board, unit: Round, judgeId: string | null): Round {
   const parts = partsOf(board.rounds, unit.id);
   const entryId = board.activity.currentEntryId;
   if (!entryId) return parts[0];
-  // While scores are held back, which judge has scored which candidate is still known (see loadPublicBoard).
-  const marks = board.scored ?? board.scores;
+  const marks = scoreMarks(board);
   const judges = judgeId ? [judgeId] : judgesFor(board, unit).map((j) => j.id);
   const done = (part: Round) => judges.every((j) => marks.some((s) => s.roundId === part.id && s.entryId === entryId && s.judgeId === j));
-  return parts.find((p) => !done(p)) ?? parts[parts.length - 1];
+  const next = parts.findIndex((p) => !done(p));
+  if (next === -1) return parts[parts.length - 1];
+  return judgeId ? parts[next] : parts[Math.max(next - 1, 0)];
 }
 
 /**
@@ -201,7 +209,7 @@ export function partFor(board: Board, unit: Round, judgeId: string | null): Roun
 export function candidateMarks(board: Board, unit: Round): { entryId: string; judgeId: string }[] {
   const parts = new Set(partsOf(board.rounds, unit.id).map((p) => p.id));
   const counts = new Map<string, { entryId: string; judgeId: string; n: number }>();
-  for (const s of board.scored ?? board.scores) {
+  for (const s of scoreMarks(board)) {
     if (!s.roundId || !parts.has(s.roundId)) continue;
     const key = `${s.judgeId}:${s.entryId}`;
     const mark = counts.get(key) ?? { entryId: s.entryId, judgeId: s.judgeId, n: 0 };
@@ -214,7 +222,8 @@ export function candidateMarks(board: Board, unit: Round): { entryId: string; ju
 /**
  * What the judges, the LED wall and the live results follow. An event as it is; a pageant, the sub-activity
  * being judged, or no candidates at all between sub-activities. One judged candidate by candidate shows the part in
- * hand (see partFor): a judge's own (`judgeId`), or `pinned`, one of its parts the judge went back to. `onScreen`: the
+ * hand (see partFor): a judge's own (`judgeId`), or `pinned`, one of its parts the judge went back to; the audience's,
+ * the last part every judge has finished, held up while they score the next. `onScreen`: the
  * row judges' screens are on, the sub-activity itself in that case.
  */
 export function showingBoard(board: Board, judgeId: string | null = null, pinned: string | null = null): { board: Board; round: Round | null; onScreen: Round | null } {
