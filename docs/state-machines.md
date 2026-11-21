@@ -228,7 +228,7 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 ## 15. Deliberation per sub-activity
 
-**Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
+**Lives in:** `rounds.live_scoring` (false: results after a deliberation; a part follows its sub-activity, unless its results are set for each part), `rounds.deliberation_started_at`, `round_signatures`, `round_signoffs` (migration 040). Each part deliberates on its own.
 
 **Steps:** judged a candidate at a time, or at its judges' own pace (`rounds.independent_scoring`, migration 041: no candidate shown, no timer, any candidate in its pool in any order); a preliminary one in parts can be judged candidate by candidate (`rounds.candidate_order`, migration 045: the sub-activity itself goes on judges' screens, `current_round_id` pointing at it; each judge's screen goes through the parts for the candidate shown on its own, and the audience's shows the last part every judge has finished (`partFor`), the desk counts a judge as scored once they've scored every part (`candidateMarks`), no timer; its parts then deliberate one after another); the audience sees a tick per score (`loadPublicBoard` holds its values) → every score in → the desk starts its deliberation (`startRoundDeliberation`) → its judges review, correct their own with a reason (applied at once) and sign (`signOff` → `signRound`) → the organizer signs it off with their password (`signOffRound`), and its scores go out.
 

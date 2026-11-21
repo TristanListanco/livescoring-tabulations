@@ -24,6 +24,12 @@ export function partsOf(rounds: Round[], roundId: string): Round[] {
   return rounds.filter((r) => r.parentId === roundId).sort((a, b) => a.position - b.position);
 }
 
+/** A sub-activity whose parts' results were set each on its own, and differ: some live, some after a deliberation. */
+export function resultsByPart(rounds: Round[], round: Round): boolean {
+  const parts = partsOf(rounds, round.id);
+  return parts.some((p) => p.liveScoring) && parts.some((p) => !p.liveScoring);
+}
+
 /** What judges score, in program order: each sub-activity, or its parts in its place. */
 export function judgingOrder(rounds: Round[]): Round[] {
   return programOrder(rounds).flatMap((r) => {
@@ -296,7 +302,14 @@ export function nextUp(board: Board, round: Round | null): { kind: "cut" | "roun
   if (next) return { kind: "round", round: labelled(next) };
   // The segment's last: whatever of it was skipped and still has scores to come.
   const open = order.find((r) => r.id !== step.id && !roundProgress(board, r).complete && !roundPool(board, r.id).blockedBy);
-  return open ? { kind: "round", round: labelled(open) } : null;
+  if (open) return { kind: "round", round: labelled(open) };
+  // Every score in, and one judged before (say a deliberated part, then a live one after it) still waits for its
+  // deliberation: the segment can't end until it's signed off.
+  for (const r of order) {
+    const waiting = toDeliberate(r);
+    if (waiting) return { kind: "deliberate", round: labelled(waiting) };
+  }
+  return null;
 }
 
 /**

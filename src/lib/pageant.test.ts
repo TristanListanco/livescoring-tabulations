@@ -594,4 +594,24 @@ describe("a sub-activity judged candidate by candidate", () => {
     const signed = rounds.map((r) => (r.id === "perf" ? { ...r, deliberationStartedAt: "2026-11-19T10:00:00Z", signedOffAt: "2026-11-19T10:10:00Z" } : r));
     expect(nextUp(board(all, { currentRoundId: null }, signed), null)).toMatchObject({ kind: "deliberate", round: { id: "dress" } });
   });
+
+  it("with each part's results its own, deliberates only the parts that wait for one", () => {
+    const all = ["A", "B", "C", "D", "E"].flatMap((e) => ["perf", "dress"].flatMap((r) => ["j1", "j2"].map((j) => one(r, j, e))));
+    // Performance deliberated, Costume live.
+    const mixed = rounds.map((r) => (r.id === "dress" ? { ...r, liveScoring: true } : r));
+    expect(nextUp(board(all, {}, mixed), talent)).toMatchObject({ kind: "deliberate", round: { id: "perf" } });
+    const signed = mixed.map((r) => (r.id === "perf" ? { ...r, deliberationStartedAt: "2026-11-19T10:00:00Z", signedOffAt: "2026-11-19T10:10:00Z" } : r));
+    // Costume's results are out already: nothing left to deliberate in the preliminary.
+    expect(nextUp(board(all, { currentRoundId: null }, signed), null)).toBeNull();
+    // Part by part: a live part goes straight on to the next, a deliberated one is deliberated first.
+    const byPart = (list: Round[]) => list.map((r) => (r.id === "talent" ? { ...r, candidateOrder: false } : r));
+    const performed = ["A", "B", "C", "D", "E"].flatMap((e) => ["j1", "j2"].map((j) => one("perf", j, e)));
+    const livePerf = byPart(rounds.map((r) => (r.id === "perf" ? { ...r, liveScoring: true } : r)));
+    expect(nextUp(board(performed, { currentRoundId: "perf" }, livePerf), livePerf[1])).toMatchObject({ kind: "round", round: { id: "dress" } });
+    expect(nextUp(board(performed, { currentRoundId: "perf" }, byPart(mixed)), byPart(mixed)[1])).toMatchObject({ kind: "deliberate", round: { id: "perf" } });
+    // Judged part by part, the live Costume after the deliberated Performance: once it's all in, Performance's
+    // deliberation is still offered, not lost behind the part on screen.
+    const costumeOn = byPart(mixed);
+    expect(nextUp(board(all, { currentRoundId: "dress" }, costumeOn), costumeOn[2])).toMatchObject({ kind: "deliberate", round: { id: "perf" } });
+  });
 });

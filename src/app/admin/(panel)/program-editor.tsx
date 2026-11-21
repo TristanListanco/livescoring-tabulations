@@ -443,6 +443,22 @@ function PartsEditor({
                   <FieldProblem fieldId={`${id}name`} className="basis-full" />
                   <FieldProblem fieldId={`${id}weight`} className="basis-full" />
                 </div>
+                {/* The sub-activity's results set for each part: this part's own. */}
+                {round.eachPart && (
+                  <fieldset className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1">
+                    <legend className="mb-1 text-sm font-semibold sm:float-left sm:mr-6 sm:mb-0">
+                      Results<span className="sr-only"> of {full}</span>
+                    </legend>
+                    <label className="flex items-center gap-2.5">
+                      <input type="radio" name={`${id}results`} className="size-5" checked={!part.deliberate} onChange={() => patch(part.key, { deliberate: false })} />
+                      Live
+                    </label>
+                    <label className="flex items-center gap-2.5">
+                      <input type="radio" name={`${id}results`} className="size-5" checked={!!part.deliberate} onChange={() => patch(part.key, { deliberate: true })} />
+                      After a deliberation
+                    </label>
+                  </fieldset>
+                )}
                 <ScoredFields
                   id={id}
                   name={full}
@@ -491,8 +507,10 @@ function RoundCard({
   const name = roundName(draft.rounds, round);
   const proper = draft.rounds.filter((r) => r.segment === "proper");
   const final = round.segment === "proper" && proper[proper.length - 1]?.key === round.key;
-  // Criteria totals shown as percentages, in it or any of its parts: what the LED wall can show out of 10 instead.
+  // Criteria totals shown as percentages, in it or any of its (live) parts: what the LED wall can show out of 10 instead.
   const percentages = shownAsPercentages(round);
+  // In parts, each part's results set on its own.
+  const eachPart = !!round.parts && !!round.eachPart;
   const cut = hasCut(draft.rounds, round);
   const basis = basisOf(draft.rounds, round);
   const problems = useFieldProblems();
@@ -524,7 +542,7 @@ function RoundCard({
       const [a, b] = parseShare(round.weight) > 0 ? evenShares(parseShare(round.weight), 2) : ["", ""];
       onChange({ parts: [newPart(a, round.scoring, round.timer), newPart(b)] });
     } else {
-      onChange({ parts: null, weight: shareText(roundShare(round)), scoring: round.parts?.[0]?.scoring ?? round.scoring, byCandidate: false });
+      onChange({ parts: null, weight: shareText(roundShare(round)), scoring: round.parts?.[0]?.scoring ?? round.scoring, byCandidate: false, eachPart: false });
     }
   };
   // How many candidates are left when this cut comes: everyone, or the size of the cut before it.
@@ -706,25 +724,53 @@ function RoundCard({
         </fieldset>
       )}
 
-      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow it. */}
+      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow
+          it, or (in parts) each is set on its own. */}
       <fieldset className="mt-4">
         <legend className="font-semibold">
           Results<span className="sr-only"> of {name}</span>
         </legend>
         <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
           <label className="flex items-center gap-2.5">
-            <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false, ownPace: false })} />
+            <input
+              type="radio"
+              name={`${id}results`}
+              className="size-5"
+              checked={!round.deliberate && !eachPart}
+              onChange={() => onChange({ deliberate: false, ownPace: false, eachPart: false })}
+            />
             Live
           </label>
           <label className="flex items-center gap-2.5">
-            <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true, ledOutOfTen: false })} />
+            <input
+              type="radio"
+              name={`${id}results`}
+              className="size-5"
+              checked={!!round.deliberate && !eachPart}
+              onChange={() => onChange({ deliberate: true, ledOutOfTen: false, eachPart: false })}
+            />
             After a deliberation
           </label>
+          {round.parts && (
+            <label className="flex items-center gap-2.5">
+              <input
+                type="radio"
+                name={`${id}results`}
+                className="size-5"
+                checked={eachPart}
+                // Each part starts from what the sub-activity had.
+                onChange={() => onChange({ eachPart: true, deliberate: false, ownPace: false, parts: round.parts?.map((p) => ({ ...p, deliberate: !!round.deliberate })) ?? null })}
+              />
+              Each part its own
+            </label>
+          )}
         </div>
         <p className="hint mt-1">
-          {round.deliberate
-            ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
-            : "Each score shows on the live results and the LED wall as it comes in."}
+          {eachPart
+            ? "Each part's results come out live, or after its own deliberation, as set on the part."
+            : round.deliberate
+              ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
+              : "Each score shows on the live results and the LED wall as it comes in."}
         </p>
         {/* Live, by criteria shown as percentages: the wall can show them out of 10, and nothing else changes. */}
         {!round.deliberate && percentages && (
@@ -733,7 +779,9 @@ function RoundCard({
               <input type="checkbox" className="size-5 shrink-0" checked={!!round.ledOutOfTen} onChange={(e) => onChange({ ledOutOfTen: e.target.checked })} />
               Show scores out of 10 on the LED wall<span className="sr-only"> for {name}</span>
             </label>
-            <p className="hint mt-1 ml-7.5">87.5% shows as 8.75 on the wall. The live results, tally and PDFs keep the percentages.</p>
+            <p className="hint mt-1 ml-7.5">
+              {eachPart && "Its live parts. "}87.5% shows as 8.75 on the wall. The live results, tally and PDFs keep the percentages.
+            </p>
           </div>
         )}
         {/* With a deliberation only, as for an event: nothing goes out until it's signed off, so the order doesn't show. */}

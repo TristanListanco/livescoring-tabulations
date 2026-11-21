@@ -539,3 +539,51 @@ describe("judging candidate by candidate", () => {
     expect(draftFromRounds(30, kept).rounds[0].byCandidate).toBe(true);
   });
 });
+
+describe("each part's results set on its own", () => {
+  const criteria = [
+    { key: 0, id: "", name: "Poise", max: "60", min: "", guide: "" },
+    { key: 1, id: "", name: "Delivery", max: "40", min: "", guide: "" },
+  ];
+  const percent = { ...blankScoring(), mode: "criteria" as const, criteria, display: "percent" as const };
+  const part = (key: string, extra: Partial<PartDraft> = {}): PartDraft => ({ key, name: key, weight: "35", scoring: blankScoring(), timer: "", ...extra });
+  const withParts = (parts: PartDraft[], extra: Partial<RoundDraft> = {}) =>
+    draft([round("Interview", "preliminary", "30", { scoring: blankScoring() }), round("Production", "proper", "70", { parts, cutSize: "3", ...extra })]);
+
+  it("deliberates the parts set to, and the rest go out live", () => {
+    const result = checkPageant(withParts([part("Number", { deliberate: true }), part("Q&A")], { eachPart: true }), 10, ids);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.rounds[1].parts.map((p) => p.liveScoring)).toEqual([false, true]);
+    // A deliberated part holds the sub-activity back.
+    expect(result.rounds[1].liveScoring).toBe(false);
+    // Not set for each part, the parts follow the sub-activity, whatever they say.
+    const follows = checkPageant(withParts([part("Number", { deliberate: true }), part("Q&A")], { deliberate: true }), 10, ids);
+    expect(follows.ok && follows.rounds[1].parts.map((p) => p.liveScoring)).toEqual([false, false]);
+    const live = checkPageant(withParts([part("Number", { deliberate: true }), part("Q&A")]), 10, ids);
+    expect(live.ok && [live.rounds[1].liveScoring, ...live.rounds[1].parts.map((p) => p.liveScoring)]).toEqual([true, true, true]);
+  });
+
+  it("keeps out of 10 on the wall only with a live part shown as percentages, and own pace never", () => {
+    const shown = checkPageant(withParts([part("Number", { deliberate: true }), part("Q&A", { scoring: percent })], { eachPart: true, ledOutOfTen: true }), 10, ids);
+    expect(shown.ok && shown.rounds[1].ledOutOfTen).toBe(true);
+    // The percentages are the deliberated part's: nothing live for the wall to show out of 10.
+    const held = checkPageant(withParts([part("Number", { deliberate: true, scoring: percent }), part("Q&A")], { eachPart: true, ledOutOfTen: true }), 10, ids);
+    expect(held.ok && held.rounds[1].ledOutOfTen).toBe(false);
+    const paced = checkPageant(withParts([part("Number", { deliberate: true }), part("Q&A")], { eachPart: true, ownPace: true }), 10, ids);
+    expect(paced.ok && paced.rounds[1].independentScoring).toBe(false);
+  });
+
+  it("round-trips through a draft and a saved program", () => {
+    const typed = parsePageantDraft(JSON.stringify(withParts([part("Number", { deliberate: true }), part("Q&A")], { eachPart: true })))!.rounds[1];
+    expect([typed.eachPart, ...typed.parts!.map((p) => p.deliberate)]).toEqual([true, true, false]);
+    const unit = roundFixture({ id: "p", name: "Production", segment: "proper", liveScoring: false });
+    const number = roundFixture({ id: "n", name: "Number", segment: "proper", parentId: "p", liveScoring: false });
+    const qa = roundFixture({ id: "q", name: "Q&A", segment: "proper", parentId: "p", position: 1 });
+    const mixed = draftFromRounds(30, [unit, number, qa]).rounds[0];
+    expect([mixed.eachPart, mixed.deliberate, ...mixed.parts!.map((p) => p.deliberate)]).toEqual([true, false, true, false]);
+    // Parts that match follow the sub-activity, as before.
+    const same = draftFromRounds(30, [unit, number, { ...qa, liveScoring: false }]).rounds[0];
+    expect([same.eachPart, same.deliberate]).toEqual([false, true]);
+  });
+});

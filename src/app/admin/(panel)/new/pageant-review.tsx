@@ -156,6 +156,8 @@ function RoundRows({ round, name, share }: { round: RoundDraft; name: string; sh
           <td className={`${cell} tabular text-right text-prussian/80`}>{p.weight}%</td>
           <td className={`${cell} pr-0`}>
             <ScoringCell scoring={p.scoring} timer={p.timer} />
+            {/* Set for each part: this one's, when it waits for a deliberation. */}
+            {round.eachPart && p.deliberate && <p className="mt-0.5 text-sm text-prussian/75">Results after a deliberation</p>}
           </td>
         </tr>
       ))}
