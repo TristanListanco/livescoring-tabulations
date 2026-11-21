@@ -71,7 +71,7 @@ import {
   unitOf,
 } from "@/lib/pageant";
 import { MAX_WITHDRAWN_REASON, reinstateGap, withdrawGap } from "@/lib/withdrawn";
-import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedRound } from "@/lib/pageant-setup";
+import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedPart, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
 import { unbrokenTies } from "@/lib/ties";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
@@ -565,10 +565,12 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
   const paced = saved.some((r) => r.independentScoring) || rounds.some((x) => x.independentScoring);
   const outOfTen = saved.some((r) => r.ledOutOfTen) || rounds.some((x) => x.ledOutOfTen);
   const byCandidate = saved.some((r) => r.candidateOrder) || rounds.some((x) => x.candidateOrder);
-  const live = (r: CheckedRound) => ({
-    ...(deliberated ? { live_scoring: r.liveScoring } : {}),
+  // A part's results are its own (the sub-activity's unless set for each part), and only a live part shows out of 10
+  // on the wall; the sub-activity keeps the choice as made.
+  const live = (r: CheckedRound, part?: CheckedPart) => ({
+    ...(deliberated ? { live_scoring: part ? part.liveScoring : r.liveScoring } : {}),
     ...(paced ? { independent_scoring: r.independentScoring } : {}),
-    ...(outOfTen ? { led_out_of_ten: r.ledOutOfTen } : {}),
+    ...(outOfTen ? { led_out_of_ten: r.ledOutOfTen && (!part || part.liveScoring) } : {}),
   });
   const rows = rounds.flatMap((r) => [
     {
@@ -596,8 +598,8 @@ async function insertProgram(activityId: string, rounds: CheckedRound[], ids: Ma
       cut_size: null,
       cut_basis: [],
       parent_id: ids.get(r.key)!,
-      // A part follows its sub-activity (but the order is the sub-activity's alone).
-      ...live(r),
+      // A part follows its sub-activity, but for its own results (and the order is the sub-activity's alone).
+      ...live(r, p),
       ...(byCandidate ? { candidate_order: false } : {}),
     })),
   ]);

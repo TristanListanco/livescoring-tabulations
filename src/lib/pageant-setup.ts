@@ -1,4 +1,4 @@
-import { partsOf, programOrder } from "./pageant";
+import { partsOf, programOrder, resultsByPart } from "./pageant";
 import { checkScoring, type Scoring } from "./scoring-rules";
 import { PRELIMINARY, type CriteriaDisplay, type Decimals, type JudgePanel, type Round, type ScoringMode, type Segment, type Violation } from "./types";
 
@@ -25,6 +25,8 @@ export type PartDraft = {
   weight: string;
   scoring: ScoringDraft;
   timer: string;
+  /** Its own results come after a deliberation, when its sub-activity's are set for each part (`eachPart`). */
+  deliberate?: boolean;
 };
 export type RoundDraft = {
   /** A saved sub-activity's id, or a key the form made up for a new one. Cut bases refer to sub-activities by it. */
@@ -48,9 +50,11 @@ export type RoundDraft = {
   parts: PartDraft[] | null;
   /**
    * Its results come after a deliberation (its judges review and sign, then the organizer), rather than live. Its parts
-   * follow it. Missing in drafts from before, which score live.
+   * follow it, unless `eachPart`. Missing in drafts from before, which score live.
    */
   deliberate?: boolean;
+  /** With parts: each part's results are set on its own (PartDraft.deliberate), rather than following `deliberate`. */
+  eachPart?: boolean;
   /**
    * With `deliberate` only: its judges score its candidates in any order, at their own pace, with no timer. Its parts
    * follow it. Missing in older drafts.
@@ -85,7 +89,7 @@ export type CheckedRound = {
   cutBasis: string[];
   /** Its parts, in order; empty when judges score the sub-activity itself. */
   parts: CheckedPart[];
-  /** Its scores (and its parts') go out as they come in; false when they wait for a deliberation. */
+  /** Its scores (and its parts') go out as they come in; false when they (or any part's) wait for a deliberation. */
   liveScoring: boolean;
   /** Judges score it at their own pace (only when it deliberates); then it and its parts have no timer. */
   independentScoring: boolean;
@@ -94,7 +98,8 @@ export type CheckedRound = {
   /** Judged candidate by candidate (a preliminary one with parts, not at own pace); then it and its parts have no timer. */
   candidateOrder: boolean;
 };
-export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null };
+/** `liveScoring`: the part's own results go out as they come in (it follows its sub-activity unless set for each part). */
+export type CheckedPart = { key: string; name: string; position: number; weight: number; scoring: Scoring; timerSeconds: number | null; liveScoring: boolean };
 
 /**
  * A sub-activity's name wherever the setup shows it: its own, or until it has one, its place in its segment
@@ -103,9 +108,14 @@ export type CheckedPart = { key: string; name: string; position: number; weight:
 export const roundName = (rounds: Pick<RoundDraft, "key" | "segment">[], round: Pick<RoundDraft, "key" | "segment" | "name">) =>
   round.name.trim() || `Sub-activity ${rounds.filter((r) => r.segment === round.segment).findIndex((r) => r.key === round.key) + 1}`;
 
-/** Whether a sub-activity (or any of its parts) is scored by criteria with totals shown as percentages. */
-export const shownAsPercentages = (round: Pick<RoundDraft, "scoring" | "parts">) =>
-  (round.parts ? round.parts.map((p) => p.scoring) : [round.scoring]).some((sc) => sc.mode === "criteria" && sc.display !== "ten");
+/**
+ * Whether a sub-activity (or any of its parts) is scored by criteria with totals shown as percentages: of its parts set
+ * for each part, the live ones only, the ones the LED wall can show out of 10.
+ */
+export const shownAsPercentages = (round: Pick<RoundDraft, "scoring" | "parts" | "eachPart">) =>
+  (round.parts ? round.parts.filter((p) => !(round.eachPart && p.deliberate)).map((p) => p.scoring) : [round.scoring]).some(
+    (sc) => sc.mode === "criteria" && sc.display !== "ten",
+  );
 
 export const MAX_ROUNDS = 20;
 export const MAX_VIOLATIONS = 20;
@@ -481,6 +491,8 @@ export function checkPageant(
       if ("error" in own && !round.parts) return fail(own.error, segment, at(own.input));
       const parts: CheckedPart[] = [];
       let partTotal = 0;
+      // Each part's results set on its own, or (as before) the sub-activity's for all of them.
+      const eachPart = !!round.parts && round.eachPart === true;
       if (round.parts) {
         if (round.parts.length < 2) return fail(`${name}: add at least two parts, or score it as a whole.`, segment, at("parts"));
         if (round.parts.length > MAX_PARTS) return fail(`${name}: a sub-activity can have up to ${MAX_PARTS} parts.`, segment, at("parts"));
@@ -496,7 +508,8 @@ export function checkPageant(
           partTotal += partWeight;
           const scored = checkScored(`${name} · ${partName}`, part.scoring, untimed ? "" : part.timer, newId);
           if ("error" in scored) return fail(scored.error, segment, at(scored.input, part.key));
-          parts.push({ key: part.key, name: partName, position: parts.length, weight: partWeight, ...scored });
+          const liveScoring = eachPart ? part.deliberate !== true : !round.deliberate;
+          parts.push({ key: part.key, name: partName, position: parts.length, weight: partWeight, ...scored, liveScoring });
         }
       }
       const weight = round.parts ? Math.round(partTotal * 100) / 100 : ownShare;
@@ -513,9 +526,11 @@ export function checkPageant(
         cutSize: null,
         cutBasis: [],
         parts,
-        liveScoring: !round.deliberate,
+        // Live only when every part is (with each part set on its own, any deliberated part holds it).
+        liveScoring: parts.length ? parts.every((p) => p.liveScoring) : !round.deliberate,
         independentScoring: paced,
-        ledOutOfTen: round.deliberate !== true && round.ledOutOfTen === true && shownAsPercentages(round),
+        // Out of 10 on the wall for its live parts: kept while one of them is shown as percentages.
+        ledOutOfTen: round.deliberate !== true && round.ledOutOfTen === true && shownAsPercentages({ ...round, eachPart }),
         candidateOrder: byCandidate,
       });
     }
@@ -633,10 +648,18 @@ export function parsePageantDraft(json: string): PageantDraft | null {
       parts: Array.isArray(r.parts)
         ? r.parts.slice(0, MAX_PARTS * 2).map((part: unknown, k): PartDraft => {
             const p = record(part);
-            return { key: text(p.key).slice(0, 64) || `part-${i}-${k}`, name: text(p.name), weight: text(p.weight), scoring: scoring(p.scoring), timer: text(p.timer) };
+            return {
+              key: text(p.key).slice(0, 64) || `part-${i}-${k}`,
+              name: text(p.name),
+              weight: text(p.weight),
+              scoring: scoring(p.scoring),
+              timer: text(p.timer),
+              deliberate: p.deliberate === true,
+            };
           })
         : null,
       deliberate: r.deliberate === true,
+      eachPart: r.eachPart === true,
       ownPace: r.ownPace === true,
       ledOutOfTen: r.ledOutOfTen === true,
       byCandidate: r.byCandidate === true,
@@ -673,6 +696,7 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
     violations: violations && violations.map((v) => ({ key: v.id, id: v.id, reason: v.reason, points: String(v.points) })),
     rounds: top.map((r) => {
       const parts = partsOf(rounds, r.id);
+      const mixed = resultsByPart(rounds, r);
       return {
         key: r.id,
         segment: r.segment,
@@ -691,9 +715,12 @@ export function draftFromRounds(preliminaryWeight: number, rounds: Round[], viol
               weight: shareText(p.weight),
               scoring: scoringDraft(p),
               timer: p.timerSeconds === null ? "" : String(p.timerSeconds),
+              deliberate: !p.liveScoring,
             }))
           : null,
-        deliberate: !r.liveScoring,
+        // Parts that differ were set each on its own; otherwise they follow the sub-activity.
+        deliberate: !mixed && !r.liveScoring,
+        eachPart: mixed,
         ownPace: r.independentScoring,
         ledOutOfTen: r.ledOutOfTen,
         byCandidate: r.candidateOrder,

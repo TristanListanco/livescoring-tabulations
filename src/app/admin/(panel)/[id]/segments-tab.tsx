@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { basisWeights, partsOf, programOrder } from "@/lib/pageant";
+import { basisWeights, partsOf, programOrder, resultsByPart } from "@/lib/pageant";
 import { checkPageant, draftFromRounds, segmentLabel, shareScope, type PageantDraft } from "@/lib/pageant-setup";
 import { reach } from "@/lib/reach";
 import { formatBound, rulesSummary } from "@/lib/scoring";
@@ -55,12 +55,13 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
                   <p>
                     <span className="font-semibold">{r.name}</span> <span className="tabular hint">{share(r, r)}</span>
                   </p>
-                  {!r.liveScoring && (
+                  {/* Set for each part, each deliberated part says so under it instead. */}
+                  {!r.liveScoring && !resultsByPart(board.rounds, r) && (
                     <p className="hint">
                       Results after a deliberation: its judges sign, then you sign it off.{r.independentScoring && " Judges score it at their own pace."}
                     </p>
                   )}
-                  {r.ledOutOfTen && <p className="hint">The LED wall shows its scores out of 10.</p>}
+                  {r.ledOutOfTen && <p className="hint">The LED wall shows {resultsByPart(board.rounds, r) ? "its live parts' scores" : "its scores"} out of 10.</p>}
                   {r.candidateOrder && <p className="hint">Judged candidate by candidate: each is scored on every part before the next, with no timer.</p>}
                   {partsOf(board.rounds, r.id).length === 0 ? (
                     <>
@@ -76,6 +77,9 @@ function LockedProgram({ board, segments = ["preliminary", "proper"] }: { board:
                           </p>
                           <p className="hint">{rulesSummary(part)}</p>
                           {timerLine(part) && <p className="hint">{timerLine(part)}</p>}
+                          {resultsByPart(board.rounds, r) && (
+                            <p className="hint">{part.liveScoring ? "Results live." : "Results after a deliberation: its judges sign, then you sign it off."}</p>
+                          )}
                         </li>
                       ))}
                     </ol>
