@@ -496,7 +496,9 @@ export function ScoringPanel({
         className={`judge-header flex items-center gap-x-3 border-b border-oxford px-4 sm:px-6 ${pageant ? "py-2" : "flex-wrap gap-y-2 py-3 sm:flex-nowrap"}`}
       >
         {pageant ? (
-          counting ? (
+          // With a sub-activity on screen, its count opens the judge's scores; before the start and between
+          // sub-activities there's nothing to count, and the judge's name says whose screen it is.
+          counting && round ? (
             <ScoresSheet
               title={`Your scores${round ? ` in ${round.name}` : ""}`}
               scored={scores.size}

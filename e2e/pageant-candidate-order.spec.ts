@@ -179,8 +179,21 @@ test.describe.serial("a preliminary sub-activity judged candidate by candidate",
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("You've scored every part", REALTIME);
     await expect(tile(page, "Ana Cruz")).toContainText("Scored", REALTIME);
 
-    await scoreBothParts(ben, "Ayla", "6", "9");
+    // The live results (as the LED wall) hold Performance up once every judge has scored it, until Costume is finished
+    // too, even with Ana already done with Costume.
+    const audience = await page.context().newPage();
+    const partOnAir = audience.getByText(/^Talent · (Performance|Costume)$/).first();
+    await expect(partInHand(ben)).toHaveText("Performance", REALTIME);
+    await submitScore(ben, "Ayla", "6");
+    await audience.goto(`/live/${pageant.publicId}`);
+    await expect(partOnAir).toHaveText("Talent · Performance");
+    await expect(partInHand(ben)).toHaveText("Costume", REALTIME);
+    await submitScore(ben, "Ayla", "9");
+    await expect(ben.getByRole("heading", { level: 1 })).toHaveText("You've scored every part", REALTIME);
     await expect(page.getByRole("status").filter({ hasText: "Every judge has scored Ayla." })).toBeVisible(REALTIME);
+    await audience.reload();
+    await expect(partOnAir).toHaveText("Talent · Costume", REALTIME);
+    await audience.close();
 
     // Bea. Ana goes back to her Performance score from the strip, then on to her Costume.
     await page.getByRole("button", { name: "Next: Bea" }).click();
