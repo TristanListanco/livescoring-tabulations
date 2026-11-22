@@ -49,6 +49,7 @@ import { DRAFT_GONE } from "@/lib/draft-messages";
 import { inUseMessage } from "@/lib/in-use";
 import { accountInUse } from "@/lib/in-use-server";
 import { testToolsAllowed } from "@/lib/environment";
+import { sampleForm, type SampleKind } from "@/lib/sample-activity";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { asShown, eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
 import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
@@ -933,6 +934,18 @@ export const createActivity = traced("createActivity", async function createActi
   const result = await createFromForm(formData);
   if (!("activityId" in result)) return result;
   // The list of activities, if the browser has it cached, now has one more.
+  changed();
+  redirect(`/admin/${result.activityId}`);
+});
+
+/**
+ * A sample event or pageant with made-up judges and entries, nothing scored, for trying the app out: test sites only
+ * (see testToolsAllowed). Made through the create form's own path, so it's set up as one an organizer typed.
+ */
+export const createSample = traced("createSample", async function createSample(kind: SampleKind): Promise<ActionResult> {
+  if (!testToolsAllowed()) return err("Sample activities are only made on a test site.");
+  const result = await createFromForm(sampleForm(kind === "pageant" ? "pageant" : "event"));
+  if (!("activityId" in result)) return result.ok ? err("That didn't save. Try again.") : result;
   changed();
   redirect(`/admin/${result.activityId}`);
 });

@@ -8,6 +8,8 @@ import {
   checkViolations,
   criteriaForCheck,
   parsePageantDraft,
+  partDeliberates,
+  partsWithResults,
   fitShares,
   properStages,
   shareScope,
@@ -585,5 +587,26 @@ describe("each part's results set on its own", () => {
     // Parts that match follow the sub-activity, as before.
     const same = draftFromRounds(30, [unit, number, { ...qa, liveScoring: false }]).rounds[0];
     expect([same.eachPart, same.deliberate]).toEqual([false, true]);
+  });
+
+  it("in the editor, follows each part's choice, the sub-activity's coming from its parts", () => {
+    // Deliberated as a whole (a draft's parts say false, but follow it), then the Q&A made live.
+    const whole = withParts([part("Number", { deliberate: false }), part("Q&A", { deliberate: false })], { deliberate: true, ownPace: true }).rounds[1];
+    const mixed = { ...whole, ...partsWithResults(whole, whole.parts!, { key: "Q&A", deliberate: false }) };
+    expect([mixed.deliberate, mixed.eachPart, mixed.ownPace, ...mixed.parts!.map((p) => p.deliberate)]).toEqual([false, true, false, true, false]);
+    // A part added to it starts live; added to one deliberated throughout, it's deliberated too. The list itself is
+    // kept as it came, as the editor's Undo knows it by.
+    const results = (r: RoundDraft) => r.parts!.map((p) => partDeliberates(r, p));
+    const longer = [...mixed.parts!, part("Walk")];
+    const added = partsWithResults(mixed, longer);
+    expect(added.parts).toBe(longer);
+    expect(results({ ...mixed, ...added })).toEqual([true, false, false]);
+    expect(results({ ...whole, ...partsWithResults(whole, [...whole.parts!, part("Walk")]) })).toEqual([true, true, true]);
+    // The live part removed: every part left deliberated, so the sub-activity is.
+    const fewer = partsWithResults(mixed, [mixed.parts![0]]);
+    expect([fewer.deliberate, fewer.eachPart]).toEqual([true, false]);
+    // Every part deliberated again: the sub-activity is, and can be paced; nothing live, so nothing out of 10 on the wall.
+    const back = partsWithResults({ ...mixed, ledOutOfTen: true }, mixed.parts!, { key: "Q&A", deliberate: true });
+    expect([back.deliberate, back.eachPart, back.ledOutOfTen]).toEqual([true, false, false]);
   });
 });

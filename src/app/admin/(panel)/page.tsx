@@ -8,7 +8,9 @@ import type { Activity } from "@/lib/types";
 import { ActivitiesRefresh } from "./activities-refresh";
 import { DraftsList } from "./drafts-list";
 import { segmentStatus, SessionStatus } from "./session-status";
+import { SampleActivities } from "./sample-activities";
 import { scoresGoOutLive } from "@/lib/lifecycle";
+import { testToolsAllowed } from "@/lib/environment";
 
 export const metadata: Metadata = { title: "Activities" };
 
@@ -314,6 +316,8 @@ export default async function ActivitiesPage({ searchParams }: PageProps<"/admin
         </section>
       )}
 
+      {/* Made-up activities to try things out on, on a test site only. */}
+      {testToolsAllowed() && <SampleActivities />}
     </>
   );
 }

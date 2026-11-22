@@ -26,6 +26,8 @@ import {
   sharesWithOneMore,
   shareText,
   roundName,
+  partDeliberates,
+  partsWithResults,
   shownAsPercentages,
   typedShare,
   MAX_REASON,
@@ -293,6 +295,7 @@ function PartsEditor({
   room,
   scope,
   onChange,
+  onResults,
 }: {
   round: RoundDraft;
   name: string;
@@ -300,6 +303,8 @@ function PartsEditor({
   /** What the shares are of: "of the overall score", or "of the score after the Top 5 cut". */
   scope: string;
   onChange: (parts: PartDraft[]) => void;
+  /** A part's results chosen: after a deliberation, or live. */
+  onResults: (key: string, deliberate: boolean) => void;
 }) {
   const parts = round.parts ?? [];
   const problems = useFieldProblems();
@@ -443,22 +448,20 @@ function PartsEditor({
                   <FieldProblem fieldId={`${id}name`} className="basis-full" />
                   <FieldProblem fieldId={`${id}weight`} className="basis-full" />
                 </div>
-                {/* The sub-activity's results set for each part: this part's own. */}
-                {round.eachPart && (
-                  <fieldset className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1">
-                    <legend className="mb-1 text-sm font-semibold sm:float-left sm:mr-6 sm:mb-0">
-                      Results<span className="sr-only"> of {full}</span>
-                    </legend>
-                    <label className="flex items-center gap-2.5">
-                      <input type="radio" name={`${id}results`} className="size-5" checked={!part.deliberate} onChange={() => patch(part.key, { deliberate: false })} />
-                      Live
-                    </label>
-                    <label className="flex items-center gap-2.5">
-                      <input type="radio" name={`${id}results`} className="size-5" checked={!!part.deliberate} onChange={() => patch(part.key, { deliberate: true })} />
-                      After a deliberation
-                    </label>
-                  </fieldset>
-                )}
+                {/* In parts, the results are each part's own. */}
+                <fieldset className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1">
+                  <legend className="mb-1 text-sm font-semibold sm:float-left sm:mr-6 sm:mb-0">
+                    Results<span className="sr-only"> of {full}</span>
+                  </legend>
+                  <label className="flex items-center gap-2.5">
+                    <input type="radio" name={`${id}results`} className="size-5" checked={!partDeliberates(round, part)} onChange={() => onResults(part.key, false)} />
+                    Live
+                  </label>
+                  <label className="flex items-center gap-2.5">
+                    <input type="radio" name={`${id}results`} className="size-5" checked={partDeliberates(round, part)} onChange={() => onResults(part.key, true)} />
+                    After a deliberation
+                  </label>
+                </fieldset>
                 <ScoredFields
                   id={id}
                   name={full}
@@ -556,6 +559,42 @@ function RoundCard({
   // A cut has to leave fewer than it starts with; the final cut can place everyone left.
   const cutTooBig = left !== null && round.cutSize !== "" && (final ? typedSize > left : typedSize >= left);
   const toggleBasis = (key: string, on: boolean) => onChange({ cutBasis: on ? [...basis, key] : basis.filter((k) => k !== key) });
+  // Live, by criteria shown as percentages: the wall can show them out of 10, and nothing else changes.
+  const outOfTen = !round.deliberate && percentages && (
+    <div className="mt-3">
+      <label className="flex items-center gap-2.5">
+        <input type="checkbox" className="size-5 shrink-0" checked={!!round.ledOutOfTen} onChange={(e) => onChange({ ledOutOfTen: e.target.checked })} />
+        Show scores out of 10 on the LED wall<span className="sr-only"> for {name}</span>
+      </label>
+      <p className="hint mt-1 ml-7.5">
+        {eachPart && "Its live parts. "}87.5% shows as 8.75 on the wall. The live results, tally and PDFs keep the percentages.
+      </p>
+    </div>
+  );
+  // With a deliberation only (in parts, every part's), as for an event: nothing goes out until it's signed off, so the
+  // order doesn't show.
+  const ownPace = round.deliberate && (
+    <div className="mt-3">
+      <label className="flex items-center gap-2.5">
+        <input
+          type="checkbox"
+          className="size-5 shrink-0"
+          checked={!!round.ownPace}
+          onChange={(e) =>
+            onChange(
+              e.target.checked
+                ? { ownPace: true, byCandidate: false, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null }
+                : { ownPace: false },
+            )
+          }
+        />
+        Judges score at their own pace<span className="sr-only"> in {name}</span>
+      </label>
+      <p className="hint mt-1 ml-7.5">
+        No candidate is shown: each judge scores the candidates in any order, with no timer. You start the deliberation once every score is in.
+      </p>
+    </div>
+  );
 
   return (
     <li className="card p-4 sm:p-5">
@@ -684,130 +723,82 @@ function RoundCard({
           onTimer={(timer) => onChange({ timer })}
         />
       ) : (
-        <PartsEditor
-          round={round}
-          name={name}
-          room={room}
-          scope={scope}
-          onChange={(parts) => onChange({ parts, weight: shareText(roundShare({ weight: "", parts })) })}
-        />
+        <>
+          {/* A preliminary one in parts: each part through every candidate, or each candidate through every part. Said
+              before the parts, since it's how they take turns. At their own pace there's no order to choose. */}
+          {round.segment === "preliminary" && !round.ownPace && (
+            <fieldset className="mt-4">
+              <legend className="font-semibold">
+                Judging order<span className="sr-only"> of {name}</span>
+              </legend>
+              <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
+                <label className="flex items-center gap-2.5">
+                  <input type="radio" name={`${id}order`} className="size-5" checked={!round.byCandidate} onChange={() => onChange({ byCandidate: false })} />
+                  Part by part
+                </label>
+                <label className="flex items-center gap-2.5">
+                  <input
+                    type="radio"
+                    name={`${id}order`}
+                    className="size-5"
+                    checked={!!round.byCandidate}
+                    onChange={() => onChange({ byCandidate: true, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null })}
+                  />
+                  Candidate by candidate
+                </label>
+              </div>
+              <p className="hint mt-1">
+                {round.byCandidate
+                  ? "Each candidate is scored on every part before the next one is shown. Judges move through the parts themselves, with no timer."
+                  : "Each part goes through every candidate before the next part starts."}
+              </p>
+            </fieldset>
+          )}
+          {/* Each part's results are set on the part; the sub-activity's follow from them. */}
+          <PartsEditor
+            round={round}
+            name={name}
+            room={room}
+            scope={scope}
+            onChange={(parts) => onChange({ ...partsWithResults(round, parts), weight: shareText(roundShare({ weight: "", parts })) })}
+            onResults={(key, deliberate) => onChange(partsWithResults(round, round.parts ?? [], { key, deliberate }))}
+          />
+        </>
       )}
 
-      {/* A preliminary one in parts: each part through every candidate, or each candidate through every part. At their
-          own pace there's no order to choose. */}
-      {round.parts && round.segment === "preliminary" && !round.ownPace && (
+      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. In parts
+          that's chosen on each part, and only what goes for the whole sub-activity is here. */}
+      {round.parts === null ? (
         <fieldset className="mt-4">
           <legend className="font-semibold">
-            Judging order<span className="sr-only"> of {name}</span>
+            Results<span className="sr-only"> of {name}</span>
           </legend>
           <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
             <label className="flex items-center gap-2.5">
-              <input type="radio" name={`${id}order`} className="size-5" checked={!round.byCandidate} onChange={() => onChange({ byCandidate: false })} />
-              Part by part
+              <input type="radio" name={`${id}results`} className="size-5" checked={!round.deliberate} onChange={() => onChange({ deliberate: false, ownPace: false })} />
+              Live
             </label>
             <label className="flex items-center gap-2.5">
-              <input
-                type="radio"
-                name={`${id}order`}
-                className="size-5"
-                checked={!!round.byCandidate}
-                onChange={() => onChange({ byCandidate: true, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null })}
-              />
-              Candidate by candidate
+              <input type="radio" name={`${id}results`} className="size-5" checked={!!round.deliberate} onChange={() => onChange({ deliberate: true, ledOutOfTen: false })} />
+              After a deliberation
             </label>
           </div>
           <p className="hint mt-1">
-            {round.byCandidate
-              ? "Each candidate is scored on every part before the next one is shown. Judges move through the parts themselves, with no timer."
-              : "Each part goes through every candidate before the next part starts."}
-          </p>
-        </fieldset>
-      )}
-
-      {/* How its results come out: as each score comes in, or once its judges have deliberated and signed. Its parts follow
-          it, or (in parts) each is set on its own. */}
-      <fieldset className="mt-4">
-        <legend className="font-semibold">
-          Results<span className="sr-only"> of {name}</span>
-        </legend>
-        <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
-          <label className="flex items-center gap-2.5">
-            <input
-              type="radio"
-              name={`${id}results`}
-              className="size-5"
-              checked={!round.deliberate && !eachPart}
-              onChange={() => onChange({ deliberate: false, ownPace: false, eachPart: false })}
-            />
-            Live
-          </label>
-          <label className="flex items-center gap-2.5">
-            <input
-              type="radio"
-              name={`${id}results`}
-              className="size-5"
-              checked={!!round.deliberate && !eachPart}
-              onChange={() => onChange({ deliberate: true, ledOutOfTen: false, eachPart: false })}
-            />
-            After a deliberation
-          </label>
-          {round.parts && (
-            <label className="flex items-center gap-2.5">
-              <input
-                type="radio"
-                name={`${id}results`}
-                className="size-5"
-                checked={eachPart}
-                // Each part starts from what the sub-activity had.
-                onChange={() => onChange({ eachPart: true, deliberate: false, ownPace: false, parts: round.parts?.map((p) => ({ ...p, deliberate: !!round.deliberate })) ?? null })}
-              />
-              Each part its own
-            </label>
-          )}
-        </div>
-        <p className="hint mt-1">
-          {eachPart
-            ? "Each part's results come out live, or after its own deliberation, as set on the part."
-            : round.deliberate
+            {round.deliberate
               ? "Its scores stay off the live results and the LED wall until its judges have reviewed and signed them, and you've signed it off."
               : "Each score shows on the live results and the LED wall as it comes in."}
-        </p>
-        {/* Live, by criteria shown as percentages: the wall can show them out of 10, and nothing else changes. */}
-        {!round.deliberate && percentages && (
-          <div className="mt-3">
-            <label className="flex items-center gap-2.5">
-              <input type="checkbox" className="size-5 shrink-0" checked={!!round.ledOutOfTen} onChange={(e) => onChange({ ledOutOfTen: e.target.checked })} />
-              Show scores out of 10 on the LED wall<span className="sr-only"> for {name}</span>
-            </label>
-            <p className="hint mt-1 ml-7.5">
-              {eachPart && "Its live parts. "}87.5% shows as 8.75 on the wall. The live results, tally and PDFs keep the percentages.
-            </p>
+          </p>
+          {outOfTen}
+          {ownPace}
+        </fieldset>
+      ) : (
+        (outOfTen || ownPace) && (
+          <div className="mt-2">
+            {outOfTen}
+            {ownPace}
           </div>
-        )}
-        {/* With a deliberation only, as for an event: nothing goes out until it's signed off, so the order doesn't show. */}
-        {round.deliberate && (
-          <div className="mt-3">
-            <label className="flex items-center gap-2.5">
-              <input
-                type="checkbox"
-                className="size-5 shrink-0"
-                checked={!!round.ownPace}
-                onChange={(e) =>
-                  onChange(
-                    e.target.checked
-                      ? { ownPace: true, byCandidate: false, timer: "", parts: round.parts?.map((p) => ({ ...p, timer: "" })) ?? null }
-                      : { ownPace: false },
-                  )
-                }
-              />
-              Judges score at their own pace<span className="sr-only"> in {name}</span>
-            </label>
-            <p className="hint mt-1 ml-7.5">
-              No candidate is shown: each judge scores the candidates in any order, with no timer. You start the deliberation once every score is in.
-            </p>
-          </div>
-        )}
-      </fieldset>
+        )
+      )}
 
       {round.segment === "proper" && (
         <div className={`mt-4 ${cut ? "rounded-xl bg-wash/60 p-4" : ""}`}>
