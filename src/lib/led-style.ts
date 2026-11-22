@@ -39,6 +39,8 @@ export const LED_THEMES: { value: LedTheme; label: string; colors: LedColors }[]
 
 /** The panels' rounded corners: in stage pixels for the 1920×1080 lower third, and in container units for the full screen. */
 const RADIUS = { overlay: "28px", full: "min(2cqw, 3.6cqh)" };
+/** The metal rims' width (see .led-glass and .led-ring), measured the same way. */
+const RIM = { overlay: "3px", full: "max(2px, 0.28cqh)" };
 
 export const toLedFont = (value: unknown): LedFont => LED_FONTS.find((f) => f.value === value)?.value ?? "modern";
 export const toLedTheme = (value: unknown): LedTheme => LED_THEMES.find((t) => t.value === value)?.value ?? "navy";
@@ -65,6 +67,7 @@ export function ledStyle(look: { font: LedFont; theme: LedTheme }, fullscreen: b
     "--color-mint": c.ink,
     "--color-powder": c.muted,
     "--led-radius": fullscreen ? RADIUS.full : RADIUS.overlay,
+    "--led-rim": fullscreen ? RIM.full : RIM.overlay,
     fontFamily: ledFontFamily(look.font),
     // Scores sit on the line in every font (the elegant serif's own numbers dip below it).
     fontFeatureSettings: '"lnum" 1',

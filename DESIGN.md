@@ -271,7 +271,7 @@ Spacing steps by 4px; controls are 44px tall (36px for small ones with a mouse, 
 
 ## Elevation & Depth
 
-Flat by default. Surfaces sit on the page with hairline borders and tonal fills (white on mint, oxford on prussian); nothing at rest casts a shadow except the active sidebar row and tab, which lift by a single hairline of shade onto the card colour. A shadow means "this floats over the page": dialogs, toasts and popovers. A modal's backdrop dims the page to Prussian at 60% with a slight blur.
+Flat by default. Surfaces sit on the page with hairline borders and tonal fills (white on mint, oxford on prussian); nothing at rest casts a shadow except the active sidebar row and tab, which lift by a single hairline of shade onto the card colour. A shadow means "this floats over the page": dialogs, toasts and popovers. A modal's backdrop dims the page to Prussian at 60% with a slight blur. The LED wall alone is the exception: it's on air, so it takes a broadcast pageant's finish (see LED Lower Third).
 
 ### Shadow Vocabulary
 - **Resting hairline** (`box-shadow: 0 1px 2px rgb(11 37 69 / 0.08)`): the active sidebar row and tab only.
@@ -330,6 +330,8 @@ A projected navy board: rows ranked by average, the top three standing out, prov
 ### LED Lower Third
 A solid dark bar along the bottom of a chroma-green frame: the entry's round photo rising above its left end, the name in capitals, each judge's square photo on the bar's top edge with their score, and the average at the right, the largest figure once every judge is in. It takes one of ten dark themes (Navy by default), always solid, never translucent, so it keys cleanly.
 
+The wall, lower third and full screen alike, is finished like a pageant broadcast's rather than flat: the bar and the judges' tiles are dark glass (a gloss over their top, a shade at the bottom) in a thin polished-metal rim, the number box and the final average are polished metal plates, and every photo sits in a ring of turned metal. The metal is drawn from the theme, so Black and gold has gold trim and Graphite silver. Every layer ends up opaque over the panel's own colour, and the gloss stays faint where text sits. The full screen's ground has a soft stage light from above.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -338,7 +340,7 @@ A solid dark bar along the bottom of a chroma-green frame: the entry's round pho
 - **Do** keep controls at 44px on touch, and the judge's main action at 56px.
 - **Do** set every score, average and count in tabular figures.
 - **Do** pair every state colour (tally, judging, timer, danger) with words.
-- **Do** keep surfaces flat on hairlines; lift only dialogs, toasts and popovers.
+- **Do** keep surfaces flat on hairlines; lift only dialogs, toasts and popovers. (The LED wall's glass and metal is the one exception.)
 - **Do** keep the stage surfaces (desk, judges, live results, LED) navy in the admin's dark mode.
 
 ### Don't:

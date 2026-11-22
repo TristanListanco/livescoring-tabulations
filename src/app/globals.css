@@ -1013,6 +1013,68 @@ dialog::backdrop {
 .led-fade {
   animation: led-fade 0.6s ease-out both;
 }
+
+/*
+ * LED wall finish, as a broadcast pageant's: dark glass panels in polished metal rims, metal plates and photo rings,
+ * rather than flat fills. All of it is drawn from the theme's colours (gold trim on Black and gold, silver on Graphite),
+ * and every layer ends up opaque, a gloss and a shade over the panel's own solid colour, so the lower third still keys
+ * cleanly off the green. The gloss stays faint where text sits, and the shade only darkens, so type keeps its contrast.
+ */
+[data-led-theme] {
+  --led-metal: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-mint), white 60%),
+    var(--color-powder) 45%,
+    color-mix(in srgb, var(--color-powder), black 45%) 52%,
+    var(--color-powder) 75%,
+    var(--color-mint)
+  );
+}
+@layer components {
+  /* A dark glass panel: its colour (--led-fill, the judges' tile colour unless set) under a gloss on top and a shade below, in a metal rim. */
+  .led-glass {
+    border: var(--led-rim, 3px) solid transparent;
+    background-image:
+      linear-gradient(180deg, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0.05) 42%, transparent 42.5%, transparent 58%, rgb(0 0 0 / 0.3)),
+      linear-gradient(var(--led-fill, var(--color-oxford)), var(--led-fill, var(--color-oxford))),
+      var(--led-metal);
+    background-origin: padding-box, padding-box, border-box;
+    background-clip: padding-box, padding-box, border-box;
+  }
+  /* Polished metal that carries dark type (the number box, the final average): its darkest band still reads at 6:1. */
+  .led-chrome {
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-mint), white 70%),
+      var(--color-mint) 44%,
+      color-mix(in srgb, var(--color-mint), var(--color-powder) 40%) 50%,
+      color-mix(in srgb, var(--color-mint), var(--color-powder) 15%)
+    );
+  }
+  /* A photo in a ring of turned metal; initials (or the anonymous mark) sit on glass inside it. */
+  .led-ring {
+    border: var(--led-rim, 3px) solid transparent;
+    background-image:
+      linear-gradient(180deg, rgb(255 255 255 / 0.16), transparent 50%, rgb(0 0 0 / 0.25)),
+      linear-gradient(var(--color-regal), var(--color-regal)),
+      conic-gradient(
+        from 200deg,
+        var(--color-mint),
+        var(--color-powder) 18%,
+        color-mix(in srgb, var(--color-powder), black 40%) 30%,
+        color-mix(in srgb, var(--color-mint), white 60%) 45%,
+        var(--color-powder) 62%,
+        color-mix(in srgb, var(--color-powder), black 40%) 78%,
+        var(--color-mint)
+      );
+    background-origin: padding-box, padding-box, border-box;
+    background-clip: padding-box, padding-box, border-box;
+  }
+  /* The full screen's ground: a soft stage light from above. */
+  .led-stage {
+    background-image: radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--color-regal) 45%, transparent), transparent);
+  }
+}
 @keyframes led-dot {
   0%,
   100% {

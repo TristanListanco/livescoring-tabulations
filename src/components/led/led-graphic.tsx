@@ -4,6 +4,7 @@ import { KEY_GREEN, ledScene, wallBoard, type LedScene, type TileState } from "@
 import { ledStyle } from "@/lib/led-style";
 import { averageText, scoreText } from "@/lib/scoring";
 import type { Activity, Board, Judge } from "@/lib/types";
+import { useId } from "react";
 import { Avatar } from "../avatar";
 import { FitText } from "../fit-text";
 import { FitStage } from "./fit-stage";
@@ -26,7 +27,7 @@ function WaitingDots({ label }: { label: string }) {
  */
 function AnonymousJudge({ size, radius }: { size: number | string; radius?: string }) {
   return (
-    <span aria-hidden style={{ width: size, height: size, borderRadius: radius }} className="inline-flex shrink-0 items-center justify-center rounded-full bg-regal text-mint">
+    <span aria-hidden style={{ width: size, height: size, borderRadius: radius }} className="led-ring inline-flex shrink-0 items-center justify-center rounded-full bg-regal text-mint">
       <svg viewBox="0 0 24 24" className="size-[58%]">
         <path d="M8.6 9a3.4 3.4 0 1 1 5.3 2.8c-1.1.75-1.9 1.4-1.9 2.9v.4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
         <circle cx="12" cy="19" r="1.5" fill="currentColor" />
@@ -108,12 +109,23 @@ const PHOTO_ROUNDED = "calc(var(--led-radius, 0px) / 3)";
  * see-through would take some of the green with it, and key out in patches.
  */
 function AverageMark() {
+  // In the bar's metal: one gradient across all four, so they share its horizon.
+  const metal = useId();
+  const fill = `url(#${metal})`;
   return (
-    <svg viewBox="0 0 52 40" className="absolute left-1/2 h-[40px] w-[52px] -translate-x-1/2 text-powder" style={{ top: -30 }} aria-hidden>
-      <rect x="4" y="22" width="9" height="18" rx="1.5" fill="currentColor" />
-      <rect x="16" y="8" width="9" height="32" rx="1.5" fill="currentColor" />
-      <rect x="28" y="16" width="9" height="24" rx="1.5" fill="currentColor" />
-      <rect x="40" y="2" width="9" height="38" rx="1.5" fill="currentColor" />
+    <svg viewBox="0 0 52 40" className="absolute left-1/2 h-[40px] w-[52px] -translate-x-1/2" style={{ top: -30 }} aria-hidden>
+      <defs>
+        <linearGradient id={metal} x1="0" y1="0" x2="0" y2="40" gradientUnits="userSpaceOnUse">
+          <stop offset="0" style={{ stopColor: "var(--color-mint)" }} />
+          <stop offset="0.5" style={{ stopColor: "var(--color-powder)" }} />
+          <stop offset="0.62" style={{ stopColor: "color-mix(in srgb, var(--color-powder), black 35%)" }} />
+          <stop offset="1" style={{ stopColor: "var(--color-powder)" }} />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="22" width="9" height="18" rx="1.5" fill={fill} />
+      <rect x="16" y="8" width="9" height="32" rx="1.5" fill={fill} />
+      <rect x="28" y="16" width="9" height="24" rx="1.5" fill={fill} />
+      <rect x="40" y="2" width="9" height="38" rx="1.5" fill={fill} />
     </svg>
   );
 }
@@ -136,7 +148,7 @@ function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; s
   return (
     <div
       key={scene.entry.id}
-      className="led-fade absolute inset-x-12 bottom-12 flex bg-prussian text-mint"
+      className="led-glass led-fade absolute inset-x-12 bottom-12 flex text-mint [--led-fill:var(--color-prussian)]"
       style={{ height: PHOTO_BAR, borderRadius: BAR_ROUNDED }}
     >
       {/*
@@ -146,7 +158,7 @@ function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; s
       <div className={`relative flex shrink-0 flex-col pr-6 pl-10 ${photo ? "justify-end pb-4" : "justify-center"}`} style={{ width: size.nameBlock }}>
         {photo && (
           <div className="absolute left-9" style={{ top: CIRCLE_DIP - ENTRY_CIRCLE, width: ENTRY_CIRCLE, height: ENTRY_CIRCLE }}>
-            <EntryPhoto src={photo} style={{ width: ENTRY_CIRCLE, height: ENTRY_CIRCLE, borderRadius: "50%" }} className="border-[5px] border-powder bg-prussian" />
+            <EntryPhoto src={photo} style={{ width: ENTRY_CIRCLE, height: ENTRY_CIRCLE, borderRadius: "50%" }} className="led-ring border-[5px]" />
           </div>
         )}
         <FitText className="text-[36px] leading-[1.1] font-bold tracking-[0.01em] uppercase" minScale={0.5}>
@@ -171,7 +183,7 @@ function PhotoBar({ board, scene, subtitle }: { board: Board; scene: LedScene; s
                   src={t.judge.photoUrl}
                   size={size.photo}
                   radius={PHOTO_ROUNDED}
-                  className="border-[3px] border-powder bg-oxford"
+                  className="led-ring"
                 />
               )}
             </div>
@@ -257,11 +269,11 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
         {heading}
       </FitText>
       <div className="flex min-w-0 items-stretch gap-[2cqw]">
-        <div className="flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian" style={{ borderRadius: ROUNDED }}>
+        <div className="led-chrome flex shrink-0 flex-col items-center justify-center bg-mint px-[2.2cqw] py-[1.5cqh] text-prussian" style={{ borderRadius: ROUNDED }}>
           <span className="text-[length:min(1.8cqw,3.4cqh)] leading-none font-semibold">No.</span>
           <span className="tabular text-[length:min(6cqw,11cqh)] leading-none font-bold">{scene.number}</span>
         </div>
-        {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: NUMBER_BOX, height: NUMBER_BOX }} />}
+        {scene.entry.photoUrl && <EntryPhoto src={scene.entry.photoUrl} style={{ width: NUMBER_BOX, height: NUMBER_BOX }} className="led-ring" />}
         <div className="flex min-w-0 flex-1 flex-col justify-center">
           <FitText className="text-[length:min(8cqw,15cqh)] leading-[1.05] font-bold tracking-tight" minScale={0.4}>
             {scene.entry.name}
@@ -273,20 +285,20 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
           )}
         </div>
       </div>
-      <div className="h-[0.6cqh] rounded-full bg-powder" />
+      <div className="led-chrome h-[0.6cqh] rounded-full bg-powder" />
 
       <div className="grid min-h-0 flex-1 gap-[0.4cqw]" style={{ gridTemplateColumns: columns }}>
         {scene.tiles.map((t) => (
           <div
             key={t.judge.id}
-            className="flex min-w-0 flex-col items-center justify-center gap-[2cqh] bg-oxford px-[1.2cqw]"
+            className="led-glass flex min-w-0 flex-col items-center justify-center gap-[2cqh] px-[1.2cqw]"
             style={{ containerType: "inline-size", borderRadius: ROUNDED }}
           >
             {t.label === null ? (
               <AnonymousJudge size="min(40cqi, 24cqh)" />
             ) : (
               <>
-                <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" />
+                <Avatar name={t.judge.name} src={t.judge.photoUrl} size="min(40cqi, 24cqh)" className="led-ring" />
                 <FitText className="w-full text-[length:min(11cqi,3.6cqh)] font-semibold" align="center" minScale={0.4}>
                   {t.label}
                 </FitText>
@@ -300,7 +312,7 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
 
         <div
           key={final ? "final" : "running"}
-          className={`flex min-w-0 flex-col items-center justify-center gap-[1.5cqh] px-[1.2cqw] text-center ${final ? "led-fade bg-mint text-prussian" : "bg-regal"}`}
+          className={`flex min-w-0 flex-col items-center justify-center gap-[1.5cqh] px-[1.2cqw] text-center ${final ? "led-fade led-chrome bg-mint text-prussian" : "led-glass [--led-fill:var(--color-regal)]"}`}
           style={{ containerType: "inline-size", borderRadius: ROUNDED }}
         >
           <span className={`text-[length:min(9cqi,3.6cqh)] font-semibold ${final ? "text-regal" : "text-mint/80"}`}>Average</span>
@@ -341,7 +353,7 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
     return (
       <div
         data-led-theme={activity.ledTheme}
-        className={`relative overflow-hidden bg-prussian text-mint ${LED_FONT_VARIABLES} ${className}`}
+        className={`led-stage relative overflow-hidden bg-prussian text-mint ${LED_FONT_VARIABLES} ${className}`}
         style={{ containerType: "size", ...ledStyle(look, true) }}
       >
         <FullScreen board={board} scene={scene} heading={round ? `${activity.name} · ${round.name}` : activity.name} />
