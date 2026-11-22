@@ -117,6 +117,33 @@ export const shownAsPercentages = (round: Pick<RoundDraft, "scoring" | "parts" |
     (sc) => sc.mode === "criteria" && sc.display !== "ten",
   );
 
+/** A part's results come after a deliberation: its own choice when they're set for each part, else its sub-activity's. */
+export const partDeliberates = (round: Pick<RoundDraft, "deliberate" | "eachPart">, part: Pick<PartDraft, "deliberate">) =>
+  round.eachPart ? part.deliberate === true : round.deliberate === true;
+
+/**
+ * In the program editor a sub-activity in parts has its results set on each part: its parts (`changed` as chosen, the
+ * rest as they were), with the sub-activity's own following from them. After a deliberation when every part is (so it
+ * can still be judged at the judges' own pace), live when none is, otherwise set for each part.
+ */
+export function partsWithResults(
+  round: RoundDraft,
+  parts: PartDraft[],
+  changed?: { key: string; deliberate: boolean },
+): Pick<RoundDraft, "parts" | "deliberate" | "eachPart" | "ownPace" | "ledOutOfTen"> {
+  const deliberates = parts.map((p) => (p.key === changed?.key ? changed.deliberate : partDeliberates(round, p)));
+  const all = deliberates.every(Boolean);
+  return {
+    // Each part's written down only when one's chosen: otherwise the parts stay the same list, which the editor's Undo
+    // knows them by (and a part added follows the others, as partDeliberates reads it).
+    parts: changed ? parts.map((p, i) => ({ ...p, deliberate: deliberates[i] })) : parts,
+    deliberate: all,
+    eachPart: !all && deliberates.some(Boolean),
+    ownPace: all && round.ownPace === true,
+    ledOutOfTen: !all && round.ledOutOfTen === true,
+  };
+}
+
 export const MAX_ROUNDS = 20;
 export const MAX_VIOLATIONS = 20;
 export const MAX_REASON = 80;

@@ -113,27 +113,29 @@ test.describe.serial("a sub-activity in parts with each part's results its own",
   test("the program sets each part's results on its own", async ({ page }) => {
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=segments`);
-    await expect(results(page, "Production").getByRole("radio", { name: "Each part its own" })).toBeChecked();
+    // In parts, the results are chosen on each part, not on the sub-activity.
+    await expect(results(page, "Production")).toHaveCount(0);
     await expect(results(page, "Production · Number").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
     await expect(results(page, "Production · Q&A").getByRole("radio", { name: "Live" })).toBeChecked();
+    const ownPace = page.getByRole("checkbox", { name: "Judges score at their own pace in Production" });
+    await expect(ownPace).toHaveCount(0);
     await expectAccessible(page);
 
-    // Both parts deliberated: saved, it's the whole sub-activity's choice again.
+    // Both parts deliberated: saved and kept, and now it can be judged at the judges' own pace.
     await results(page, "Production · Q&A").getByRole("radio", { name: "After a deliberation" }).check();
     await page.getByRole("button", { name: "Save program" }).click();
     await expect(page.getByText("Program saved", { exact: true })).toBeVisible(REALTIME);
     await page.reload();
-    await expect(results(page, "Production").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
-    await expect(results(page, "Production · Q&A")).toHaveCount(0);
-
-    // Each part its own again: the parts start from the sub-activity's choice, and the Q&A goes back to live.
-    await results(page, "Production").getByRole("radio", { name: "Each part its own" }).check();
+    await expect(results(page, "Production · Number").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
     await expect(results(page, "Production · Q&A").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
+    await expect(ownPace).toBeVisible();
+
+    // The Q&A live again.
     await results(page, "Production · Q&A").getByRole("radio", { name: "Live" }).check();
+    await expect(ownPace).toHaveCount(0);
     await page.getByRole("button", { name: "Save program" }).click();
     await expect(page.getByText("Program saved", { exact: true })).toBeVisible(REALTIME);
     await page.reload();
-    await expect(results(page, "Production").getByRole("radio", { name: "Each part its own" })).toBeChecked();
     await expect(results(page, "Production · Number").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
     await expect(results(page, "Production · Q&A").getByRole("radio", { name: "Live" })).toBeChecked();
   });
