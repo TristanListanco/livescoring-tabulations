@@ -122,10 +122,12 @@ function AverageMark() {
           <stop offset="1" style={{ stopColor: "var(--color-powder)" }} />
         </linearGradient>
       </defs>
-      <rect x="4" y="22" width="9" height="18" rx="1.5" fill={fill} />
-      <rect x="16" y="8" width="9" height="32" rx="1.5" fill={fill} />
-      <rect x="28" y="16" width="9" height="24" rx="1.5" fill={fill} />
-      <rect x="40" y="2" width="9" height="38" rx="1.5" fill={fill} />
+      <g className="led-metal-fill" fill={fill}>
+        <rect x="4" y="22" width="9" height="18" rx="1.5" />
+        <rect x="16" y="8" width="9" height="32" rx="1.5" />
+        <rect x="28" y="16" width="9" height="24" rx="1.5" />
+        <rect x="40" y="2" width="9" height="38" rx="1.5" />
+      </g>
     </svg>
   );
 }
@@ -341,7 +343,7 @@ function FullScreen({ board, scene, heading }: { board: Board; scene: LedScene; 
 
 /**
  * The LED wall output in the mode chosen in the admin panel, sized to its container, in the look chosen there:
- * its font, colour theme and corners. A pageant shows the sub-activity being judged: its candidates, its scores (out of
+ * its font, colour theme, corners and finish (metal and glass, or flat). A pageant shows the sub-activity being judged: its candidates, its scores (out of
  * 10, if it asks for that on the wall, see wallBoard), and its name under the candidate's.
  */
 export function LedOutput({ board: full, className = "" }: { board: Board; className?: string }) {
@@ -353,6 +355,7 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
     return (
       <div
         data-led-theme={activity.ledTheme}
+        data-led-finish={activity.ledFinish}
         className={`led-stage relative overflow-hidden bg-prussian text-mint ${LED_FONT_VARIABLES} ${className}`}
         style={{ containerType: "size", ...ledStyle(look, true) }}
       >
@@ -363,7 +366,7 @@ export function LedOutput({ board: full, className = "" }: { board: Board; class
   return (
     <FitStage className={className} background={KEY_GREEN}>
       {/* The look goes on this wrapper: it lays out as its children, but they still take its colours and font. */}
-      <div data-led-theme={activity.ledTheme} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
+      <div data-led-theme={activity.ledTheme} data-led-finish={activity.ledFinish} className={`contents ${LED_FONT_VARIABLES}`} style={ledStyle(look, false)}>
         <PhotoBar board={board} scene={scene} subtitle={round?.name ?? activity.name} />
       </div>
     </FitStage>

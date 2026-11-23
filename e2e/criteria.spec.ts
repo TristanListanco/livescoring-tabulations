@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type Locator, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore, fillEntries, pickScoring } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, openJudgeLink, showJudgeBar, SAVED, screenPath, signInAsSuperAdmin, snap, tapScore, fillEntries, pickScoring } from "./helpers";
 
 // A criteria-based activity: points per criterion add up to 100; totals show scaled to 10 or as a percentage.
 const NAME = `E2E Criteria ${Date.now().toString(36)}`;
@@ -96,6 +96,16 @@ test.describe.serial("criteria scoring", () => {
     await page.goto(`${adminPath}?tab=judges`);
     await page.getByRole("button", { name: `Approve Ana Cruz's device ${pairing}` }).click();
     await expect(page.getByText(/^Approved: /)).toBeVisible();
+    // Until the session starts, how totals show can still change in Settings: changed and changed back, saved each time.
+    await page.goto(`${adminPath}?tab=settings`);
+    const totals = page.getByRole("group", { name: "Totals shown" });
+    await totals.getByRole("radio", { name: /^Scaled to 10/ }).check();
+    await page.getByRole("button", { name: "Save scoring" }).click();
+    await expect(page.getByText("Scoring saved", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^(Save scoring|Saving…)$/ })).toHaveCount(0);
+    await totals.getByRole("radio", { name: /^As a percentage/ }).check();
+    await page.getByRole("button", { name: "Save scoring" }).click();
+    await expect(page.getByRole("button", { name: /^(Save scoring|Saving…)$/ })).toHaveCount(0);
     await page.goto(`${adminPath}?tab=session`);
     await page.getByRole("button", { name: "Start session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Start session" }).click();
@@ -158,6 +168,7 @@ test.describe.serial("criteria scoring", () => {
     // for each criterion under a score that leaves entries to judge: see event-timer.spec.ts.)
     await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Judging has ended", REALTIME);
     // On a phone the count in the header opens the judge's scores, as the list beside the keypad does on a wider screen.
+    await showJudgeBar(judge);
     await judge.getByRole("button", { name: /Show your scores/ }).click();
     const sheet = judge.getByRole("dialog", { name: "Your scores" });
     await expect(sheet.getByRole("listitem").first()).toContainText("87.5");

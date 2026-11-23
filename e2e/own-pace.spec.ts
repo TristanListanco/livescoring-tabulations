@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { devices, expect, test, type Page } from "@playwright/test";
-import { expectAccessible, openJudgeLink, signInAsSuperAdmin, supabaseAdmin, tapScore } from "./helpers";
+import { expectAccessible, openJudgeLink, showJudgeBar, signInAsSuperAdmin, supabaseAdmin, tapScore } from "./helpers";
 
 // An event without live scoring can let judges score at their own pace (migration 034): each picks any entry, in any
 // order, without waiting for the organizer or the chair to show it. The chair still starts the deliberation once every
@@ -86,11 +86,13 @@ test.describe.serial("judges at their own pace", () => {
     await score(anaPhone, "Agila", "8");
     // Saved, Ana goes on to the next she hasn't scored; she skips ahead to Kidlat from her scores.
     await expect(anaPhone.getByRole("heading", { level: 1 })).toHaveText("Bagwis");
+    await showJudgeBar(anaPhone);
     await anaPhone.getByRole("button", { name: /Show your scores/ }).click();
     await anaPhone.getByRole("dialog").getByRole("button", { name: /Kidlat/ }).click();
     await score(anaPhone, "Kidlat", "9");
 
     // She comes back to Agila to correct it, while judging is still open.
+    await showJudgeBar(anaPhone);
     await anaPhone.getByRole("button", { name: /Show your scores/ }).click();
     await anaPhone.getByRole("dialog").getByRole("button", { name: /Agila/ }).click();
     await anaPhone.getByRole("button", { name: "Correct this score" }).click();

@@ -53,7 +53,7 @@ import { sampleForm, type SampleKind } from "@/lib/sample-activity";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { asShown, eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
 import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
-import { toLedFont, toLedTheme, type LedFont, type LedTheme } from "@/lib/led-style";
+import { toLedFinish, toLedFont, toLedTheme, type LedFinish, type LedFont, type LedTheme } from "@/lib/led-style";
 import {
   awaitingSignoff,
   byCandidate,
@@ -72,7 +72,7 @@ import {
   unitOf,
 } from "@/lib/pageant";
 import { MAX_WITHDRAWN_REASON, reinstateGap, withdrawGap } from "@/lib/withdrawn";
-import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, type CheckedPart, type CheckedRound } from "@/lib/pageant-setup";
+import { chairGap, checkPageant, deductionPoints, draftFromRounds, MAX_DEDUCTION, MAX_REASON, panelGap, parsePageantDraft, segmentLabel, type CheckedPart, type CheckedRound } from "@/lib/pageant-setup";
 import { formatBound, rankEntries, scoreProgress } from "@/lib/scoring";
 import { unbrokenTies } from "@/lib/ties";
 import { fullName, isPersonName, MAX_NAME_PART } from "@/lib/names";
@@ -1257,13 +1257,17 @@ export const setScoringPlaces = traced("setScoringPlaces", async function setSco
   activityId: string,
   decimals: number | null,
   resultDecimals: number,
+  // An event's by criteria: how its totals show (as a percentage, or scaled to 10).
+  display: CriteriaDisplay | null = null,
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const activity = await getActivity(activityId);
   if (!activity) return NOT_FOUND;
   if (!editable(activity, "rules")) return err("Judging has started, so the decimal places can't change.");
   if (!Number.isInteger(resultDecimals) || resultDecimals < 0 || resultDecimals > 4) return err("Decimal places shown in results must be a whole number from 0 to 4.");
-  const update: Record<string, number> = { result_decimals: resultDecimals };
+  const update: Record<string, number | string> = { result_decimals: resultDecimals };
+  const totals = activity.kind === "event" && activity.scoringMode === "criteria" && (display === "percent" || display === "ten") ? display : null;
+  if (totals) update.criteria_display = totals;
   if (activity.kind === "event" && decimals !== null) {
     const checked = checkScoring(
       {
@@ -1272,7 +1276,7 @@ export const setScoringPlaces = traced("setScoringPlaces", async function setSco
         max: String(activity.max),
         decimals,
         criteria: activity.criteria,
-        display: activity.criteriaDisplay,
+        display: totals ?? activity.criteriaDisplay,
       },
       newCriterionId,
       { maxDecimals: 3 },
@@ -1289,7 +1293,40 @@ export const setScoringPlaces = traced("setScoringPlaces", async function setSco
   if (error) return /result_decimals/.test(error.message) ? needsMigration(PHOTOS_AND_PLACES_HINT) : dbErr(error);
   if (!count) return err("Judging has started, so the decimal places can't change.");
   changed();
-  return ok("Decimal places saved.");
+  return ok(totals ? "Scoring saved." : "Decimal places saved.");
+});
+
+/**
+ * A pageant sub-activity's (or part's) decimal places and, by criteria, how its totals show, from Settings: as on the
+ * Segments tab, and only until its segment starts, so no one has scored by them yet.
+ */
+export const setRoundScoring = traced("setRoundScoring", async function setRoundScoring(
+  activityId: string,
+  roundId: string,
+  decimals: number,
+  display: CriteriaDisplay | null,
+): Promise<ActionResult> {
+  const found = await managedPageant(activityId);
+  if (!found) return PAGEANT_NOT_FOUND;
+  const { board } = found;
+  const round = board.rounds.find((r) => r.id === roundId);
+  if (!round) return err("Sub-activity not found.");
+  if (!editable(board.activity, "program", round.segment)) return err(`${segmentLabel(round.segment)} has started, so its scoring is final.`);
+  const criteria = round.scoringMode === "criteria";
+  const totals = criteria && (display === "percent" || display === "ten") ? display : round.criteriaDisplay;
+  const checked = checkScoring(
+    { mode: round.scoringMode, min: String(round.min), max: String(round.max), decimals, criteria: round.criteria, display: totals },
+    newCriterionId,
+  );
+  if ("error" in checked) return err(checked.error);
+  const { error } = await db()
+    .from("rounds")
+    .update({ decimals, ...(criteria ? { criteria_display: totals } : {}) })
+    .eq("id", roundId)
+    .eq("activity_id", activityId);
+  if (error) return dbErr(error);
+  changed();
+  return ok("Scoring saved.");
 });
 
 /** Where judges seeing the ranking, the privacy screen and judges' calls for help need migration 032. */
@@ -1864,7 +1901,7 @@ const MIGRATION_HINT = "The LED wall needs a database update. Run supabase/migra
  */
 export const setLedOptions = traced("setLedOptions", async function setLedOptions(
   activityId: string,
-  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme },
+  options: { fullscreen?: boolean; holdScores?: boolean; anonymous?: boolean; font?: LedFont; theme?: LedTheme; finish?: LedFinish },
 ): Promise<ActionResult> {
   if (!(await manage(activityId))) return NOT_FOUND;
   const update: Record<string, boolean | string> = {};
@@ -1874,10 +1911,14 @@ export const setLedOptions = traced("setLedOptions", async function setLedOption
   // Only the choices the wall knows; anything else is ignored.
   if (options.font !== undefined && toLedFont(options.font) === options.font) update.led_font = options.font;
   if (options.theme !== undefined && toLedTheme(options.theme) === options.theme) update.led_theme = options.theme;
+  if (options.finish !== undefined && toLedFinish(options.finish) === options.finish) update.led_finish = options.finish;
   if (Object.keys(update).length === 0) return ok();
   const { error } = await db().from("activities").update(update).eq("id", activityId);
   if (error && /led_(font|theme|shape)/.test(error.message)) {
     return needsMigration("The LED wall's look needs a database update. Run supabase/migrations/014_led_look.sql in the Supabase SQL editor.");
+  }
+  if (error && /led_finish/.test(error.message)) {
+    return needsMigration("The LED wall's finish needs a database update. Run supabase/migrations/046_led_finish.sql in the Supabase SQL editor.");
   }
   if (error && /led_anonymous/.test(error.message)) {
     return needsMigration("Anonymous judges on the LED wall need a database update. Run supabase/migrations/010_led_anonymous_judges.sql in the Supabase SQL editor.");

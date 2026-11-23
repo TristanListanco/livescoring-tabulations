@@ -42,6 +42,13 @@ const RADIUS = { overlay: "28px", full: "min(2cqw, 3.6cqh)" };
 /** The metal rims' width (see .led-glass and .led-ring), measured the same way. */
 const RIM = { overlay: "3px", full: "max(2px, 0.28cqh)" };
 
+/**
+ * The wall's finish, chosen on the LED wall tab: a pageant broadcast's dark glass and polished metal (see .led-glass in
+ * globals.css), or the same panels flat, in plain colour. Glass unless set (and before migration 046).
+ */
+export type LedFinish = "glass" | "flat";
+export const toLedFinish = (value: unknown): LedFinish => (value === "flat" ? "flat" : "glass");
+
 export const toLedFont = (value: unknown): LedFont => LED_FONTS.find((f) => f.value === value)?.value ?? "modern";
 export const toLedTheme = (value: unknown): LedTheme => LED_THEMES.find((t) => t.value === value)?.value ?? "navy";
 

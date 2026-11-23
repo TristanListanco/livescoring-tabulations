@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { expectAccessible, openJudgeLink, signInAsSuperAdmin, submitScore, supabaseAdmin } from "./helpers";
+import { expectAccessible, openJudgeLink, showJudgeBar, signInAsSuperAdmin, submitScore, supabaseAdmin } from "./helpers";
 
 // A pageant sub-activity judged at its judges' own pace: Talent, in the preliminary, gives its results after a
 // deliberation, and no candidate is shown one at a time. Each judge scores Ayla, Bea and Cora in whatever order they
@@ -132,6 +132,7 @@ test.describe.serial("a pageant sub-activity judged at the judges' own pace", ()
     // Ana scores Ayla, then skips ahead to Cora from her scores, and comes back for Bea.
     await submitScore(ana, "Ayla", "8");
     await expect(ana.getByRole("heading", { level: 1 })).toHaveText("Bea");
+    await showJudgeBar(ana);
     await ana.getByRole("button", { name: /Show your scores/ }).click();
     await ana.getByRole("dialog").getByRole("button", { name: /Cora/ }).click();
     await submitScore(ana, "Cora", "9");

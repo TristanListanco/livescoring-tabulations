@@ -25,6 +25,7 @@ import { leavePortal, moveToEntry, requestApproval, requestCorrection, signOff, 
 import { ordinal } from "@/lib/ties";
 import { NotesBeside, NotesInline, useWideScreen, type NoteStore } from "./entry-notes";
 import { PrivacyScreen } from "./privacy-screen";
+import { useBarOnTap, useFullScreenOnBigScreen } from "./judge-bar";
 import { AssistButton, AssistStatus } from "./assist";
 import type { JudgeAssistance } from "@/lib/assistance";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -404,6 +405,15 @@ export function ScoringPanel({
   // deliberation, any entry they choose.
   const [correctingFor, setCorrectingFor] = useState<string | null>(null);
   const deliberating = view.kind === "deliberation" && !!deliberation;
+  // Once the first entry is shown, and while the session runs, the entry and the keypad have the whole screen: the top
+  // bar steps aside until a tap brings it back (and stays while the connection's lost, which it says), and a tablet or
+  // laptop goes full screen.
+  const [underway, setUnderway] = useState(false);
+  const running = approved && activity.sessionState === "live";
+  if (running && !underway && (view.kind === "scoring" || view.kind === "scored")) setUnderway(true);
+  const immersive = underway && running && !deliberating && status !== "offline";
+  const bar = useBarOnTap(immersive);
+  useFullScreenOnBigScreen(underway && running);
   // Judging, with scores to count (and list): not waiting for approval, off the panel, or deliberating.
   const counting = approved && !offPanel && !deliberating;
   const correctingEntry = (() => {
@@ -486,14 +496,15 @@ export function ScoringPanel({
   const timerColour = timer && approved && !(correctingEntry && corrections) && !deliberating ? timer.phase : undefined;
 
   return (
-    <div className="judge-screen flex h-dvh flex-col text-mint" data-timer={timerColour}>
+    <div className="judge-screen relative flex h-dvh flex-col text-mint" data-timer={timerColour} onPointerDown={bar.onPointerDown}>
       {/*
         On a phone, two lines: who and what (the judge's name, the activity and where) in full, then the count and controls.
         A pageant's is one thin line at any size, so the candidate and the keypad have the screen: what's being judged
         and how many of its candidates this judge has scored, which opens their scores (there's no list beside the keypad).
       */}
       <header
-        className={`judge-header flex items-center gap-x-3 border-b border-oxford px-4 sm:px-6 ${pageant ? "py-2" : "flex-wrap gap-y-2 py-3 sm:flex-nowrap"}`}
+        className={`judge-header flex items-center gap-x-3 border-b border-oxford px-4 sm:px-6 ${pageant ? "py-2" : "flex-wrap gap-y-2 py-3 sm:flex-nowrap"} ${immersive ? "judge-bar-away" : ""}`}
+        data-shown={bar.shown || undefined}
       >
         {pageant ? (
           // With a sub-activity on screen, its count opens the judge's scores; before the start and between
@@ -1439,7 +1450,7 @@ function DeliberationView({
     <div className="w-full max-w-md pb-8 lg:max-w-2xl">
       {deliberation.part && <p className="text-powder">{deliberation.part}</p>}
       <h1 className="judge-title">Deliberation</h1>
-      <p className="judge-lede mt-3">Review your scores and notes. If a score is wrong, correct it, saying why. Then sign.</p>
+      <p className="judge-lede mt-3">Review your scores{notes && " and notes"}. If a score is wrong, correct it, saying why. Then sign.</p>
       <TieBreaks ties={deliberation.ties} canCorrect={canCorrect && !deliberation.signature} onCorrect={onCorrect} />
       {deliberation.ranking && <OverallRanking ranking={deliberation.ranking} />}
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
@@ -2177,7 +2188,7 @@ type KeypadProps = {
 function keypadLayout(stage: boolean, timer: boolean) {
   return stage
     ? {
-        layout: `keypad-layout flex w-full max-w-md flex-1 flex-col lg:grid lg:max-w-5xl lg:grid-cols-2 lg:gap-x-12 ${timer ? "lg:grid-rows-[auto_1fr]" : "lg:grid-rows-[1fr]"}`,
+        layout: `keypad-layout flex w-full max-w-md flex-1 flex-col lg:grid lg:max-w-7xl lg:grid-cols-2 lg:gap-x-12 ${timer ? "lg:grid-rows-[auto_1fr]" : "lg:grid-rows-[1fr]"}`,
         entry: `flex min-w-0 flex-1 flex-col lg:justify-center lg:pb-5 ${timer ? "lg:row-start-2" : ""}`,
         dock: `lg:self-center ${timer ? "lg:row-start-2" : ""}`,
       }

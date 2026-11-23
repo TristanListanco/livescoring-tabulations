@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { expectAccessible, openJudgeLink, signInAsSuperAdmin, submitScore, supabaseAdmin } from "./helpers";
+import { expectAccessible, openJudgeLink, showJudgeBar, signInAsSuperAdmin, submitScore, supabaseAdmin } from "./helpers";
 
 // A sub-activity in parts with each part's results its own: Production's Number comes out after a deliberation, its
 // Q&A live. Judged part by part, Number's scores are a tick on the live results until it's deliberated; the Q&A's show
@@ -39,6 +39,8 @@ async function judgeCandidate(page: Page, button: string, candidate: string, sco
   await page.getByRole("button", { name: button, exact: true }).click();
   for (const j of [ana, ben]) {
     await expect(j.getByRole("heading", { level: 1 })).toHaveText(candidate, REALTIME);
+    // A pageant's judges keep no notes: the candidate and the keypad have the screen.
+    await expect(j.getByRole("button", { name: /notes/i })).toHaveCount(0);
     await submitScore(j, candidate, score);
   }
   await expect(page.getByRole("status").filter({ hasText: `Every judge has scored ${candidate}.` })).toBeVisible(REALTIME);
@@ -138,6 +140,20 @@ test.describe.serial("a sub-activity in parts with each part's results its own",
     await page.reload();
     await expect(results(page, "Production · Number").getByRole("radio", { name: "After a deliberation" })).toBeChecked();
     await expect(results(page, "Production · Q&A").getByRole("radio", { name: "Live" })).toBeChecked();
+
+    // Until the preliminary starts, a sub-activity's decimal places can change in Settings too: changed and changed back.
+    await page.goto(`${adminPath}?tab=settings`);
+    await page.getByLabel("Scoring of").selectOption({ label: "Production · Number" });
+    const places = page.getByRole("group", { name: "Judges score with" });
+    await places.getByRole("radio", { name: /^1 decimal place/ }).check();
+    await page.getByRole("button", { name: "Save scoring" }).click();
+    await expect(page.getByText("Scoring saved", { exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByLabel("Scoring of").selectOption({ label: "Production · Number" });
+    await expect(places.getByRole("radio", { name: /^1 decimal place/ })).toBeChecked();
+    await places.getByRole("radio", { name: /^Whole numbers/ }).check();
+    await page.getByRole("button", { name: "Save scoring" }).click();
+    await expect(page.getByRole("button", { name: /^(Save scoring|Saving…)$/ })).toHaveCount(0);
   });
 
   test("the deliberated part's scores wait for its deliberation, the live part's go out at once", async ({ page, browser }) => {
@@ -160,6 +176,10 @@ test.describe.serial("a sub-activity in parts with each part's results its own",
     // Number, after a deliberation: the audience sees a tick for each score.
     await page.getByRole("button", { name: "Judge Production · Number", exact: true }).click();
     await judgeCandidate(page, "Show first candidate", "Ayla", "8");
+    // Judging under way, the judges' top bar has stepped aside; a tap on the screen brings it back for a few seconds.
+    await expect(ana.getByRole("banner")).not.toBeInViewport();
+    await showJudgeBar(ana);
+    await expect(ana.getByRole("banner")).not.toBeInViewport({ timeout: 8_000 });
     await judgeCandidate(page, "Next: Bea", "Bea", "7");
     const live = await openPage(browser, 1280);
     await live.goto(`/live/${pageant.publicId}`);

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { devices, expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { expectAccessible, openJudgeLink, signInAsSuperAdmin, supabaseAdmin } from "./helpers";
+import { expectAccessible, openJudgeLink, showJudgeBar, signInAsSuperAdmin, supabaseAdmin } from "./helpers";
 
 // A judge taps Assist me, and the organizer is alerted wherever they are in the admin panel: the page blurs behind a
 // dialog listing every call still waiting, with a chime and a browser notification. "On my way" answers a call, and the
@@ -43,6 +43,7 @@ async function judgePhone(context: BrowserContext, judgeCode: string, judgeId: s
 
 /** Ask for help from a judge's screen, past the question that keeps a stray tap from calling anyone. */
 async function askForHelp(phone: Page) {
+  await showJudgeBar(phone);
   await phone.getByRole("button", { name: "Assist me" }).click();
   await phone.getByRole("dialog", { name: "Ask the organizer for help?" }).getByRole("button", { name: "Ask for help" }).click();
   await expect(phone.getByRole("status").filter({ hasText: "You've asked the organizer for help." })).toBeVisible();

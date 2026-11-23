@@ -1,4 +1,4 @@
-import type { LedFont, LedTheme } from "./led-style";
+import type { LedFinish, LedFont, LedTheme } from "./led-style";
 
 /** Decimal places judges enter scores with. Three only for events; a pageant's sub-activities use 0 to 2. */
 export type Decimals = 0 | 1 | 2 | 3;
@@ -122,6 +122,7 @@ export type Activity = {
   /** The LED wall's look: its font, colour theme and how rounded its panels are (see led-style.ts). */
   ledFont: LedFont;
   ledTheme: LedTheme;
+  ledFinish: LedFinish;
   /** The organizer who owns the activity; null when only the super admin manages it. */
   ownerId: string | null;
   scoringMode: ScoringMode;

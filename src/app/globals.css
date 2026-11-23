@@ -793,11 +793,12 @@ html:has(.share-ledger) {
   /*
    * Beside the keypad (from 1024px), no taller than 5:4 of its column: a screen taller than the photo needs keeps the
    * photo and the name together, centred, rather than the name falling to the bottom. The column is half of the keypad
-   * layout (max 64rem, 3rem apart) inside .judge-main's 2rem padding; cqw here is .judge-main's.
+   * layout (max 80rem, 3rem apart: a pageant judge's screen has no notes, so the candidate and the keypad take it all)
+   * inside .judge-main's 2rem padding; cqw here is .judge-main's.
    */
   @media (min-width: 64rem) {
     .entry-stage {
-      max-height: calc((min(100cqw - 4rem, 64rem) - 3rem) / 2 * 1.25);
+      max-height: calc((min(100cqw - 4rem, 80rem) - 3rem) / 2 * 1.25);
     }
   }
   /*
@@ -1004,6 +1005,38 @@ dialog::backdrop {
   animation: toast-in 0.25s ease-out;
 }
 
+/*
+ * The judge's top bar once judging is under way (see useBarOnTap): it floats over the screen, out of sight above it,
+ * and slides down while a tap (or keyboard focus in it) brings it back. Out of sight, taps go through to what's under it.
+ * Under reduced motion it fades instead.
+ */
+.judge-bar-away {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 30;
+  background: var(--judge-screen, var(--color-prussian));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  translate: 0 -100%;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    translate 0.3s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.3s ease-out;
+}
+.judge-bar-away[data-shown],
+.judge-bar-away:has(:focus-visible) {
+  translate: 0 0;
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .judge-bar-away {
+    translate: none;
+    transition: opacity 0.2s ease-out;
+  }
+}
+
 /* LED wall: everything fades in, whether a new entry, a score or the final average. */
 @keyframes led-fade {
   from {
@@ -1073,6 +1106,25 @@ dialog::backdrop {
   /* The full screen's ground: a soft stage light from above. */
   .led-stage {
     background-image: radial-gradient(ellipse 80% 60% at 50% 0%, color-mix(in srgb, var(--color-regal) 45%, transparent), transparent);
+  }
+  /* Flat, chosen on the LED wall tab: the same panels in plain colour, the photos in a plain ring. */
+  [data-led-finish="flat"] .led-glass {
+    border-width: 0;
+    background-image: none;
+    background-color: var(--led-fill, var(--color-oxford));
+  }
+  [data-led-finish="flat"] .led-chrome,
+  [data-led-finish="flat"] .led-stage,
+  [data-led-finish="flat"].led-stage {
+    background-image: none;
+  }
+  [data-led-finish="flat"] .led-ring {
+    border-color: var(--color-powder);
+    background-image: none;
+    background-color: var(--color-regal);
+  }
+  [data-led-finish="flat"] .led-metal-fill {
+    fill: var(--color-powder);
   }
 }
 @keyframes led-dot {
