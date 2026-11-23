@@ -4,11 +4,11 @@ import { useActionState, useState, useTransition } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SubmitButton } from "@/components/submit-button";
 import { reach } from "@/lib/reach";
-import type { ActionResult, Activity, Round, Signatory } from "@/lib/types";
+import type { ActionResult, Activity, CriteriaDisplay, Round, Signatory } from "@/lib/types";
 import { editable, scoresGoOutLive } from "@/lib/lifecycle";
 import { formatBound, rangeLabel } from "@/lib/scoring";
 import { MAX_GUIDE } from "@/lib/scoring-rules";
-import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, setScoringPlaces, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
+import { deleteActivity, setActivityOption, setActivityOwner, setEventTimer, setLedOptions, setLiveScoring, setRoundScoring, setScoringPlaces, updateCriterionGuides, updateSettings, type FormResult } from "../../actions";
 import { FormMessage } from "../form-message";
 import { toastOnRedirect, toastSaved } from "../toaster";
 import { Section } from "../section";
@@ -47,7 +47,7 @@ function ScoringSummary({ activity }: { activity: Activity }) {
           <CriteriaTable key="criteria" criteria={activity.criteria} />,
         ],
         ["Judges give points in", places(activity.decimals)],
-        ["Totals shown", activity.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"],
+        ["Totals shown", open ? null : totalsLabel(activity.criteriaDisplay)],
         ["Results show", places(activity.resultDecimals)],
         ...timeLimit,
       ]
@@ -69,20 +69,30 @@ function ScoringSummary({ activity }: { activity: Activity }) {
   );
 }
 
+const totalsLabel = (display: CriteriaDisplay) => (display === "ten" ? "Scaled to 10" : "As a percentage");
+/** How criteria totals can show, as the create form offers them. */
+export const TOTALS_OPTIONS = [
+  { value: "percent", label: "As a percentage", example: "87.50%" },
+  { value: "ten", label: "Scaled to 10", example: "8.75" },
+] as const;
+
 /**
  * Until judging first starts, the decimal places judges score with (an event's: a pageant's sub-activities have their
- * own) and those its results show: the same choices as the create form. Saved together, with a toast.
+ * own) and those its results show, and how an event's criteria totals show: the same choices as the create form. Saved
+ * together, with a toast.
  */
 function ScoringPlaces({ activity }: { activity: Activity }) {
   const event = activity.kind === "event";
+  const criteria = event && activity.scoringMode === "criteria";
   const [decimals, setDecimals] = useState(activity.decimals);
   const [results, setResults] = useState(activity.resultDecimals);
+  const [display, setDisplay] = useState(activity.criteriaDisplay);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const dirty = (event && decimals !== activity.decimals) || results !== activity.resultDecimals;
+  const dirty = (event && decimals !== activity.decimals) || results !== activity.resultDecimals || (criteria && display !== activity.criteriaDisplay);
   const save = () =>
     startTransition(async () => {
-      setResult(toastSaved(await reach(() => setScoringPlaces(activity.id, event ? decimals : null, results))));
+      setResult(toastSaved(await reach(() => setScoringPlaces(activity.id, event ? decimals : null, results, criteria ? display : null))));
     });
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   return (
@@ -94,6 +104,20 @@ function ScoringPlaces({ activity }: { activity: Activity }) {
             {DECIMAL_OPTIONS.map((o) => (
               <label key={o.value} className="choice items-center">
                 <input type="radio" name="places-decimals" checked={decimals === o.value} onChange={() => setDecimals(o.value)} disabled={pending} />
+                <span className="font-semibold whitespace-nowrap">{o.label}</span>
+                <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      {criteria && (
+        <fieldset>
+          <legend className="label">Totals shown</legend>
+          <div className="flex flex-wrap gap-2">
+            {TOTALS_OPTIONS.map((o) => (
+              <label key={o.value} className="choice items-center">
+                <input type="radio" name="places-display" checked={display === o.value} onChange={() => setDisplay(o.value)} disabled={pending} />
                 <span className="font-semibold whitespace-nowrap">{o.label}</span>
                 <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
               </label>
@@ -118,7 +142,66 @@ function ScoringPlaces({ activity }: { activity: Activity }) {
         <div className="flex flex-wrap items-center gap-3">
           {dirty && (
             <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={pending}>
-              {pending ? "Saving…" : "Save decimal places"}
+              {pending ? "Saving…" : criteria ? "Save scoring" : "Save decimal places"}
+            </button>
+          )}
+          <FormMessage state={result?.ok ? null : result} small />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A pageant sub-activity's (or part's) decimal places and, by criteria, how its totals show, until its segment starts:
+ * the same choices as the Segments tab, saved here on their own.
+ */
+function RoundScoring({ activityId, round }: { activityId: string; round: Round }) {
+  const criteria = round.scoringMode === "criteria";
+  const [decimals, setDecimals] = useState(round.decimals);
+  const [display, setDisplay] = useState(round.criteriaDisplay);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [pending, startTransition] = useTransition();
+  const dirty = decimals !== round.decimals || (criteria && display !== round.criteriaDisplay);
+  const save = () =>
+    startTransition(async () => {
+      setResult(toastSaved(await reach(() => setRoundScoring(activityId, round.id, decimals, criteria ? display : null))));
+    });
+  return (
+    <div className="mt-5 space-y-5">
+      <fieldset>
+        <legend className="label">{criteria ? "Judges give points in" : "Judges score with"}</legend>
+        <div className="flex flex-wrap gap-2">
+          {/* A pageant's sub-activities go to two decimal places. */}
+          {DECIMAL_OPTIONS.filter((o) => o.value < 3).map((o) => (
+            <label key={o.value} className="choice items-center">
+              <input type="radio" name="round-decimals" checked={decimals === o.value} onChange={() => setDecimals(o.value)} disabled={pending} />
+              <span className="font-semibold whitespace-nowrap">{o.label}</span>
+              <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {criteria && (
+        <fieldset>
+          <legend className="label">Totals shown</legend>
+          <div className="flex flex-wrap gap-2">
+            {TOTALS_OPTIONS.map((o) => (
+              <label key={o.value} className="choice items-center">
+                <input type="radio" name="round-display" checked={display === o.value} onChange={() => setDisplay(o.value)} disabled={pending} />
+                <span className="font-semibold whitespace-nowrap">{o.label}</span>
+                <span className="tabular text-sm whitespace-nowrap opacity-75">e.g. {o.example}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <p className="hint">You can change these until {round.segment === "proper" ? "pageant proper" : "the preliminary"} starts.</p>
+      {(dirty || (result && !result.ok)) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {dirty && (
+            <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={pending}>
+              {pending ? "Saving…" : "Save scoring"}
             </button>
           )}
           <FormMessage state={result?.ok ? null : result} small />
@@ -435,7 +518,11 @@ export function SettingsTab({
         <ScoringSummary activity={activity} />
         {activity.kind === "pageant" && (
           <div className="mt-6 max-w-2xl border-t border-line pt-5">
-            <PageantScoring rounds={rounds} />
+            {/* Each sub-activity's decimal places and totals can change here too, until its segment starts. */}
+            <PageantScoring
+              rounds={rounds}
+              edit={(r) => (editable(activity, "program", r.segment) ? <RoundScoring key={r.id} activityId={activity.id} round={r} /> : null)}
+            />
           </div>
         )}
         {editable(activity, "rules") && <ScoringPlaces activity={activity} />}

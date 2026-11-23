@@ -42,6 +42,15 @@ export async function signInAsOrganizer(page: Page, email: string, password: str
  * Open a judge's link, as scanning their QR code does, and sign in from the page it opens: the link fills in the code,
  * and the judge taps Start judging.
  */
+/**
+ * Once judging is under way, a judge's top bar steps aside until they tap the screen (see useBarOnTap): a tap on what's
+ * under it, not a control, brings it back for a few seconds. Harmless before then, when it's always there.
+ */
+export async function showJudgeBar(page: Page) {
+  await page.locator("main.judge-main").dispatchEvent("pointerdown");
+  await expect(page.getByRole("banner")).toBeInViewport();
+}
+
 export async function openJudgeLink(page: Page, code: string) {
   await page.goto(`/judge/join/${code}`);
   await expect(page.getByLabel("Judge code")).toHaveValue(code);

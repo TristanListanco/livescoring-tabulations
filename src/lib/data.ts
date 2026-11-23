@@ -10,7 +10,7 @@ import { nameParts } from "./names";
 import { readAll } from "./read-all";
 import { roundReleased } from "./pageant";
 import { withheldScores } from "./scoring";
-import { toLedFont, toLedTheme } from "./led-style";
+import { toLedFinish, toLedFont, toLedTheme } from "./led-style";
 import { db, ORGANIZER_BUCKET, photoUrl } from "./supabase/server";
 import type { Correction } from "./corrections";
 import { detailsLine, toEntryDetails, toEntryFields, type EntryDetails, type EntryField } from "./entry-details";
@@ -31,6 +31,7 @@ export type ActivityRow = {
   led_anonymous?: boolean;
   led_font?: string;
   led_theme?: string;
+  led_finish?: string;
   owner_id?: string | null;
   session_state?: string;
   /** Migration 020. */
@@ -167,6 +168,7 @@ export function toActivity(row: ActivityRow): Activity {
     // Databases without migration 014 show the wall's original look.
     ledFont: toLedFont(row.led_font),
     ledTheme: toLedTheme(row.led_theme),
+    ledFinish: toLedFinish(row.led_finish),
     ownerId: row.owner_id ?? null,
     // Pageants always score live; databases without migration 021 do too.
     liveScoring: row.kind === "pageant" ? true : (row.live_scoring ?? true),

@@ -13,8 +13,9 @@ const judges = [randomUUID(), randomUUID()];
 const ayla = randomUUID();
 const bea = randomUUID();
 const CODE = `L${Date.now().toString(36).toUpperCase().replace(/[^A-Z2-9]/g, "X").slice(-5).padStart(5, "X")}`;
-// Before migration 042 there's nowhere to keep the choice: the file skips.
+// Before migration 042 there's nowhere to keep the choice: the file skips. Before 046, the wall's finish test does.
 let missing042 = false;
+let missing046 = false;
 
 async function post(path: string, body: unknown) {
   return fetch(`${api.url}/rest/v1/${path}`, {
@@ -33,6 +34,7 @@ async function restOk(path: string, body: unknown, method = "POST") {
 }
 
 test.beforeAll(async () => {
+  missing046 = !(await fetch(`${api.url}/rest/v1/activities?select=led_finish&limit=1`, { headers: api.headers })).ok;
   await restOk("activities", { id: pageant.id, name: "E2E Pageant LED out of 10", public_id: pageant.publicId, min_score: 1, max_score: 10, decimals: 0, kind: "pageant", live_scoring: true, preliminary_weight: 40 });
   const rounds = await post("rounds", {
     id: gown,
@@ -112,4 +114,21 @@ test("a judge scoring it sees what their total shows as on the wall", async ({ p
   await expect(ana.getByRole("status").filter({ hasText: "Saved" })).toHaveText("Saved 86.00 / 100 for Bea Santos", SAVED);
   await expect(ana.getByText("8.60 out of 10 on the LED wall", { exact: true })).toBeVisible();
   await ana.context().close();
+});
+
+test("the wall can be flat rather than metal and glass", async ({ page, browser }) => {
+  test.skip(missing042 || missing046, "This database doesn't have migration 046 yet.");
+  await signInAsSuperAdmin(page);
+  await page.goto(`/admin/${pageant.id}?tab=led`);
+  const finish = page.getByRole("group", { name: "Finish" });
+  await expect(finish.getByRole("radio", { name: "Metal and glass" })).toBeChecked();
+  const wall = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+  await wall.goto(`/led/${pageant.publicId}`);
+  await expect(wall.locator('[data-led-finish="glass"]')).toHaveCount(1);
+  await finish.getByRole("radio", { name: "Flat" }).check();
+  // The wall follows within seconds, and it's kept.
+  await expect(wall.locator('[data-led-finish="flat"]')).toHaveCount(1, { timeout: 20_000 });
+  await page.reload();
+  await expect(finish.getByRole("radio", { name: "Flat" })).toBeChecked();
+  await wall.context().close();
 });

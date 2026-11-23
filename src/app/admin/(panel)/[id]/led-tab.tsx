@@ -2,7 +2,7 @@
 
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
-import { LED_THEMES, type LedFont, type LedTheme } from "@/lib/led-style";
+import { LED_THEMES, type LedFinish, type LedFont, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
 import { judgesFor, judgingOrder, withRoundRules } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
@@ -19,6 +19,7 @@ type LedOptions = {
   anonymous: boolean;
   font: LedFont;
   theme: LedTheme;
+  finish: LedFinish;
 };
 
 /** A choice's radio, unseen over its whole label: the label is drawn as the control, and a tap anywhere on it is the radio's. */
@@ -109,7 +110,8 @@ function useSample(board: Board, playing: boolean): Board {
 }
 
 /**
- * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, then its colour, each
+ * Everything the wall can be set to, in one compact panel beside the preview: how it's shown, its finish (metal and
+ * glass, or flat), then its colour, each
  * choice drawn as what it looks like (its panels are always rounded; its font is always Modern). Saves on change; the wall follows within
  * seconds. Whether scores wait for every judge, and whether judges stay anonymous, are with the
  * activity's other settings (they change the live results too).
@@ -126,6 +128,17 @@ function WallSettings({ options, onChange, disabled }: { options: LedOptions; on
         ]}
         value={options.fullscreen}
         onChange={(fullscreen) => onChange({ fullscreen })}
+        disabled={disabled}
+      />
+      <Segmented
+        legend="Finish"
+        name="led-finish"
+        options={[
+          { value: "glass", label: "Metal and glass" },
+          { value: "flat", label: "Flat" },
+        ]}
+        value={options.finish}
+        onChange={(finish) => onChange({ finish })}
         disabled={disabled}
       />
       <fieldset>
@@ -166,6 +179,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       anonymous: activity.ledAnonymous,
       font: activity.ledFont,
       theme: activity.ledTheme,
+      finish: activity.ledFinish,
     },
     (current, change) => ({ ...current, ...change }),
   );
@@ -192,6 +206,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
       ledAnonymous: options.anonymous,
       ledFont: options.font,
       ledTheme: options.theme,
+      ledFinish: options.finish,
     },
   };
 

@@ -47,8 +47,8 @@ Guard columns below: **S** server action, **D** database trigger or constraint, 
 | Part | Phases | Notes |
 |------|--------|-------|
 | judges | setup; a pageant's pageant proper judges until pageant proper starts | **D** `judges_locked` (insert and delete; migrations 039 and 040) and `set_judge_chair`. Renames, photos and boards are **S** only; moving a judge between boards stays locked once the preliminary starts. |
-| rules (live scoring, timer, own pace, decimal places) | setup | **S**; writes are conditional on still being draft |
-| running order, program, guides | setup, setup-after-reset; a pageant's pageant proper sub-activities until pageant proper starts | **D** `set_entry_order` for the order. `savePageant` keeps the preliminary's part as saved once it has started. |
+| rules (live scoring, timer, own pace, decimal places, an event's criteria totals) | setup | **S**; writes are conditional on still being draft |
+| running order, program, guides | setup, setup-after-reset; a pageant's pageant proper sub-activities until pageant proper starts | **D** `set_entry_order` for the order. `savePageant` keeps the preliminary's part as saved once it has started. A sub-activity's decimal places and totals can also change from Settings (`setRoundScoring`), under the same lock for its segment. |
 | entries | until ended | Each action has finer rules: no adding in deliberation, and nothing scored or on screen can be removed |
 | judges' options (reasons list, see ranking) | until ended | |
 

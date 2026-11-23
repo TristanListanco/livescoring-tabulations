@@ -182,6 +182,10 @@ alter table public.activities add constraint activities_led_look_check check (
   and led_theme in ('navy', 'gold', 'crimson', 'emerald', 'royal', 'teal', 'rose', 'sunset', 'berry', 'graphite', 'pearl', 'champagne', 'sky')
   and led_shape in ('square', 'soft', 'round')
 );
+-- LED wall: its finish, metal and glass or flat (see .led-glass in src/app/globals.css).
+alter table public.activities add column if not exists led_finish text not null default 'glass';
+alter table public.activities drop constraint if exists activities_led_finish_check;
+alter table public.activities add constraint activities_led_finish_check check (led_finish in ('glass', 'flat'));
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'activities_led_transition_check') then

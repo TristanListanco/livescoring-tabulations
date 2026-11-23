@@ -85,8 +85,9 @@ export default async function ScorePage({ searchParams }: PageProps<"/judge/scor
       : [];
 
   // Their own notes on the entries, once the device is approved (null when notes aren't available: before migration 018).
-  // Not with live scoring: each score is final as it goes in, with no deliberation to review notes in.
-  const notes = gate.status === "approved" && !offPanel && !(board.activity.kind === "event" && board.activity.liveScoring) ? ownNotes : null;
+  // Not with live scoring: each score is final as it goes in, with no deliberation to review notes in. Not in a pageant
+  // either, where the candidate's photo and the keypad have the screen to themselves.
+  const notes = gate.status === "approved" && !offPanel && board.activity.kind === "event" && !board.activity.liveScoring ? ownNotes : null;
 
   // With criteria, the points this judge gave the entry on screen: listed under their score, and where a correction
   // of it starts.

@@ -42,7 +42,21 @@ export function CriteriaTable({ criteria }: { criteria: Criterion[] }) {
  * the Session tab, where it starts on the sub-activity on judges' screens (`initialId`). `compact`: the live desk's
  * narrow column, terms over their values.
  */
-export function PageantScoring({ rounds, initialId, compact = false }: { rounds: Round[]; initialId?: string; compact?: boolean }) {
+export function PageantScoring({
+  rounds,
+  initialId,
+  compact = false,
+  edit,
+}: {
+  rounds: Round[];
+  initialId?: string;
+  compact?: boolean;
+  /**
+   * In Settings: the controls for what can still change of the one shown (its decimal places and how its totals show),
+   * or null once it's fixed. Shown under the rest, in place of those rows.
+   */
+  edit?: (round: Round) => React.ReactNode;
+}) {
   const id = useId();
   const judged = judgingOrder(rounds);
   const [chosen, setChosen] = useState(initialId ?? judged[0]?.id ?? "");
@@ -51,11 +65,12 @@ export function PageantScoring({ rounds, initialId, compact = false }: { rounds:
   if (!round) return null;
   const places = (n: number) => (n === 0 ? "Whole numbers" : `${n} decimal place${n > 1 ? "s" : ""}`);
   const criteria = round.scoringMode === "criteria";
+  const editor = edit?.(round) ?? null;
   const rows: [string, React.ReactNode][] = [
     ["Method", criteria ? "Criteria" : `Simple, scores from ${rangeLabel(round)}`],
     ...(criteria ? ([["Criteria", <CriteriaTable key="criteria" criteria={round.criteria} />]] as [string, React.ReactNode][]) : []),
-    [criteria ? "Judges give points in" : "Judges score with", places(round.decimals)],
-    ...(criteria ? ([["Totals shown", round.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"]] as [string, React.ReactNode][]) : []),
+    ...(editor ? [] : ([[criteria ? "Judges give points in" : "Judges score with", places(round.decimals)]] as [string, React.ReactNode][])),
+    ...(criteria && !editor ? ([["Totals shown", round.criteriaDisplay === "ten" ? "Scaled to 10" : "As a percentage"]] as [string, React.ReactNode][]) : []),
     ["Time limit", round.timerSeconds ? `${round.timerSeconds} seconds per candidate` : "None"],
     ...(unitOf(rounds, round).candidateOrder ? ([["Judging order", "Candidate by candidate, each scored on every part"]] as [string, React.ReactNode][]) : []),
     [
@@ -93,6 +108,7 @@ export function PageantScoring({ rounds, initialId, compact = false }: { rounds:
           </div>
         ))}
       </dl>
+      {editor}
     </div>
   );
 }

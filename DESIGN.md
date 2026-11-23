@@ -330,7 +330,7 @@ A projected navy board: rows ranked by average, the top three standing out, prov
 ### LED Lower Third
 A solid dark bar along the bottom of a chroma-green frame: the entry's round photo rising above its left end, the name in capitals, each judge's square photo on the bar's top edge with their score, and the average at the right, the largest figure once every judge is in. It takes one of ten dark themes (Navy by default), always solid, never translucent, so it keys cleanly.
 
-The wall, lower third and full screen alike, is finished like a pageant broadcast's rather than flat: the bar and the judges' tiles are dark glass (a gloss over their top, a shade at the bottom) in a thin polished-metal rim, the number box and the final average are polished metal plates, and every photo sits in a ring of turned metal. The metal is drawn from the theme, so Black and gold has gold trim and Graphite silver. Every layer ends up opaque over the panel's own colour, and the gloss stays faint where text sits. The full screen's ground has a soft stage light from above.
+By default (its **Metal and glass** finish, chosen on the LED wall tab; **Flat** keeps plain colour) the wall, lower third and full screen alike, is finished like a pageant broadcast's: the bar and the judges' tiles are dark glass (a gloss over their top, a shade at the bottom) in a thin polished-metal rim, the number box and the final average are polished metal plates, and every photo sits in a ring of turned metal. The metal is drawn from the theme, so Black and gold has gold trim and Graphite silver. Every layer ends up opaque over the panel's own colour, and the gloss stays faint where text sits. The full screen's ground has a soft stage light from above.
 
 ## Do's and Don'ts
 
