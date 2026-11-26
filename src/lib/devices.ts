@@ -20,6 +20,8 @@ export async function touchJudge(judgeId: string) {
  */
 /** Said to a judge of a pageant paused between its segments: signed out, and not signed in again until it resumes. */
 export const PAUSED_FOR_JUDGES = "The organizer paused the pageant after the preliminary. Sign in again once it resumes.";
+/** The answer to a code typed while it's paused (the note above may already be on the page, so in other words). */
+const PAUSED_SIGN_IN = "The pageant is paused, so judges can't sign in yet. Try again once the organizer resumes it.";
 
 export async function signInJudgeDevice(judgeId: string): Promise<{ error: string } | null> {
   // Archiving closes judging for good (and signed every device out): a code no longer signs in. Every column, so a
@@ -39,7 +41,7 @@ export async function signInJudgeDevice(judgeId: string): Promise<{ error: strin
       properStartedAt: activity.proper_started_at ?? null,
       pausedAt: activity.paused_at ?? null,
     });
-  if (paused) return { error: PAUSED_FOR_JUDGES };
+  if (paused) return { error: PAUSED_SIGN_IN };
   const current = await judgeSession();
   if (current?.judgeId === judgeId && current.deviceId) {
     const device = await getDevice(current.deviceId);

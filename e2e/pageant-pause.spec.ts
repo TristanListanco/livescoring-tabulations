@@ -135,7 +135,9 @@ test("paused between the segments, the organizer signs out, then resumes it and 
   // Ana's device is signed out, and she can't sign in again until it resumes.
   await expect(ana.getByText(PAUSED)).toBeVisible(REALTIME);
   await openJudgeLink(ana, CODE).catch(() => {});
-  await expect(ana.getByText(PAUSED)).toBeVisible();
+  await expect(ana.getByRole("alert").filter({ hasText: "The pageant is paused" })).toHaveText(
+    "The pageant is paused, so judges can't sign in yet. Try again once the organizer resumes it.",
+  );
 
   // The organizer can sign out now, and back in later.
   await signOut();
