@@ -109,6 +109,7 @@ describe("a pageant's segments", () => {
     between: pageant("live", T),
     proper: pageant("live", T, T),
     ended: pageant("ended", T, T),
+    paused: { ...pageant("live", T), pausedAt: T },
   };
 
   it("runs the preliminary, then pageant proper, each from its own start", () => {
@@ -119,11 +120,19 @@ describe("a pageant's segments", () => {
       between: ["ended", "setup", null],
       proper: ["ended", "live", "proper"],
       ended: ["ended", "ended", null],
+      paused: ["ended", "setup", null],
     });
   });
 
-  it("ends the preliminary while it runs, and reopens it or starts pageant proper only between the two", () => {
-    const allowed: Record<SegmentMove, (keyof typeof SHOW)[]> = { endPreliminary: ["preliminary"], reopenPreliminary: ["between"], startProper: ["between"] };
+  it("ends the preliminary while it runs, and reopens it, starts pageant proper or pauses only between the two", () => {
+    // Paused, nothing moves but resuming it.
+    const allowed: Record<SegmentMove, (keyof typeof SHOW)[]> = {
+      endPreliminary: ["preliminary"],
+      reopenPreliminary: ["between"],
+      startProper: ["between"],
+      pause: ["between"],
+      resume: ["paused"],
+    };
     for (const move of Object.keys(allowed) as SegmentMove[]) {
       for (const [point, activity] of Object.entries(SHOW)) expect([move, point, canMoveSegment(activity, move)]).toEqual([move, point, allowed[move].includes(point as keyof typeof SHOW)]);
     }
@@ -152,6 +161,7 @@ describe("a pageant's segments", () => {
       between: ["all", "preliminary"],
       proper: ["all", "proper"],
       ended: ["all", "proper"],
+      paused: ["all"],
     });
     expect(canReset({ ...SHOW.ended, archivedAt: T }, "proper")).toBe(false);
     expect(canReset({ ...SHOW.preliminary, kind: "event" }, "preliminary")).toBe(false);

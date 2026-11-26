@@ -20,7 +20,7 @@ import type { Activity, Segment } from "./types";
  */
 export type Phase = "setup" | "setup-after-reset" | "live" | "deliberation" | "ended" | "signed-off" | "archived";
 
-type Lifecycle = Pick<Activity, "sessionState" | "sessionStartedAt" | "signedOffAt" | "archivedAt" | "kind" | "preliminaryEndedAt" | "properStartedAt">;
+type Lifecycle = Pick<Activity, "sessionState" | "sessionStartedAt" | "signedOffAt" | "archivedAt" | "kind" | "preliminaryEndedAt" | "properStartedAt" | "pausedAt">;
 
 export function phaseOf(activity: Pick<Lifecycle, "sessionState"> & Partial<Lifecycle>): Phase {
   if (activity.archivedAt) return "archived";
@@ -74,7 +74,7 @@ export const canMove = (activity: Parameters<typeof phaseOf>[0], move: Move): bo
  */
 export type SegmentPhase = "setup" | "live" | "ended";
 
-type Segments = Pick<Lifecycle, "sessionState"> & Partial<Pick<Lifecycle, "preliminaryEndedAt" | "properStartedAt">>;
+type Segments = Pick<Lifecycle, "sessionState"> & Partial<Pick<Lifecycle, "preliminaryEndedAt" | "properStartedAt" | "pausedAt">>;
 
 export function segmentPhase(activity: Segments, segment: Segment): SegmentPhase {
   if (activity.sessionState === "draft") return "setup";
@@ -95,19 +95,29 @@ export function runningSegment(activity: Segments): Segment | null {
  * - endPreliminary: the preliminary's judges are done (it takes the password, as ending a session does).
  * - reopenPreliminary: back to the preliminary, until pageant proper starts.
  * - startProper: pageant proper's judges start, once the preliminary has ended.
+ * - pause: in the break between the two, the pageant waits for its organizer, who can then sign out (every judge's
+ *   device is signed out with it; both pause and resume take the password).
+ * - resume: a paused pageant is back in the break, to pair pageant proper's judges and start it.
+ * Nothing else moves while it's paused.
  */
-export type SegmentMove = "endPreliminary" | "reopenPreliminary" | "startProper";
+export type SegmentMove = "endPreliminary" | "reopenPreliminary" | "startProper" | "pause" | "resume";
+
+/** In the break between a pageant's segments: the preliminary over, pageant proper not started. */
+const inBreak = (activity: Segments) => segmentPhase(activity, "preliminary") === "ended" && segmentPhase(activity, "proper") === "setup";
+
+/** A pageant paused in the break (see SegmentMove): it holds nobody, and nothing moves until it's resumed. */
+export const pausedPageant = (activity: Segments): boolean => !!activity.pausedAt && inBreak(activity);
 
 export function canMoveSegment(activity: Segments, move: SegmentMove): boolean {
-  const preliminary = segmentPhase(activity, "preliminary");
-  if (move === "endPreliminary") return preliminary === "live";
-  return preliminary === "ended" && segmentPhase(activity, "proper") === "setup";
+  if (move === "endPreliminary") return segmentPhase(activity, "preliminary") === "live";
+  if (move === "resume") return pausedPageant(activity);
+  return inBreak(activity) && !activity.pausedAt;
 }
 
 /**
  * What a reset of the scores covers: everything (the session back to not started, see SESSION_MOVES), or one of a
  * pageant's segments, whose scores go while the rest stays. The preliminary alone only until pageant proper starts
- * (its first cut can count the preliminary); pageant proper alone once it has started.
+ * (its first cut can count the preliminary), and not while it's paused; pageant proper alone once it has started.
  */
 export type ResetScope = "all" | Segment;
 
@@ -115,7 +125,8 @@ export function canReset(activity: Parameters<typeof phaseOf>[0], scope: ResetSc
   if (!canMove(activity, "reset")) return false;
   if (scope === "all") return true;
   if (activity.kind !== "pageant" || activity.sessionState === "draft") return false;
-  if (scope === "preliminary") return segmentPhase(activity, "proper") === "setup";
+  // Paused, nothing moves but resuming (or starting over altogether, which unpauses it).
+  if (scope === "preliminary") return segmentPhase(activity, "proper") === "setup" && !pausedPageant(activity);
   return segmentPhase(activity, "proper") !== "setup";
 }
 

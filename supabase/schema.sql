@@ -364,6 +364,8 @@ alter table public.activities add column if not exists current_round_id uuid ref
 -- (session_started_at) to pageant proper's end; between them the preliminary ends, then pageant proper starts.
 alter table public.activities add column if not exists preliminary_ended_at timestamptz;
 alter table public.activities add column if not exists proper_started_at timestamptz;
+-- A pageant paused in the break between the two (migration 047), so its organizer can sign out until pageant proper.
+alter table public.activities add column if not exists paused_at timestamptz;
 -- The violations an organizer can deduct points for during the preliminary; null when a pageant has no deductions.
 alter table public.activities add column if not exists violations jsonb;
 

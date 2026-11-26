@@ -66,6 +66,8 @@ export type ActivityRow = {
   /** Migration 040. */
   preliminary_ended_at?: string | null;
   proper_started_at?: string | null;
+  /** Migration 047. */
+  paused_at?: string | null;
   scoring_closes_at?: string | null;
   violations?: unknown;
   created_at: string;
@@ -194,6 +196,7 @@ export function toActivity(row: ActivityRow): Activity {
     currentRoundId: row.current_round_id ?? null,
     preliminaryEndedAt: row.preliminary_ended_at ?? null,
     properStartedAt: row.proper_started_at ?? null,
+    pausedAt: row.paused_at ?? null,
     scoringClosesAt: row.scoring_closes_at ?? null,
     violations: toViolations(row.violations),
     createdAt: row.created_at,

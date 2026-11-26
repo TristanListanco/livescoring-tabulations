@@ -1,8 +1,9 @@
 import "server-only";
 import { headers } from "next/headers";
 import { isUuid, newPairingCode } from "./codes";
-import { getDevice } from "./data";
+import { getDevice, toSessionState } from "./data";
 import { deviceLabel } from "./device-label";
+import { pausedPageant } from "./lifecycle";
 import { judgeSession, startJudgeSession } from "./session";
 import { db } from "./supabase/server";
 
@@ -17,12 +18,28 @@ export async function touchJudge(judgeId: string) {
  * Sign this browser in as one of the judge's devices. A browser that already asked (and wasn't
  * turned away) keeps its request; anything else asks the organizer for approval with a new pairing code.
  */
+/** Said to a judge of a pageant paused between its segments: signed out, and not signed in again until it resumes. */
+export const PAUSED_FOR_JUDGES = "The organizer paused the pageant after the preliminary. Sign in again once it resumes.";
+
 export async function signInJudgeDevice(judgeId: string): Promise<{ error: string } | null> {
-  // Archiving closes judging for good (and signed every device out): a code no longer signs in.
-  const { data: judging } = await db().from("judges").select("activities(archived_at)").eq("id", judgeId).maybeSingle();
-  if ((judging as { activities: { archived_at: string | null } | null } | null)?.activities?.archived_at) {
+  // Archiving closes judging for good (and signed every device out): a code no longer signs in. Every column, so a
+  // database without migration 047 (no paused_at) reads as nothing paused.
+  const { data: judging } = await db().from("judges").select("activities(*)").eq("id", judgeId).maybeSingle();
+  type Of = { archived_at: string | null; session_state: string; preliminary_ended_at?: string | null; proper_started_at?: string | null; paused_at?: string | null };
+  const activity = (judging as { activities: Of | null } | null)?.activities;
+  if (activity?.archived_at) {
     return { error: "Judging is over for this activity: the organizer has archived it." };
   }
+  // Paused between a pageant's segments, which signed every device out: nobody waits for approval until it's resumed.
+  const paused =
+    !!activity &&
+    pausedPageant({
+      sessionState: toSessionState(activity.session_state),
+      preliminaryEndedAt: activity.preliminary_ended_at ?? null,
+      properStartedAt: activity.proper_started_at ?? null,
+      pausedAt: activity.paused_at ?? null,
+    });
+  if (paused) return { error: PAUSED_FOR_JUDGES };
   const current = await judgeSession();
   if (current?.judgeId === judgeId && current.deviceId) {
     const device = await getDevice(current.deviceId);

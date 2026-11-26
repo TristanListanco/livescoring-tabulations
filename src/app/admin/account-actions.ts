@@ -188,7 +188,8 @@ export const deleteOrganizer = traced("deleteOrganizer", async function deleteOr
   const { data: current } = await db().from("admins").select("photo_path").eq("id", adminId).maybeSingle();
   if (!current) return err("Organizer not found.");
   // Not while judges are on one of their activities: deleting it would end the show (or the judges' wait) mid-way.
-  const inUse = await accountInUse(adminId);
+  // A pageant paused between its segments counts too: its show isn't over.
+  const inUse = await accountInUse(adminId, true);
   if (inUse) {
     return err(
       inUse.running
