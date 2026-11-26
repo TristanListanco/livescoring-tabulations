@@ -108,8 +108,8 @@ test("paused between the segments, the organizer signs out, then resumes it and 
 
   // In the break the pageant holds its organizer, who's told how to let go.
   const signOut = async () => {
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await page.getByRole("dialog", { name: "Sign out?" }).getByRole("button", { name: "Sign out" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("dialog", { name: "Sign out?" }).getByRole("button", { name: "Sign out", exact: true }).click();
   };
   await signOut();
   await expect(page.getByRole("dialog", { name: "Sign out?" }).getByRole("alert")).toHaveText(
