@@ -186,6 +186,8 @@ export type Activity = {
    */
   preliminaryEndedAt: string | null;
   properStartedAt: string | null;
+  /** Pageant: when it was paused in the break between the two (see pausedPageant), or null. Null before migration 047. */
+  pausedAt: string | null;
   /** Pageant: when scoring closes for the candidate on screen, while a sub-activity's timer runs (ISO time). */
   scoringClosesAt: string | null;
   /**

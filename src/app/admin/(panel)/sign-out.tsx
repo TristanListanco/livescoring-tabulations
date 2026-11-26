@@ -22,7 +22,7 @@ export function SignOut() {
       onConfirm={() => logout()}
     >
       You&apos;ll need your email and password to sign in again. Not while judges are on one of your activities: a show running, or judges
-      waiting for it to start.
+      waiting for it to start. A pageant paused between its preliminary and pageant proper doesn&apos;t count.
     </ConfirmDialog>
   );
 }

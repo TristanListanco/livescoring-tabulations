@@ -208,21 +208,23 @@ The forms read **"gone"** from the result's `code: "draft-gone"`, not from its w
 
 ## 14. Pageant segments
 
-**Lives in:** `session_started_at` (the preliminary's start), `activities.preliminary_ended_at`, `activities.proper_started_at` (migration 040), and `session_state` (pageant proper ends with the session). `segmentPhase()` names each segment's phase: setup, live, ended.
+**Lives in:** `session_started_at` (the preliminary's start), `activities.preliminary_ended_at`, `activities.proper_started_at` (migration 040), `activities.paused_at` (migration 047: paused in the break), and `session_state` (pageant proper ends with the session). `segmentPhase()` names each segment's phase: setup, live, ended.
 
 | Move | From | Triggered by | Guards |
 |------|------|--------------|--------|
 | start preliminary | setup | the session's start | as start, above |
 | end preliminary | preliminary live | `moveSegment(…, "endPreliminary")` | **S** the password, every preliminary score in, its deliberated sub-activities signed off; writes only while the segments stand as read. **D** `check_score` refuses new preliminary scores after it |
-| reopen preliminary | between the two | `moveSegment(…, "reopenPreliminary")` | **S** only until pageant proper starts |
-| start pageant proper | between the two | `moveSegment(…, "startProper")` | **S** pageant proper's board (three judges, a chair). **D** `check_score` refuses pageant proper scores before it |
+| reopen preliminary | between the two, not paused | `moveSegment(…, "reopenPreliminary")` | **S** only until pageant proper starts |
+| start pageant proper | between the two, not paused | `moveSegment(…, "startProper")` | **S** pageant proper's board (three judges, a chair). **D** `check_score` refuses pageant proper scores before it |
+| pause | between the two, not paused | `moveSegment(…, "pause")` | **S** the password; writes `paused_at` only while the segments stand as read and it isn't paused; then signs every judge's device out (`signOutJudgeDevices`). Paused, the organizer can sign out (`activityInUse` lets go of it, though deleting the organizer still waits), judges can't sign in (`signInJudgeDevice`), and nothing moves: no reopening, starting pageant proper, deductions or one segment's reset |
+| resume | paused | `moveSegment(…, "resume")` | **S** the password; clears `paused_at` only if it's still the one read. Back to the break |
 | end pageant proper | pageant proper live | the session's end | as end, above |
 
 **Judges' screens:** a judge of the preliminary only reads "Your part of the pageant is done" once it has ended; one of pageant proper (only, or of both between the segments) reads "Pageant proper starts soon".
 
 **Deductions** stay open through the break after the preliminary, when they're usually tallied, and close when pageant proper starts (`deductionsOpen`).
 
-**The break on the desk:** two steps in order, record deductions and pair pageant proper's judges (approved on the desk, ticked once all are paired), with start pageant proper in the action bar. The desk offers **End preliminary** only once `preliminaryEndGap` is null, the same check `moveSegment` makes. Once the final cut is confirmed and nothing is left to judge, the desk shows the final placements, with ending pageant proper as its next step. Where the desk can't approve devices itself (between sub-activities, a sub-activity's deliberation, the final placements), the panel's approval dialog does (`data-device-approvals` only where it can). A judge tile shows a replacement device's request (a new phone while one is approved) beside the judge's state, so a device swapped mid-show is approved on the desk too.
+**The break on the desk:** two steps in order, record deductions and pair pageant proper's judges (approved on the desk, ticked once all are paired), with start pageant proper in the action bar, beside **Pause pageant**. Paused, the desk says so and offers only **Resume pageant**; the status reads "Preliminary done · Paused". The desk offers **End preliminary** only once `preliminaryEndGap` is null, the same check `moveSegment` makes. Once the final cut is confirmed and nothing is left to judge, the desk shows the final placements, with ending pageant proper as its next step. Where the desk can't approve devices itself (between sub-activities, a sub-activity's deliberation, the final placements), the panel's approval dialog does (`data-device-approvals` only where it can). A judge tile shows a replacement device's request (a new phone while one is approved) beside the judge's state, so a device swapped mid-show is approved on the desk too.
 
 **Reset** (`resetScores`, `canReset`): both segments (back to not started as if new: `session_started_at` goes too, so its judges, candidates and program can change again; an event's reset keeps it, and its panel stays locked), the preliminary alone until pageant proper starts (it opens again from the start; its deductions and any confirmed cut go), or pageant proper alone once it has started (back to not started, its cuts open again; an ended pageant is live again, between the segments). Judges stay signed in for a segment's reset. A segment's reset is written only while pageant proper stands as read: the preliminary's not once another desk has started pageant proper.
 

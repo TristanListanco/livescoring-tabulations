@@ -52,7 +52,7 @@ import { testToolsAllowed } from "@/lib/environment";
 import { sampleForm, type SampleKind } from "@/lib/sample-activity";
 import { clientAddress, LIMITS, recordFailure, TOO_MANY, tooManyFailures } from "@/lib/sign-in-limits";
 import { asShown, eventTimer, judgesLocked, showColumns, showEntryColumns } from "@/lib/judging";
-import { canApprove, canMove, canMoveSegment, canReset, editable, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
+import { canApprove, canMove, canMoveSegment, canReset, editable, pausedPageant, phaseOf, segmentPhase, type DeviceStatus, type ResetScope, type SegmentMove } from "@/lib/lifecycle";
 import { toLedFinish, toLedFont, toLedTheme, type LedFinish, type LedFont, type LedTheme } from "@/lib/led-style";
 import {
   awaitingSignoff,
@@ -681,6 +681,39 @@ export const savePageant = traced("savePageant", async function savePageant(acti
 });
 
 /**
+ * Every judge's device on an activity signed out, and their screens told: judges enter their codes and pair again. For
+ * a reset, an archive, and a pageant paused between its segments.
+ */
+async function signOutJudgeDevices(activityId: string) {
+  const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
+  if (!judgeRows?.length) return;
+  await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
+  await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
+}
+
+/**
+ * A pageant paused in the break (`pause`), or resumed: only from where it stood when this was decided, not after another
+ * desk has moved it. Pausing signs every judge's device out, so nobody's left waiting while the organizer is away.
+ */
+async function pauseOrResume(activity: Activity, pause: boolean, done: string): Promise<ActionResult> {
+  const write = db()
+    .from("activities")
+    .update({ paused_at: pause ? new Date().toISOString() : null }, { count: "exact" })
+    .eq("id", activity.id)
+    .eq("session_state", "live")
+    .eq("preliminary_ended_at", activity.preliminaryEndedAt!)
+    .is("proper_started_at", null);
+  const { error, count } = await (pause ? write.is("paused_at", null) : write.eq("paused_at", activity.pausedAt!));
+  if (error) return /paused_at/.test(error.message) ? needsMigration(PAUSE_HINT) : dbErr(error);
+  if (!count) return err("The pageant moved on meanwhile, so nothing was changed. Check where it stands now.");
+  if (pause) await signOutJudgeDevices(activity.id);
+  changed(activity.publicId);
+  return ok(done);
+}
+
+const PAUSE_HINT = "Pausing a pageant needs a database update. Run supabase/migrations/047_activity_paused.sql in the Supabase SQL editor.";
+
+/**
  * Judge another sub-activity (or none, to have judges wait). Judges' screens wait for the first candidate.
  * Refused while an earlier cut is waiting to be confirmed, because it decides who is judged.
  */
@@ -821,6 +854,8 @@ const MAX_DEDUCTIONS = 500;
 /** Why deductions can't change now, or null when they can. */
 function deductionsClosed(board: Board): string | null {
   if (board.activity.violations === null) return "This pageant has no deductions. Turn them on on the Segments tab before the session starts.";
+  // Paused between the segments, nothing moves until it's resumed.
+  if (pausedPageant(board.activity)) return "The pageant is paused. Resume it to record deductions.";
   if (deductionsOpen(board)) return null;
   return board.activity.sessionState === "ended" ? "The session has ended, so deductions are final." : "Pageant proper has started, so deductions are final.";
 }
@@ -1658,12 +1693,13 @@ export const setSessionState = traced("setSessionState", async function setSessi
  * proper, once its own board of judges is ready. Judges' screens wait for the next sub-activity either way.
  */
 export const moveSegment = traced("moveSegment", async function moveSegment(activityId: string, move: SegmentMove, password: string = ""): Promise<ActionResult> {
-  if (move !== "endPreliminary" && move !== "reopenPreliminary" && move !== "startProper") return err("That isn't a change the pageant can make.");
+  if (!["endPreliminary", "reopenPreliminary", "startProper", "pause", "resume"].includes(move)) return err("That isn't a change the pageant can make.");
   const found = await managedPageant(activityId);
   if (!found) return PAGEANT_NOT_FOUND;
   const { session, board } = found;
   const { activity } = board;
-  if (move === "endPreliminary") {
+  // Ending the preliminary, and pausing or resuming the pageant, take the organizer's password.
+  if (move === "endPreliminary" || move === "pause" || move === "resume") {
     const refused = await confirmPassword(session, password);
     if (refused) return refused;
   }
@@ -1671,15 +1707,22 @@ export const moveSegment = traced("moveSegment", async function moveSegment(acti
     endPreliminary: "The preliminary has ended, and its judges are done. Start pageant proper when you're ready.",
     reopenPreliminary: "The preliminary is open again. Choose a sub-activity to judge.",
     startProper: "Pageant proper has started. Choose its first sub-activity when you're ready.",
+    pause: "The pageant is paused, and every judge's device is signed out. You can sign out; resume it when you're back to start pageant proper.",
+    resume: "The pageant has resumed. Pair pageant proper's judges, then start it.",
   };
   if (!canMoveSegment(activity, move)) {
     // Done already (a second click, or a request sent again): it says so as the first did.
     if (move === "endPreliminary" && segmentPhase(activity, "preliminary") === "ended") return ok(DONE.endPreliminary);
     if (move === "startProper" && segmentPhase(activity, "proper") === "live") return ok(DONE.startProper);
     if (move === "reopenPreliminary" && segmentPhase(activity, "preliminary") === "live") return ok(DONE.reopenPreliminary);
+    if (move === "pause" && pausedPageant(activity)) return ok(DONE.pause);
+    if (move === "resume" && !activity.pausedAt && segmentPhase(activity, "proper") === "setup" && segmentPhase(activity, "preliminary") === "ended") return ok(DONE.resume);
     if (activity.sessionState !== "live") return err("The session isn't running.");
+    if (pausedPageant(activity)) return err("The pageant is paused. Resume it first.");
+    if (move === "pause" || move === "resume") return err("A pageant can be paused only between the preliminary and pageant proper.");
     return err(move === "reopenPreliminary" ? "Pageant proper has started, so the preliminary can't be reopened." : "End the preliminary first.");
   }
+  if (move === "pause" || move === "resume") return pauseOrResume(activity, move === "pause", DONE[move]);
   const now = new Date().toISOString();
   // Whatever was on judges' screens goes: the next sub-activity is chosen from the program.
   const cleared = { current_round_id: null, current_entry_id: null, led_entry_id: null, scoring_closes_at: null };
@@ -2404,11 +2447,7 @@ export const resetScores = traced("resetScores", async function resetScores(acti
   await db().from("activities").update({ scoring_closes_at: null }).eq("id", activityId);
   // Only now, with the session back to not started, every judge's device is signed out, and their screens hear of it:
   // judges enter their codes and pair again.
-  const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
-  if (judgeRows?.length) {
-    await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
-    await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
-  }
+  await signOutJudgeDevices(activityId);
   // A pageant also reopens its cuts, takes back its deductions and goes back to no sub-activity on screen.
   if (activity.kind === "pageant") {
     await db().from("rounds").update({ cut_entry_ids: null }).eq("activity_id", activityId);
@@ -2417,6 +2456,8 @@ export const resetScores = traced("resetScores", async function resetScores(acti
     await db().from("activities").update({ current_round_id: null }).eq("id", activityId);
     // Both segments back to not started, and no sub-activity deliberating (each fails harmlessly before migration 040).
     await db().from("activities").update({ preliminary_ended_at: null, proper_started_at: null }).eq("id", activityId);
+    // Not paused any more (fails harmlessly before migration 047).
+    await db().from("activities").update({ paused_at: null }).eq("id", activityId);
     // As if it had never started: its judges can change again (the database's judges_locked reads this too).
     await db().from("activities").update({ session_started_at: null }).eq("id", activityId);
     await db().from("rounds").update({ deliberation_started_at: null }).eq("activity_id", activityId);
@@ -2527,11 +2568,7 @@ export const archiveActivity = traced("archiveActivity", async function archiveA
     return err("The session changed meanwhile, so it wasn't archived. Check where it stands now.");
   }
   // Then their screens hear of it, and go back to the sign-in, which says judging is over.
-  const { data: judgeRows } = await db().from("judges").select("id").eq("activity_id", activityId);
-  if (judgeRows?.length) {
-    await db().from("judge_devices").delete().in("judge_id", judgeRows.map((j) => j.id as string));
-    await db().from("judges").update({ devices_updated_at: new Date().toISOString() }).eq("activity_id", activityId);
-  }
+  await signOutJudgeDevices(activityId);
   changed();
   return ok(`${activity.name} is archived. Find it under Archived activities.`);
 });

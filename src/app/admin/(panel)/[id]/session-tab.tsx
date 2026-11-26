@@ -20,7 +20,7 @@ import type { ActionResult, Board, Entry, Judge, JudgeDevice, JudgeSignature } f
 import { JUDGING_OVER, useLiveRefresh, type LiveStatus } from "@/lib/use-live-refresh";
 import { moveSegment, setCurrentEntry, setSessionState } from "../../actions";
 import { ArchiveButton, DeleteArchivedButton } from "../archive-controls";
-import { archiveBlocked, runningSegment, type SegmentMove } from "@/lib/lifecycle";
+import { archiveBlocked, pausedPageant, runningSegment, type SegmentMove } from "@/lib/lifecycle";
 import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
@@ -458,7 +458,8 @@ export function SessionTab({
   const judging = pageant ? runningSegment(board.activity) : null;
   const changeSegment = async (move: SegmentMove, password?: string) => {
     const r = await reach(() => moveSegment(activity.id, move, password));
-    if (r.ok || move !== "endPreliminary") setResult(r);
+    // A wrong password stays in its dialog, which stays open.
+    if (r.ok || !password) setResult(r);
     return r;
   };
 
@@ -616,8 +617,10 @@ export function SessionTab({
   // (As stored: the round on screens carries its full name already.)
   const scoringId = round?.id ?? (upNext?.kind === "round" ? upNext.round.id : null);
   const scoringOf = pageant ? (board.rounds.find((r) => r.id === scoringId) ?? null) : null;
-  // The break between a pageant's segments: the preliminary has ended, pageant proper hasn't started.
+  // The break between a pageant's segments: the preliminary has ended, pageant proper hasn't started. Paused in it, the
+  // pageant waits for its organizer, who can sign out meanwhile (see pausedPageant).
   const theBreak = between && judging === null;
+  const paused = pageant && pausedPageant(activity);
   // The final cut confirmed with nothing left to judge: the desk turns to the placements and the pageant's end.
   const finalCut = pageant ? finalCutRound(board.rounds) : null;
   const finale = live && judging === "proper" && !!finalCut?.cutEntryIds && !upNext && (between || lastOneIn);
@@ -793,6 +796,31 @@ export function SessionTab({
           {listNames(unpairedProper)} {unpairedProper.length === 1 ? "doesn't" : "don't"} have an approved device yet. They can still pair after you start.
         </span>
       )}
+    </ConfirmDialog>
+  );
+  const pausePageant = (triggerClassName: string) => (
+    <ConfirmDialog
+      triggerLabel="Pause pageant"
+      triggerClassName={triggerClassName}
+      title="Pause the pageant?"
+      confirmLabel="Pause pageant"
+      passwordLabel="Your password"
+      onConfirm={(password) => changeSegment("pause", password)}
+    >
+      Every judge&apos;s device is signed out, and the desk waits until you resume it. You can sign out while it&apos;s paused. After you resume it,
+      pageant proper&apos;s judges sign in again with their codes and you approve their devices. Enter your admin password to confirm.
+    </ConfirmDialog>
+  );
+  const resumePageant = (triggerClassName: string) => (
+    <ConfirmDialog
+      triggerLabel="Resume pageant"
+      triggerClassName={triggerClassName}
+      title="Resume the pageant?"
+      confirmLabel="Resume pageant"
+      passwordLabel="Your password"
+      onConfirm={(password) => changeSegment("resume", password)}
+    >
+      The break comes back: pair pageant proper&apos;s judges as they sign in again, then start pageant proper. Enter your admin password to confirm.
     </ConfirmDialog>
   );
   const reopenPreliminary = (triggerClassName: string) => (
@@ -985,7 +1013,9 @@ export function SessionTab({
                       : `Now judging: No. ${index + 1} of ${entries.length}`
                     : between
                       ? pageant && judging === null
-                        ? "Waiting for pageant proper"
+                        ? paused
+                          ? "Paused after the preliminary"
+                          : "Waiting for pageant proper"
                         : "Between sub-activities"
                       : whole
                         ? "Judged candidate by candidate"
@@ -1004,7 +1034,9 @@ export function SessionTab({
                       ? entry.name
                       : between
                         ? pageant && judging === null
-                          ? "The preliminary has ended"
+                          ? paused
+                            ? "Waiting for you to resume it"
+                            : "The preliminary has ended"
                           : upNext
                             ? "Choose what to judge next"
                             : judging === "preliminary"
@@ -1014,6 +1046,9 @@ export function SessionTab({
                 </p>
               <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-3">
                 <DeskConnection status={connection} renderedAt={renderedAt} className="text-powder" />
+                {/* In the break, pausing waits up here, as ending the preliminary did: pageant proper later (the next day,
+                    say), the organizer can sign out meanwhile. */}
+                {theBreak && !paused && pausePageant("btn btn-sm border border-oxford text-mint hover:bg-oxford")}
                 {deliberateNext
                   ? !lastOneIn && !ownPace && startDeliberation("btn btn-sm border border-oxford text-mint hover:bg-oxford")
                   : (finale || ((!lastOneIn || pageantNext) && !(between && !upNext))) &&
@@ -1030,7 +1065,21 @@ export function SessionTab({
             <FormMessage state={result} small onDark className={result?.ok ? "sr-only" : "px-6 pt-2 font-semibold"} />
             <CorrectionsPanel activityId={activity.id} corrections={corrections} onDark />
 
-            {theBreak ? (
+            {theBreak && paused ? (
+              // Paused: every judge is signed out, and nothing moves until the organizer, who may have signed out
+              // meanwhile, resumes it with their password.
+              <>
+                <div role="region" aria-label="Paused" className="flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-oxford px-6 py-5">
+                  <p className="max-w-2xl leading-relaxed text-powder">
+                    Every judge&apos;s device is signed out, and the desk waits for you. You can sign out now. When you&apos;re back, resume the pageant
+                    to pair pageant proper&apos;s judges again and start it.
+                  </p>
+                </div>
+                <div role="group" aria-label="Resume the pageant" className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-oxford px-6 py-3">
+                  {resumePageant("btn bg-mint text-prussian hover:bg-white max-sm:w-full")}
+                </div>
+              </>
+            ) : theBreak ? (
               // The break between the segments, in the order the work goes: deductions are tallied (they close when
               // pageant proper starts), pageant proper's judges pair (approved right here). Its start waits in the action
               // bar, where Next is during the show.

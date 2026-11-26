@@ -42,6 +42,7 @@ export function activityFixture(overrides: Partial<Activity> = {}): Activity {
     currentRoundId: null,
     preliminaryEndedAt: null,
     properStartedAt: null,
+    pausedAt: null,
     scoringClosesAt: null,
     violations: null,
     createdAt: "",

@@ -5,12 +5,22 @@ import { db } from "./supabase/server";
 
 /**
  * The first of an account's activities judges are on (see activityInUse): `ownerId` null for the super admin's own.
- * Archived activities don't count.
+ * Archived activities don't count. `pausedHolds`: a pageant paused between its segments counts too.
  */
-export async function accountInUse(ownerId: string | null): Promise<InUse | null> {
-  const query = db().from("activities").select("id, name, session_state").is("archived_at", null).in("session_state", ["draft", "live", "deliberation"]);
+export async function accountInUse(ownerId: string | null, pausedHolds = false): Promise<InUse | null> {
+  // Every column, so a database without migration 047 (no paused_at) is read as having nothing paused.
+  const query = db().from("activities").select("*").is("archived_at", null).in("session_state", ["draft", "live", "deliberation"]);
   const { data } = await (ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null));
-  const activities = ((data ?? []) as { id: string; name: string; session_state: string }[]).map((a) => ({ id: a.id, name: a.name, sessionState: toSessionState(a.session_state) }));
+  type Row = { id: string; name: string; session_state: string; kind?: string; preliminary_ended_at?: string | null; proper_started_at?: string | null; paused_at?: string | null };
+  const activities = ((data ?? []) as Row[]).map((a) => ({
+    id: a.id,
+    name: a.name,
+    sessionState: toSessionState(a.session_state),
+    kind: a.kind === "pageant" ? ("pageant" as const) : ("event" as const),
+    preliminaryEndedAt: a.preliminary_ended_at ?? null,
+    properStartedAt: a.proper_started_at ?? null,
+    pausedAt: a.paused_at ?? null,
+  }));
   const drafts = activities.filter((a) => a.sessionState === "draft").map((a) => a.id);
   let waiting = new Set<string>();
   if (drafts.length) {
@@ -21,6 +31,6 @@ export async function accountInUse(ownerId: string | null): Promise<InUse | null
       waiting = new Set(((devices ?? []) as { judge_id: string }[]).map((d) => byJudge.get(d.judge_id)!));
     }
   }
-  return activityInUse(activities, waiting);
+  return activityInUse(activities, waiting, pausedHolds);
 }
 

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getActivity, getDevice, getJudgeContext } from "@/lib/data";
-import { approvedDevice } from "@/lib/devices";
+import { approvedDevice, PAUSED_FOR_JUDGES } from "@/lib/devices";
+import { pausedPageant } from "@/lib/lifecycle";
 import { judgeSession } from "@/lib/session";
 import { TOO_MANY } from "@/lib/sign-in-limits";
 import { CookieNotice } from "@/components/cookie-notice";
@@ -59,7 +60,9 @@ export default async function JudgePortal({ searchParams }: PageProps<"/judge">)
               <p role="status" className="mt-4 rounded-xl bg-oxford px-4 py-3 font-semibold">
                 {archived
                   ? `Judging is over: the organizer archived ${over?.name ?? "the activity"}. Thank you for judging.`
-                  : "You were signed out because the organizer reset the scores. Sign in again to judge."}
+                  : over && pausedPageant(over)
+                    ? PAUSED_FOR_JUDGES
+                    : "You were signed out because the organizer reset the scores. Sign in again to judge."}
               </p>
             )}
             <p className="judge-lede mt-3">

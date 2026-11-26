@@ -1,4 +1,4 @@
-import { runningSegment } from "@/lib/lifecycle";
+import { pausedPageant, runningSegment } from "@/lib/lifecycle";
 import { segmentLabel } from "@/lib/pageant-setup";
 import type { Activity, SessionState } from "@/lib/types";
 
@@ -35,10 +35,13 @@ export type SegmentStatus = { label: string; between: boolean };
  * A live pageant's segment: the one being judged, said after "Live", or the break between the two, which isn't live to
  * anyone and says what it waits for instead. Null otherwise.
  */
-export function segmentStatus(activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt">): SegmentStatus | null {
+export function segmentStatus(
+  activity: Pick<Activity, "kind" | "sessionState" | "preliminaryEndedAt" | "properStartedAt"> & Partial<Pick<Activity, "pausedAt">>,
+): SegmentStatus | null {
   if (activity.kind !== "pageant" || activity.sessionState !== "live") return null;
   const segment = runningSegment(activity);
-  return segment ? { label: segmentLabel(segment), between: false } : { label: "Preliminary done · Waiting for pageant proper", between: true };
+  if (segment) return { label: segmentLabel(segment), between: false };
+  return { label: `Preliminary done · ${pausedPageant(activity) ? "Paused" : "Waiting for pageant proper"}`, between: true };
 }
 
 export function SessionStatus({
