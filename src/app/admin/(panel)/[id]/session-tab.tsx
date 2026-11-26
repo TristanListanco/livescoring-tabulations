@@ -319,28 +319,31 @@ export function SessionTab({
   /**
    * The audience's screen mid-show, one compact card beside the live desk: the live results (copy, open, QR code).
    * Whether they rank is in Settings, and the LED wall's link is on its own tab. `extra`: what follows them (the
-   * results downloads). Before and after the show it's liveResultsCard, under the desk.
+   * results downloads). Before and after the show it's liveResultsCard, under the desk. A pageant's desk offers only
+   * the private tally here: the LED wall is its audience's screen.
    */
   const screens = (extra?: React.ReactNode) => (
     // Folded, as Scoring is: mid-show it's wanted now and then, and the running order needs the room.
     <details className="card shrink-0 px-5 py-3 text-sm" open={!!extra || undefined}>
       <summary className="flex cursor-pointer items-center gap-2 font-semibold pointer-coarse:min-h-11">
-        Live results{(pageant || !activity.liveScoring) && " and private tally"}
+        {pageant ? "Private tally" : `Live results${activity.liveScoring ? "" : " and private tally"}`}
       </summary>
       <div className="mt-3 space-y-2 border-t border-line pt-3">
         {/* Each row says what it is, and each button what it does; screen readers also hear which screen it's for. */}
-        <div className="flex flex-wrap items-center gap-x-1">
-          <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
-          <CopyButton value={liveUrl} label="Copy link" ariaLabel="Copy link to live results" className={textAction} />
-          <a href={liveUrl} target="_blank" rel="noreferrer" aria-label="Open live results" className={textAction}>
-            Open
-          </a>
-          {liveQrDialog(`${textAction} gap-1.5`)}
-        </div>
+        {!pageant && (
+          <div className="flex flex-wrap items-center gap-x-1">
+            <span className="min-w-0 flex-1 truncate font-semibold">Live results</span>
+            <CopyButton value={liveUrl} label="Copy link" ariaLabel="Copy link to live results" className={textAction} />
+            <a href={liveUrl} target="_blank" rel="noreferrer" aria-label="Open live results" className={textAction}>
+              Open
+            </a>
+            {liveQrDialog(`${textAction} gap-1.5`)}
+          </div>
+        )}
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. A pageant's
             too: its standings, and any sub-activity holding its scores back, are the organizer's alone. */}
         {(pageant || !activity.liveScoring) && (
-          <div className="flex flex-wrap items-center gap-x-1 border-t border-line pt-2">
+          <div className={`flex flex-wrap items-center gap-x-1 ${pageant ? "" : "border-t border-line pt-2"}`}>
             <span className="min-w-0 flex-1 font-semibold">Private tally</span>
             <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={textAction}>
               Open
@@ -366,7 +369,23 @@ export function SessionTab({
    */
   const segment =
     "inline-flex h-10 items-center justify-center gap-1.5 px-4 text-sm font-semibold text-regal transition-colors hover:bg-wash max-sm:flex-1 pointer-coarse:h-11";
-  const liveResultsCard = (now: string | null) => (
+  const liveResultsCard = (now: string | null) =>
+    pageant ? (
+      // A pageant's: the private tally alone, until the show ends.
+      state !== "ended" && (
+        <section aria-labelledby="private-tally" className="card p-5 sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2 id="private-tally" className="title-sm">
+              Private tally
+            </h2>
+            <span className="hint text-sm">Every score so far, for you alone</span>
+            <a href={`/admin/${activity.id}/tally`} target="_blank" rel="noreferrer" aria-label="Open the private tally" className={`${textAction} ml-auto`}>
+              Open
+            </a>
+          </div>
+        </section>
+      )
+    ) : (
     <section aria-labelledby="live-results" className="card overflow-hidden">
       <div className="p-5 sm:px-6">
         <div className="flex items-start gap-3.5">
@@ -403,7 +422,7 @@ export function SessionTab({
       {/* Whether the page ranks is set in Settings. Under the address, what's for the organizer alone, while it's on. */}
       <div className="space-y-3 border-t border-line px-5 py-4 empty:hidden sm:px-6">
         {/* The scores so far, for this admin only: to tabulate by hand if judging fails. Not a link to share. */}
-        {state !== "ended" && (pageant || !activity.liveScoring) && (
+        {state !== "ended" && !activity.liveScoring && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="font-medium">Private tally</span>
             <span className="hint text-sm">Every score so far, for you alone</span>
@@ -416,7 +435,7 @@ export function SessionTab({
         {state !== "ended" && hasNotes && <DownloadResults activityId={activity.id} notes className={`${textAction} -ml-1.5`} />}
       </div>
     </section>
-  );
+    );
 
   // Moving between entries and changing the session go through reach(): a request lost on venue Wi-Fi
   // comes back as a message beside the button instead of taking the desk down.

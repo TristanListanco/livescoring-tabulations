@@ -27,14 +27,16 @@ export function EditOrganizer({
   const [photoState, setPhotoState] = useState<FormResult>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
-  const changePhoto = (photo: Blob | null, url: string | null) =>
+  const changePhoto = (photo: Blob | null, url: string | null) => {
+    // At once, under the saving ring: set inside the transition, it would wait for the save to show.
+    setPreview(url);
     startPhoto(async () => {
-      setPreview(url);
       const data = new FormData();
       if (photo) data.set("photo", photo, "photo.jpg");
       const result = toastSaved(await setOrganizerPhoto(organizer.id, data), photo ? `${organizer.name}'s photo updated` : `${organizer.name}'s photo removed`);
       setPhotoState(result.ok ? null : result);
     });
+  };
 
   return (
     <div className="mt-6 max-w-4xl">
@@ -42,15 +44,14 @@ export function EditOrganizer({
         <Section title="Organizer">
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex flex-col items-center gap-2">
-              <div className={photoPending ? "opacity-60" : undefined}>
-                <PhotoPicker
-                  name={organizer.name}
-                  currentUrl={photoPending ? preview : organizer.photoUrl}
-                  size={80}
-                  onPick={(blob, url) => changePhoto(blob, url)}
-                  onRemove={() => changePhoto(null, null)}
-                />
-              </div>
+              <PhotoPicker
+                name={organizer.name}
+                currentUrl={photoPending ? preview : organizer.photoUrl}
+                size={80}
+                saving={photoPending}
+                onPick={(blob, url) => changePhoto(blob, url)}
+                onRemove={() => changePhoto(null, null)}
+              />
               <FormMessage state={photoState} />
             </div>
             <div className="min-w-64 flex-1 space-y-4">

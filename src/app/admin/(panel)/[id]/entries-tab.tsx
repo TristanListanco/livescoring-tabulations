@@ -72,32 +72,34 @@ function EntryRow({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
-  const changePhoto = (photo: Blob | null, previewUrl: string | null) =>
+  const changePhoto = (photo: Blob | null, previewUrl: string | null) => {
+    // At once, under the saving ring: set inside the transition, it would wait for the save to show.
+    setPreview(previewUrl);
     startPhoto(async () => {
       setPhotoError(null);
-      setPreview(previewUrl);
       const data = new FormData();
       if (photo) data.set("photo", photo, "photo.jpg");
       const result = toastSaved(await setEntryPhoto(entry.id, data), photo ? `${entry.name}'s photo updated` : `${entry.name}'s photo removed`);
       if (!result.ok) setPhotoError(result.error);
     });
+  };
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
       <span className="tabular w-8 text-right font-semibold text-prussian/60">{number}</span>
-      <div className={photoPending ? "opacity-60" : undefined}>
-        <PhotoPicker
-          lazy
-          name={entry.name}
-          currentUrl={photoPending ? preview : entry.photoUrl}
-          size={48}
-          square
-          pixels={480}
-          label={`Photo for ${entry.name} (optional, shown on the LED wall)`}
-          onPick={(photo, url) => changePhoto(photo, url)}
-          onRemove={() => changePhoto(null, null)}
-        />
-      </div>
+      {/* The new photo shows under a turning ring until the server has it. */}
+      <PhotoPicker
+        lazy
+        name={entry.name}
+        currentUrl={photoPending ? preview : entry.photoUrl}
+        size={48}
+        square
+        pixels={480}
+        label={`Photo for ${entry.name} (optional, shown on the LED wall)`}
+        saving={photoPending}
+        onPick={(photo, url) => changePhoto(photo, url)}
+        onRemove={() => changePhoto(null, null)}
+      />
       <div className="min-w-56 flex-1 space-y-1">
         {/* The name and its details one width, one above the other; Save beside the name, in a column of its own. */}
         <form action={rename} className="grid grid-cols-[minmax(0,28rem)_auto] items-center gap-x-2 gap-y-2">

@@ -29,7 +29,7 @@ export function renderCsv(
     ...(meta.reportId ? [["Report ID", meta.reportId]] : []),
     ["Exported", meta.exportedAt],
     [FINGERPRINT, fingerprint],
-    ["Note", "A read-only copy. The fingerprint is of the rows below: to check a copy, export the results again and compare the two fingerprints."],
+    ["Note", "A read-only copy. The fingerprint is of the rows below: to check a copy, choose it at the address in the results PDF's footer (Check this sheet at …/verify/…)."],
   ];
   return { text: BOM + header.map(csvRow).join(LINE) + LINE + LINE + rows + LINE, fingerprint };
 }

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { devices, expect, test, type BrowserContextOptions, type Browser, type Page } from "@playwright/test";
-import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, PHOTO, SAVED, screenPath, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
+import { ADMIN_PASSWORD, deleteActivityNamed, expectAccessible, exportFile, judgeCodes, openJudgeLink, PHOTO, SAVED, signInAsSuperAdmin, snap, submitScore, tapScore } from "./helpers";
 
 // A pageant from setup to the final results, against a real database. Each step builds on the last.
 // Three candidates and separate boards of judges: Dina judges the preliminary, and Ana (chair), Ben and Cara judge
@@ -294,12 +294,16 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByRole("button", { name: "View photo of Ayla" })).toBeVisible();
     await expect(page.getByLabel("Details for Ayla")).toHaveValue("Cebu City");
     await expect(page.getByRole("heading", { name: "Add candidates" })).toBeVisible();
+    // A pageant's Session tab offers the private tally alone, not the live results.
     await page.goto(`${adminPath}?tab=session`);
-    livePath = await screenPath(page, "Open live results");
+    await expect(page.getByRole("link", { name: "Open the private tally" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open live results" })).toHaveCount(0);
     // Before the start, the LED wall's preview plays a sample on the first part judged, with the pageant's candidates.
     await page.goto(`${adminPath}?tab=led`);
     await expect(page.getByText("once the preliminary starts, the wall follows the candidate you show")).toBeVisible();
     ledPath = new URL((await page.locator("code").allTextContents()).find((l) => l.includes("/led/"))!).pathname;
+    // The live results page is still there, at the wall's address's twin.
+    livePath = ledPath.replace("/led/", "/live/");
   });
 
   test("judges pair their devices and the preliminary starts, pageant proper's judges waiting", async ({ page }) => {

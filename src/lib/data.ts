@@ -883,6 +883,18 @@ export const getPublicBoard = cache(async (publicId: string): Promise<Board | nu
   return isPublicId(publicId) ? loadPublicBoard(publicId) : null;
 });
 
+/**
+ * The activity behind a public link, for checking a results sheet against it (see checkSheet): archived ones too, since
+ * their sheets still count. Null when there's none.
+ */
+export async function checkableActivity(publicId: string): Promise<{ id: string; name: string; publicId: string } | null> {
+  if (!isPublicId(publicId)) return null;
+  const { data, error } = await db().from("activities").select("id, name").eq("public_id", publicId).maybeSingle();
+  fail(error);
+  const row = data as { id: string; name: string } | null;
+  return row && { id: row.id, name: row.name, publicId };
+}
+
 /** The activity behind a public link. A link never changes activity, so it's cached for a long while (null: none). */
 const activityIdFor = (publicId: string) =>
   unstable_cache(
