@@ -121,6 +121,8 @@ export type EntryDetailsSheet = { fields: EntryField[]; byEntry: Record<string, 
 type ReportInfo = {
   generatedAt: string;
   reportId: string | null;
+  /** Where the sheet can be checked against the results as they stand (the verify page), without its https://. */
+  checkUrl?: string;
   organizer: ReportOrganizer | null;
   signatories?: Signatory[];
   signatures?: JudgeSignature[] | null;
@@ -252,7 +254,7 @@ function Footer({ info, perSheet = false }: { info: ReportInfo; perSheet?: boole
   return (
     <View style={s.footer} fixed>
       {/* When it was made: the sheet and its report ID are already in its header. */}
-      <Text style={s.footerLabel}>{`Generated ${info.generatedAt}`}</Text>
+      <Text style={s.footerLabel}>{`Generated ${info.generatedAt}${info.checkUrl ? ` · Check this sheet at ${info.checkUrl}` : ""}`}</Text>
       <View style={s.footerEnd}>
         {/* What made the sheet, quietly: Tabulous's mark and name, before the page number. */}
         <Svg viewBox="0 0 48 48" style={{ width: 8, height: 8 }}>
@@ -612,9 +614,15 @@ function generatedAt(timeZone?: string): string {
 export function renderStandingsPdf(
   board: Board,
   sheet: StandingsSheet,
-  { timeZone, reportId, organizer, signatories }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; signatories: Signatory[] },
+  {
+    timeZone,
+    reportId,
+    organizer,
+    signatories,
+    checkUrl,
+  }: { timeZone?: string; reportId: string; organizer: ReportOrganizer | null; signatories: Signatory[]; checkUrl?: string },
 ): Promise<Buffer> {
-  return renderToBuffer(<StandingsDocument board={board} sheet={sheet} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories }} />);
+  return renderToBuffer(<StandingsDocument board={board} sheet={sheet} info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, checkUrl }} />);
 }
 
 /** Results as a PDF: an event's, or (with `part`, its name) one pageant sub-activity's. */
@@ -626,6 +634,7 @@ export function renderResultsPdf(
     reportId,
     organizer,
     signatories,
+    checkUrl,
     part,
     corrections = null,
     signatures = null,
@@ -635,6 +644,7 @@ export function renderResultsPdf(
     reportId: string;
     organizer: ReportOrganizer | null;
     signatories: Signatory[];
+    checkUrl?: string;
     part?: string;
     corrections?: CorrectionView[] | null;
     signatures?: JudgeSignature[] | null;
@@ -647,7 +657,7 @@ export function renderResultsPdf(
       part={part}
       corrections={corrections}
       details={details}
-      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, checkUrl }}
     />,
   );
 }
@@ -664,6 +674,7 @@ export function renderJudgeSheetsPdf(
     reportId,
     organizer,
     signatories,
+    checkUrl,
     part,
     corrections = [],
     signatures = null,
@@ -673,6 +684,7 @@ export function renderJudgeSheetsPdf(
     reportId: string;
     organizer: ReportOrganizer | null;
     signatories: Signatory[];
+    checkUrl?: string;
     part?: string;
     corrections?: CorrectionView[];
     signatures?: JudgeSignature[] | null;
@@ -688,7 +700,7 @@ export function renderJudgeSheetsPdf(
     <JudgeSheetsDocument
       sections={sections}
       title={part ? `${board.activity.name}, ${part}` : board.activity.name}
-      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures }}
+      info={{ generatedAt: generatedAt(timeZone), reportId, organizer, signatories, signatures, checkUrl }}
     />,
   );
 }

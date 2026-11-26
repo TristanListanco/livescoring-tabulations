@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { Avatar } from "./avatar";
+import { Spinner } from "./spinner";
 import { PhotoCropDialog } from "./photo-crop-dialog";
 
 /**
@@ -20,7 +21,13 @@ export function PhotoPicker({
   label,
   onRemove,
   lazy = false,
+  saving = false,
 }: {
+  /**
+   * The photo is on its way to the server: it's covered by a turning ring, says "Saving…" under it, and can't be
+   * changed again until it's saved (or refused).
+   */
+  saving?: boolean;
   /** In a long list: the photo is fetched only as it nears the screen (see Avatar). */
   lazy?: boolean;
   /** Takes the photo away, from the photo's dialog. Left out, the dialog offers only Change photo. */
@@ -67,6 +74,11 @@ export function PhotoPicker({
     if (cropping) URL.revokeObjectURL(cropping.src);
     setCropping(null);
   };
+  const savingMark = saving && (
+    <span aria-hidden className={`absolute inset-0 flex items-center justify-center ${shape} bg-prussian/60 text-mint`}>
+      <Spinner className="size-5" />
+    </span>
+  );
   const focusRing =
     "has-[:focus-visible]:shadow-[0_0_0_2px_var(--color-mint)] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-regal";
   // One file input, whichever way the photo is reached: in the empty button's label, or chosen from the dialog.
@@ -77,6 +89,7 @@ export function PhotoPicker({
       type="file"
       accept="image/*"
       className="sr-only"
+      disabled={saving}
       tabIndex={currentUrl ? -1 : undefined}
       aria-label={label ?? `Photo for ${subject}`}
       onChange={(e) => {
@@ -93,6 +106,7 @@ export function PhotoPicker({
           <button
             type="button"
             onClick={view}
+            disabled={saving}
             aria-haspopup="dialog"
             // A hairline around it, so a photo with a white background still reads as a photo on a white card.
             className={`group relative cursor-pointer overflow-hidden ${shape} ring-1 ring-prussian/15 focus-visible:shadow-[0_0_0_2px_var(--color-mint)] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-regal`}
@@ -100,6 +114,7 @@ export function PhotoPicker({
           >
             <span className="sr-only">View photo of {subject}</span>
             <Avatar name={name} src={currentUrl} size={size} square={square} lazy={lazy} />
+            {savingMark}
             <span
               aria-hidden
               // Hover says what a click does; keyboard focus does too, and a touchscreen (no hover) always shows it as a band.
@@ -171,9 +186,17 @@ export function PhotoPicker({
             </svg>
             {size >= 56 && <span className="mt-0.5 text-xs font-semibold">Photo</span>}
           </span>
+          {savingMark}
           {fileInput}
         </label>
       )}
+      <span role="status" className={saving ? "text-xs font-semibold text-regal" : "sr-only"}>
+        {saving && (
+          <>
+            Saving<span className="sr-only"> the photo of {subject}</span>…
+          </>
+        )}
+      </span>
       {error && <span className="max-w-32 text-center text-xs text-danger">{error}</span>}
       {/* Beside the button, not in it: a click inside the dialog mustn't open the file chooser again. */}
       {cropping && (

@@ -1,6 +1,7 @@
 import "server-only";
 import { correctionView, type Correction, type CorrectionView } from "./corrections";
 import { getActivityNotes, getActivitySignatories, getAdmin, getCorrections, getEntryDetails, getRoundSignatures, getSignatures, withBreakdowns } from "./data";
+import { siteOrigin } from "./origin";
 import { reportId } from "./report";
 import { awaitingSignoff, cutPlan, finalCutRound, judgesForRounds, partsOf, partWeights, programOrder, roundBoard, roundLabel, roundPool, roundProgress, roundReleased, standings, standingsBy, type StandingRow } from "./pageant";
 // Drawn on a worker thread, so a big PDF doesn't hold up other requests to this server (see pdf.ts).
@@ -69,10 +70,13 @@ async function reportOrganizer(ownerId: string | null): Promise<ReportOrganizer 
   return { name: admin.name, photo };
 }
 
-/** Who a results sheet is from and who signs it: the organizer, in the header, and the activity's signatories. */
-async function reportPeople(activity: Activity): Promise<{ organizer: ReportOrganizer | null; signatories: Signatory[] }> {
-  const [organizer, signatories] = await Promise.all([reportOrganizer(activity.ownerId), getActivitySignatories(activity.id)]);
-  return { organizer, signatories: signatories ?? [] };
+/**
+ * Who a results sheet is from and who signs it (the organizer, in the header, and the activity's signatories), and where
+ * anyone holding it can check it against the results as they stand (see the verify page), printed in its footer.
+ */
+async function reportPeople(activity: Activity): Promise<{ organizer: ReportOrganizer | null; signatories: Signatory[]; checkUrl: string }> {
+  const [organizer, signatories, origin] = await Promise.all([reportOrganizer(activity.ownerId), getActivitySignatories(activity.id), siteOrigin()]);
+  return { organizer, signatories: signatories ?? [], checkUrl: `${origin.replace(/^https?:\/\//, "")}/verify/${activity.publicId}` };
 }
 
 /** One download, worked out: what it's called, its report ID, and how to draw it as a PDF or (when it has one) its CSV rows. */
@@ -322,6 +326,35 @@ function exportedAt(timeZone: string | undefined): string {
     zone = undefined;
   }
   return new Intl.DateTimeFormat("en", { dateStyle: "long", timeStyle: "short", timeZone: zone }).format(new Date());
+}
+
+/**
+ * Every sheet an activity's results give now, for checking a copy someone has (see checkSheet): each one's name, its
+ * report ID and, for one with a CSV, the fingerprint of its rows (worked out only when asked for). The same sheets the
+ * downloads draw, so a copy matches only while the scores it was made from stand.
+ */
+export async function sheetsNow(board: Board): Promise<{ label: string; reportId: string | null; fingerprint: () => Promise<string | null> }[]> {
+  const corrections = await getCorrections(board.activity.id);
+  const queries =
+    board.activity.kind === "pageant"
+      ? [
+          ...board.rounds.flatMap((r) => [`round=${r.id}`, `round=${r.id}&sheet=judges`]),
+          ...board.rounds.filter((r) => r.cutSize !== null && r.cutEntryIds !== null).map((r) => `cut=${r.id}`),
+          "segment=preliminary",
+        ]
+      : ["", "sheet=judges"];
+  const sheets: Awaited<ReturnType<typeof sheetsNow>> = [];
+  for (const query of queries) {
+    const sheet = await sheetFor(board, new URLSearchParams(query), corrections);
+    if (sheet instanceof Response) continue;
+    const { label, reportId, csv } = sheet;
+    sheets.push({
+      label,
+      reportId,
+      fingerprint: async () => (csv ? renderCsv({ activity: board.activity.name, sheet: label, reportId, exportedAt: "" }, await csv()).fingerprint : null),
+    });
+  }
+  return sheets;
 }
 
 /** A download for the export route: the sheet the query asks for, as a PDF or (?format=csv) CSV, or why not. */

@@ -105,7 +105,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
     tab === "session"
       ? (early.desk ?? Promise.all([getCorrections(id), getActivityNotes(id), getSignatures(id)]))
       : null,
-    tab === "session" ? qrSvg(liveUrl) : "",
+    // A pageant's Session tab doesn't offer the live results (see liveResultsCard).
+    tab === "session" && activity.kind !== "pageant" ? qrSvg(liveUrl) : "",
     tab === "settings" && session.kind === "super" ? listAdmins() : null,
     tab === "settings" ? getActivitySignatories(id) : null,
     // The entries' (or candidates') details: the organizer's alone, so read only for this tab.

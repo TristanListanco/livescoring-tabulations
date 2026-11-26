@@ -111,29 +111,31 @@ export function JudgeEditor({
   // Taking over as chair: kept here, since the button goes once they're chair. Said while they still are.
   const [chairResult, setChairResult] = useState<ActionResult | null>(null);
 
-  const changePhoto = (photo: Blob | null, previewUrl: string | null) =>
+  const changePhoto = (photo: Blob | null, previewUrl: string | null) => {
+    // At once, under the saving ring: set inside the transition, it would wait for the save to show.
+    setPreview(previewUrl);
     startPhoto(async () => {
       setPhotoError(null);
-      setPreview(previewUrl);
       const data = new FormData();
       if (photo) data.set("photo", photo, "photo.jpg");
       const result = await setJudgePhoto(judge.id, data);
       if (!result.ok) setPhotoError(result.error);
       else toast(photo ? `${judge.name}'s photo updated` : `${judge.name}'s photo removed`);
     });
+  };
 
   return (
     <div className="flex items-start gap-4">
-      <div className={photoPending ? "opacity-60" : undefined}>
-        <PhotoPicker
-          lazy
-          name={judge.name}
-          currentUrl={photoPending ? preview : judge.photoUrl}
-          size={48}
-          onPick={(photo, url) => changePhoto(photo, url)}
-          onRemove={() => changePhoto(null, null)}
-        />
-      </div>
+      {/* The new photo shows under a turning ring until the server has it. */}
+      <PhotoPicker
+        lazy
+        name={judge.name}
+        currentUrl={photoPending ? preview : judge.photoUrl}
+        size={48}
+        saving={photoPending}
+        onPick={(photo, url) => changePhoto(photo, url)}
+        onRemove={() => changePhoto(null, null)}
+      />
       <div className="min-w-0 flex-1 space-y-2">
         {/* The column says it's the judge: the names need no labels on show, only for screen readers. */}
         <form action={rename} className="flex flex-wrap items-end gap-2">

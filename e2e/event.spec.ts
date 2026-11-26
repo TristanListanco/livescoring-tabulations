@@ -518,6 +518,27 @@ test.describe.serial("a full event", () => {
     expect(text).toMatch(/Fingerprint \(SHA-256\),[0-9a-f]{64}/);
     expect(text).toContain("Rank,No.,Entry,Ana Cruz,Ben Torres,Average");
 
+    // Anyone holding it (an accounting firm verifying the results, say) can check it at the address on the results sheet:
+    // by its report ID, or every number on it by its CSV. A copy changed after it was downloaded is caught.
+    const check = await page.context().newPage();
+    await check.goto(`/verify/${livePath.split("/").pop()}`);
+    await expect(check.getByRole("heading", { name: "Check a results sheet" })).toBeVisible();
+    await check.getByLabel("Report ID").fill(text.match(/Report ID,(LS-[0-9A-F-]+)/)![1].toLowerCase());
+    await check.getByRole("button", { name: "Check", exact: true }).click();
+    const answer = (role: "status" | "alert") => check.locator("form").getByRole(role);
+    await expect(answer("status")).toContainText("is the report ID of “Results”");
+    await check.getByLabel("Report ID").fill("LS-0000-0000-0000");
+    await check.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(answer("alert")).toContainText("isn't the report ID of any");
+    await check.getByLabel("Or its CSV").setInputFiles(await csv.path());
+    await check.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(answer("status")).toContainText("It matches “Results”");
+    await check.getByLabel("Or its CSV").setInputFiles({ name: "changed.csv", mimeType: "text/csv", buffer: Buffer.from(text.replace("Agila", "Agila (edited)")) });
+    await check.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(answer("alert")).toContainText("was changed after it was downloaded");
+    await expectAccessible(check);
+    await check.close();
+
     // Each judge's scores, one row per entry.
     const scores = await exportFile(page, "Judges' scores (CSV)");
     expect(scores.suggestedFilename()).toMatch(/^e2e-[a-z0-9]+-judges-scores\.csv$/);
