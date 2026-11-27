@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Avatar } from "@/components/avatar";
 import type { AssistanceRequest, WaitingDevice } from "@/lib/assistance";
@@ -76,21 +76,8 @@ function ago(at: string, now: number): string {
 
 const notificationsOffered = () => typeof window !== "undefined" && "Notification" in window && Notification.permission === "default";
 
-/**
- * The activity whose Judges tab (or desk) is open, if one is: its devices are approved in the list right there, so they
- * don't pop up over it. Unless another dialog is open over that list: then they come up on top, where the organizer is
- * looking.
- */
-const judgesTabOpen = () => {
-  const id = document.querySelector("[data-device-approvals]")?.getAttribute("data-device-approvals") ?? null;
-  return id && !document.querySelector("dialog[open]:not([data-alerts])") ? id : null;
-};
-const watchPage = (onChange: () => void) => {
-  const watcher = new MutationObserver(onChange);
-  // A dialog opening or closing changes its open attribute; it isn't a new element.
-  watcher.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open", "data-device-approvals"] });
-  return () => watcher.disconnect();
-};
+/** Brings the waiting devices' dialog back after Later (see ReviewDevicesButton). */
+export const REVIEW_DEVICES = "tabulous:review-devices";
 
 /**
  * Judges' calls for help, and their devices waiting for approval, on every page of the admin panel.
@@ -100,10 +87,11 @@ const watchPage = (onChange: () => void) => {
  * from another tab. "On my way" answers a call: the judge's screen says so. The dialog stays until every call is answered
  * or taken back.
  *
- * A judge signs in on a device: a gentler chime, and a dialog asks the organizer to approve it wherever they are (on
- * that activity's Judges tab the list there does it, with the chime, unless a dialog is open over the list). It shows the
- * pairing code the judge reads out, so the right device is approved; Later puts it away until another device asks. It
- * stacks over any dialog already open, a call for help's too, as a call for help stacks over it.
+ * A judge signs in on a device: a gentler chime, and a dialog asks the organizer to approve it wherever they are: it's
+ * the one place devices are approved. It shows the pairing code the judge reads out, so the right device is approved,
+ * and (in a pageant) which segment the judge is on; Later puts it away until another device asks, or Review (where a
+ * device waits, on the Judges tab and the desk) brings it back. It stacks over any dialog already open, a call for
+ * help's too, as a call for help stacks over it.
  *
  * It hears of both the way live screens hear of changes: over realtime, from the organizer's activities (kept while the
  * tab is out of view, unlike a desk, so a call still reaches a background tab), and by checking every 15 seconds anyway.
@@ -123,7 +111,12 @@ export function AssistanceAlerts() {
   // The calls and devices already alerted: null before the first check, when every waiting one alerts once.
   const alerted = useRef<Set<string> | null>(null);
   const knocked = useRef<Set<string> | null>(null);
-  const here = useSyncExternalStore(watchPage, judgesTabOpen, () => null);
+  // Review, where a device waits: the dialog comes back with every device put off with Later.
+  useEffect(() => {
+    const review = () => setLater(new Set());
+    window.addEventListener(REVIEW_DEVICES, review);
+    return () => window.removeEventListener(REVIEW_DEVICES, review);
+  }, []);
 
   // Only refs and state setters inside, so these never change: effects and buttons share them.
   const arrived = useCallback((list: AssistanceRequest[]) => {
@@ -148,10 +141,9 @@ export function AssistanceAlerts() {
     if (!fresh.length) return;
     // A new device brings the dialog back, with the ones put off before.
     setLater(new Set());
-    // On its Judges tab too, where the list shows it: the organizer may be looking away from the screen.
     chime(audio.current, KNOCK);
     if ("Notification" in window && Notification.permission === "granted") {
-      for (const d of fresh.filter((f) => f.activityId !== judgesTabOpen())) {
+      for (const d of fresh) {
         const notice = new Notification(`${d.judgeName}'s device is waiting`, { body: `${d.activityName}: approve it when they read out its pairing code.`, tag: d.id });
         notice.onclick = () => window.focus();
       }
@@ -247,8 +239,8 @@ export function AssistanceAlerts() {
     return () => clearInterval(tick);
   }, [requests.length]);
 
-  // Devices to approve here: not those of the Judges tab that's open, nor those put off with Later.
-  const shownDevices = devices.filter((d) => d.activityId !== here);
+  // Devices to approve: every one waiting, the dialog open while any isn't put off with Later.
+  const shownDevices = devices;
   const devicesOpen = shownDevices.some((d) => !later.has(d.id));
   useEffect(() => {
     const shown = deviceDialog.current;
@@ -362,7 +354,14 @@ export function AssistanceAlerts() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
                 <Avatar name={d.judgeName} src={d.judgePhotoUrl} size={44} />
                 <div className="min-w-0 flex-1 basis-40">
-                  <p className="truncate font-semibold">{d.judgeName}</p>
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="truncate font-semibold">{d.judgeName}</span>
+                    {/* A pageant's: which segment they judge, so a pageant proper judge pairing in the break isn't taken for a preliminary one. */}
+                    {d.segment && <span className="sr-only">, </span>}
+                    {d.segment && (
+                      <span className="shrink-0 rounded-full bg-wash px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-prussian/80">{d.segment}</span>
+                    )}
+                  </p>
                   <p className="truncate text-sm text-prussian/75">
                     {d.activityName} · {d.label}
                   </p>

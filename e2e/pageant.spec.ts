@@ -317,6 +317,10 @@ test.describe.serial("a pageant", () => {
       await openJudgeLink(judge, code);
       const pairing = await pairingCode(judge);
       await page.goto(`${adminPath}?tab=judges`);
+      // The dialog that approves it says which segment the judge is on.
+      await expect(
+        page.getByRole("dialog", { name: `${name}'s device is waiting` }).getByText(name === "Dina Lopez" ? "Preliminary" : "Pageant proper", { exact: true }),
+      ).toBeVisible();
       await page.getByRole("button", { name: `Approve ${name}'s device ${pairing}` }).click();
       await expect(judge.getByRole("heading", { level: 1 })).toHaveText("Waiting for the organizer to start", REALTIME);
     }
@@ -425,6 +429,12 @@ test.describe.serial("a pageant", () => {
     await expect(page.getByText("Preliminary done · Waiting for pageant proper")).toBeVisible();
     await snap(page, "desk between the segments");
     await snap(dina, "judge whose part is done");
+    // On the Judges tab Dina's row is done: greyed, said in words, her sign-in put away.
+    await page.goto(`${adminPath}?tab=judges`);
+    const dinaRow = page.getByRole("listitem").filter({ hasText: "Dina Lopez" }).filter({ hasText: "scored" });
+    await expect(dinaRow).toContainText("Done: the preliminary has ended");
+    await expect(dinaRow.getByRole("button", { name: /^Sign-in/ })).toBeDisabled();
+    await page.goto(`${adminPath}?tab=session`);
     // The break, in the order the work goes: deductions (open until pageant proper starts), then pageant proper's
     // judges (their devices approved right here, ticked once all are paired). Its start is in the action bar.
     const steps = page.getByRole("region", { name: "Before pageant proper" }).getByRole("heading", { level: 3 });

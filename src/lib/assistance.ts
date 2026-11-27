@@ -79,15 +79,20 @@ export type WaitingDevice = {
   pairingCode: string;
   /** "iPhone · Safari" and the like. */
   label: string;
+  /** A pageant's: the segment the judge is on ("Preliminary", "Pageant proper", "Both segments"); null for an event. */
+  segment: string | null;
   /** When it asked (ISO time). */
   askedAt: string;
 };
+
+/** A pageant judge's panel, as the approval dialog names it. */
+const SEGMENT_OF: Record<string, string> = { preliminary: "Preliminary", proper: "Pageant proper", all: "Both segments" };
 
 /** Judges' devices waiting for approval in the activities this admin manages (not archived ones), oldest first. */
 export async function getWaitingDevices(session: AdminSession): Promise<WaitingDevice[] | null> {
   const query = db()
     .from("judge_devices")
-    .select("id, judge_id, pairing_code, label, created_at, judges!inner(name, photo_path, activity_id, activities!inner(name, owner_id, archived_at))")
+    .select("id, judge_id, pairing_code, label, created_at, judges!inner(name, photo_path, panel, activity_id, activities!inner(name, kind, owner_id, archived_at))")
     .eq("status", "pending")
     .is("judges.activities.archived_at", null)
     .order("created_at", { ascending: true })
@@ -100,7 +105,7 @@ export async function getWaitingDevices(session: AdminSession): Promise<WaitingD
     pairing_code: string;
     label: string;
     created_at: string;
-    judges: { name: string; photo_path: string | null; activity_id: string; activities: { name: string } | null } | null;
+    judges: { name: string; photo_path: string | null; panel?: string | null; activity_id: string; activities: { name: string; kind?: string } | null } | null;
   };
   return (data as unknown as Row[]).map((r) => ({
     id: r.id,
@@ -111,6 +116,7 @@ export async function getWaitingDevices(session: AdminSession): Promise<WaitingD
     judgePhotoUrl: photoUrl(r.judges?.photo_path ?? null),
     pairingCode: r.pairing_code,
     label: r.label,
+    segment: r.judges?.activities?.kind === "pageant" ? (SEGMENT_OF[r.judges.panel ?? "all"] ?? SEGMENT_OF.all) : null,
     askedAt: r.created_at,
   }));
 }

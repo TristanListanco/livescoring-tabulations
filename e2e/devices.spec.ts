@@ -63,6 +63,17 @@ test.describe.serial("judge devices without realtime", () => {
     const code = await pairingCode(phone);
     await signInAsSuperAdmin(page);
     await page.goto(`${adminPath}?tab=judges`);
+    // The Judges tab says the phone is waiting, with its pairing code; approving it is the panel's dialog's alone.
+    const alpha = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove Judge Alpha" }) });
+    await expect(alpha).toContainText("Waiting for you to approve");
+    await expect(alpha).toContainText(code);
+    await expect(alpha.getByRole("button", { name: /^Approve / })).toHaveCount(0);
+    // Later puts the dialog away; Review, where the device waits, brings it back.
+    const waiting = page.getByRole("dialog", { name: "Judge Alpha's device is waiting" });
+    await waiting.getByRole("button", { name: "Later" }).click();
+    await expect(waiting).toBeHidden();
+    await alpha.getByRole("button", { name: "Review Judge Alpha's waiting device" }).click();
+    await expect(waiting).toBeVisible();
     // Only the phone's request is waiting.
     await expect(page.getByRole("button", { name: /^Approve Judge Alpha's device / })).toHaveCount(1);
     await page.getByRole("button", { name: `Approve Judge Alpha's device ${code}` }).click();
