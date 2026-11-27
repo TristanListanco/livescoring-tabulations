@@ -132,3 +132,40 @@ test("the wall can be flat rather than metal and glass", async ({ page, browser 
   await expect(finish.getByRole("radio", { name: "Flat" })).toBeChecked();
   await wall.context().close();
 });
+
+test("before the show, the LED tab's sample plays on a part scored live, and on none when every part deliberates", async ({ page }) => {
+  // A pageant of its own, not started: pageant proper's Swimsuit comes out after a deliberation, its Gown live.
+  const draft = { id: randomUUID(), publicId: randomBytes(5).toString("hex") };
+  const [swimsuit, gownLive] = [randomUUID(), randomUUID()];
+  await restOk("activities", { id: draft.id, name: "E2E Pageant LED sample", public_id: draft.publicId, min_score: 1, max_score: 10, decimals: 0, kind: "pageant", live_scoring: true, preliminary_weight: 40 });
+  const round = (id: string, name: string, position: number, live: boolean, cut: number | null) => ({
+    id,
+    activity_id: draft.id,
+    segment: "proper",
+    name,
+    position,
+    weight: 30,
+    scoring_mode: "simple",
+    min_score: 1,
+    max_score: 10,
+    decimals: 0,
+    criteria: [],
+    criteria_display: "percent",
+    timer_seconds: null,
+    cut_size: cut,
+    cut_basis: [],
+    live_scoring: live,
+  });
+  try {
+    await restOk("rounds", [round(swimsuit, "Swimsuit", 0, false, null), round(gownLive, "Gown", 1, true, 1)]);
+    await signInAsSuperAdmin(page);
+    await page.goto(`/admin/${draft.id}?tab=led`);
+    await expect(page.locator("figcaption")).toContainText("Gown's judges, as the wall will show them");
+    // Gown after a deliberation too: nothing live to play, and the tab says why.
+    await restOk(`rounds?id=eq.${gownLive}`, { live_scoring: false }, "PATCH");
+    await page.reload();
+    await expect(page.locator("figcaption")).toContainText("Every part's results come after a deliberation");
+  } finally {
+    await fetch(`${api.url}/rest/v1/activities?id=eq.${draft.id}`, { method: "DELETE", headers: api.headers });
+  }
+});

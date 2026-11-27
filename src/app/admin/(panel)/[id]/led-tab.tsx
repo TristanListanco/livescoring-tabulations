@@ -4,9 +4,10 @@ import { useEffect, useOptimistic, useState, useTransition } from "react";
 import { LedOutput } from "@/components/led/led-graphic";
 import { LED_THEMES, type LedFinish, type LedFont, type LedTheme } from "@/lib/led-style";
 import { entryNeighbors } from "@/lib/judging";
-import { judgesFor, judgingOrder, withRoundRules } from "@/lib/pageant";
+import { judgesFor, roundLabel, withRoundRules } from "@/lib/pageant";
 import { reach } from "@/lib/reach";
-import type { Board, Entry, Judge, Score } from "@/lib/types";
+import { sampleRound } from "@/lib/led";
+import type { Board, Entry, Judge, Round, Score } from "@/lib/types";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
 import { setLedOptions } from "../../actions";
@@ -69,14 +70,11 @@ const SAMPLE_SHARES = [0.86, 0.92, 0.81, 0.95, 0.88, 0.84, 0.9];
  * Before the show, the preview plays what the wall does once judging starts: the first entry comes up, each judge's
  * score arrives in turn (or "Scored", when scores wait for every judge), then the average, and it starts again. With the
  * activity's own entries and judges where it has them, and the look chosen; the scores are made up. A pageant's plays
- * on pageant proper's first sub-activity (or part), with its panel and scoring: the judges the wall shows most. With
- * reduced motion, it stays on the finished entry.
+ * on `round` (see sampleRound: pageant proper's first part scored live), with its panel and scoring. With reduced
+ * motion, it stays on the finished entry.
  */
-function useSample(board: Board, playing: boolean): Board {
+function useSample(board: Board, playing: boolean, round: Round | null): Board {
   const { activity } = board;
-  // A pageant's: pageant proper's first sub-activity, with its judges (the wall's busiest part), else the first judged.
-  const judged = activity.kind === "pageant" ? judgingOrder(board.rounds) : [];
-  const round = judged.find((r) => r.segment === "proper") ?? judged[0] ?? null;
   const still = useMediaQuery("(prefers-reduced-motion: reduce)");
   const panel = round ? judgesFor(board, round) : board.judges;
   const judges: Judge[] = panel.length
@@ -194,9 +192,12 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     });
 
   const { index, entry: current } = entryNeighbors(entries, activity.ledEntryId);
-  // Before the session starts, the preview plays a sample of the wall at work (a pageant's once it has a program).
+  // Before the session starts, the preview plays a sample of the wall at work: a pageant's on a part scored live, once
+  // its program has one (a part after a deliberation would show only ticks).
   const pageant = activity.kind === "pageant";
-  const sampling = activity.sessionState === "draft" && (!pageant || board.rounds.length > 0);
+  const sample = pageant ? sampleRound(board.rounds) : null;
+  const sampling = activity.sessionState === "draft" && (!pageant || sample !== null);
+  const deliberatedOnly = pageant && activity.sessionState === "draft" && board.rounds.length > 0 && sample === null;
   const preview: Board = {
     ...board,
     activity: {
@@ -210,7 +211,7 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
     },
   };
 
-  const shown = useSample(preview, sampling);
+  const shown = useSample(preview, sampling, sample);
 
   return (
     <div className="space-y-8">
@@ -239,10 +240,12 @@ export function LedTab({ board, ledUrl }: { board: Board; ledUrl: string }) {
             {sampling ? (
               <>
                 <span className="font-semibold text-prussian">A sample, with made-up scores:</span>{" "}
-                {pageant
-                  ? "pageant proper's judges, as the wall will show them. Once the preliminary starts, the wall follows the candidate you show and fills in as the judges score."
+                {sample
+                  ? `${roundLabel(board.rounds, sample)}'s judges, as the wall will show them. Once the preliminary starts, the wall follows the candidate you show and fills in as the judges score.`
                   : "once the session starts, the wall follows the entry you show and fills in as the judges score."}
               </>
+            ) : deliberatedOnly ? (
+              "Every part's results come after a deliberation: the wall shows a tick for each score until its deliberation is signed off, then the scores."
             ) : current ? (
               <>
                 Showing <span className="tabular">No. {index + 1}</span> {current.name}

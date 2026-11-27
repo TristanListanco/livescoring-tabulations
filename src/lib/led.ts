@@ -1,5 +1,5 @@
 import { firstNames } from "./names";
-import { showingBoard } from "./pageant";
+import { judgingOrder, showingBoard } from "./pageant";
 import { rankEntries } from "./scoring";
 import type { Board, Entry, Judge, Round } from "./types";
 
@@ -75,4 +75,14 @@ export function wallBoard(full: Board): { board: Board; round: Round | null } {
   const { board, round } = showingBoard(full);
   if (!round?.ledOutOfTen || board.activity.scoringMode !== "criteria") return { board, round };
   return { board: { ...board, activity: { ...board.activity, criteriaDisplay: "ten" } }, round };
+}
+
+/**
+ * The part the LED tab's sample plays on before a pageant's show: pageant proper's first scored live (the wall's busiest
+ * part), else the preliminary's. Null when every part's results come after a deliberation, when the wall would show only
+ * a tick for each score: nothing worth playing.
+ */
+export function sampleRound(rounds: Round[]): Round | null {
+  const live = judgingOrder(rounds).filter((r) => r.liveScoring);
+  return live.find((r) => r.segment === "proper") ?? live[0] ?? null;
 }
