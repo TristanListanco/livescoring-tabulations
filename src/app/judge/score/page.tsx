@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { correctionView, correctionVoters, withoutValues } from "@/lib/corrections";
 import { getBoard, getCorrections, getJudgeNotes, getJudgeSeat, getOwnBreakdown, getOwnBreakdowns, getRoundSignatures, getSignatures } from "@/lib/data";
 import { deliberationGap } from "@/lib/deliberation";
-import { byCandidate, candidateMarks, onPanel, partsOf, roundDeliberating, showingBoard } from "@/lib/pageant";
+import { byCandidate, candidateMarks, onPanel, partsOf, roundBoard, roundDeliberating, showingBoard } from "@/lib/pageant";
 import { runningSegment } from "@/lib/lifecycle";
 import { atOwnPace, chairMovesEntries } from "@/lib/judging";
 import { judgeSession } from "@/lib/session";
@@ -198,7 +198,8 @@ export default async function ScorePage({ searchParams }: PageProps<"/judge/scor
       : null;
 
   // A pageant sub-activity's deliberation: the same review, on its board, without ties (a cut has the organizer break
-  // them) or a ranking to show.
+  // them). With the organizer's say-so, where each candidate stands in it, as an event's ranking.
+  const reviewed = underReview && activity.judgesSeeRanking ? roundBoard(board, underReview) : null;
   const reviewing = underReview
     ? {
         breakdowns: roundBreakdowns ?? {},
@@ -215,7 +216,11 @@ export default async function ScorePage({ searchParams }: PageProps<"/judge/scor
         ties: [],
         isChair: context.judge.isChair,
         chairName: showing.judges.find((j) => j.isChair)?.name ?? null,
-        ranking: null,
+        ranking: reviewed
+          ? rankEntries(reviewed.entries, reviewed.judges, reviewed.scores, reviewed.activity)
+              .filter((row) => !isWithdrawn(row.entry))
+              .map((row) => ({ id: row.entry.id, rank: row.rank, number: row.number, name: row.entry.name, average: averageText(row.average, reviewed.activity) }))
+          : null,
         part: underReview.name,
       }
     : null;

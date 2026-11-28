@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ledScene, wallBoard } from "./led";
+import { ledScene, sampleRound, wallBoard } from "./led";
 import { scoreText } from "./scoring";
 import { activityFixture, roundFixture } from "./test-fixtures";
 import type { Board } from "./types";
@@ -134,5 +134,24 @@ describe("a pageant sub-activity shown out of 10 on the wall", () => {
     if (scene.kind !== "entry") throw new Error("expected an entry");
     expect(scene.tiles.map((t) => scoreText(t.value!, wall.activity))).toEqual(["87.50%", "90.00%"]);
     expect(scene.average.value).toBe(88.75);
+  });
+});
+
+describe("the LED tab's sample", () => {
+  const talent = roundFixture({ id: "talent", segment: "preliminary", position: 0 });
+  const gown = roundFixture({ id: "gown", segment: "proper", position: 1, liveScoring: false });
+  const qa = roundFixture({ id: "qa", segment: "proper", position: 2 });
+  it("plays on pageant proper's first part scored live, passing over one after a deliberation", () => {
+    expect(sampleRound([talent, gown, qa])?.id).toBe("qa");
+  });
+  it("falls back on the preliminary's, and on nothing when every part waits for a deliberation", () => {
+    expect(sampleRound([talent, gown])?.id).toBe("talent");
+    expect(sampleRound([{ ...talent, liveScoring: false }, gown])).toBeNull();
+  });
+  it("plays on a part of a sub-activity in parts, the live one", () => {
+    const production = roundFixture({ id: "production", segment: "proper", position: 1, liveScoring: false });
+    const number = roundFixture({ id: "number", segment: "proper", parentId: "production", position: 0, liveScoring: false });
+    const intro = roundFixture({ id: "intro", segment: "proper", parentId: "production", position: 1 });
+    expect(sampleRound([talent, production, number, intro])?.id).toBe("intro");
   });
 });

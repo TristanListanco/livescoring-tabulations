@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { reach } from "@/lib/reach";
 import { browserClient } from "@/lib/supabase/browser";
-import type { ActionResult, Judge, JudgeDevice } from "@/lib/types";
+import type { Judge, JudgeDevice } from "@/lib/types";
 import { JUDGING_OVER, useLiveRefresh } from "@/lib/use-live-refresh";
-import { approveDevice, revokeDevice } from "../../actions";
+import { revokeDevice } from "../../actions";
+import { REVIEW_DEVICES } from "../assistance-alerts";
 
 /** Keeps the Judges tab current, so a judge's request for approval appears within seconds. */
 export function LiveRefresh({ activityId, ended = false }: { activityId: string; ended?: boolean }) {
@@ -41,19 +42,23 @@ export function CatchUp({ activityId, since }: { activityId: string; since: stri
 }
 
 /**
- * One judge's devices, as the Judges tab's Device column. Every device that signs in with the judge's code waits here;
- * the organizer approves the one whose pairing code the judge reads out. Only that device can score, and approving it
- * signs out the rest. `end`: the row's last action (Remove), at the foot of the column.
+ * Brings back the panel's dialog of devices waiting for approval (see AssistanceAlerts), after Later put it away: the
+ * dialog is the one place a device is approved.
+ */
+export function ReviewDevicesButton({ judge, className = "btn btn-quiet btn-sm" }: { judge: Judge; className?: string }) {
+  return (
+    <button type="button" className={className} onClick={() => window.dispatchEvent(new Event(REVIEW_DEVICES))}>
+      Review<span className="sr-only"> {judge.name}&apos;s waiting device</span>
+    </button>
+  );
+}
+
+/**
+ * One judge's devices, as the Judges tab's Device column: approved, waiting (with Review, which brings back the panel's
+ * dialog, the one place a device is approved), or none. Only the approved device can score; approving one signs out the
+ * rest. `end`: the row's last action (Remove), at the foot of the column.
  */
 export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices: JudgeDevice[]; end?: ReactNode }) {
-  const [pending, startTransition] = useTransition();
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const act = (fn: () => Promise<ActionResult>) =>
-    startTransition(async () => {
-      const r = await reach(fn);
-      setResult(r.ok ? null : r);
-    });
-
   const approved = devices.find((d) => d.status === "approved");
   const requests = devices.filter((d) => d.status === "pending");
   // Newest first, so this is the device most recently signed out, denied or replaced.
@@ -98,38 +103,16 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
       {requests.length > 0 && (
         <ul className="space-y-2.5">
           {requests.map((d) => (
-            <li key={d.id} className="space-y-1">
-              {/* The pairing code on the button, as on the judge's screen, so the two can be matched at a glance. */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => act(() => approveDevice(d.id))}
-                  disabled={pending}
-                  aria-label={`Approve ${judge.name}'s device ${d.pairingCode}`}
-                >
-                  Approve <span className="tabular tracking-[0.15em]">{d.pairingCode}</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-sm"
-                  onClick={() => act(() => revokeDevice(d.id))}
-                  disabled={pending}
-                  aria-label={`Deny ${judge.name}'s device ${d.pairingCode}`}
-                >
-                  Deny
-                </button>
-              </div>
-              <p className="break-words text-prussian/75">{d.label}</p>
+            // The pairing code the judge reads out, as in the dialog that approves it.
+            <li key={d.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="tabular rounded-md bg-prussian px-2 py-0.5 font-bold tracking-[0.15em] text-mint">{d.pairingCode}</span>
+              <span className="min-w-0 break-words text-prussian/75">{d.label}</span>
             </li>
           ))}
-          {approved && <li className="hint text-sm">Approving another device signs out {approved.label}.</li>}
+          <li>
+            <ReviewDevicesButton judge={judge} />
+          </li>
         </ul>
-      )}
-      {result && !result.ok && (
-        <p role="alert" className="font-semibold text-danger">
-          {result.error}
-        </p>
       )}
       {(approved || end) && (
         <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +124,6 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
                 </>
               }
               triggerClassName="btn btn-quiet btn-sm"
-              triggerDisabled={pending}
               title={`Sign out ${judge.name}'s device?`}
               tone="danger"
               confirmLabel="Sign out device"
@@ -155,32 +137,5 @@ export function DeviceApproval({ judge, devices, end }: { judge: Judge; devices:
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * Approve a judge's waiting device without leaving the session desk: the judge reads out the pairing code
- * on their screen, and the organizer approves the button showing the same code.
- */
-export function ApproveDeviceButton({ judge, device, className }: { judge: Judge; device: JudgeDevice; className: string }) {
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const approve = () =>
-    startTransition(async () => {
-      const r = await reach(() => approveDevice(device.id));
-      setError(r.ok ? null : r.error);
-    });
-
-  return (
-    <>
-      <button type="button" className={className} onClick={approve} disabled={pending} aria-label={`Approve ${judge.name}'s device ${device.pairingCode}`}>
-        Approve <span className="tabular tracking-[0.15em]">{device.pairingCode}</span>
-      </button>
-      {error && (
-        <span role="alert" className="basis-full text-sm font-semibold text-danger-soft">
-          {error}
-        </span>
-      )}
-    </>
   );
 }

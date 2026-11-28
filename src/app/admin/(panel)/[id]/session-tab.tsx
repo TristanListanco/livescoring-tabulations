@@ -25,7 +25,7 @@ import { FormMessage } from "../form-message";
 import { toast } from "../toaster";
 import { CorrectionsPanel } from "./corrections-panel";
 import { FinalSignOff } from "./final-signoff";
-import { ApproveDeviceButton } from "./judge-devices";
+import { ReviewDevicesButton } from "./judge-devices";
 import { ExportMenu, HeldLink, PdfHold, sheetOptions } from "./export-menu";
 import { PageantScoring } from "./pageant-scoring";
 import { CutDialog, DeductionsButton, DeskTimer, FinalPlacements, JudgeRoundButton, PdfLink, ProgramPanel, RoundDeliberationDesk, StartRoundDeliberation } from "./pageant-desk";
@@ -166,13 +166,12 @@ function JudgeTile({
   } else {
     state = <span className="text-sm font-semibold text-danger-soft">No device</span>;
   }
-  // Devices asking for approval: the judge's first, or a replacement for the approved one.
+  // Devices asking for approval (the judge's first, or a replacement for the approved one): approved in the panel's
+  // dialog, which Review brings back.
   const asking = requests.length > 0 && (
     <span className={`flex flex-wrap items-center gap-1.5 ${stacked ? "" : "justify-end"}`}>
-      {approved && <span className="text-xs font-semibold text-mint">New device</span>}
-      {requests.map((d) => (
-        <ApproveDeviceButton key={d.id} judge={judge} device={d} className="btn btn-sm bg-mint text-prussian hover:bg-white" />
-      ))}
+      <span className="text-xs font-semibold text-mint">{approved ? "New device waiting" : "Waiting for approval"}</span>
+      <ReviewDevicesButton judge={judge} className="btn btn-sm bg-mint text-prussian hover:bg-white" />
     </span>
   );
 
@@ -624,9 +623,6 @@ export function SessionTab({
   // The final cut confirmed with nothing left to judge: the desk turns to the placements and the pageant's end.
   const finalCut = pageant ? finalCutRound(board.rounds) : null;
   const finale = live && judging === "proper" && !!finalCut?.cutEntryIds && !upNext && (between || lastOneIn);
-  // Devices are approved on the desk where its judges are (their tiles, or the break's judges); elsewhere the panel's
-  // dialog asks, as on any other page.
-  const approvesHere = theBreak || (!between && !underReview && !finale);
   // The final placements by candidate, for the running order in the finale.
   const placedAt = new Map((finale ? (finalCut?.cutEntryIds ?? []) : []).map((id, i) => [id, i + 1]));
   const fullyScored = (e: Entry) => judges.length > 0 && scoreCount(e.id) >= judges.length;
@@ -990,9 +986,7 @@ export function SessionTab({
   if (live) {
     return (
       <PdfHold value={held}>
-        {/* Where the desk approves devices itself (see approvesHere), the panel's dialog doesn't (see AssistanceAlerts). */}
         <div
-          data-device-approvals={approvesHere ? activity.id : undefined}
           className="max-xl:space-y-8 xl:-mb-6 xl:grid xl:h-[calc(100dvh-13rem)] xl:min-h-[22rem] xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] xl:gap-6">
           <section aria-labelledby="desk-heading" className="admin-desk keep-light flex min-h-0 flex-col overflow-hidden rounded-[1.25rem] bg-prussian text-mint">
             {offline}
@@ -1287,7 +1281,7 @@ export function SessionTab({
 
   return (
     <PdfHold value={held}>
-      <div className="max-w-4xl space-y-10" data-device-approvals={state === "draft" ? activity.id : undefined}>
+      <div className="max-w-4xl space-y-10">
         <div className="space-y-4">
           <CorrectionsPanel activityId={activity.id} corrections={corrections} />
           {/*

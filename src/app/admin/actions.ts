@@ -1397,7 +1397,9 @@ export const setActivityOption = traced("setActivityOption", async function setA
   if (!managed) return NOT_FOUND;
   const { activity } = managed;
   if (option !== "privacyScreen") {
-    if (activity.kind !== "event" || activity.liveScoring) return err("Only an event without live scoring has corrections and a deliberation.");
+    // A pageant's sub-activities can deliberate too: its judges can see the standings of the one being deliberated.
+    const pageantRanking = option === "judgesSeeRanking" && activity.kind === "pageant";
+    if (!pageantRanking && (activity.kind !== "event" || activity.liveScoring)) return err("Only an event without live scoring has corrections and a deliberation.");
     if (!editable(activity, "judgeOptions")) return err("Judging has ended, so this can't change.");
     // How judges move through the entries is set before judging starts.
     if (option === "independentScoring" && !editable(activity, "rules")) return err("Judging has started, so this can't change.");

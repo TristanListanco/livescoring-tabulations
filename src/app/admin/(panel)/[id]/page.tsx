@@ -27,7 +27,7 @@ import { SettingsTab } from "./settings-tab";
 import { TabLink } from "./tab-link";
 import { activityTabs, askedTab } from "./tabs";
 import { PanelSkeleton } from "../skeletons";
-import { archiveBlocked, editable, scoresGoOutLive } from "@/lib/lifecycle";
+import { archiveBlocked, editable, scoresGoOutLive, segmentPhase } from "@/lib/lifecycle";
 
 /**
  * Organizers see only their own activities, and the super admin only those no organizer owns. Anything
@@ -221,6 +221,8 @@ export default async function ActivityPage({ params, searchParams }: PageProps<"
               reset={!started && judgesLocked(activity)}
               ended={activity.sessionState === "ended"}
               pageant={pageant}
+              // Once the preliminary has ended, its own judges are done: greyed, their sign-in put away.
+              preliminaryDone={pageant && segmentPhase(activity, "preliminary") === "ended"}
             />
           )}
           {tab === "session" && (

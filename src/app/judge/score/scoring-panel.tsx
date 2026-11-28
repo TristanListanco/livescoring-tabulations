@@ -1452,7 +1452,7 @@ function DeliberationView({
       <h1 className="judge-title">Deliberation</h1>
       <p className="judge-lede mt-3">Review your scores{notes && " and notes"}. If a score is wrong, correct it, saying why. Then sign.</p>
       <TieBreaks ties={deliberation.ties} canCorrect={canCorrect && !deliberation.signature} onCorrect={onCorrect} />
-      {deliberation.ranking && <OverallRanking ranking={deliberation.ranking} />}
+      {deliberation.ranking && <OverallRanking ranking={deliberation.ranking} part={deliberation.part} />}
       <ol aria-label="Your scores" className="mt-6 divide-y divide-oxford border-y border-oxford">
         {entries.map((entry, i) => {
           const value = scores.get(entry.id);
@@ -1492,13 +1492,16 @@ function DeliberationView({
 }
 
 /** The overall ranking in the deliberation, when the organizer lets judges see it: rank, entry and average only. */
-function OverallRanking({ ranking }: { ranking: DeliberationRank[] }) {
+/** `part`: a pageant sub-activity's (or part's) name, whose standings these are; none for an event's. */
+function OverallRanking({ ranking, part }: { ranking: DeliberationRank[]; part?: string | null }) {
   return (
     <section aria-labelledby="overall-ranking" className="mt-6 judge-card px-5 py-4">
       <h2 id="overall-ranking" className="title-sm">
         Overall ranking
       </h2>
-      <p className="mt-1 text-sm text-powder">Every judge&apos;s scores together, as they stand now. Your own scores are below.</p>
+      <p className="mt-1 text-sm text-powder">
+        Every judge&apos;s scores{part && ` in ${part}`} together, as they stand now. Your own scores are below.
+      </p>
       <ol className="mt-3 divide-y divide-oxford">
         {ranking.map((row) => (
           <li key={row.id} className="flex items-center gap-3 py-2.5">

@@ -31,7 +31,10 @@ export async function JudgesTab({
   pageant,
   chairs,
   reset,
+  preliminaryDone = false,
 }: {
+  /** A pageant whose preliminary has ended: its own judges are done, greyed, with no sign-in to hand out. */
+  preliminaryDone?: boolean;
   /** A pageant whose preliminary runs: pageant proper's own judges can still be added, changed and removed. */
   properOpen?: boolean;
   /** The scores were reset: the session is back to not started, but the panel stays locked. */
@@ -79,12 +82,14 @@ export async function JudgesTab({
     const i = judgeLinks.findIndex((l) => l.judge.id === judge.id);
     const code = judgeLinks[i]?.code ?? "";
     const scored = scoredBy.get(judge.id) ?? 0;
+    // A preliminary judge once the preliminary has ended: done, said in words as well as greyed.
+    const done = preliminaryDone && judge.panel === "preliminary";
     // How far they've got, once there's something to count: not before the session starts.
-    const detail = locked ? `${scored} of ${expected?.[judge.id] ?? entryCount} scored` : "";
+    const detail = locked ? `${scored} of ${expected?.[judge.id] ?? entryCount} scored${done ? " · Done: the preliminary has ended" : ""}` : "";
     // Their row can change: before the start, or a pageant proper judge until pageant proper starts.
     const open = !locked || (properOpen && judge.panel === "proper");
     return (
-      <li key={judge.id} className={`grid items-start gap-x-6 gap-y-4 px-5 py-5 ${ROW_COLUMNS}`}>
+      <li key={judge.id} className={`grid items-start gap-x-6 gap-y-4 px-5 py-5 ${ROW_COLUMNS} ${done ? "opacity-60" : ""}`}>
         <div className="min-w-0 @xl:col-span-2 @3xl:col-span-1">
           {!open ? (
             <JudgeIdentity judge={judge} detail={detail} pageant={pageant} />
@@ -103,7 +108,13 @@ export async function JudgesTab({
           judge portal asks for it), and the link to send, in a dialog large enough to scan from the screen.
         */}
         <div className="flex items-center @xl:pl-16 @3xl:pt-1 @3xl:pl-0">
-          {code && (
+          {/* Done, there's nothing to sign in to: the button stays, put away. */}
+          {code && done && (
+            <button type="button" className="btn btn-quiet btn-sm" disabled>
+              Sign-in<span className="sr-only"> not needed: {judge.name}&apos;s part is done</span>
+            </button>
+          )}
+          {code && !done && (
             <QrDialog
               triggerClassName="btn btn-quiet btn-sm gap-1.5"
               // The dialog's button draws the QR mark itself.
@@ -134,8 +145,7 @@ export async function JudgesTab({
   };
 
   return (
-    // Marked, so a device asking to be approved here isn't also shown in the panel's dialog (see AssistanceAlerts).
-    <div className="max-w-4xl" data-device-approvals={activityId}>
+    <div className="max-w-4xl">
       <LiveRefresh activityId={activityId} ended={ended} />
       <h2 className="sr-only">Judges</h2>
       {/* No judge portal link to hand out: judges scan their QR code, or type their code at the portal. */}

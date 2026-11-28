@@ -579,6 +579,16 @@ export function SettingsTab({
               />
             </>
           )}
+          {/* A pageant's sub-activities after a deliberation: the standings of the one being deliberated. */}
+          {activity.kind === "pageant" && (
+            <OptionSwitch
+              activity={activity}
+              option="judgesSeeRanking"
+              label="Judges see the standings while they deliberate a sub-activity"
+              hint="Each candidate's rank and average in it, never another judge's scores."
+              editable={activity.sessionState !== "ended"}
+            />
+          )}
           <OptionSwitch
             activity={activity}
             option="privacyScreen"

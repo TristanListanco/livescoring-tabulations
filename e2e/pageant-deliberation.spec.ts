@@ -85,6 +85,8 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
       kind: "pageant",
       live_scoring: true,
       preliminary_weight: 40,
+      // Judges see where each candidate stands in the sub-activity they deliberate.
+      judges_see_ranking: true,
     });
     const scoring = { scoring_mode: "simple", min_score: 1, max_score: 10, decimals: 0, criteria: [], criteria_display: "percent", timer_seconds: null, live_scoring: false };
     await restOk("rounds", [
@@ -176,6 +178,11 @@ test.describe.serial("a pageant sub-activity with a deliberation", () => {
     await expect(page.getByRole("status").filter({ hasText: "Waiting for Ana Cruz, Ben Torres, and Cara Diaz to sign." })).toBeVisible();
     for (const j of board()) await expect(j.getByRole("heading", { level: 1 })).toHaveText("Deliberation", REALTIME);
     await expect(ben.getByRole("main").getByText("Talent", { exact: true })).toBeVisible();
+    // The organizer lets judges see the standings: each candidate's rank and average in Talent, never another judge's score.
+    const standings = ben.getByRole("region", { name: "Overall ranking" });
+    await expect(standings).toContainText("Every judge's scores in Talent together");
+    await expect(standings.getByRole("listitem").first()).toContainText("1st");
+    await expect(standings.getByRole("listitem").first()).toContainText("Ayla");
     await snap(ben, "judge deliberating a sub-activity");
     await expectAccessible(ben);
 
